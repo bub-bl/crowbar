@@ -268,9 +268,10 @@ public class StyleSheetTests
     {
         var panel = PanelWithClass("box");
         var style = Compute(".box { transition: background-color 0.3s ease; }", panel);
-        Assert.Equal("background-color", style.TransitionProperty);
-        Assert.Equal(0.3f, style.TransitionDuration);
-        Assert.Equal("ease", style.TransitionTimingFunction);
+        var transition = Assert.Single(style.Transitions);
+        Assert.Equal("background-color", transition.Property);
+        Assert.Equal(0.3f, transition.Duration);
+        Assert.Equal("ease", transition.TimingFunction);
     }
 
     [Fact]

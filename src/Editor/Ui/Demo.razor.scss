@@ -26,6 +26,39 @@
     }
 }
 
+// Un halo doux porté par text-shadow (interpolable comme box-shadow).
+@keyframes title-glow {
+    from {
+        text-shadow: 0px 0px 0px rgba(255, 255, 255, 0);
+    }
+    to {
+        text-shadow: 0px 0px 12px rgba(255, 255, 255, 0.35);
+    }
+}
+
+// Plusieurs animations peuvent coexister sur un même élément (listes séparées
+// par des virgules), chacune sur sa propre horloge : le sous-titre se déploie
+// en biais (skew) puis enchaîne sur une dérive lente de la position.
+@keyframes subtitle-skew {
+    from {
+        opacity: 0;
+        transform: skewX(-12deg) translate(0px, 0px);
+    }
+    to {
+        opacity: 1;
+        transform: skewX(0deg) translate(0px, 0px);
+    }
+}
+
+@keyframes subtitle-drift {
+    0%, 100% {
+        transform: translate(0px, 0px);
+    }
+    50% {
+        transform: translate(6px, 0px);
+    }
+}
+
 root {
     width: 1280px;
     height: 720px;
@@ -36,6 +69,9 @@ root {
     height: 720px;
     flex-direction: row;
     align-items: flex-start;
+    // Opaque : la scène 3D WebGPU (cube) tourne toujours derrière l'UI pour la
+    // page Filters (backdrop-filter) ; ici elle ne doit pas transparaître.
+    background-color: $surface;
 }
 
 .card {
@@ -50,13 +86,17 @@ root {
 .title {
     height: 32px;
     color: $text;
-    // `both` : le titre garde son état final une fois l'animation terminée.
-    animation: title-in 0.6s ease-out both;
+    // Deux animations sur le même élément : l'entrée (une fois, `both` garde
+    // l'état final) et le halo infini. Chacune a sa propre horloge.
+    animation: title-in 0.6s ease-out both, title-glow 2s ease-in-out infinite alternate;
 }
 
 .subtitle {
     height: 24px;
     color: $text-secondary;
+    // Une animation d'entrée (skew) puis une dérive continue : les listes de
+    // fonctions de transform différentes sont interpolées par décomposition.
+    animation: subtitle-skew 0.5s ease-out both, subtitle-drift 3s ease-in-out 0.5s infinite;
 }
 
 .separator {
@@ -85,13 +125,15 @@ root {
     text-align: center;
     vertical-align: center;
     line-height: 34px;
-    transition: background-color 180ms ease;
-    // Pulse infini (alternate) : la transition de couleur au survol continue de
-    // fonctionner car elle porte sur une propriété différente de l'animation.
+    transition: background-color 180ms ease, box-shadow 180ms ease;
+    // Pulse infini (alternate) : les transitions au survol continuent de
+    // fonctionner car elles portent sur des propriétés différentes de
+    // l'animation (couleur et ombre portée).
     animation: action-pulse 1.2s ease-in-out infinite alternate;
 
     &:hover {
         background-color: $accent-hover;
+        box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.35);
     }
 
     &:active {
@@ -173,7 +215,7 @@ root {
 
 .scroll-area {
     width: 360px;
-    height: 240px;
+    height: 176px;
     overflow: auto;
     background-color: $surface-deep;
     border-radius: 6px;
@@ -218,4 +260,105 @@ root {
     color: $text;
     font-size: 12px;
     box-sizing: border-box;
+}
+
+// Galerie des transforms : une tuile par fonction. La boîte est transformée
+// (paint-only, le layout ne bouge pas) et le point blanc suit la déformation,
+// ce qui rend la rotation / l'inclinaison / la mise à l'échelle lisibles.
+.transform-grid {
+    width: 360px;
+    gap: 6px;
+}
+
+.trow {
+    width: 360px;
+    flex-direction: row;
+    gap: 6px;
+}
+
+.tile {
+    width: 116px;
+    height: 62px;
+    align-items: center;
+    justify-content: center;
+    background-color: $surface-deep;
+    border-radius: 6px;
+}
+
+.t-box {
+    width: 64px;
+    height: 32px;
+    margin: 0 0 2px 0;
+    background-color: $accent;
+    border-radius: 4px;
+    align-items: center;
+    justify-content: center;
+}
+
+.t-dot {
+    width: 8px;
+    height: 8px;
+    background-color: $text;
+    border-radius: 50%;
+}
+
+.t-label {
+    width: 112px;
+    height: 14px;
+    color: $text-muted;
+    font-size: 9px;
+    text-align: center;
+}
+
+.t-matrix-label {
+    font-size: 8px;
+}
+
+.t-translate {
+    transform: translate(24px, 12px);
+}
+
+.t-translate-x {
+    transform: translateX(30px);
+}
+
+.t-translate-y {
+    transform: translateY(-14px);
+}
+
+.t-scale {
+    transform: scale(1.4);
+}
+
+.t-scale-x {
+    transform: scaleX(1.6);
+}
+
+.t-scale-y {
+    transform: scaleY(0.65);
+}
+
+.t-rotate {
+    transform: rotate(20deg);
+}
+
+.t-skew {
+    transform: skew(-18deg, 8deg);
+}
+
+.t-skew-x {
+    transform: skewX(-20deg);
+}
+
+.t-skew-y {
+    transform: skewY(12deg);
+}
+
+.t-matrix {
+    transform: matrix(1.15, 0.12, -0.08, 1, 10, 8);
+}
+
+.t-origin {
+    transform: rotate(25deg);
+    transform-origin: 0% 0%;
 }

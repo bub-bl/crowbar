@@ -51,6 +51,18 @@ public readonly struct CssLength : IEquatable<CssLength>
     public override bool Equals(object? obj) => obj is CssLength other && Equals(other);
     public override int GetHashCode() => HashCode.Combine(Unit, Value);
 
+    /// <summary>
+    /// Interpolates two lengths, or null when they cannot be smoothly combined
+    /// (different units, or keyword lengths such as <c>auto</c>). Callers fall
+    /// back to the target value, mirroring CSS discrete animation.
+    /// </summary>
+    public static CssLength? Lerp(CssLength from, CssLength to, float t)
+    {
+        if (from.Unit != to.Unit) return null;
+        if (from.Unit is not (CssLengthUnit.Points or CssLengthUnit.Percent)) return null;
+        return new CssLength(from.Unit, from.Value + (to.Value - from.Value) * t);
+    }
+
     public override string ToString() => Unit switch
     {
         CssLengthUnit.Points => $"{Value}px",

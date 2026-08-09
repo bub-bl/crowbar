@@ -328,6 +328,32 @@ public static class CssValueParsers
     }
 
     /// <summary>
+    /// Splits a value on a top-level separator (e.g. the commas of
+    /// <c>animation: fade 1s, pulse 2s</c>), ignoring separators inside
+    /// parentheses so function values such as <c>steps(4, end)</c> survive.
+    /// </summary>
+    public static string[] SplitTopLevel(string value, char separator)
+    {
+        var parts = new List<string>();
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (c is '(' or '[') depth++;
+            else if (c is ')' or ']') depth--;
+            else if (c == separator && depth == 0)
+            {
+                parts.Add(value[start..i]);
+                start = i + 1;
+            }
+        }
+        parts.Add(value[start..]);
+        return parts.Where(static part => !string.IsNullOrWhiteSpace(part))
+            .Select(static part => part.Trim()).ToArray();
+    }
+
+    /// <summary>
     /// Splits a value on whitespace, keeping parenthesized groups together so
     /// function values such as <c>steps(4, end)</c> or
     /// <c>cubic-bezier(0.1, 0.2, 0.3, 0.4)</c> survive the tokenization.

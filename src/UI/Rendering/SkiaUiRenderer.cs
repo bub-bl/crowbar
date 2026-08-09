@@ -85,22 +85,26 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var style = panel.ComputedStyle;
         var alpha = (byte)Math.Clamp(style.Opacity * opacity * 255, 0, 255);
 
-        // transform: paint-only (never affects layout). The transform origin is
-        // the box center (the CSS default), so translate/rotate/scale are
-        // applied around the center and the panel is drawn in its local
-        // coordinates. Children are drawn inside the transformed space and move
-        // with their parent. Transformed panels bypass the backdrop-filter and
-        // filter layer paths (the transform is applied around the whole paint).
+        // transform: paint-only (never affects layout). Transformed panels
+        // bypass the backdrop-filter and filter layer paths (the transform is
+        // applied around the whole paint).
         if (style.HasTransform)
         {
+            // The matrix maps the panel's local box (0,0,w,h) onto its global
+            // position, with translate/rotate/scale applied around the resolved
+            // transform-origin. Children are drawn inside that local space, so
+            // they inherit the parent's transform and move with it.
             var saveCount = canvas.Save();
-            canvas.Translate(rect.MidX, rect.MidY);
-            canvas.Translate(style.TranslateX, style.TranslateY);
-            canvas.RotateDegrees(style.Rotate);
-            canvas.Scale(style.ScaleX, style.ScaleY);
-            canvas.Translate(-rect.Width / 2f, -rect.Height / 2f);
+            // Compose with the current CTM (ancestor transforms) instead of
+            // replacing it, so nested transforms chain correctly. Children are
+            // offset by the panel's own layout origin: their Layout positions
+            // are global, but inside the matrix they must be local to the box.
+            var matrix = style.Transform.BuildMatrix(rect.Width, rect.Height, style.TransformOrigin, rect.Left, rect.Top);
+            var composed = new SKMatrix();
+            SKMatrix.Concat(ref composed, canvas.TotalMatrix, matrix);
+            canvas.SetMatrix(composed);
             var localRect = new SKRect(0, 0, rect.Width, rect.Height);
-            DrawPanelContent(canvas, surface, panel, localRect, alpha, -rect.Left, -rect.Top, opacity);
+            DrawPanelContent(canvas, surface, panel, localRect, alpha, -panel.Layout.X, -panel.Layout.Y, opacity);
             canvas.RestoreToCount(saveCount);
             return;
         }

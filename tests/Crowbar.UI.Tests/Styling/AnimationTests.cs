@@ -13,6 +13,23 @@ public class AnimationTests
         return panel;
     }
 
+    private static TransformOp? FindOp(ComputedStyle style, params TransformOpType[] types)
+    {
+        foreach (var op in style.Transform.Ops)
+            if (Array.IndexOf(types, op.Type) >= 0) return op;
+        return null;
+    }
+
+    private static float TranslateX(ComputedStyle s) => FindOp(s, TransformOpType.Translate, TransformOpType.TranslateX)?.A ?? 0f;
+    private static float TranslateY(ComputedStyle s) =>
+        FindOp(s, TransformOpType.Translate, TransformOpType.TranslateY) is { } op && op.Type == TransformOpType.Translate ? op.B :
+        FindOp(s, TransformOpType.TranslateY)?.A ?? 0f;
+    private static float Rotate(ComputedStyle s) => FindOp(s, TransformOpType.Rotate)?.A ?? 0f;
+    private static float ScaleX(ComputedStyle s) => FindOp(s, TransformOpType.Scale, TransformOpType.ScaleX)?.A ?? 0f;
+    private static float ScaleY(ComputedStyle s) =>
+        FindOp(s, TransformOpType.Scale, TransformOpType.ScaleY) is { } op && op.Type == TransformOpType.Scale ? op.B :
+        FindOp(s, TransformOpType.ScaleY)?.A ?? 0f;
+
     // ---- @keyframes parsing -------------------------------------------------
 
     [Fact]
@@ -74,14 +91,15 @@ public class AnimationTests
     {
         var panel = PanelWithClass("box");
         var style = Compute(".box { animation: fade 1s ease-in 0.5s 2 alternate both paused; }", panel);
-        Assert.Equal("fade", style.AnimationName);
-        Assert.Equal(1f, style.AnimationDuration);
-        Assert.Equal("ease-in", style.AnimationTimingFunction);
-        Assert.Equal(2f, style.AnimationIterationCount);
-        Assert.Equal("alternate", style.AnimationDirection);
-        Assert.Equal(0.5f, style.AnimationDelay);
-        Assert.Equal("both", style.AnimationFillMode);
-        Assert.Equal("paused", style.AnimationPlayState);
+        var animation = Assert.Single(style.Animations);
+        Assert.Equal("fade", animation.Name);
+        Assert.Equal(1f, animation.Duration);
+        Assert.Equal("ease-in", animation.TimingFunction);
+        Assert.Equal(2f, animation.IterationCount);
+        Assert.Equal("alternate", animation.Direction);
+        Assert.Equal(0.5f, animation.Delay);
+        Assert.Equal("both", animation.FillMode);
+        Assert.Equal("paused", animation.PlayState);
     }
 
     [Fact]
@@ -89,10 +107,11 @@ public class AnimationTests
     {
         var panel = PanelWithClass("box");
         var style = Compute(".box { animation: fade 0.5s steps(4, end) infinite; }", panel);
-        Assert.Equal("fade", style.AnimationName);
-        Assert.Equal(0.5f, style.AnimationDuration);
-        Assert.Equal("steps(4, end)", style.AnimationTimingFunction);
-        Assert.True(float.IsPositiveInfinity(style.AnimationIterationCount));
+        var animation = Assert.Single(style.Animations);
+        Assert.Equal("fade", animation.Name);
+        Assert.Equal(0.5f, animation.Duration);
+        Assert.Equal("steps(4, end)", animation.TimingFunction);
+        Assert.True(float.IsPositiveInfinity(animation.IterationCount));
     }
 
     [Fact]
@@ -100,8 +119,9 @@ public class AnimationTests
     {
         var panel = PanelWithClass("box");
         var style = Compute(".box { animation: none; }", panel);
-        Assert.Equal("none", style.AnimationName);
-        Assert.Equal(0f, style.AnimationDuration);
+        var animation = Assert.Single(style.Animations);
+        Assert.Equal("none", animation.Name);
+        Assert.Equal(0f, animation.Duration);
     }
 
     [Fact]
@@ -111,11 +131,12 @@ public class AnimationTests
         var style = Compute(
             ".box { animation-name: spin; animation-duration: 2s; animation-iteration-count: infinite; animation-direction: reverse; animation-delay: -0.5s; }",
             panel);
-        Assert.Equal("spin", style.AnimationName);
-        Assert.Equal(2f, style.AnimationDuration);
-        Assert.True(float.IsPositiveInfinity(style.AnimationIterationCount));
-        Assert.Equal("reverse", style.AnimationDirection);
-        Assert.Equal(-0.5f, style.AnimationDelay);
+        var animation = Assert.Single(style.Animations);
+        Assert.Equal("spin", animation.Name);
+        Assert.Equal(2f, animation.Duration);
+        Assert.True(float.IsPositiveInfinity(animation.IterationCount));
+        Assert.Equal("reverse", animation.Direction);
+        Assert.Equal(-0.5f, animation.Delay);
     }
 
     [Fact]
@@ -123,31 +144,78 @@ public class AnimationTests
     {
         var panel = PanelWithClass("box");
         var style = Compute(".box { transition: opacity 0.2s ease 0.1s; }", panel);
-        Assert.Equal("opacity", style.TransitionProperty);
-        Assert.Equal(0.2f, style.TransitionDuration);
-        Assert.Equal("ease", style.TransitionTimingFunction);
-        Assert.Equal(0.1f, style.TransitionDelay);
+        var transition = Assert.Single(style.Transitions);
+        Assert.Equal("opacity", transition.Property);
+        Assert.Equal(0.2f, transition.Duration);
+        Assert.Equal("ease", transition.TimingFunction);
+        Assert.Equal(0.1f, transition.Delay);
 
         var swapped = Compute(".box { transition: opacity 0.2s 0.1s linear; }", panel);
-        Assert.Equal(0.2f, swapped.TransitionDuration);
-        Assert.Equal(0.1f, swapped.TransitionDelay);
-        Assert.Equal("linear", swapped.TransitionTimingFunction);
+        Assert.Equal(0.2f, swapped.Transitions[0].Duration);
+        Assert.Equal(0.1f, swapped.Transitions[0].Delay);
+        Assert.Equal("linear", swapped.Transitions[0].TimingFunction);
     }
 
     [Fact]
-    public void TransformShorthandParsesComponents()
+    public void TransformParsesEveryFunction()
     {
         var panel = PanelWithClass("box");
-        var style = Compute(".box { transform: translate(10px, 20px) rotate(45deg) scale(1.5); }", panel);
-        Assert.Equal(10f, style.TranslateX);
-        Assert.Equal(20f, style.TranslateY);
-        Assert.Equal(45f, style.Rotate);
-        Assert.Equal(1.5f, style.ScaleX);
-        Assert.Equal(1.5f, style.ScaleY);
+        var style = Compute(".box { transform: translate(10px, 20px) rotate(45deg) scale(1.5, 2) skew(5deg, 6deg); }", panel);
+        Assert.Equal(4, style.Transform.Ops.Count);
+        Assert.Equal(10f, TranslateX(style), 3);
+        Assert.Equal(20f, TranslateY(style), 3);
+        Assert.Equal(45f, Rotate(style), 3);
+        Assert.Equal(1.5f, ScaleX(style), 3);
+        Assert.Equal(2f, ScaleY(style), 3);
         Assert.True(style.HasTransform);
 
         var none = Compute(".box { transform: none; }", panel);
         Assert.False(none.HasTransform);
+    }
+
+    [Fact]
+    public void TransformAcceptsEveryAngleUnitAndSingleAxisFunctions()
+    {
+        var panel = PanelWithClass("box");
+        Assert.Equal(90f, Rotate(Compute(".box { transform: rotate(90deg); }", panel)), 3);
+        Assert.Equal(90f, Rotate(Compute(".box { transform: rotate(0.25turn); }", panel)), 3);
+        Assert.Equal(90f, Rotate(Compute(".box { transform: rotate(100grad); }", panel)), 3);
+        Assert.InRange(Rotate(Compute(".box { transform: rotate(1rad); }", panel)), 57.29f, 57.30f);
+
+        var singleAxis = Compute(".box { transform: translateX(5px) translateY(3px) scaleX(2) scaleY(0.5) skewX(10deg) skewY(20deg); }", panel);
+        Assert.Equal(6, singleAxis.Transform.Ops.Count);
+        Assert.Equal(5f, TranslateX(singleAxis), 3);
+        Assert.Equal(3f, TranslateY(singleAxis), 3);
+        Assert.Equal(2f, ScaleX(singleAxis), 3);
+        Assert.Equal(0.5f, ScaleY(singleAxis), 3);
+        Assert.Equal(TransformOpType.Matrix, Compute(".box { transform: matrix(1, 0, 0, 1, 10, 20); }", panel).Transform.Ops[0].Type);
+        // 3D functions are accepted for compatibility (rotateZ maps to 2D, the
+        // others are no-ops in the 2D renderer).
+        Assert.True(Compute(".box { transform: rotateZ(45deg) translateZ(10px) perspective(400px); }", panel).HasTransform);
+    }
+
+    [Fact]
+    public void TransformTranslatePercentagesResolveAgainstTheBox()
+    {
+        var panel = PanelWithClass("box");
+        var style = Compute(".box { transform: translate(50%, 25%); }", panel);
+        var matrix = style.Transform.BuildMatrix(200, 100, TransformOrigin.Center, 0, 0);
+        Assert.Equal(100f, matrix.TransX, 3);
+        Assert.Equal(25f, matrix.TransY, 3);
+    }
+
+    [Fact]
+    public void TransformOriginParsesKeywordsPercentagesAndLengths()
+    {
+        var panel = PanelWithClass("box");
+        Assert.Equal(0f, Compute(".box { transform-origin: left top; }", panel).TransformOrigin.ResolveX(100), 3);
+        Assert.Equal(0f, Compute(".box { transform-origin: left top; }", panel).TransformOrigin.ResolveY(100), 3);
+        Assert.Equal(100f, Compute(".box { transform-origin: right bottom; }", panel).TransformOrigin.ResolveX(100), 3);
+        Assert.Equal(100f, Compute(".box { transform-origin: right bottom; }", panel).TransformOrigin.ResolveY(100), 3);
+        Assert.Equal(20f, Compute(".box { transform-origin: 20px 75%; }", panel).TransformOrigin.ResolveX(100), 3);
+        Assert.Equal(75f, Compute(".box { transform-origin: 20px 75%; }", panel).TransformOrigin.ResolveY(100), 3);
+        // The default is the box center.
+        Assert.Equal(50f, Compute(".box { }", panel).TransformOrigin.ResolveX(100), 3);
     }
 
     // ---- keyframe sampling --------------------------------------------------
@@ -188,16 +256,29 @@ public class AnimationTests
     }
 
     [Fact]
-    public void SampleExpandsTransformShorthandIntoComponents()
+    public void SampleInterpolatesTransformLists()
     {
         Keyframes.Clear();
         var keyframes = Keyframes.Define("slide-short",
             KeyframeFrame.At(0f, ("transform", "translate(0px, 0px)")),
             KeyframeFrame.At(1f, ("transform", "translate(100px, 0px)")));
         var baseStyle = new ComputedStyle();
-        Assert.Equal(0f, Keyframes.Sample(baseStyle, keyframes, 0f).TranslateX, 3);
-        Assert.Equal(50f, Keyframes.Sample(baseStyle, keyframes, 0.5f).TranslateX, 3);
-        Assert.Equal(100f, Keyframes.Sample(baseStyle, keyframes, 1f).TranslateX, 3);
+        Assert.Equal(0f, TranslateX(Keyframes.Sample(baseStyle, keyframes, 0f)), 3);
+        Assert.Equal(50f, TranslateX(Keyframes.Sample(baseStyle, keyframes, 0.5f)), 3);
+        Assert.Equal(100f, TranslateX(Keyframes.Sample(baseStyle, keyframes, 1f)), 3);
+    }
+
+    [Fact]
+    public void SampleInterpolatesMismatchedTransformListsViaMatrix()
+    {
+        Keyframes.Clear();
+        var keyframes = Keyframes.Define("grow",
+            KeyframeFrame.At(0f, ("transform", "translate(0px, 0px)")),
+            KeyframeFrame.At(1f, ("transform", "scale(2)")));
+        var baseStyle = new ComputedStyle();
+        // Different function lists fall back to matrix decomposition: the
+        // identity and scale(2) meet at scale 1.5 halfway through.
+        Assert.Equal(1.5f, ScaleX(Keyframes.Sample(baseStyle, keyframes, 0.5f)), 3);
     }
 
     [Fact]
@@ -214,8 +295,8 @@ public class AnimationTests
 
         ui.Render();
         ui.Update(0.5f);
-        Assert.Equal(20f, panel.ComputedStyle.TranslateX, 3);
-        Assert.Equal(90f, panel.ComputedStyle.Rotate, 3);
+        Assert.Equal(20f, TranslateX(panel.ComputedStyle), 3);
+        Assert.Equal(90f, Rotate(panel.ComputedStyle), 3);
     }
 
     [Fact]
@@ -492,22 +573,22 @@ public class AnimationTests
     }
 
     [Fact]
-    public void AnimationAnimatesTransformComponents()
+    public void AnimationAnimatesTransform()
     {
         Keyframes.Clear();
         Keyframes.Define("slide",
-            KeyframeFrame.At(0f, ("translate-x", "0px"), ("rotate", "0deg")),
-            KeyframeFrame.At(1f, ("translate-x", "100px"), ("rotate", "360deg")));
+            KeyframeFrame.At(0f, ("transform", "translate(0px, 0px) rotate(0deg)")),
+            KeyframeFrame.At(1f, ("transform", "translate(100px, 0px) rotate(360deg)")));
         using var ui = TestUi.Create();
         var panel = new Panel();
         panel.SetInlineStyle("animation", "slide 1s linear");
         ui.Screen.AddChild(panel);
 
         ui.Render();
-        Assert.Equal(0f, panel.ComputedStyle.TranslateX, 3);
+        Assert.Equal(0f, TranslateX(panel.ComputedStyle), 3);
         ui.Update(0.5f);
-        Assert.Equal(50f, panel.ComputedStyle.TranslateX, 3);
-        Assert.Equal(180f, panel.ComputedStyle.Rotate, 3);
+        Assert.Equal(50f, TranslateX(panel.ComputedStyle), 3);
+        Assert.Equal(180f, Rotate(panel.ComputedStyle), 3);
     }
 
     [Fact]
@@ -524,6 +605,51 @@ public class AnimationTests
         Assert.Equal(0f, panel.ComputedStyle.Opacity, 3);
         ui.Update(0.5f);
         Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3);
+    }
+
+    [Fact]
+    public void MultipleAnimationsRunConcurrentlyOnTheirOwnClocks()
+    {
+        Keyframes.Clear();
+        Keyframes.Define("fade-m",
+            KeyframeFrame.At(0f, ("opacity", "0")),
+            KeyframeFrame.At(1f, ("opacity", "1")));
+        Keyframes.Define("slide-m",
+            KeyframeFrame.At(0f, ("transform", "translate(0px, 0px)")),
+            KeyframeFrame.At(1f, ("transform", "translate(100px, 0px)")));
+        using var ui = TestUi.Create();
+        var panel = new Panel();
+        panel.SetInlineStyle("animation", "fade-m 1s linear, slide-m 0.5s linear");
+        ui.Screen.AddChild(panel);
+
+        ui.Render();
+        ui.Update(0.25f);
+        // fade-m is a quarter through (0.25); slide-m is half through (50px).
+        Assert.Equal(0.25f, panel.ComputedStyle.Opacity, 3);
+        Assert.Equal(50f, TranslateX(panel.ComputedStyle), 3);
+
+        // Dropping one animation leaves the other running.
+        panel.SetInlineStyle("animation", "fade-m 1s linear");
+        ui.Render();
+        ui.Update(0.25f); // fade-m elapsed 0.5 → 0.5; transform falls back to resting
+        Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3);
+        Assert.Equal(0f, TranslateX(panel.ComputedStyle), 3);
+    }
+
+    [Fact]
+    public void AnimationListParsesLonghandsPerIndex()
+    {
+        var panel = PanelWithClass("box");
+        var style = Compute(
+            ".box { animation-name: fade, slide; animation-duration: 1s, 0.5s; animation-iteration-count: infinite, 2; }",
+            panel);
+        Assert.Equal(2, style.Animations.Length);
+        Assert.Equal("fade", style.Animations[0].Name);
+        Assert.Equal(1f, style.Animations[0].Duration);
+        Assert.True(float.IsPositiveInfinity(style.Animations[0].IterationCount));
+        Assert.Equal("slide", style.Animations[1].Name);
+        Assert.Equal(0.5f, style.Animations[1].Duration);
+        Assert.Equal(2f, style.Animations[1].IterationCount);
     }
 
     // ---- transition integration --------------------------------------------
@@ -573,7 +699,7 @@ public class AnimationTests
     }
 
     [Fact]
-    public void TransitionAnimatesTransformComponents()
+    public void TransitionAnimatesTransform()
     {
         using var ui = TestUi.Create();
         var panel = new Panel();
@@ -585,7 +711,77 @@ public class AnimationTests
         panel.SetInlineStyle("transform", "translate(100px, 0px)");
         ui.Render();
         ui.Update(0.1f);
-        Assert.Equal(50f, panel.ComputedStyle.TranslateX, 3);
+        Assert.Equal(50f, TranslateX(panel.ComputedStyle), 3);
+    }
+
+    [Fact]
+    public void TransitionAnimatesTransformOrigin()
+    {
+        using var ui = TestUi.Create();
+        var panel = new Panel();
+        panel.SetInlineStyle("transition", "transform-origin 0.2s linear");
+        panel.SetInlineStyle("transform-origin", "left top");
+        ui.Screen.AddChild(panel);
+        ui.Render();
+
+        panel.SetInlineStyle("transform-origin", "right bottom");
+        ui.Render();
+        ui.Update(0.1f);
+        Assert.Equal(50f, panel.ComputedStyle.TransformOrigin.ResolveX(100), 3);
+        Assert.Equal(50f, panel.ComputedStyle.TransformOrigin.ResolveY(100), 3);
+    }
+
+    [Fact]
+    public void TransitionInterpolatesMismatchedTransformListsViaMatrix()
+    {
+        using var ui = TestUi.Create();
+        var panel = new Panel();
+        panel.SetInlineStyle("transition", "transform 0.2s linear");
+        panel.SetInlineStyle("transform", "translate(0px, 0px)");
+        ui.Screen.AddChild(panel);
+        ui.Render();
+
+        panel.SetInlineStyle("transform", "scale(2)");
+        ui.Render();
+        ui.Update(0.1f);
+        Assert.Equal(1.5f, ScaleX(panel.ComputedStyle), 3);
+    }
+
+    [Fact]
+    public void TransitionAnimatesLengths()
+    {
+        using var ui = TestUi.Create();
+        var panel = new Panel();
+        panel.SetInlineStyle("transition", "width 0.2s linear");
+        panel.SetInlineStyle("width", "100px");
+        ui.Screen.AddChild(panel);
+        ui.Render();
+
+        panel.SetInlineStyle("width", "200px");
+        ui.Render();
+        ui.Update(0.1f);
+        Assert.Equal(150f, panel.ComputedStyle.Width.Px, 3);
+    }
+
+    [Fact]
+    public void TransitionAnimatesBoxShadows()
+    {
+        using var ui = TestUi.Create();
+        var panel = new Panel();
+        panel.SetInlineStyle("transition", "box-shadow 0.2s linear");
+        panel.SetInlineStyle("box-shadow", "0px 0px 0px 0px #000000");
+        ui.Screen.AddChild(panel);
+        ui.Render();
+
+        panel.SetInlineStyle("box-shadow", "10px 20px 30px 40px #ffffff");
+        ui.Render();
+        ui.Update(0.1f);
+        var shadow = Assert.Single(panel.ComputedStyle.BoxShadows);
+        Assert.Equal(5f, shadow.OffsetX, 3);
+        Assert.Equal(10f, shadow.OffsetY, 3);
+        Assert.Equal(15f, shadow.BlurRadius, 3);
+        Assert.Equal(20f, shadow.SpreadRadius, 3);
+        Assert.Equal(new UiColor(128, 128, 128, 255), shadow.Color);
     }
 
     [Fact]
@@ -608,12 +804,55 @@ public class AnimationTests
     }
 
     [Fact]
+    public void ShadowListsFadeInWhenCountsDiffer()
+    {
+        using var ui = TestUi.Create();
+        var panel = new Panel();
+        panel.SetInlineStyle("transition", "box-shadow 0.2s linear");
+        ui.Screen.AddChild(panel);
+        ui.Render();
+
+        // The empty list is padded with a transparent shadow (CSS semantics),
+        // so a shadow fades in instead of snapping.
+        panel.SetInlineStyle("box-shadow", "0px 0px 10px #ff0000");
+        ui.Render();
+        ui.Update(0.1f);
+        var shadow = Assert.Single(panel.ComputedStyle.BoxShadows);
+        Assert.Equal(5f, shadow.BlurRadius, 3);
+        Assert.Equal(128, shadow.Color.A);
+    }
+
+    [Fact]
+    public void MultipleTransitionsRunOnTheirOwnClocks()
+    {
+        using var ui = TestUi.Create();
+        var panel = new Panel();
+        panel.SetInlineStyle("transition", "opacity 0.4s linear, background-color 0.2s linear");
+        panel.SetInlineStyle("opacity", "1");
+        panel.SetInlineStyle("background-color", "#ff0000");
+        ui.Screen.AddChild(panel);
+        ui.Render();
+
+        panel.SetInlineStyle("opacity", "0");
+        panel.SetInlineStyle("background-color", "#0000ff");
+        ui.Render();
+        ui.Update(0.1f);
+        // Each property transitions on its own spec's clock.
+        Assert.Equal(0.75f, panel.ComputedStyle.Opacity, 3); // 0.1/0.4
+        Assert.Equal(new UiColor(128, 0, 128, 255), panel.ComputedStyle.BackgroundColor); // 0.1/0.2
+
+        ui.Update(0.1f);
+        Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3); // 0.2/0.4
+        Assert.Equal(new UiColor(0, 0, 255, 255), panel.ComputedStyle.BackgroundColor); // finished → target
+    }
+
+    [Fact]
     public void TransitionRunsAlongsideAnimationOnDifferentProperties()
     {
         Keyframes.Clear();
         Keyframes.Define("pulse",
-            KeyframeFrame.At(0f, ("scale-x", "1")),
-            KeyframeFrame.At(1f, ("scale-x", "1.1")));
+            KeyframeFrame.At(0f, ("transform", "scale(1)")),
+            KeyframeFrame.At(1f, ("transform", "scale(1.1)")));
         using var ui = TestUi.Create();
         var panel = new Panel();
         panel.SetInlineStyle("animation", "pulse 1s linear infinite alternate");
@@ -622,16 +861,16 @@ public class AnimationTests
         ui.Screen.AddChild(panel);
         ui.Render();
 
-        // The animation drives scale-x; the transition drives background-color.
+        // The animation drives the transform; the transition drives background-color.
         panel.SetInlineStyle("background-color", "#0000ff");
         ui.Render();
         ui.Update(0.1f);
-        Assert.Equal(1.01f, panel.ComputedStyle.ScaleX, 3); // animation advanced on the same tick
+        Assert.Equal(1.01f, ScaleX(panel.ComputedStyle), 3); // animation advanced on the same tick
         Assert.Equal(new UiColor(128, 0, 128, 255), panel.ComputedStyle.BackgroundColor);
 
         // Both keep advancing on the same tick.
         ui.Update(0.4f); // animation elapsed 0.5 → scale 1.05; transition done
-        Assert.Equal(1.05f, panel.ComputedStyle.ScaleX, 3);
+        Assert.Equal(1.05f, ScaleX(panel.ComputedStyle), 3);
         Assert.Equal(new UiColor(0, 0, 255, 255), panel.ComputedStyle.BackgroundColor);
     }
 

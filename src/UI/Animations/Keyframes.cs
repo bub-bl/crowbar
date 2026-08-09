@@ -83,28 +83,21 @@ public static class Keyframes
             return result;
         }
 
-        // The declared names of a frame, with the `transform` shorthand expanded
-        // into its animatable components so shorthand-driven keyframes
-        // interpolate like the longhands.
+        // The declared names of a frame. `transform` is a first-class animatable
+        // property: it interpolates as a whole (matching function lists lerp
+        // parameter by parameter, otherwise through matrix decomposition).
         var loNames = EffectiveNames(lo);
         var hiNames = EffectiveNames(hi);
 
         // Values held from keyframes before this segment: the last keyframe
         // that specified a property keeps providing its value until the next
         // keyframe that specifies it (CSS interpolation rules).
-        var held = new Dictionary<string, (string ApplyTo, string Value)>(StringComparer.OrdinalIgnoreCase);
+        var held = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < idx; i++)
         {
             foreach (var (name, value) in frames[i].Declarations)
             {
-                if (name.Equals("transform", StringComparison.OrdinalIgnoreCase))
-                {
-                    foreach (var component in TransformComponents) held[component] = ("transform", value);
-                }
-                else if (!IsAnimationProperty(name))
-                {
-                    held[name] = (name, value);
-                }
+                if (!IsAnimationProperty(name)) held[name] = value;
             }
         }
 
@@ -137,33 +130,24 @@ public static class Keyframes
             {
                 // Declared only by the segment's end: the value held from before
                 // the segment stays until the boundary, where it snaps.
-                if (held.TryGetValue(name, out var heldEntry)) CssProperties.TryApply(result, heldEntry.ApplyTo, heldEntry.Value);
+                if (held.TryGetValue(name, out var heldValue)) CssProperties.TryApply(result, name, heldValue);
                 if (localT >= 1f) property.SetValue(result, property.GetValue(toStyle));
             }
-            else if (held.TryGetValue(name, out var heldEntry))
+            else if (held.TryGetValue(name, out var heldValue))
             {
                 // Not declared by this segment: keep the last specified value.
-                CssProperties.TryApply(result, heldEntry.ApplyTo, heldEntry.Value);
+                CssProperties.TryApply(result, name, heldValue);
             }
         }
         return result;
     }
-
-    private static readonly string[] TransformComponents = ["translate-x", "translate-y", "scale-x", "scale-y", "rotate"];
 
     private static HashSet<string> EffectiveNames(KeyframeFrame frame)
     {
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var name in frame.Declarations.Keys)
         {
-            if (name.Equals("transform", StringComparison.OrdinalIgnoreCase))
-            {
-                foreach (var component in TransformComponents) names.Add(component);
-            }
-            else if (!IsAnimationProperty(name))
-            {
-                names.Add(name);
-            }
+            if (!IsAnimationProperty(name)) names.Add(name);
         }
         return names;
     }

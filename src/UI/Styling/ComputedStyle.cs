@@ -104,45 +104,19 @@ public sealed class ComputedStyle
     public float FontSize { get; set; } = 16;
     public float LineHeight { get; set; }
 
-    /// <summary>The CSS <c>transition-property</c> list (<c>none</c>, <c>all</c> or comma-separated names).</summary>
-    public string TransitionProperty { get; set; } = "none";
-    /// <summary>Transition duration in seconds (0 disables the transition).</summary>
-    public float TransitionDuration { get; set; }
-    /// <summary>Transition timing function (ease, linear, cubic-bezier(...), ...).</summary>
-    public string TransitionTimingFunction { get; set; } = "ease";
-    /// <summary>Transition delay in seconds; the transition starts after this many seconds (may be negative).</summary>
-    public float TransitionDelay { get; set; }
+    /// <summary>The CSS <c>transition</c> list (comma-separated specs, each with its own property and timing).</summary>
+    public TransitionSpec[] Transitions { get; set; } = TransitionSpec.None;
 
-    /// <summary>The CSS <c>animation-name</c> (<c>none</c> or a registered keyframe name).</summary>
-    public string AnimationName { get; set; } = "none";
-    /// <summary>Animation duration in seconds (0 means the keyframes apply discretely).</summary>
-    public float AnimationDuration { get; set; }
-    /// <summary>Animation timing function (ease, linear, cubic-bezier(...), steps(...), ...).</summary>
-    public string AnimationTimingFunction { get; set; } = "ease";
-    /// <summary>Animation iteration count (1 by default; <see cref="float.PositiveInfinity"/> for <c>infinite</c>).</summary>
-    public float AnimationIterationCount { get; set; } = 1;
-    /// <summary>Animation direction (<c>normal</c>, <c>reverse</c>, <c>alternate</c>, <c>alternate-reverse</c>).</summary>
-    public string AnimationDirection { get; set; } = "normal";
-    /// <summary>Animation delay in seconds before the first iteration starts (may be negative).</summary>
-    public float AnimationDelay { get; set; }
-    /// <summary>Animation fill mode (<c>none</c>, <c>forwards</c>, <c>backwards</c>, <c>both</c>).</summary>
-    public string AnimationFillMode { get; set; } = "none";
-    /// <summary>Animation play state (<c>running</c> or <c>paused</c>); toggling does not restart the animation.</summary>
-    public string AnimationPlayState { get; set; } = "running";
+    /// <summary>The CSS <c>animation</c> list (comma-separated specs, each with its own keyframe name and timing).</summary>
+    public AnimationSpec[] Animations { get; set; } = [];
 
-    /// <summary>Horizontal translate of the <c>transform</c>, in px (paint-only, never affects layout).</summary>
-    public float TranslateX { get; set; }
-    /// <summary>Vertical translate of the <c>transform</c>, in px (paint-only, never affects layout).</summary>
-    public float TranslateY { get; set; }
-    /// <summary>Horizontal scale of the <c>transform</c> (paint-only, never affects layout).</summary>
-    public float ScaleX { get; set; } = 1;
-    /// <summary>Vertical scale of the <c>transform</c> (paint-only, never affects layout).</summary>
-    public float ScaleY { get; set; } = 1;
-    /// <summary>Rotation of the <c>transform</c>, in degrees around the box center (paint-only, never affects layout).</summary>
-    public float Rotate { get; set; }
+    /// <summary>The CSS <c>transform</c>: an ordered list of functions (paint-only, never affects layout).</summary>
+    public TransformList Transform { get; set; } = TransformList.None;
+    /// <summary>The CSS <c>transform-origin</c> pivot, resolved against the element box (default: center).</summary>
+    public TransformOrigin TransformOrigin { get; set; } = TransformOrigin.Center;
 
     /// <summary>True when the panel carries a non-identity transform.</summary>
-    public bool HasTransform => TranslateX != 0 || TranslateY != 0 || ScaleX != 1 || ScaleY != 1 || Rotate != 0;
+    public bool HasTransform => !Transform.IsNone;
 
     public UiColor BackgroundColor { get; set; } = UiColor.Transparent;
     public UiColor Color { get; set; } = UiColor.White;

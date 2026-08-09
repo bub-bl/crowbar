@@ -67,8 +67,17 @@ public class CssPropertyRegistryTests
     [Fact]
     public void NonAnimatablePropertyDoesNotLerp()
     {
+        Assert.True(CssProperties.TryGet("z-index", out var zIndex));
+        Assert.Null(zIndex!.Lerp(1, 2, 0.5f));
+    }
+
+    [Fact]
+    public void LengthsLerpWithinSameUnitButNotAcrossUnits()
+    {
         Assert.True(CssProperties.TryGet("width", out var width));
-        Assert.Null(width!.Lerp(CssLength.Points(10), CssLength.Points(20), 0.5f));
+        Assert.Equal(CssLength.Points(15), Assert.IsType<CssLength>(width!.Lerp(CssLength.Points(10), CssLength.Points(20), 0.5f)));
+        // Different units (or keywords like auto) fall back to discrete animation.
+        Assert.Null(width.Lerp(CssLength.Points(10), CssLength.Auto, 0.5f));
     }
 
     [Fact]

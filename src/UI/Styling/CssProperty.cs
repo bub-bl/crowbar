@@ -56,11 +56,11 @@ public sealed class CssProperty<T> : CssProperty
     private readonly Func<ComputedStyle, T> _getter;
     private readonly Action<ComputedStyle, T> _setter;
     private readonly TryParseHandler<T> _parser;
-    private readonly Func<T, T, float, T>? _lerper;
+    private readonly Func<T, T, float, object?>? _lerper;
     private readonly T _defaultValue;
 
     internal CssProperty(string name, Func<ComputedStyle, T> getter, Action<ComputedStyle, T> setter,
-        TryParseHandler<T> parser, T defaultValue, bool inherited, bool animatable, Func<T, T, float, T>? lerper)
+        TryParseHandler<T> parser, T defaultValue, bool inherited, bool animatable, Func<T, T, float, object?>? lerper)
         : base(name, inherited, animatable)
     {
         _getter = getter;
@@ -81,6 +81,7 @@ public sealed class CssProperty<T> : CssProperty
     public override void SetValue(ComputedStyle style, object? value) => _setter(style, (T)value!);
     public override object? DefaultValue => _defaultValue;
     public override bool ValuesEqual(object? a, object? b) => EqualityComparer<T>.Default.Equals((T)a!, (T)b!);
+    /// <summary>Interpolates, or null when the property cannot interpolate between these values.</summary>
     public override object? Lerp(object? from, object? to, float t) =>
         _lerper is null ? null : _lerper((T)from!, (T)to!, t);
 }
