@@ -60,14 +60,25 @@ public readonly record struct DecorationRegion(
     float ShapeRadius, float BlurRadius, float SpreadRadius, float BorderWidth,
     UiColor Color);
 
-/// <summary>Per-panel bits describing which decorations the GPU composites (see <see cref="SkiaUiRenderer.CollectDecorations"/>).</summary>
+/// <summary>
+/// A solid panel background that the Skia raster skips and the GPU compositor
+/// (Fills.wgsl) draws instead, one instanced quad per region below the UI
+/// texture. The quad is the panel's border box (rounded); <c>Color</c> is the
+/// straight sRGB fill color with the effective opacity baked into the alpha.
+/// </summary>
+public readonly record struct FillRegion(
+    float X, float Y, float Width, float Height, float Radius, UiColor Color);
+
+/// <summary>Per-panel bits describing which paints the GPU composites (see <see cref="SkiaUiRenderer.CollectDecorations"/>).</summary>
 internal enum PanelDecorationFlags
 {
     None = 0,
     /// <summary>Every outer box-shadow of the panel is rendered by the GPU; Skia skips them.</summary>
     OuterShadow = 1,
     /// <summary>The panel's uniform solid border is rendered by the GPU; Skia skips it.</summary>
-    Border = 2
+    Border = 2,
+    /// <summary>The panel's solid background is rendered by the GPU; Skia skips it.</summary>
+    Fill = 4
 }
 
 public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
@@ -82,6 +93,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     private bool _partialCull;
     private readonly List<BackdropRegion> _backdrops = [];
     private readonly List<DecorationRegion> _decorations = [];
+    private readonly List<FillRegion> _fills = [];
     private readonly List<UiRectInt> _damage = [];
 
     public StyleSheet? StyleSheet { get; set; }
@@ -96,11 +108,27 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     public bool GpuDecorations { get; set; }
 
     /// <summary>
+    /// When enabled, solid panel backgrounds that are safe to composite on the
+    /// GPU (see <see cref="CollectDecorations"/>) are skipped by the Skia
+    /// raster and emitted as <see cref="Fills"/> for the GPU compositor
+    /// instead. The editor enables this; renderer-only tests keep it off so
+    /// the raster stays self-contained.
+    /// </summary>
+    public bool GpuFills { get; set; }
+
+    /// <summary>
     /// The decoration regions collected by the last render (empty when GPU
     /// decorations are disabled). Read after <see cref="Render"/>; the WebGPU
     /// compositor draws one instanced quad per region above the UI texture.
     /// </summary>
     public IReadOnlyList<DecorationRegion> Decorations => _decorations;
+
+    /// <summary>
+    /// The fill regions collected by the last render (empty when GPU fills are
+    /// disabled). Read after <see cref="Render"/>; the WebGPU compositor draws
+    /// one instanced quad per region below the UI texture, in paint order.
+    /// </summary>
+    public IReadOnlyList<FillRegion> Fills => _fills;
     public UiSize Size { get; private set; }
     public bool IsDirty => _dirty;
     public int LayoutPasses => _layout.LayoutPasses;
@@ -147,6 +175,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         {
             _damage.Clear();
             if (!GpuDecorations) _decorations.Clear();
+            if (!GpuFills) _fills.Clear();
             return _pixels;
         }
         if (_bitmap is null || _bitmap.Width != Math.Max(1, (int)Size.Width) || _bitmap.Height != Math.Max(1, (int)Size.Height)) Resize(Math.Max(1, (int)Size.Width), Math.Max(1, (int)Size.Height));
@@ -177,11 +206,11 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // DrawPanel's recursion) when we are not doing a full redraw anyway.
         _damage.Clear();
         _backdrops.Clear();
-        // GPU decorations are decided from the current computed styles and the
-        // paint order, before the raster (the Skia walk reads the per-panel
-        // eligibility flags it sets).
-        if (GpuDecorations) CollectDecorations(root);
-        else _decorations.Clear();
+        // GPU decorations and fills are decided from the current computed
+        // styles and the paint order, before the raster (the Skia walk reads
+        // the per-panel eligibility flags they set).
+        if (GpuDecorations || GpuFills) CollectDecorations(root);
+        else { _decorations.Clear(); _fills.Clear(); }
         var fullRedraw = needsLayout || _forceFull;
         if (!fullRedraw)
         {
@@ -347,7 +376,12 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         if (!GpuDecorations || (panel.GpuDecorationFlags & (byte)PanelDecorationFlags.OuterShadow) == 0)
             DrawBoxShadows(canvas, panel, rect, alpha, inset: false);
         var background = panel.ComputedStyle.BackgroundColor;
-        if (background.A > 0)
+        // A solid background delegated to the GPU (see CollectFills) is skipped
+        // here: the compositor draws it below the UI texture, which is
+        // transparent in that area (the delegation only happens when nothing
+        // painted earlier could hide under the quad).
+        var fillGpu = GpuFills && (panel.GpuDecorationFlags & (byte)PanelDecorationFlags.Fill) != 0;
+        if (background.A > 0 && !fillGpu)
         {
             using var paint = new SKPaint { Color = new SKColor(background.R, background.G, background.B, (byte)(background.A * alpha / 255)), IsAntialias = true };
             canvas.DrawRoundRect(rect, panel.ComputedStyle.BorderRadius, panel.ComputedStyle.BorderRadius, paint);
@@ -721,6 +755,68 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         canvas.Restore();
     }
 
+    /// <summary>
+    /// The actual painted extent of a text panel's glyphs (and text shadows),
+    /// mirroring the layout math of <see cref="DrawText"/> (padding, wrap,
+    /// alignment, line-height, vertical-align) but using the real font metrics
+    /// per line so the result always covers every painted pixel. Used by the
+    /// fill accumulator (CollectFills) to block fills over the glyphs instead
+    /// of over the whole — possibly far wider — layout box.
+    /// </summary>
+    private static SKRect TextPaintExtent(Panel panel, ComputedStyle style, SKRect rect)
+    {
+        var padding = panel.LayoutPadding;
+        var left = rect.Left + padding.Left;
+        var top = rect.Top + padding.Top;
+        var contentWidth = Math.Max(0, rect.Width - padding.Left - padding.Right);
+        var contentHeight = Math.Max(0, rect.Height - padding.Top - padding.Bottom);
+        var lineHeight = style.LineHeight > 0 ? style.LineHeight : style.FontSize * 1.25f;
+        using var font = new SKFont { Size = style.FontSize };
+        var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
+        if (string.IsNullOrEmpty(text))
+        {
+            // A focused empty input still paints its caret at the start of the line.
+            return new SKRect(left - 1, top - 1, left + 3, top + Math.Max(style.FontSize, contentHeight) + 1);
+        }
+
+        var metrics = font.Metrics;
+        var lines = WrapText(text, font, contentWidth);
+        var blockHeight = lines.Count * lineHeight;
+        var y = style.VerticalAlign.Equals("center", StringComparison.OrdinalIgnoreCase)
+            ? top + Math.Max(0, (contentHeight - blockHeight) / 2)
+            : style.VerticalAlign.Equals("bottom", StringComparison.OrdinalIgnoreCase)
+                ? top + Math.Max(0, contentHeight - blockHeight)
+                : top;
+        var xMin = float.MaxValue;
+        var xMax = float.MinValue;
+        var yMin = float.MaxValue;
+        var yMax = float.MinValue;
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var measured = font.MeasureText(lines[i]);
+            var x = style.TextAlign.Equals("center", StringComparison.OrdinalIgnoreCase)
+                ? left + Math.Max(0, (contentWidth - measured) / 2)
+                : style.TextAlign.Equals("right", StringComparison.OrdinalIgnoreCase)
+                    ? left + Math.Max(0, contentWidth - measured)
+                    : left;
+            xMin = Math.Min(xMin, x);
+            xMax = Math.Max(xMax, x + measured);
+            var lineCenter = y + lineHeight / 2f;
+            yMin = Math.Min(yMin, lineCenter + metrics.Ascent);
+            yMax = Math.Max(yMax, lineCenter + metrics.Descent);
+            y += lineHeight;
+        }
+
+        // 1px safety margin for glyph antialiasing.
+        var extent = new SKRect(xMin - 1, yMin - 1, xMax + 1, yMax + 1);
+        foreach (var shadow in style.TextShadows)
+        {
+            var m = Math.Abs(shadow.OffsetX) + Math.Abs(shadow.OffsetY) + shadow.BlurRadius;
+            extent.Inflate(m, m);
+        }
+        return extent;
+    }
+
     private static void DrawText(SKCanvas canvas, Panel panel, SKRect rect, string text, byte alpha)
     {
         var style = panel.ComputedStyle;
@@ -841,29 +937,44 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             else
             {
                 var rect = new SKRect(panel.Layout.X, panel.Layout.Y, panel.Layout.Right, panel.Layout.Bottom);
-                // GPU-composited shadows are not painted into the bitmap, so
-                // their extent does not need to be repainted here.
-                var margin = GpuDecorations && (panel.GpuDecorationFlags & (byte)PanelDecorationFlags.OuterShadow) != 0
-                    ? PaintExtentMarginWithoutOuterShadows(style)
-                    : PaintExtentMargin(style);
-                rect.Inflate(margin, margin);
-                if (transformed) rect = TransformBounds(rect, style);
-                // Scrolled containers: the content is painted shifted by the
-                // scroll offset, so the damage must cover the content extents.
-                if ((panel.ScrollX != 0 || panel.ScrollY != 0) && panel.Children.Count > 0)
+                // A panel whose every paint is delegated to the GPU (fill,
+                // uniform border, outer shadows) and that paints no text, inset
+                // shadow, outline or scrollbar leaves the texture untouched
+                // when invalidated: the compositor re-uploads the changed
+                // parameters instead, so there is no region to repaint here.
+                var flags = panel.GpuDecorationFlags;
+                var hasOuterShadows = false;
+                foreach (var shadow in style.BoxShadows) { if (!shadow.Inset) { hasOuterShadows = true; break; } }
+                var allGpu = GpuFills && (flags & (byte)PanelDecorationFlags.Fill) != 0
+                    && (GpuDecorations && (flags & (byte)PanelDecorationFlags.OuterShadow) != 0 || !hasOuterShadows)
+                    && !PanelRepaintsTexture(panel, style,
+                        gpuFill: true, gpuBorder: GpuDecorations && (flags & (byte)PanelDecorationFlags.Border) != 0);
+                if (!allGpu)
                 {
-                    var content = new SKRect(float.MaxValue, float.MaxValue, float.MinValue, float.MinValue);
-                    foreach (var child in panel.Children)
+                    // GPU-composited shadows are not painted into the bitmap, so
+                    // their extent does not need to be repainted here.
+                    var margin = GpuDecorations && (panel.GpuDecorationFlags & (byte)PanelDecorationFlags.OuterShadow) != 0
+                        ? PaintExtentMarginWithoutOuterShadows(style)
+                        : PaintExtentMargin(style);
+                    rect.Inflate(margin, margin);
+                    if (transformed) rect = TransformBounds(rect, style);
+                    // Scrolled containers: the content is painted shifted by the
+                    // scroll offset, so the damage must cover the content extents.
+                    if ((panel.ScrollX != 0 || panel.ScrollY != 0) && panel.Children.Count > 0)
                     {
-                        content.Left = Math.Min(content.Left, child.Layout.X - panel.ScrollX);
-                        content.Top = Math.Min(content.Top, child.Layout.Y - panel.ScrollY);
-                        content.Right = Math.Max(content.Right, child.Layout.Right - panel.ScrollX);
-                        content.Bottom = Math.Max(content.Bottom, child.Layout.Bottom - panel.ScrollY);
+                        var content = new SKRect(float.MaxValue, float.MaxValue, float.MinValue, float.MinValue);
+                        foreach (var child in panel.Children)
+                        {
+                            content.Left = Math.Min(content.Left, child.Layout.X - panel.ScrollX);
+                            content.Top = Math.Min(content.Top, child.Layout.Y - panel.ScrollY);
+                            content.Right = Math.Max(content.Right, child.Layout.Right - panel.ScrollX);
+                            content.Bottom = Math.Max(content.Bottom, child.Layout.Bottom - panel.ScrollY);
+                        }
+                        if (content.Left <= content.Right && content.Top <= content.Bottom)
+                            rect = Union(rect, content);
                     }
-                    if (content.Left <= content.Right && content.Top <= content.Bottom)
-                        rect = Union(rect, content);
+                    AddDamage(rect);
                 }
-                AddDamage(rect);
             }
         }
 
@@ -881,28 +992,31 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     }
 
     /// <summary>
-    /// Decides which outer box-shadows and uniform borders can be rendered by
-    /// the GPU instead of Skia, and records them in <see cref="Decorations"/>.
-    /// The GPU composites decorations above the flat UI texture, so a
-    /// decoration is eligible only when nothing painted after its panel can
-    /// cover it (paint order, z-sorted exactly like the Skia walk), no
-    /// ancestor clip cuts it, and no transform/filter group wraps the panel —
-    /// otherwise the quad would hide later paint or escape a clip. Eligibility
-    /// is stored in <see cref="Panel.GpuDecorationFlags"/> so the Skia walk
-    /// skips the delegated paints.
+    /// Decides which outer box-shadows, uniform borders and solid backgrounds
+    /// can be rendered by the GPU instead of Skia, and records them in
+    /// <see cref="Decorations"/> and <see cref="Fills"/>. The GPU composites
+    /// decorations above the flat UI texture and fills below it, so a paint is
+    /// eligible only when nothing painted after its panel can cover it (for
+    /// decorations) or nothing painted before it has content in the area (for
+    /// fills, paint order, z-sorted exactly like the Skia walk), no ancestor
+    /// clip cuts it, and no transform/filter group wraps the panel — otherwise
+    /// the quad would hide later paint or escape a clip. Eligibility is stored
+    /// in <see cref="Panel.GpuDecorationFlags"/> so the Skia walk skips the
+    /// delegated paints.
     /// </summary>
     private void CollectDecorations(ScreenPanel root)
     {
         _decorations.Clear();
+        _fills.Clear();
         var order = new List<(Panel Panel, SKRect Extent, bool Filtered, bool Transformed, SKRect Clip, float Opacity)>();
         CollectPaintOrder(root, order, inTransform: false, filtered: false,
             clip: new SKRect(0, 0, Math.Max(1, Size.Width), Math.Max(1, Size.Height)),
             opacity: root.Opacity, ox: 0, oy: 0);
+        CollectFills(order);
 
         for (var i = 0; i < order.Count; i++)
         {
             var (panel, rect, filtered, transformed, clip, opacity) = order[i];
-            panel.GpuDecorationFlags = 0;
             if (filtered || transformed) continue;
             var style = panel.ComputedStyle;
             if (rect.Width <= 0 || rect.Height <= 0) continue;
@@ -977,6 +1091,119 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Decides which solid panel backgrounds the GPU composites below the UI
+    /// texture (Fills.wgsl) instead of Skia, and records them in
+    /// <see cref="Fills"/>. The quads are drawn under the flat UI texture, so
+    /// a fill is eligible only when the fill area is clean of every paint that
+    /// happened before its panel in paint order: the accumulator
+    /// (<paramref name="painted"/>) holds the screen-space extent of all
+    /// Skia-painted content (non-delegated fills, text, borders, CPU shadows),
+    /// and a quad stacking on another delegated quad is fine (they draw in
+    /// order). The panel's own later paint (its text, borders, children) never
+    /// blocks its own fill. No ancestor clip may cut the quad, and no
+    /// transform/filter group or backdrop-filter may wrap the panel — the
+    /// backdrop compositor already paints the panel's tint, so delegating the
+    /// fill would double-tint. Eligibility is stored in
+    /// <see cref="Panel.GpuDecorationFlags"/> so the Skia walk skips the fill.
+    /// </summary>
+    private void CollectFills(
+        List<(Panel Panel, SKRect Extent, bool Filtered, bool Transformed, SKRect Clip, float Opacity)> order)
+    {
+        var painted = new List<SKRect>();
+        foreach (var (panel, rect, filtered, transformed, clip, opacity) in order)
+        {
+            panel.GpuDecorationFlags = 0;
+            var style = panel.ComputedStyle;
+            var bg = style.BackgroundColor;
+            var fillGpu = false;
+            if (GpuFills && bg.A > 0 && !transformed && !filtered && style.BackdropFilter.IsNone
+                && rect.Width > 0 && rect.Height > 0 && clip.Contains(rect) && !OverlapsAny(rect, painted))
+            {
+                fillGpu = true;
+                panel.GpuDecorationFlags |= (byte)PanelDecorationFlags.Fill;
+                panel.GpuDecorationFlags |= (byte)PanelDecorationFlags.Fill;
+                var radius = Math.Min(style.BorderRadius, Math.Min(rect.Width, rect.Height) / 2f);
+                var alpha = (byte)Math.Clamp(style.Opacity * opacity * 255, 0, 255);
+                _fills.Add(new FillRegion(
+                    rect.Left, rect.Top, rect.Width, rect.Height, radius,
+                    new UiColor(bg.R, bg.G, bg.B, (byte)(bg.A * alpha / 255))));
+            }
+
+            // The texture keeps every paint of this panel that is not delegated
+            // to the GPU: the fill itself (when not), the text, a visible
+            // border, inset shadows, the outline and the scrollbars — plus the
+            // extent of outer shadows and filters, whose blur spreads beyond
+            // the box. The border/outer-shadow delegation is decided after
+            // this pass, so they are conservatively assumed to stay on the
+            // CPU here (that can only block more fills, never fewer).
+            var margin = 0f;
+            foreach (var shadow in style.BoxShadows)
+            {
+                if (!shadow.Inset)
+                    margin = Math.Max(margin, Math.Abs(shadow.OffsetX) + Math.Abs(shadow.OffsetY) + shadow.BlurRadius + shadow.SpreadRadius);
+            }
+            margin = Math.Max(margin, FilterExtentMargin(style.Filter));
+            margin = Math.Max(margin, style.OutlineWidth + Math.Abs(style.OutlineOffset));
+            if (PanelRepaintsTexture(panel, style, fillGpu, gpuBorder: false) || margin > 0)
+            {
+                var extent = rect;
+                // A panel whose only texture paint is its text (no background,
+                // border, inset shadow, outline or scrollbars) paints just its
+                // glyphs: block fills over the glyph extent, not over the whole
+                // (possibly far wider) layout box.
+                var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
+                var paintsText = !string.IsNullOrEmpty(text) || panel is TextInput { IsFocused: true };
+                var lb = panel.LayoutBorder;
+                var textOnly = paintsText && !(bg.A > 0 && !fillGpu)
+                    && !((lb.Top > 0 && IsVisibleBorderStyle(style.BorderTopStyle))
+                        || (lb.Right > 0 && IsVisibleBorderStyle(style.BorderRightStyle))
+                        || (lb.Bottom > 0 && IsVisibleBorderStyle(style.BorderBottomStyle))
+                        || (lb.Left > 0 && IsVisibleBorderStyle(style.BorderLeftStyle)))
+                    && !style.BoxShadows.Any(shadow => shadow.Inset)
+                    && (style.OutlineWidth <= 0 || style.OutlineStyle is "none" or "hidden")
+                    && !ScrollBars.ShouldShowVertical(panel) && !ScrollBars.ShouldShowHorizontal(panel);
+                if (textOnly) extent = TextPaintExtent(panel, style, rect);
+                if (margin > 0) extent.Inflate(margin, margin);
+                // Transformed panels paint through their matrix: block fills
+                // over their actual (transformed) extent.
+                if (transformed) extent = TransformBounds(extent, style);
+                painted.Add(extent);
+            }
+        }
+    }
+
+    private static bool OverlapsAny(SKRect rect, List<SKRect> painted)
+    {
+        foreach (var p in painted)
+            if (rect.IntersectsWith(p)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// True when the panel paints anything into the UI texture that is not
+    /// delegated to the GPU: its background (when not GPU-composited), its
+    /// text, a visible border (when not GPU-delegated), inset shadows, the
+    /// outline or the scrollbars.
+    /// </summary>
+    private static bool PanelRepaintsTexture(Panel panel, ComputedStyle style, bool gpuFill, bool gpuBorder)
+    {
+        if (style.BackgroundColor.A > 0 && !gpuFill) return true;
+        var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
+        if (!string.IsNullOrEmpty(text) || panel is TextInput { IsFocused: true }) return true;
+        var lb = panel.LayoutBorder;
+        var hasBorder = (lb.Top > 0 && IsVisibleBorderStyle(style.BorderTopStyle))
+            || (lb.Right > 0 && IsVisibleBorderStyle(style.BorderRightStyle))
+            || (lb.Bottom > 0 && IsVisibleBorderStyle(style.BorderBottomStyle))
+            || (lb.Left > 0 && IsVisibleBorderStyle(style.BorderLeftStyle));
+        if (hasBorder && !gpuBorder) return true;
+        foreach (var shadow in style.BoxShadows)
+            if (shadow.Inset) return true;
+        if (style.OutlineWidth > 0 && style.OutlineStyle is not ("none" or "hidden")) return true;
+        if (ScrollBars.ShouldShowVertical(panel) || ScrollBars.ShouldShowHorizontal(panel)) return true;
+        return false;
     }
 
     /// <summary>

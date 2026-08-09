@@ -94,6 +94,27 @@ public sealed unsafe class WebGpuContext : IDisposable
     private Silk.NET.WebGPU.Buffer* _decoUniformBuffer;
     private byte[]? _decoParamsBytes;
 
+    // GPU fills (solid panel backgrounds): one instanced quad per region drawn
+    // below the UI texture, parameters in a read-only storage buffer plus a
+    // viewport-size uniform for the vertex stage (1024 regions max).
+    private const uint MaxFills = 1024;
+    private ShaderModule* _fillShader;
+    private RenderPipeline* _fillPipeline;
+    private PipelineLayout* _fillPipelineLayout;
+    private BindGroupLayout* _fillBindGroupLayout;
+    private BindGroup* _fillBindGroup;
+    private Silk.NET.WebGPU.Buffer* _fillParamsBuffer;
+    private Silk.NET.WebGPU.Buffer* _fillUniformBuffer;
+    private byte[]? _fillParamsBytes;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FillGpuParams
+    {
+        public Vector4 Rect;   // xy = border-box top-left (px), zw = size (px)
+        public Vector4 Color;  // straight sRGB RGBA (0..1), a = effective alpha
+        public Vector4 Flags;  // x = corner radius (px)
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct DecorationGpuParams
     {
@@ -156,6 +177,7 @@ public sealed unsafe class WebGpuContext : IDisposable
             CreateUiResources(_width, _height);
             CreateBackdropResources();
             CreateDecorationResources();
+            CreateFillResources();
             CreateSceneResources(_width, _height);
             UpdateCamera(0);
             Console.WriteLine("WebGPU device initialized.");
@@ -243,6 +265,29 @@ public sealed unsafe class WebGpuContext : IDisposable
         Runtime.SetBindGroup(surfacePass, WebGpuBindGroup.FromNative((nint)_sceneBindGroup), 0);
         Runtime.SetVertexBuffer(surfacePass, WebGpuBuffer.FromNative((nint)_uiVertexBuffer), (ulong)(6 * 4 * sizeof(float)));
         Runtime.Draw(surfacePass, 6);
+
+        // GPU fills: the solid panel backgrounds the Skia raster skipped (see
+        // SkiaUiRenderer.CollectFills) are composited as one instanced quad per
+        // region below the UI texture, in paint order. The texture keeps only
+        // the non-delegated paint (text, images, fallback fills), so an opaque
+        // fill is a plain overwrite of the scene and translucent fills blend
+        // over it exactly like the raster would. The renderer only delegates
+        // fills whose area is clean of earlier CPU paint, so no texture pixel
+        // can hide under a quad.
+        var fills = Ui?.Renderer.Fills;
+        if (fills is { Count: > 0 } && _fillPipeline != null && _fillBindGroup != null)
+        {
+            UpdateFillParams(fills);
+            if (currentPipeline != _fillPipeline)
+            {
+                Runtime.SetPipeline(surfacePass, WebGpuRenderPipeline.FromNative((nint)_fillPipeline));
+                currentPipeline = _fillPipeline;
+            }
+
+            Runtime.SetBindGroup(surfacePass, WebGpuBindGroup.FromNative((nint)_fillBindGroup), 0);
+            Runtime.SetVertexBuffer(surfacePass, WebGpuBuffer.FromNative((nint)_uiVertexBuffer), (ulong)(6 * 4 * sizeof(float)));
+            Runtime.DrawInstanced(surfacePass, 6, (uint)Math.Min(fills.Count, MaxFills));
+        }
 
         // backdrop-filter: one instanced fullscreen quad per region, sampling
         // the 3D scene texture with blur + color transforms. The params come
@@ -709,6 +754,153 @@ public sealed unsafe class WebGpuContext : IDisposable
             Marshal.FreeHGlobal(code);
             Marshal.FreeHGlobal(vertexEntry);
             Marshal.FreeHGlobal(fragmentEntry);
+        }
+    }
+
+    private void CreateFillResources()
+    {
+        if (_fillPipelineLayout != null) Runtime.Api.PipelineLayoutRelease(_fillPipelineLayout);
+        if (_fillBindGroupLayout != null) Runtime.Api.BindGroupLayoutRelease(_fillBindGroupLayout);
+        if (_fillPipeline != null) Runtime.Api.RenderPipelineRelease(_fillPipeline);
+        if (_fillShader != null) Runtime.Api.ShaderModuleRelease(_fillShader);
+        if (_fillParamsBuffer != null)
+        {
+            Runtime.Api.BufferDestroy(_fillParamsBuffer);
+            Runtime.Api.BufferRelease(_fillParamsBuffer);
+        }
+
+        if (_fillUniformBuffer != null)
+        {
+            Runtime.Api.BufferDestroy(_fillUniformBuffer);
+            Runtime.Api.BufferRelease(_fillUniformBuffer);
+        }
+
+        var paramsDescriptor = new BufferDescriptor
+        {
+            Size = (ulong)(MaxFills * sizeof(FillGpuParams)),
+            Usage = BufferUsage.Storage | BufferUsage.CopyDst,
+            MappedAtCreation = false
+        };
+        _fillParamsBuffer = Runtime.Api.DeviceCreateBuffer(Device.UnsafeHandle, in paramsDescriptor);
+        _fillParamsBytes = null;
+
+        var uniformDescriptor = new BufferDescriptor
+        {
+            Size = 16,
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst,
+            MappedAtCreation = false
+        };
+        _fillUniformBuffer = Runtime.Api.DeviceCreateBuffer(Device.UnsafeHandle, in uniformDescriptor);
+
+        BindGroupLayoutEntry* entries = stackalloc BindGroupLayoutEntry[2];
+        entries[0] = new BindGroupLayoutEntry
+        {
+            Binding = 0,
+            Visibility = ShaderStage.Vertex | ShaderStage.Fragment,
+            Buffer = new BufferBindingLayout { Type = BufferBindingType.ReadOnlyStorage }
+        };
+        entries[1] = new BindGroupLayoutEntry
+        {
+            Binding = 1,
+            Visibility = ShaderStage.Vertex,
+            Buffer = new BufferBindingLayout { Type = BufferBindingType.Uniform }
+        };
+        var layoutDescriptor = new BindGroupLayoutDescriptor { EntryCount = 2, Entries = entries };
+        _fillBindGroupLayout = Runtime.Api.DeviceCreateBindGroupLayout(Device.UnsafeHandle, in layoutDescriptor);
+        BindGroupLayout* layout = _fillBindGroupLayout;
+        var pipelineLayoutDescriptor = new PipelineLayoutDescriptor { BindGroupLayoutCount = 1, BindGroupLayouts = &layout };
+        _fillPipelineLayout = Runtime.Api.DeviceCreatePipelineLayout(Device.UnsafeHandle, in pipelineLayoutDescriptor);
+        var bindEntries = stackalloc BindGroupEntry[2];
+        bindEntries[0] = new BindGroupEntry { Binding = 0, Buffer = _fillParamsBuffer, Size = (ulong)(MaxFills * sizeof(FillGpuParams)) };
+        bindEntries[1] = new BindGroupEntry { Binding = 1, Buffer = _fillUniformBuffer, Size = 16 };
+        var bindDescriptor = new BindGroupDescriptor
+        {
+            Layout = _fillBindGroupLayout,
+            EntryCount = 2,
+            Entries = bindEntries
+        };
+        _fillBindGroup = Runtime.Api.DeviceCreateBindGroup(Device.UnsafeHandle, in bindDescriptor);
+
+        string shaderSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Fills.wgsl"));
+        nint code = ToUtf8HGlobal(shaderSource), vertexEntry = ToUtf8HGlobal("vs_main"), fragmentEntry = ToUtf8HGlobal("fs_main");
+        try
+        {
+            var wgsl = new ShaderModuleWGSLDescriptor { Code = (byte*)code };
+            wgsl.Chain.SType = SType.ShaderModuleWgslDescriptor;
+            var shaderDescriptor = new ShaderModuleDescriptor { NextInChain = (ChainedStruct*)&wgsl };
+            _fillShader = Runtime.Api.DeviceCreateShaderModule(Device.UnsafeHandle, in shaderDescriptor);
+            // Straight-alpha src-over, matching the UI overlay: the fill color
+            // blends over whatever the surface already holds (the scene).
+            var blend = new BlendState
+            {
+                Color = new BlendComponent { Operation = BlendOperation.Add, SrcFactor = BlendFactor.SrcAlpha, DstFactor = BlendFactor.OneMinusSrcAlpha },
+                Alpha = new BlendComponent { Operation = BlendOperation.Add, SrcFactor = BlendFactor.One, DstFactor = BlendFactor.OneMinusSrcAlpha }
+            };
+            var target = new ColorTargetState { Format = _surfaceFormat, WriteMask = ColorWriteMask.All, Blend = &blend };
+            var fragment = new FragmentState { Module = _fillShader, EntryPoint = (byte*)fragmentEntry, TargetCount = 1, Targets = &target };
+            VertexAttribute* attrs = stackalloc VertexAttribute[2];
+            attrs[0] = new VertexAttribute { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 };
+            attrs[1] = new VertexAttribute { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 };
+            var vb = new VertexBufferLayout { ArrayStride = 4 * sizeof(float), StepMode = VertexStepMode.Vertex, AttributeCount = 2, Attributes = attrs };
+            var vertex = new VertexState { Module = _fillShader, EntryPoint = (byte*)vertexEntry, BufferCount = 1, Buffers = &vb };
+            var depthStencil = new DepthStencilState { Format = TextureFormat.Depth24Plus, DepthWriteEnabled = false, DepthCompare = CompareFunction.Always, StencilFront = new StencilFaceState { Compare = CompareFunction.Always }, StencilBack = new StencilFaceState { Compare = CompareFunction.Always } };
+            var pipelineDescriptor = new RenderPipelineDescriptor
+            {
+                Layout = _fillPipelineLayout,
+                Vertex = vertex,
+                Primitive = new PrimitiveState { Topology = PrimitiveTopology.TriangleList, FrontFace = FrontFace.Ccw, CullMode = CullMode.None },
+                DepthStencil = &depthStencil,
+                Multisample = new MultisampleState { Count = 1, Mask = 0xFFFFFFFF },
+                Fragment = &fragment
+            };
+            _fillPipeline = Runtime.Api.DeviceCreateRenderPipeline(Device.UnsafeHandle, in pipelineDescriptor);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(code);
+            Marshal.FreeHGlobal(vertexEntry);
+            Marshal.FreeHGlobal(fragmentEntry);
+        }
+    }
+
+    /// <summary>
+    /// Translates the fill regions collected by the Skia pass into the GPU
+    /// parameter buffer (Fills.wgsl reads one struct per instance) and uploads
+    /// it only when the set actually changed. The viewport uniform is rewritten
+    /// every time so the vertex stage maps pixel rects correctly.
+    /// </summary>
+    private void UpdateFillParams(IReadOnlyList<FillRegion> regions)
+    {
+        if (_fillParamsBuffer == null || _fillUniformBuffer == null) return;
+        var count = Math.Min(regions.Count, (int)MaxFills);
+        var bytes = new byte[count * sizeof(FillGpuParams)];
+        for (var i = 0; i < count; i++)
+        {
+            var region = regions[i];
+            var p = new FillGpuParams
+            {
+                Rect = new Vector4(region.X, region.Y, region.Width, region.Height),
+                Color = new Vector4(region.Color.R / 255f, region.Color.G / 255f, region.Color.B / 255f, region.Color.A / 255f),
+                Flags = new Vector4(region.Radius, 0, 0, 0)
+            };
+            var offset = i * sizeof(FillGpuParams);
+            unsafe
+            {
+                fixed (byte* data = bytes)
+                    *(FillGpuParams*)(data + offset) = p;
+            }
+        }
+        // The viewport is written on every call so a resize is picked up even
+        // when the region set itself did not change.
+        var viewport = new Vector4(_width, _height, 0, 0);
+        Runtime.Api.QueueWriteBuffer((Queue*)Queue.NativeHandle, _fillUniformBuffer, 0, &viewport, 16);
+        if (_fillParamsBytes is not null && _fillParamsBytes.AsSpan().SequenceEqual(bytes))
+            return;
+        _fillParamsBytes = bytes;
+        fixed (byte* data = bytes)
+        {
+            Runtime.Api.QueueWriteBuffer((Queue*)Queue.NativeHandle, _fillParamsBuffer, 0, data,
+                (nuint)bytes.Length);
         }
     }
 
@@ -1252,6 +1444,26 @@ public sealed unsafe class WebGpuContext : IDisposable
             Runtime.Api.RenderPipelineRelease(_decoPipeline);
         if (_decoShader != null)
             Runtime.Api.ShaderModuleRelease(_decoShader);
+        if (_fillParamsBuffer != null)
+        {
+            Runtime.Api.BufferDestroy(_fillParamsBuffer);
+            Runtime.Api.BufferRelease(_fillParamsBuffer);
+        }
+        if (_fillUniformBuffer != null)
+        {
+            Runtime.Api.BufferDestroy(_fillUniformBuffer);
+            Runtime.Api.BufferRelease(_fillUniformBuffer);
+        }
+        if (_fillBindGroup != null)
+            Runtime.Api.BindGroupRelease(_fillBindGroup);
+        if (_fillBindGroupLayout != null)
+            Runtime.Api.BindGroupLayoutRelease(_fillBindGroupLayout);
+        if (_fillPipelineLayout != null)
+            Runtime.Api.PipelineLayoutRelease(_fillPipelineLayout);
+        if (_fillPipeline != null)
+            Runtime.Api.RenderPipelineRelease(_fillPipeline);
+        if (_fillShader != null)
+            Runtime.Api.ShaderModuleRelease(_fillShader);
         if (_backdropPipeline != null)
             Runtime.Api.RenderPipelineRelease(_backdropPipeline);
         if (_backdropPipelineLayout != null)
