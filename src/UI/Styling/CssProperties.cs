@@ -74,6 +74,18 @@ public static class CssProperties
             CssValueParsers.TryParseCssLength(value, out result, allowAuto, allowContent),
             CssLength.Undefined, inherited: false, animatable: false, lerper: null);
 
+    /// <summary>Creates an integer-valued property (z-index, ...).</summary>
+    public static CssProperty<int> Int(string name, Func<ComputedStyle, int> getter,
+        Action<ComputedStyle, int> setter, int defaultValue) =>
+        new(name, getter, setter, static (string value, out int result) => int.TryParse(value.Trim(), out result),
+            defaultValue, inherited: false, animatable: false, lerper: null);
+
+    /// <summary>Creates a CSS filter property (filter, backdrop-filter, ...).</summary>
+    public static CssProperty<CssFilter> Filter(string name, Func<ComputedStyle, CssFilter> getter,
+        Action<ComputedStyle, CssFilter> setter) =>
+        new(name, getter, setter, static (string value, out CssFilter result) => CssFilterFunctions.TryParse(value, out result),
+            CssFilter.None, inherited: false, animatable: false, lerper: null);
+
     /// <summary>Creates a color property (background-color, color, ...).</summary>
     public static CssProperty<UiColor> Color(string name, Func<ComputedStyle, UiColor> getter,
         Action<ComputedStyle, UiColor> setter, UiColor defaultValue, bool inherited = false,
@@ -128,7 +140,8 @@ public static class CssProperties
         Register(new FlexCssProperty());
         Register(Number("aspect-ratio", s => s.AspectRatio, (s, v) => s.AspectRatio = v, 0));
         Register(Number("opacity", s => s.Opacity, (s, v) => s.Opacity = v, 1, animatable: true));
-        Register(Number("border-radius", s => s.BorderRadius, (s, v) => s.BorderRadius = v, 0, animatable: true));
+        Register(Number("border-radius", s => s.BorderRadius, (s, v) => s.BorderRadius = v, 0, animatable: true,
+            parser: CssValueParsers.TryParseLength));
         Register(Number("font-size", s => s.FontSize, (s, v) => s.FontSize = v, 16, inherited: true,
             parser: CssValueParsers.TryParseLength));
         Register(Number("line-height", s => s.LineHeight, (s, v) => s.LineHeight = v, 0, inherited: true,
@@ -160,6 +173,7 @@ public static class CssProperties
         Register(Length("right", s => s.PositionRight, (s, v) => s.PositionRight = v));
         Register(Length("bottom", s => s.PositionBottom, (s, v) => s.PositionBottom = v));
         Register(Length("left", s => s.PositionLeft, (s, v) => s.PositionLeft = v));
+        Register(Int("z-index", s => s.ZIndex, (s, v) => s.ZIndex = v, 0));
 
         // Gap.
         Register(new GapCssProperty());
@@ -168,6 +182,11 @@ public static class CssProperties
 
         // Transitions.
         Register(new TransitionCssProperty());
+
+        // Filters: the effect lists are parsed and applied through the
+        // CssFilterFunctions registry, which owns every filter function.
+        Register(Filter("filter", s => s.Filter, (s, v) => s.Filter = v));
+        Register(Filter("backdrop-filter", s => s.BackdropFilter, (s, v) => s.BackdropFilter = v));
 
         // Colors.
         Register(Color("background-color", s => s.BackgroundColor, (s, v) => s.BackgroundColor = v,

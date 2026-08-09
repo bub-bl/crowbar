@@ -62,6 +62,9 @@ public sealed class WebGpuRuntime : IDisposable
     internal void Draw(WebGpuRenderPassEncoder pass, uint vertexCount) =>
         WebGpuNative.Draw(Api, pass, vertexCount);
 
+    internal void DrawInstanced(WebGpuRenderPassEncoder pass, uint vertexCount, uint instanceCount) =>
+        WebGpuNative.DrawInstanced(Api, pass, vertexCount, instanceCount);
+
     internal WebGpuRenderPassEncoder BeginRenderPass(
         WebGpuCommandEncoder encoder,
         RenderPassDescription description) =>

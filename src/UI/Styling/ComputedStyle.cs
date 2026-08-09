@@ -62,6 +62,8 @@ public sealed class ComputedStyle
     public CssLength PositionRight { get; set; }
     public CssLength PositionBottom { get; set; }
     public CssLength PositionLeft { get; set; }
+    /// <summary>Stacking order among siblings (CSS <c>z-index</c>). Higher values paint above.</summary>
+    public int ZIndex { get; set; }
 
     /// <summary>Scrollbar thickness in px; 0 means <c>auto</c> (the engine default).</summary>
     public float ScrollbarWidth { get; set; }
@@ -71,6 +73,10 @@ public sealed class ComputedStyle
     public UiColor ScrollbarTrackColor { get; set; } = new(15, 24, 40, 110);
 
     public float Opacity { get; set; } = 1;
+    /// <summary>The CSS <c>filter</c> list applied to the panel's own rendering (background, text, children).</summary>
+    public CssFilter Filter { get; set; } = CssFilter.None;
+    /// <summary>The CSS <c>backdrop-filter</c> list applied to the pixels painted behind the panel.</summary>
+    public CssFilter BackdropFilter { get; set; } = CssFilter.None;
     public float BorderRadius { get; set; }
     public float FontSize { get; set; } = 16;
     public float LineHeight { get; set; }

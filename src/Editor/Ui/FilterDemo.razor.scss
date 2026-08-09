@@ -1,0 +1,195 @@
+@use 'variables' as *;
+
+root {
+    width: 1280px;
+    height: 720px;
+}
+
+.page {
+    width: 1280px;
+    height: 720px;
+    flex-direction: column;
+}
+
+.topbar {
+    width: 1280px;
+    height: 56px;
+    padding: 0 32px;
+    flex-direction: row;
+    align-items: center;
+    gap: 18px;
+    box-sizing: border-box;
+}
+
+.title {
+    width: 380px;
+    height: 26px;
+    color: $text;
+    font-size: 17px;
+}
+
+.subtitle {
+    width: 470px;
+    height: 20px;
+    color: $text-secondary;
+    font-size: 12px;
+}
+
+.nav-btn {
+    width: 150px;
+    height: 30px;
+    background-color: $accent;
+    border-radius: 6px;
+    color: $text;
+    font-size: 12px;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    vertical-align: center;
+    line-height: 30px;
+
+    &:hover {
+        background-color: $accent-hover;
+    }
+}
+
+.body {
+    width: 1280px;
+    height: 664px;
+    flex-direction: row;
+    align-items: flex-start;
+}
+
+.column {
+    width: 330px;
+    margin: 20px 0 0 32px;
+    gap: 22px;
+}
+
+.section {
+    width: 330px;
+    gap: 8px;
+}
+
+.section-title {
+    width: 330px;
+    height: 22px;
+    color: $text-secondary;
+    font-size: 13px;
+}
+
+.hint {
+    width: 330px;
+    height: 18px;
+    color: $text-muted;
+    font-size: 11px;
+}
+
+// filter: applied to the element group (background + text + children).
+.swatch {
+    width: 160px;
+    height: 38px;
+    border-radius: 6px;
+    background-color: #ff5f56ff;
+    color: $text;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 38px;
+}
+
+.swatch-blur { filter: blur(3px); }
+.swatch-grayscale { filter: grayscale(1); }
+.swatch-sepia { filter: sepia(1); }
+.swatch-invert { filter: invert(1); }
+.swatch-hue { filter: hue-rotate(90deg); }
+.swatch-brightness { filter: brightness(0.35); }
+.swatch-contrast { filter: contrast(2); }
+.swatch-saturate { filter: saturate(0.1); }
+.swatch-opacity { filter: opacity(0.4); }
+
+// filter on a container filters its whole subtree in one pass.
+.group-demo {
+    width: 330px;
+    height: 74px;
+    flex-direction: row;
+    align-items: center;
+    gap: 12px;
+    filter: sepia(0.6) brightness(0.9);
+}
+
+.group-chip {
+    width: 96px;
+    height: 42px;
+    border-radius: 6px;
+    color: $text;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 42px;
+}
+
+.chip-a { background-color: #3478d4ff; }
+.chip-b { background-color: #2ecc71ff; }
+.chip-c { background-color: #e67e22ff; }
+
+// z-index: siblings paint in ascending z-index order (stable sort). The cards
+// are declared high -> low so the DOM order alone would paint z-low on top;
+// z-index wins.
+.zstack {
+    width: 320px;
+    height: 270px;
+}
+
+.z-card {
+    position: absolute;
+    width: 190px;
+    height: 90px;
+    border-radius: 10px;
+    padding: 10px 0 0 12px;
+    color: $text;
+    font-size: 12px;
+    box-sizing: border-box;
+}
+
+.z-high { z-index: 3; left: 120px; top: 8px; background-color: #2ecc71ff; }
+.z-mid { z-index: 2; left: 60px; top: 84px; background-color: #4c9df0ff; }
+.z-low { z-index: 1; left: 0px; top: 160px; background-color: #b3541eff; }
+
+// backdrop-filter: the WebGPU 3D viewport behind the UI is sampled on the GPU
+// (Backdrop.wgsl) and blurred inside this panel's border box; the panel's own
+// content stays sharp and is painted on top.
+.glass {
+    position: absolute;
+    left: 520px;
+    top: 90px;
+    width: 400px;
+    height: 330px;
+    border-radius: 18px;
+    padding: 18px;
+    background-color: #ffffff12;
+    backdrop-filter: blur(6px) saturate(1.5) brightness(1.15);
+    box-sizing: border-box;
+    gap: 8px;
+}
+
+.glass-title {
+    width: 360px;
+    height: 26px;
+    color: $text;
+    font-size: 15px;
+}
+
+.glass-line {
+    width: 360px;
+    height: 20px;
+    color: $text-secondary;
+    font-size: 12px;
+}
+
+.glass-tag {
+    width: 360px;
+    height: 34px;
+    color: $text-success;
+    font-size: 12px;
+}

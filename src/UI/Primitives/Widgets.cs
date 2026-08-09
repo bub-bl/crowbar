@@ -223,12 +223,27 @@ public static class PanelExtensions
                 return panel;
         }
 
-        for (var i = panel.Children.Count - 1; i >= 0; i--)
+        // Children are hit-tested from the topmost painted sibling down, mirroring
+        // the renderer: higher z-index paints above, and for equal z-index the
+        // last document-order child wins. Children live in content coordinates, so
+        // the pointer is translated by the scroll offset before recursing.
+        var children = panel.Children;
+        if (children.Count > 1 && children.Any(child => child.ComputedStyle.ZIndex != 0))
         {
-            // Children live in content coordinates: the pointer is translated by
-            // the scroll offset before recursing, exactly like the renderer.
-            var hit = panel.Children[i].HitTest(x + panel.ScrollX, y + panel.ScrollY);
-            if (hit is not null) return hit;
+            var ordered = children.OrderBy(child => child.ComputedStyle.ZIndex).ToList();
+            for (var i = ordered.Count - 1; i >= 0; i--)
+            {
+                var hit = ordered[i].HitTest(x + panel.ScrollX, y + panel.ScrollY);
+                if (hit is not null) return hit;
+            }
+        }
+        else
+        {
+            for (var i = children.Count - 1; i >= 0; i--)
+            {
+                var hit = children[i].HitTest(x + panel.ScrollX, y + panel.ScrollY);
+                if (hit is not null) return hit;
+            }
         }
         return inside ? panel : null;
     }

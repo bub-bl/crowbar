@@ -58,6 +58,9 @@ internal static unsafe class WebGpuNative
     internal static void Draw(WebGPU api, WebGpuRenderPassEncoder pass, uint vertexCount) =>
         api.RenderPassEncoderDraw((RenderPassEncoder*)pass.NativeHandle, vertexCount, 1, 0, 0);
 
+    internal static void DrawInstanced(WebGPU api, WebGpuRenderPassEncoder pass, uint vertexCount, uint instanceCount) =>
+        api.RenderPassEncoderDraw((RenderPassEncoder*)pass.NativeHandle, vertexCount, instanceCount, 0, 0);
+
     internal static WebGpuCommandEncoder CreateCommandEncoder(WebGPU api, WebGpuDevice device) =>
         new((nint)api.DeviceCreateCommandEncoder(device.UnsafeHandle, null));
 

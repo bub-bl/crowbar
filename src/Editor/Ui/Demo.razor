@@ -18,6 +18,9 @@
             <button class="action" @onclick="Increment">CLICKED @_count TIMES</button>
             <div class="status">SCREEN PANEL ACTIVE · RENDER @_renderCount</div>
         </div>
+        <div class="row">
+            <button class="action" @onclick="GoToFilters">FILTERS DEMO</button>
+        </div>
 
         @if (_count > 0)
         {
@@ -84,5 +87,7 @@
     {
         _count++;
     }
+
+    private void GoToFilters() => NavigateTo("/filters");
 
 }

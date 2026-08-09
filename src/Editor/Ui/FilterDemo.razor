@@ -1,0 +1,61 @@
+@page "/filters"
+@inherits Crowbar.UI.RazorPanel
+@using System
+@namespace Crowbar.Editor.Ui
+
+<div class="page">
+    <div class="topbar">
+        <div class="title">FILTERS &amp; BACKDROP-FILTER</div>
+        <div class="subtitle">Skia element filters composited over a GPU backdrop-filter pass</div>
+        <button class="nav-btn" @onclick="GoHome">BACK TO DEMO</button>
+    </div>
+
+    <div class="body">
+        <div class="column">
+            <div class="section">
+                <div class="section-title">FILTER — element group (own pixels + children)</div>
+                <div class="swatch swatch-blur">blur(3px)</div>
+                <div class="swatch swatch-grayscale">grayscale(1)</div>
+                <div class="swatch swatch-sepia">sepia(1)</div>
+                <div class="swatch swatch-invert">invert(1)</div>
+                <div class="swatch swatch-hue">hue-rotate(90deg)</div>
+                <div class="swatch swatch-brightness">brightness(0.35)</div>
+                <div class="swatch swatch-contrast">contrast(2)</div>
+                <div class="swatch swatch-saturate">saturate(0.1)</div>
+                <div class="swatch swatch-opacity">opacity(0.4)</div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">FILTER — whole subtree at once</div>
+                <div class="group-demo">
+                    <div class="group-chip chip-a">chip A</div>
+                    <div class="group-chip chip-b">chip B</div>
+                    <div class="group-chip chip-c">chip C</div>
+                </div>
+                <div class="hint">sepia(0.6) brightness(0.9) applied to the container</div>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Z-INDEX — stacking order (stable, beats DOM order)</div>
+                <div class="zstack">
+                    <div class="z-card z-high">z:3 · first in DOM</div>
+                    <div class="z-card z-mid">z:2 · second in DOM</div>
+                    <div class="z-card z-low">z:1 · last in DOM</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="glass">
+            <div class="glass-title">BACKDROP-FILTER · GLASS</div>
+            <div class="glass-line">backdrop-filter: blur(6px) saturate(1.5) brightness(1.15)</div>
+            <div class="glass-tag">The WebGPU-rendered cube behind this panel is sampled on the GPU and filtered</div>
+            <div class="glass-tag">The panel itself stays sharp; only what is behind is blurred.</div>
+        </div>
+    </div>
+</div>
+
+@code {
+
+    private void GoHome() => NavigateTo("/");
+
+}
