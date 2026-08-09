@@ -422,7 +422,7 @@ public sealed unsafe class WebGpuContext : IDisposable
         _backdropPipelineLayout = Runtime.Api.DeviceCreatePipelineLayout(Device.UnsafeHandle, in pipelineLayoutDescriptor);
 
         string shaderSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Backdrop.wgsl"));
-        nint code = Marshal.StringToHGlobalAnsi(shaderSource), vertexEntry = Marshal.StringToHGlobalAnsi("vs_main"), fragmentEntry = Marshal.StringToHGlobalAnsi("fs_main");
+        nint code = ToUtf8HGlobal(shaderSource), vertexEntry = ToUtf8HGlobal("vs_main"), fragmentEntry = ToUtf8HGlobal("fs_main");
         try
         {
             var wgsl = new ShaderModuleWGSLDescriptor { Code = (byte*)code };
@@ -551,6 +551,21 @@ public sealed unsafe class WebGpuContext : IDisposable
             case 6: p.Op6 = op; break;
             case 7: p.Op7 = op; break;
         }
+    }
+
+    /// <summary>
+    /// Copies a string into a null-terminated UTF-8 buffer allocated with
+    /// Marshal.AllocHGlobal (freed by Marshal.FreeHGlobal). wgpu reads shader
+    /// sources as UTF-8, so passing the ANSI conversion would mangle any
+    /// non-ASCII byte and make wgpu reject the module.
+    /// </summary>
+    private static nint ToUtf8HGlobal(string text)
+    {
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        nint pointer = Marshal.AllocHGlobal(bytes.Length + 1);
+        Marshal.Copy(bytes, 0, pointer, bytes.Length);
+        Marshal.WriteByte(pointer, bytes.Length, 0);
+        return pointer;
     }
 
     private void ConfigureSurface(int width, int height)
@@ -766,9 +781,9 @@ public sealed unsafe class WebGpuContext : IDisposable
             -0.5f, -0.5f, -0.35f, 0.2f, 0.9f, 0.4f,  0.5f, -0.5f,  0.35f, 0.2f, 0.9f, 0.4f,  0.5f, -0.5f, -0.35f, 0.2f, 0.9f, 0.4f
         ];
 
-        nint shaderCode = Marshal.StringToHGlobalAnsi(shaderSource);
-        nint vertexEntry = Marshal.StringToHGlobalAnsi("vs_main");
-        nint fragmentEntry = Marshal.StringToHGlobalAnsi("fs_main");
+        nint shaderCode = ToUtf8HGlobal(shaderSource);
+        nint vertexEntry = ToUtf8HGlobal("vs_main");
+        nint fragmentEntry = ToUtf8HGlobal("fs_main");
         try
         {
             var wgslDescriptor = new ShaderModuleWGSLDescriptor
@@ -916,7 +931,7 @@ public sealed unsafe class WebGpuContext : IDisposable
         _uiBindGroup = Runtime.Api.DeviceCreateBindGroup(Device.UnsafeHandle, in bindDescriptor);
 
         string shaderSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Ui.wgsl"));
-        nint code = Marshal.StringToHGlobalAnsi(shaderSource), vertexEntry = Marshal.StringToHGlobalAnsi("vs_main"), fragmentEntry = Marshal.StringToHGlobalAnsi("fs_main");
+        nint code = ToUtf8HGlobal(shaderSource), vertexEntry = ToUtf8HGlobal("vs_main"), fragmentEntry = ToUtf8HGlobal("fs_main");
         try
         {
             var wgsl = new ShaderModuleWGSLDescriptor { Code = (byte*)code }; wgsl.Chain.SType = SType.ShaderModuleWgslDescriptor;

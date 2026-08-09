@@ -111,8 +111,11 @@ fn fs_main(@builtin(position) frag: vec4f, @location(1) @interpolate(flat) insta
     let p = params[instance];
 
     // Normalized position inside the border box, then the matching scene uv.
+    // uvRect holds (u0, v0, u1, v1), so the span is the difference — the
+    // mapping is identity: uv.x = frag.x / sceneWidth, uv.y = frag.y / height,
+    // which keeps the backdrop content aligned with the sharp scene.
     let rel = (frag.xy - p.region.xy) / p.region.zw;
-    let uv = p.uvRect.xy + rel * p.uvRect.zw;
+    let uv = p.uvRect.xy + rel * (p.uvRect.zw - p.uvRect.xy);
 
     // Rounded-rectangle signed distance (iquilezles.org/articles/distfunctions2d)
     // for the border-box mask with one pixel of antialiasing.
