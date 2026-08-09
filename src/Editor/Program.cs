@@ -40,6 +40,11 @@ internal static class Program
             var framebufferWidth = window.FramebufferWidth > 0 ? window.FramebufferWidth : window.Width;
             var framebufferHeight = window.FramebufferHeight > 0 ? window.FramebufferHeight : window.Height;
             webGpu = new WebGpuContext(window.NativeHandle, framebufferWidth, framebufferHeight) { Ui = ui };
+            // With a GPU compositor present, outer box-shadows and uniform
+            // borders leave the Skia raster and are drawn by Decorations.wgsl
+            // (the renderer only delegates the ones that are safe to composite
+            // above the flat UI texture).
+            ui.Renderer.GpuDecorations = true;
             ui.SetViewport(framebufferWidth, framebufferHeight);
             ui.Render();
         };

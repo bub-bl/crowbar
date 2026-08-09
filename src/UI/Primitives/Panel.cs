@@ -59,6 +59,13 @@ public class Panel
         }
     }
     public bool HasScope(string scopeId) => !string.IsNullOrEmpty(scopeId) && _scopeIds.Contains(scopeId);
+
+    /// <summary>
+    /// Bitmask of <see cref="PanelDecorationFlags"/> set by the renderer's
+    /// GPU-decoration pass each frame: which decorations the GPU composites
+    /// instead of Skia (see <see cref="SkiaUiRenderer.CollectDecorations"/>).
+    /// </summary>
+    internal byte GpuDecorationFlags;
     public ComputedStyle ComputedStyle { get; internal set; } = new();
     public UiRect Layout { get; internal set; }
     /// <summary>Horizontal scroll offset of the content box, in layout units.</summary>

@@ -80,6 +80,31 @@ public sealed unsafe class WebGpuContext : IDisposable
     private Silk.NET.WebGPU.Buffer* _backdropParamsBuffer;
     private byte[]? _backdropParamsBytes;
 
+    // GPU decorations (outer box-shadows + uniform solid borders): one
+    // instanced quad per region drawn above the UI texture, parameters in a
+    // read-only storage buffer plus a viewport-size uniform for the vertex
+    // stage (256 regions max).
+    private const uint MaxDecorations = 256;
+    private ShaderModule* _decoShader;
+    private RenderPipeline* _decoPipeline;
+    private PipelineLayout* _decoPipelineLayout;
+    private BindGroupLayout* _decoBindGroupLayout;
+    private BindGroup* _decoBindGroup;
+    private Silk.NET.WebGPU.Buffer* _decoParamsBuffer;
+    private Silk.NET.WebGPU.Buffer* _decoUniformBuffer;
+    private byte[]? _decoParamsBytes;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DecorationGpuParams
+    {
+        public Vector4 Quad;   // xy = rasterization-bounds top-left (px), zw = size (px)
+        public Vector4 Box;    // xy = panel border-box top-left (px), zw = size (px)
+        public Vector4 Shape;  // xy = shadow shape top-left (px), zw = size (px)
+        public Vector4 Radii;  // x = shape radius, y = blur, z = spread, w = border width
+        public Vector4 Color;  // straight sRGB RGBA (0..1), a = effective alpha
+        public Vector4 Flags;  // x = kind (0 = outer shadow, 1 = border)
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct BackdropGpuParams
     {
@@ -130,6 +155,7 @@ public sealed unsafe class WebGpuContext : IDisposable
             CreateCubeResources();
             CreateUiResources(_width, _height);
             CreateBackdropResources();
+            CreateDecorationResources();
             CreateSceneResources(_width, _height);
             UpdateCamera(0);
             Console.WriteLine("WebGPU device initialized.");
@@ -266,6 +292,27 @@ public sealed unsafe class WebGpuContext : IDisposable
             Runtime.SetBindGroup(surfacePass, WebGpuBindGroup.FromNative((nint)_uiBindGroup), 0);
             Runtime.SetVertexBuffer(surfacePass, WebGpuBuffer.FromNative((nint)_uiVertexBuffer), (ulong)(6 * 4 * sizeof(float)));
             Runtime.Draw(surfacePass, 6);
+        }
+
+        // GPU decorations (outer box-shadows + uniform borders): the Skia
+        // raster skips them and emits one instanced quad per region, drawn
+        // above the UI texture. The renderer only delegates decorations that
+        // nothing painted later can cover and that no clip cuts (see
+        // SkiaUiRenderer.CollectDecorations), so this reproduces the CSS paint
+        // order on top of the flat UI layer.
+        var decorations = Ui?.Renderer.Decorations;
+        if (decorations is { Count: > 0 } && _decoPipeline != null && _decoBindGroup != null)
+        {
+            UpdateDecorationParams(decorations);
+            if (currentPipeline != _decoPipeline)
+            {
+                Runtime.SetPipeline(surfacePass, WebGpuRenderPipeline.FromNative((nint)_decoPipeline));
+                currentPipeline = _decoPipeline;
+            }
+
+            Runtime.SetBindGroup(surfacePass, WebGpuBindGroup.FromNative((nint)_decoBindGroup), 0);
+            Runtime.SetVertexBuffer(surfacePass, WebGpuBuffer.FromNative((nint)_uiVertexBuffer), (ulong)(6 * 4 * sizeof(float)));
+            Runtime.DrawInstanced(surfacePass, 6, (uint)Math.Min(decorations.Count, MaxDecorations));
         }
         Runtime.EndRenderPass(surfacePass);
 
@@ -555,6 +602,156 @@ public sealed unsafe class WebGpuContext : IDisposable
         fixed (byte* data = bytes)
         {
             Runtime.Api.QueueWriteBuffer((Queue*)Queue.NativeHandle, _backdropParamsBuffer, 0, data,
+                (nuint)bytes.Length);
+        }
+    }
+
+    private void CreateDecorationResources()
+    {
+        if (_decoPipelineLayout != null) Runtime.Api.PipelineLayoutRelease(_decoPipelineLayout);
+        if (_decoBindGroupLayout != null) Runtime.Api.BindGroupLayoutRelease(_decoBindGroupLayout);
+        if (_decoPipeline != null) Runtime.Api.RenderPipelineRelease(_decoPipeline);
+        if (_decoShader != null) Runtime.Api.ShaderModuleRelease(_decoShader);
+        if (_decoParamsBuffer != null)
+        {
+            Runtime.Api.BufferDestroy(_decoParamsBuffer);
+            Runtime.Api.BufferRelease(_decoParamsBuffer);
+        }
+
+        if (_decoUniformBuffer != null)
+        {
+            Runtime.Api.BufferDestroy(_decoUniformBuffer);
+            Runtime.Api.BufferRelease(_decoUniformBuffer);
+        }
+
+        var paramsDescriptor = new BufferDescriptor
+        {
+            Size = (ulong)(MaxDecorations * sizeof(DecorationGpuParams)),
+            Usage = BufferUsage.Storage | BufferUsage.CopyDst,
+            MappedAtCreation = false
+        };
+        _decoParamsBuffer = Runtime.Api.DeviceCreateBuffer(Device.UnsafeHandle, in paramsDescriptor);
+        _decoParamsBytes = null;
+
+        var uniformDescriptor = new BufferDescriptor
+        {
+            Size = 16,
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst,
+            MappedAtCreation = false
+        };
+        _decoUniformBuffer = Runtime.Api.DeviceCreateBuffer(Device.UnsafeHandle, in uniformDescriptor);
+
+        BindGroupLayoutEntry* entries = stackalloc BindGroupLayoutEntry[2];
+        entries[0] = new BindGroupLayoutEntry
+        {
+            Binding = 0,
+            Visibility = ShaderStage.Vertex | ShaderStage.Fragment,
+            Buffer = new BufferBindingLayout { Type = BufferBindingType.ReadOnlyStorage }
+        };
+        entries[1] = new BindGroupLayoutEntry
+        {
+            Binding = 1,
+            Visibility = ShaderStage.Vertex,
+            Buffer = new BufferBindingLayout { Type = BufferBindingType.Uniform }
+        };
+        var layoutDescriptor = new BindGroupLayoutDescriptor { EntryCount = 2, Entries = entries };
+        _decoBindGroupLayout = Runtime.Api.DeviceCreateBindGroupLayout(Device.UnsafeHandle, in layoutDescriptor);
+        BindGroupLayout* layout = _decoBindGroupLayout;
+        var pipelineLayoutDescriptor = new PipelineLayoutDescriptor { BindGroupLayoutCount = 1, BindGroupLayouts = &layout };
+        _decoPipelineLayout = Runtime.Api.DeviceCreatePipelineLayout(Device.UnsafeHandle, in pipelineLayoutDescriptor);
+        var bindEntries = stackalloc BindGroupEntry[2];
+        bindEntries[0] = new BindGroupEntry { Binding = 0, Buffer = _decoParamsBuffer, Size = (ulong)(MaxDecorations * sizeof(DecorationGpuParams)) };
+        bindEntries[1] = new BindGroupEntry { Binding = 1, Buffer = _decoUniformBuffer, Size = 16 };
+        var bindDescriptor = new BindGroupDescriptor
+        {
+            Layout = _decoBindGroupLayout,
+            EntryCount = 2,
+            Entries = bindEntries
+        };
+        _decoBindGroup = Runtime.Api.DeviceCreateBindGroup(Device.UnsafeHandle, in bindDescriptor);
+
+        string shaderSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Decorations.wgsl"));
+        nint code = ToUtf8HGlobal(shaderSource), vertexEntry = ToUtf8HGlobal("vs_main"), fragmentEntry = ToUtf8HGlobal("fs_main");
+        try
+        {
+            var wgsl = new ShaderModuleWGSLDescriptor { Code = (byte*)code };
+            wgsl.Chain.SType = SType.ShaderModuleWgslDescriptor;
+            var shaderDescriptor = new ShaderModuleDescriptor { NextInChain = (ChainedStruct*)&wgsl };
+            _decoShader = Runtime.Api.DeviceCreateShaderModule(Device.UnsafeHandle, in shaderDescriptor);
+            // Straight-alpha src-over, matching the UI overlay: the shadow/border
+            // color blends over whatever the surface already holds.
+            var blend = new BlendState
+            {
+                Color = new BlendComponent { Operation = BlendOperation.Add, SrcFactor = BlendFactor.SrcAlpha, DstFactor = BlendFactor.OneMinusSrcAlpha },
+                Alpha = new BlendComponent { Operation = BlendOperation.Add, SrcFactor = BlendFactor.One, DstFactor = BlendFactor.OneMinusSrcAlpha }
+            };
+            var target = new ColorTargetState { Format = _surfaceFormat, WriteMask = ColorWriteMask.All, Blend = &blend };
+            var fragment = new FragmentState { Module = _decoShader, EntryPoint = (byte*)fragmentEntry, TargetCount = 1, Targets = &target };
+            VertexAttribute* attrs = stackalloc VertexAttribute[2];
+            attrs[0] = new VertexAttribute { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 };
+            attrs[1] = new VertexAttribute { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 };
+            var vb = new VertexBufferLayout { ArrayStride = 4 * sizeof(float), StepMode = VertexStepMode.Vertex, AttributeCount = 2, Attributes = attrs };
+            var vertex = new VertexState { Module = _decoShader, EntryPoint = (byte*)vertexEntry, BufferCount = 1, Buffers = &vb };
+            var depthStencil = new DepthStencilState { Format = TextureFormat.Depth24Plus, DepthWriteEnabled = false, DepthCompare = CompareFunction.Always, StencilFront = new StencilFaceState { Compare = CompareFunction.Always }, StencilBack = new StencilFaceState { Compare = CompareFunction.Always } };
+            var pipelineDescriptor = new RenderPipelineDescriptor
+            {
+                Layout = _decoPipelineLayout,
+                Vertex = vertex,
+                Primitive = new PrimitiveState { Topology = PrimitiveTopology.TriangleList, FrontFace = FrontFace.Ccw, CullMode = CullMode.None },
+                DepthStencil = &depthStencil,
+                Multisample = new MultisampleState { Count = 1, Mask = 0xFFFFFFFF },
+                Fragment = &fragment
+            };
+            _decoPipeline = Runtime.Api.DeviceCreateRenderPipeline(Device.UnsafeHandle, in pipelineDescriptor);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(code);
+            Marshal.FreeHGlobal(vertexEntry);
+            Marshal.FreeHGlobal(fragmentEntry);
+        }
+    }
+
+    /// <summary>
+    /// Translates the decoration regions collected by the Skia pass into the
+    /// GPU parameter buffer (Decorations.wgsl reads one struct per instance)
+    /// and uploads it only when the set actually changed. The viewport uniform
+    /// is rewritten every time so the vertex stage maps pixel rects correctly.
+    /// </summary>
+    private void UpdateDecorationParams(IReadOnlyList<DecorationRegion> regions)
+    {
+        if (_decoParamsBuffer == null || _decoUniformBuffer == null) return;
+        var count = Math.Min(regions.Count, (int)MaxDecorations);
+        var bytes = new byte[count * sizeof(DecorationGpuParams)];
+        for (var i = 0; i < count; i++)
+        {
+            var region = regions[i];
+            var p = new DecorationGpuParams
+            {
+                Quad = new Vector4(region.QuadX, region.QuadY, region.QuadWidth, region.QuadHeight),
+                Box = new Vector4(region.BoxX, region.BoxY, region.BoxWidth, region.BoxHeight),
+                Shape = new Vector4(region.ShapeX, region.ShapeY, region.ShapeWidth, region.ShapeHeight),
+                Radii = new Vector4(region.ShapeRadius, region.BlurRadius, region.SpreadRadius, region.BorderWidth),
+                Color = new Vector4(region.Color.R / 255f, region.Color.G / 255f, region.Color.B / 255f, region.Color.A / 255f),
+                Flags = new Vector4((float)region.Kind, 0, 0, 0)
+            };
+            var offset = i * sizeof(DecorationGpuParams);
+            unsafe
+            {
+                fixed (byte* data = bytes)
+                    *(DecorationGpuParams*)(data + offset) = p;
+            }
+        }
+        // The viewport is written on every call so a resize is picked up even
+        // when the region set itself did not change.
+        var viewport = new Vector4(_width, _height, 0, 0);
+        Runtime.Api.QueueWriteBuffer((Queue*)Queue.NativeHandle, _decoUniformBuffer, 0, &viewport, 16);
+        if (_decoParamsBytes is not null && _decoParamsBytes.AsSpan().SequenceEqual(bytes))
+            return;
+        _decoParamsBytes = bytes;
+        fixed (byte* data = bytes)
+        {
+            Runtime.Api.QueueWriteBuffer((Queue*)Queue.NativeHandle, _decoParamsBuffer, 0, data,
                 (nuint)bytes.Length);
         }
     }
@@ -1035,6 +1232,26 @@ public sealed unsafe class WebGpuContext : IDisposable
             Runtime.Api.BufferDestroy(_backdropParamsBuffer);
             Runtime.Api.BufferRelease(_backdropParamsBuffer);
         }
+        if (_decoParamsBuffer != null)
+        {
+            Runtime.Api.BufferDestroy(_decoParamsBuffer);
+            Runtime.Api.BufferRelease(_decoParamsBuffer);
+        }
+        if (_decoUniformBuffer != null)
+        {
+            Runtime.Api.BufferDestroy(_decoUniformBuffer);
+            Runtime.Api.BufferRelease(_decoUniformBuffer);
+        }
+        if (_decoBindGroup != null)
+            Runtime.Api.BindGroupRelease(_decoBindGroup);
+        if (_decoBindGroupLayout != null)
+            Runtime.Api.BindGroupLayoutRelease(_decoBindGroupLayout);
+        if (_decoPipelineLayout != null)
+            Runtime.Api.PipelineLayoutRelease(_decoPipelineLayout);
+        if (_decoPipeline != null)
+            Runtime.Api.RenderPipelineRelease(_decoPipeline);
+        if (_decoShader != null)
+            Runtime.Api.ShaderModuleRelease(_decoShader);
         if (_backdropPipeline != null)
             Runtime.Api.RenderPipelineRelease(_backdropPipeline);
         if (_backdropPipelineLayout != null)

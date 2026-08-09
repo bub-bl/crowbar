@@ -33,6 +33,43 @@ public interface IUiRenderer
 public readonly record struct BackdropRegion(
     float X, float Y, float Width, float Height, float Radius, float Alpha, UiColor Tint, CssFilter Filter);
 
+/// <summary>Kind of a GPU-composited decoration region.</summary>
+public enum DecorationKind
+{
+    /// <summary>An outer (non-inset) box-shadow, drawn above the UI texture with the panel's own box clipped out.</summary>
+    OuterShadow = 0,
+
+    /// <summary>A uniform solid border ring (equal widths, colors and styles on all four sides).</summary>
+    Border = 1
+}
+
+/// <summary>
+/// A decoration (outer box-shadow or uniform border) that the Skia raster
+/// skips and the GPU composites instead, one instanced quad per region drawn
+/// above the UI texture. <c>Quad</c> bounds the rasterized quad; <c>Box</c> is
+/// the panel's border box (the shadow's clip mask, or the border's outer
+/// ring); <c>Shape</c> is the shadow's rounded shape rect (equal to the box
+/// for borders). Colors are straight sRGB with the effective opacity baked
+/// into the alpha channel.
+/// </summary>
+public readonly record struct DecorationRegion(
+    DecorationKind Kind,
+    float QuadX, float QuadY, float QuadWidth, float QuadHeight,
+    float BoxX, float BoxY, float BoxWidth, float BoxHeight,
+    float ShapeX, float ShapeY, float ShapeWidth, float ShapeHeight,
+    float ShapeRadius, float BlurRadius, float SpreadRadius, float BorderWidth,
+    UiColor Color);
+
+/// <summary>Per-panel bits describing which decorations the GPU composites (see <see cref="SkiaUiRenderer.CollectDecorations"/>).</summary>
+internal enum PanelDecorationFlags
+{
+    None = 0,
+    /// <summary>Every outer box-shadow of the panel is rendered by the GPU; Skia skips them.</summary>
+    OuterShadow = 1,
+    /// <summary>The panel's uniform solid border is rendered by the GPU; Skia skips it.</summary>
+    Border = 2
+}
+
 public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
 {
     private readonly YogaLayoutEngine _layout = new();
@@ -44,9 +81,26 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     private bool _collectBackdrops = true;
     private bool _partialCull;
     private readonly List<BackdropRegion> _backdrops = [];
+    private readonly List<DecorationRegion> _decorations = [];
     private readonly List<UiRectInt> _damage = [];
 
     public StyleSheet? StyleSheet { get; set; }
+
+    /// <summary>
+    /// When enabled, outer box-shadows and uniform solid borders that are safe
+    /// to composite on the GPU (see <see cref="CollectDecorations"/>) are
+    /// skipped by the Skia raster and emitted as <see cref="Decorations"/> for
+    /// the GPU compositor instead. The editor enables this; renderer-only tests
+    /// keep it off so the raster stays self-contained.
+    /// </summary>
+    public bool GpuDecorations { get; set; }
+
+    /// <summary>
+    /// The decoration regions collected by the last render (empty when GPU
+    /// decorations are disabled). Read after <see cref="Render"/>; the WebGPU
+    /// compositor draws one instanced quad per region above the UI texture.
+    /// </summary>
+    public IReadOnlyList<DecorationRegion> Decorations => _decorations;
     public UiSize Size { get; private set; }
     public bool IsDirty => _dirty;
     public int LayoutPasses => _layout.LayoutPasses;
@@ -92,6 +146,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         if (!_dirty && _bitmap is not null && !root.AnyPaintDirty && !root.AnyStyleDirty && !root.AnyInheritedDirty && !root.LayoutDirty)
         {
             _damage.Clear();
+            if (!GpuDecorations) _decorations.Clear();
             return _pixels;
         }
         if (_bitmap is null || _bitmap.Width != Math.Max(1, (int)Size.Width) || _bitmap.Height != Math.Max(1, (int)Size.Height)) Resize(Math.Max(1, (int)Size.Width), Math.Max(1, (int)Size.Height));
@@ -122,6 +177,11 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // DrawPanel's recursion) when we are not doing a full redraw anyway.
         _damage.Clear();
         _backdrops.Clear();
+        // GPU decorations are decided from the current computed styles and the
+        // paint order, before the raster (the Skia walk reads the per-panel
+        // eligibility flags it sets).
+        if (GpuDecorations) CollectDecorations(root);
+        else _decorations.Clear();
         var fullRedraw = needsLayout || _forceFull;
         if (!fullRedraw)
         {
@@ -282,8 +342,10 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     {
         // Box shadows follow the CSS painting order: outer shadows below the
         // box's own background, inset shadows above it (and below the border),
-        // both following the border-box rounded shape.
-        DrawBoxShadows(canvas, panel, rect, alpha, inset: false);
+        // both following the border-box rounded shape. Outer shadows delegated
+        // to the GPU (see CollectDecorations) are skipped here.
+        if (!GpuDecorations || (panel.GpuDecorationFlags & (byte)PanelDecorationFlags.OuterShadow) == 0)
+            DrawBoxShadows(canvas, panel, rect, alpha, inset: false);
         var background = panel.ComputedStyle.BackgroundColor;
         if (background.A > 0)
         {
@@ -292,8 +354,10 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         }
         DrawBoxShadows(canvas, panel, rect, alpha, inset: true);
         // Borders paint above the background and below the content; the widths
-        // come from the layout pass (they participate in the box model).
-        DrawBorders(canvas, panel, rect, alpha);
+        // come from the layout pass (they participate in the box model). A
+        // uniform solid border delegated to the GPU is skipped here.
+        if (!GpuDecorations || (panel.GpuDecorationFlags & (byte)PanelDecorationFlags.Border) == 0)
+            DrawBorders(canvas, panel, rect, alpha);
         var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
         // An empty focused input still needs a text pass so its caret can be
         // drawn at the beginning of the field.
@@ -777,7 +841,11 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             else
             {
                 var rect = new SKRect(panel.Layout.X, panel.Layout.Y, panel.Layout.Right, panel.Layout.Bottom);
-                var margin = PaintExtentMargin(style);
+                // GPU-composited shadows are not painted into the bitmap, so
+                // their extent does not need to be repainted here.
+                var margin = GpuDecorations && (panel.GpuDecorationFlags & (byte)PanelDecorationFlags.OuterShadow) != 0
+                    ? PaintExtentMarginWithoutOuterShadows(style)
+                    : PaintExtentMargin(style);
                 rect.Inflate(margin, margin);
                 if (transformed) rect = TransformBounds(rect, style);
                 // Scrolled containers: the content is painted shifted by the
@@ -811,6 +879,195 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             if (CollectDamage(child, effectiveTransform, opacity)) full = true;
         return full;
     }
+
+    /// <summary>
+    /// Decides which outer box-shadows and uniform borders can be rendered by
+    /// the GPU instead of Skia, and records them in <see cref="Decorations"/>.
+    /// The GPU composites decorations above the flat UI texture, so a
+    /// decoration is eligible only when nothing painted after its panel can
+    /// cover it (paint order, z-sorted exactly like the Skia walk), no
+    /// ancestor clip cuts it, and no transform/filter group wraps the panel —
+    /// otherwise the quad would hide later paint or escape a clip. Eligibility
+    /// is stored in <see cref="Panel.GpuDecorationFlags"/> so the Skia walk
+    /// skips the delegated paints.
+    /// </summary>
+    private void CollectDecorations(ScreenPanel root)
+    {
+        _decorations.Clear();
+        var order = new List<(Panel Panel, SKRect Extent, bool Filtered, bool Transformed, SKRect Clip, float Opacity)>();
+        CollectPaintOrder(root, order, inTransform: false, filtered: false,
+            clip: new SKRect(0, 0, Math.Max(1, Size.Width), Math.Max(1, Size.Height)),
+            opacity: root.Opacity, ox: 0, oy: 0);
+
+        for (var i = 0; i < order.Count; i++)
+        {
+            var (panel, rect, filtered, transformed, clip, opacity) = order[i];
+            panel.GpuDecorationFlags = 0;
+            if (filtered || transformed) continue;
+            var style = panel.ComputedStyle;
+            if (rect.Width <= 0 || rect.Height <= 0) continue;
+            var radius = Math.Min(style.BorderRadius, Math.Min(rect.Width, rect.Height) / 2f);
+
+            // Outer box-shadows: eligible only when every outer shadow is safe
+            // (a partial delegation would need per-shadow flags).
+            var allOuterSafe = true;
+            var outerRegions = new List<DecorationRegion>();
+            foreach (var shadow in style.BoxShadows)
+            {
+                if (shadow.Inset) continue;
+                var shape = new SKRect(
+                    rect.Left + shadow.OffsetX - shadow.SpreadRadius,
+                    rect.Top + shadow.OffsetY - shadow.SpreadRadius,
+                    rect.Right + shadow.OffsetX + shadow.SpreadRadius,
+                    rect.Bottom + shadow.OffsetY + shadow.SpreadRadius);
+                var shapeRadius = Math.Max(0, radius + shadow.SpreadRadius);
+                var margin = shadow.BlurRadius * 0.5f + 2f;
+                var quad = new SKRect(shape.Left - margin, shape.Top - margin, shape.Right + margin, shape.Bottom + margin);
+                if (!IsGpuShadowSafe(shape, rect, quad, clip, order, i))
+                {
+                    allOuterSafe = false;
+                    break;
+                }
+
+                var alpha = (byte)Math.Clamp(style.Opacity * opacity * 255, 0, 255);
+                var color = new UiColor(shadow.Color.R, shadow.Color.G, shadow.Color.B,
+                    (byte)(shadow.Color.A * alpha / 255));
+                outerRegions.Add(new DecorationRegion(
+                    DecorationKind.OuterShadow,
+                    quad.Left, quad.Top, quad.Width, quad.Height,
+                    rect.Left, rect.Top, rect.Width, rect.Height,
+                    shape.Left, shape.Top, shape.Width, shape.Height,
+                    shapeRadius, shadow.BlurRadius, shadow.SpreadRadius, 0, color));
+            }
+
+            if (allOuterSafe && outerRegions.Count > 0)
+            {
+                panel.GpuDecorationFlags |= (byte)PanelDecorationFlags.OuterShadow;
+                _decorations.AddRange(outerRegions);
+            }
+
+            // Uniform solid border: one ring region.
+            if (TryGetUniformBorder(panel, style, rect, out var borderWidth, out var borderColor))
+            {
+                var ringSafe = clip.Contains(rect);
+                if (ringSafe)
+                {
+                    for (var j = i + 1; j < order.Count; j++)
+                    {
+                        if (RingIntersects(rect, borderWidth, order[j].Extent))
+                        {
+                            ringSafe = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (ringSafe)
+                {
+                    var alpha = (byte)Math.Clamp(style.Opacity * opacity * 255, 0, 255);
+                    var color = new UiColor(borderColor.R, borderColor.G, borderColor.B,
+                        (byte)(borderColor.A * alpha / 255));
+                    panel.GpuDecorationFlags |= (byte)PanelDecorationFlags.Border;
+                    _decorations.Add(new DecorationRegion(
+                        DecorationKind.Border,
+                        rect.Left, rect.Top, rect.Width, rect.Height,
+                        rect.Left, rect.Top, rect.Width, rect.Height,
+                        rect.Left, rect.Top, rect.Width, rect.Height,
+                        radius, 0, 0, borderWidth, color));
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Walks the tree in paint order (z-index-sorted siblings, mirroring
+    /// <see cref="DrawChildren"/>), carrying the effective ancestor state: the
+    /// cumulative opacity, whether a transform or filter group wraps the
+    /// subtree, and the intersection of ancestor overflow clips.
+    /// </summary>
+    private static void CollectPaintOrder(Panel panel,
+        List<(Panel Panel, SKRect Extent, bool Filtered, bool Transformed, SKRect Clip, float Opacity)> order,
+        bool inTransform, bool filtered, SKRect clip, float opacity, float ox, float oy)
+    {
+        var style = panel.ComputedStyle;
+        var effectiveTransform = inTransform || style.HasTransform;
+        var effectiveFiltered = filtered || !style.Filter.IsNone;
+        order.Add((panel,
+            new SKRect(panel.Layout.X + ox, panel.Layout.Y + oy, panel.Layout.Right + ox, panel.Layout.Bottom + oy),
+            effectiveFiltered, effectiveTransform, clip, opacity));
+
+        var childClip = clip;
+        if (panel.ClipsContent)
+        {
+            var lb = panel.LayoutBorder;
+            var paddingBox = new SKRect(
+                panel.Layout.X + lb.Left, panel.Layout.Y + lb.Top,
+                panel.Layout.Right - lb.Right, panel.Layout.Bottom - lb.Bottom);
+            childClip = SKRect.Intersect(clip, paddingBox);
+        }
+
+        // Children paint shifted by this panel's scroll offset (DrawChildren).
+        var childOx = ox - panel.ScrollX;
+        var childOy = oy - panel.ScrollY;
+        var children = panel.Children;
+        if (children.Count > 1 && children.Any(child => child.ComputedStyle.ZIndex != 0))
+        {
+            foreach (var child in children.OrderBy(child => child.ComputedStyle.ZIndex))
+                CollectPaintOrder(child, order, effectiveTransform, effectiveFiltered, childClip, opacity, childOx, childOy);
+        }
+        else
+        {
+            foreach (var child in children)
+                CollectPaintOrder(child, order, effectiveTransform, effectiveFiltered, childClip, opacity, childOx, childOy);
+        }
+    }
+
+    /// <summary>
+    /// A shadow can go to the GPU when its quad is fully inside the ancestor
+    /// clips and no panel painted after its owner touches the shadow area (the
+    /// shape minus the owner's own box, which the fragment shader clips out).
+    /// </summary>
+    private static bool IsGpuShadowSafe(SKRect shape, SKRect box, SKRect quad, SKRect clip,
+        List<(Panel Panel, SKRect Extent, bool Filtered, bool Transformed, SKRect Clip, float Opacity)> order, int index)
+    {
+        if (!clip.Contains(quad)) return false;
+        for (var j = index + 1; j < order.Count; j++)
+        {
+            var extent = order[j].Extent;
+            if (!shape.IntersectsWith(extent)) continue;
+            // Fully inside the owner's box: the shadow is clipped away there.
+            if (SKRect.Intersect(box, extent) == extent) continue;
+            return false;
+        }
+
+        return true;
+    }
+
+    /// <summary>True when the rect <paramref name="e"/> touches the border ring of <paramref name="box"/>.</summary>
+    private static bool RingIntersects(SKRect box, float width, SKRect e)
+    {
+        if (!box.IntersectsWith(e)) return false;
+        var innerBox = new SKRect(box.Left + width, box.Top + width, box.Right - width, box.Bottom - width);
+        return SKRect.Intersect(innerBox, e) != e;
+    }
+
+    /// <summary>The border width and color when all four sides are equal, solid and visible (GPU-renderable).</summary>
+    private static bool TryGetUniformBorder(Panel panel, ComputedStyle style, SKRect rect, out float width, out UiColor color)
+    {
+        width = 0;
+        color = default;
+        var lb = panel.LayoutBorder;
+        if (lb.Top <= 0 || lb.Top != lb.Right || lb.Right != lb.Bottom || lb.Bottom != lb.Left) return false;
+        if (!IsSolidBorderStyle(style.BorderTopStyle) || !IsSolidBorderStyle(style.BorderRightStyle) ||
+            !IsSolidBorderStyle(style.BorderBottomStyle) || !IsSolidBorderStyle(style.BorderLeftStyle)) return false;
+        if (style.BorderTopColor != style.BorderRightColor || style.BorderRightColor != style.BorderBottomColor ||
+            style.BorderBottomColor != style.BorderLeftColor) return false;
+        width = lb.Top;
+        color = style.BorderTopColor;
+        return true;
+    }
+
+    private static bool IsSolidBorderStyle(string style) => style.Equals("solid", StringComparison.OrdinalIgnoreCase);
 
     private static SKRect Union(SKRect a, SKRect b) => new(
         Math.Min(a.Left, b.Left), Math.Min(a.Top, b.Top),
@@ -849,11 +1106,21 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     }
 
     /// <summary>How far a panel's paint can extend beyond its border box (shadows, blurs, outline).</summary>
-    private static float PaintExtentMargin(ComputedStyle style)
+    private static float PaintExtentMargin(ComputedStyle style) => PaintExtentMargin(style, includeOuterShadows: true);
+
+    /// <summary>Same margin, excluding outer box-shadows (used when the GPU composites them).</summary>
+    private static float PaintExtentMarginWithoutOuterShadows(ComputedStyle style) =>
+        PaintExtentMargin(style, includeOuterShadows: false);
+
+    private static float PaintExtentMargin(ComputedStyle style, bool includeOuterShadows)
     {
         var margin = 0f;
         foreach (var shadow in style.BoxShadows)
-            margin = Math.Max(margin, Math.Abs(shadow.OffsetX) + Math.Abs(shadow.OffsetY) + shadow.BlurRadius + shadow.SpreadRadius);
+        {
+            if (includeOuterShadows || shadow.Inset)
+                margin = Math.Max(margin, Math.Abs(shadow.OffsetX) + Math.Abs(shadow.OffsetY) + shadow.BlurRadius + shadow.SpreadRadius);
+        }
+
         foreach (var shadow in style.TextShadows)
             margin = Math.Max(margin, Math.Abs(shadow.OffsetX) + Math.Abs(shadow.OffsetY) + shadow.BlurRadius);
         margin = Math.Max(margin, FilterExtentMargin(style.Filter));
