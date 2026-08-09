@@ -95,6 +95,44 @@ public static class CssValueParsers
         return TryParseLength(trimmed, out result);
     }
 
+    /// <summary>
+    /// Parses <c>outline-width</c>: the CSS keywords <c>thin</c> (1px),
+    /// <c>medium</c> (3px), <c>thick</c> (5px) or an explicit length in px.
+    /// </summary>
+    public static bool TryParseOutlineWidth(string value, out float result)
+    {
+        result = 0;
+        var trimmed = value.Trim().ToLowerInvariant();
+        if (trimmed == "thin")
+        {
+            result = 1;
+            return true;
+        }
+        if (trimmed == "medium")
+        {
+            result = 3;
+            return true;
+        }
+        if (trimmed == "thick")
+        {
+            result = 5;
+            return true;
+        }
+        return TryParseLength(trimmed, out result);
+    }
+
+    /// <summary>
+    /// Parses <c>outline-offset</c>: a px length that may be negative (the
+    /// outline can be drawn inside the border box).
+    /// </summary>
+    public static bool TryParseOffsetLength(string value, out float result)
+    {
+        result = 0;
+        var trimmed = value.Trim();
+        if (trimmed.EndsWith("px", StringComparison.OrdinalIgnoreCase)) trimmed = trimmed[..^2];
+        return float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
+    }
+
     /// <summary>Parses a duration, expressed in seconds (<c>200ms</c> or <c>0.2s</c>).</summary>
     public static bool TryParseTime(string value, out float result)
     {

@@ -193,3 +193,77 @@ root {
     color: $text-success;
     font-size: 12px;
 }
+
+// border (solid, dashed, dotted, double, groove, ridge, inset, outset) and
+// outline: the styles are painted by Skia; widths take part in the layout.
+.border-demo {
+    position: absolute;
+    left: 940px;
+    top: 90px;
+    width: 310px;
+    gap: 10px;
+}
+
+.border-title {
+    width: 310px;
+    height: 22px;
+    color: $text-secondary;
+    font-size: 13px;
+}
+
+.border-row {
+    width: 310px;
+    flex-direction: row;
+    gap: 8px;
+}
+
+.b-chip {
+    width: 72px;
+    height: 44px;
+    border-radius: 8px;
+    background-color: $surface-raised;
+    color: $text-secondary;
+    font-size: 10px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 44px;
+    box-sizing: border-box;
+}
+
+.b-solid { border: 2px solid $text-secondary; }
+.b-dashed { border: 2px dashed $text-secondary; }
+.b-dotted { border: 2px dotted $text-secondary; }
+.b-double { border: 4px double $text-secondary; }
+.b-groove { border: 4px groove $text-secondary; }
+.b-ridge { border: 4px ridge $text-secondary; }
+.b-inset { border: 4px inset $text-secondary; }
+.b-outset { border: 4px outset $text-secondary; }
+.b-top-only { border-top: 3px solid $text-secondary; }
+.b-colorful { border-top: 3px solid #ff5f56ff; border-right: 3px dashed #7ee0a5ff; border-bottom: 3px dotted #4c9df0ff; border-left: 3px double #e67e22ff; }
+
+.outline-chip {
+    width: 310px;
+    height: 34px;
+    background-color: $surface-raised;
+    border-radius: 6px;
+    color: $text-secondary;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 34px;
+    box-sizing: border-box;
+}
+
+.outline-dashed {
+    outline: 2px dashed $text-success;
+}
+
+.outline-offset {
+    outline: 2px dashed $text-success;
+    outline-offset: 4px;
+}
+
+.outline-inset {
+    outline: 2px dotted $accent;
+    outline-offset: -6px;
+}

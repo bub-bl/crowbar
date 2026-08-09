@@ -900,7 +900,11 @@ public sealed unsafe class WebGpuContext : IDisposable
             Usage = TextureUsage.TextureBinding | TextureUsage.CopyDst,
             Dimension = TextureDimension.Dimension2D,
             Size = new Extent3D { Width = (uint)Math.Max(1, width), Height = (uint)Math.Max(1, height), DepthOrArrayLayers = 1 },
-            Format = TextureFormat.Rgba8Unorm, MipLevelCount = 1, SampleCount = 1
+            // sRGB format: Skia rasterizes sRGB-encoded bytes into the bitmap,
+            // so sampling must decode them to linear (and the sRGB surface then
+            // re-encodes). A plain Unorm format would double-encode and wash
+            // out the whole UI.
+            Format = TextureFormat.Rgba8UnormSrgb, MipLevelCount = 1, SampleCount = 1
         };
         _uiTexture = Runtime.Api.DeviceCreateTexture(Device.UnsafeHandle, in textureDescriptor);
         _uiTextureView = Runtime.Api.TextureCreateView(_uiTexture, null);

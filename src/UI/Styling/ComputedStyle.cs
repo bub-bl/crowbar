@@ -58,6 +58,25 @@ public sealed class ComputedStyle
     public CssLength BorderBottom { get; set; }
     public CssLength BorderLeft { get; set; }
 
+    /// <summary>Border line style per side (<c>none</c>, <c>solid</c>, <c>dashed</c>, <c>dotted</c>, ...).</summary>
+    public string BorderTopStyle { get; set; } = "none";
+    public string BorderRightStyle { get; set; } = "none";
+    public string BorderBottomStyle { get; set; } = "none";
+    public string BorderLeftStyle { get; set; } = "none";
+    /// <summary>Border color per side (initial value: black, like CSS <c>currentColor</c> at its default).</summary>
+    public UiColor BorderTopColor { get; set; } = UiColor.Black;
+    public UiColor BorderRightColor { get; set; } = UiColor.Black;
+    public UiColor BorderBottomColor { get; set; } = UiColor.Black;
+    public UiColor BorderLeftColor { get; set; } = UiColor.Black;
+
+    /// <summary>Outline line style (uniform around the box; <c>outline</c> does not affect layout).</summary>
+    public string OutlineStyle { get; set; } = "none";
+    /// <summary>Outline thickness in px (initial value: <c>medium</c> = 3px).</summary>
+    public float OutlineWidth { get; set; }
+    /// <summary>Distance between the border box edge and the outline, in px (may be negative).</summary>
+    public float OutlineOffset { get; set; }
+    public UiColor OutlineColor { get; set; } = UiColor.Black;
+
     public CssLength PositionTop { get; set; }
     public CssLength PositionRight { get; set; }
     public CssLength PositionBottom { get; set; }

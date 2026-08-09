@@ -139,6 +139,9 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             using var paint = new SKPaint { Color = new SKColor(background.R, background.G, background.B, (byte)(background.A * alpha / 255)), IsAntialias = true };
             canvas.DrawRoundRect(rect, panel.ComputedStyle.BorderRadius, panel.ComputedStyle.BorderRadius, paint);
         }
+        // Borders paint above the background and below the content; the widths
+        // come from the layout pass (they participate in the box model).
+        DrawBorders(canvas, panel, rect, alpha);
         var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
         // An empty focused input still needs a text pass so its caret can be
         // drawn at the beginning of the field.
@@ -165,6 +168,9 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // Scrollbars overlay the content edge and stay visible regardless of the
         // scroll position, so they are drawn after restoring the clip.
         DrawScrollBars(canvas, panel, ox, oy);
+        // The outline is painted last, on top of the element's own rendering,
+        // and outside the border box (it never affects layout).
+        DrawOutline(canvas, panel, rect, alpha);
     }
 
     /// <summary>
@@ -213,6 +219,218 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             using var thumbPaint = new SKPaint { Color = thumbColor, IsAntialias = true };
             canvas.DrawRoundRect(thumb.X + ox, thumb.Y + oy, thumb.Width, thumb.Height, radius, radius, thumbPaint);
         }
+    }
+
+    private enum BorderSide { Top, Right, Bottom, Left }
+
+    /// <summary>
+    /// Draws the four border sides of a panel inside its border box. The widths
+    /// come from the layout pass (<see cref="Panel.LayoutBorder"/>); the style
+    /// and color are paint-only and can differ per side. Each side follows the
+    /// rounded corners (the corner arcs belong to the horizontal sides, so the
+    /// sides join without overlap), matching how browsers carve the border.
+    /// </summary>
+    private static void DrawBorders(SKCanvas canvas, Panel panel, SKRect rect, byte alpha)
+    {
+        var style = panel.ComputedStyle;
+        var widths = panel.LayoutBorder;
+        var radius = Math.Min(style.BorderRadius, Math.Min(rect.Width, rect.Height) / 2f);
+        if (widths.Top > 0 && IsVisibleBorderStyle(style.BorderTopStyle))
+            DrawBorderSide(canvas, rect, BorderSide.Top, widths.Top, style.BorderTopStyle, style.BorderTopColor, radius, alpha);
+        if (widths.Right > 0 && IsVisibleBorderStyle(style.BorderRightStyle))
+            DrawBorderSide(canvas, rect, BorderSide.Right, widths.Right, style.BorderRightStyle, style.BorderRightColor, radius, alpha);
+        if (widths.Bottom > 0 && IsVisibleBorderStyle(style.BorderBottomStyle))
+            DrawBorderSide(canvas, rect, BorderSide.Bottom, widths.Bottom, style.BorderBottomStyle, style.BorderBottomColor, radius, alpha);
+        if (widths.Left > 0 && IsVisibleBorderStyle(style.BorderLeftStyle))
+            DrawBorderSide(canvas, rect, BorderSide.Left, widths.Left, style.BorderLeftStyle, style.BorderLeftColor, radius, alpha);
+    }
+
+    private static bool IsVisibleBorderStyle(string style) => style is not ("none" or "hidden");
+
+    private static void DrawBorderSide(SKCanvas canvas, SKRect rect, BorderSide side, float width,
+        string styleName, UiColor color, float radius, byte alpha)
+    {
+        using var path = BuildBorderSidePath(rect, side, width, radius);
+        var baseColor = new SKColor(color.R, color.G, color.B, (byte)(color.A * alpha / 255));
+
+        // double/groove/ridge draw two parallel strokes, one at the outer edge
+        // and one at the inner edge of the border band. groove is carved (dark
+        // outer, light inner), ridge is the opposite.
+        if (styleName is "double" or "groove" or "ridge")
+        {
+            var (outerColor, innerColor) = styleName switch
+            {
+                "groove" => (Darken(baseColor), Lighten(baseColor)),
+                "ridge" => (Lighten(baseColor), Darken(baseColor)),
+                _ => (baseColor, baseColor)
+            };
+            var (outerDx, outerDy) = PerpendicularOffset(side, width / 3f);
+            var (innerDx, innerDy) = PerpendicularOffset(side, -width / 3f);
+            DrawStroke(canvas, path, width / 3f, outerColor, outerDx, outerDy);
+            DrawStroke(canvas, path, width / 3f, innerColor, innerDx, innerDy);
+            return;
+        }
+
+        // inset looks pressed (top/left shaded dark, bottom/right light),
+        // outset is the raised counterpart.
+        var shade = baseColor;
+        if (styleName == "inset")
+            shade = side is BorderSide.Top or BorderSide.Left ? Darken(baseColor) : Lighten(baseColor);
+        else if (styleName == "outset")
+            shade = side is BorderSide.Top or BorderSide.Left ? Lighten(baseColor) : Darken(baseColor);
+
+        SKPathEffect? effect = null;
+        if (styleName == "dashed") effect = SKPathEffect.CreateDash([3f * width, 3f * width], 0);
+        else if (styleName == "dotted") effect = SKPathEffect.CreateDash([0.02f, 2f * width], 0);
+        DrawStroke(canvas, path, width, shade, effect: effect, roundCap: styleName == "dotted");
+        effect?.Dispose();
+    }
+
+    /// <summary>
+    /// Builds the centerline path of one border side, inset by half the border
+    /// width so the stroke fills the border band exactly. With rounded corners
+    /// the corner arcs belong to the top and bottom sides (a quarter circle of
+    /// radius r - width/2 around the corner center), and the vertical sides are
+    /// straight lines between the arcs, so the four sides join seamlessly.
+    /// </summary>
+    private static SKPath BuildBorderSidePath(SKRect rect, BorderSide side, float width, float radius)
+    {
+        var path = new SKPath();
+        var half = width / 2f;
+        var rounded = radius > half && radius > 0;
+        switch (side)
+        {
+            case BorderSide.Top when rounded:
+            {
+                var r = radius - half;
+                path.MoveTo(rect.Left + half, rect.Top + radius);
+                path.ArcTo(CornerOval(rect.Left + radius, rect.Top + radius, r), 180f, 90f, false);
+                path.LineTo(rect.Right - radius, rect.Top + half);
+                path.ArcTo(CornerOval(rect.Right - radius, rect.Top + radius, r), 270f, 90f, false);
+                break;
+            }
+            case BorderSide.Top:
+                path.MoveTo(rect.Left, rect.Top + half);
+                path.LineTo(rect.Right, rect.Top + half);
+                break;
+            case BorderSide.Right when rounded:
+                path.MoveTo(rect.Right - half, rect.Top + radius);
+                path.LineTo(rect.Right - half, rect.Bottom - radius);
+                break;
+            case BorderSide.Right:
+                path.MoveTo(rect.Right - half, rect.Top);
+                path.LineTo(rect.Right - half, rect.Bottom);
+                break;
+            case BorderSide.Bottom when rounded:
+            {
+                var r = radius - half;
+                path.MoveTo(rect.Right - half, rect.Bottom - radius);
+                path.ArcTo(CornerOval(rect.Right - radius, rect.Bottom - radius, r), 0f, 90f, false);
+                path.LineTo(rect.Left + radius, rect.Bottom - half);
+                path.ArcTo(CornerOval(rect.Left + radius, rect.Bottom - radius, r), 90f, 90f, false);
+                break;
+            }
+            case BorderSide.Bottom:
+                path.MoveTo(rect.Right, rect.Bottom - half);
+                path.LineTo(rect.Left, rect.Bottom - half);
+                break;
+            case BorderSide.Left when rounded:
+                path.MoveTo(rect.Left + half, rect.Bottom - radius);
+                path.LineTo(rect.Left + half, rect.Top + radius);
+                break;
+            case BorderSide.Left:
+                path.MoveTo(rect.Left + half, rect.Bottom);
+                path.LineTo(rect.Left + half, rect.Top);
+                break;
+        }
+
+        return path;
+    }
+
+    private static SKRect CornerOval(float centerX, float centerY, float r) => new(centerX - r, centerY - r, centerX + r, centerY + r);
+
+    /// <summary>Translate that moves a path by <paramref name="distance"/> toward the outside of the box.</summary>
+    private static (float Dx, float Dy) PerpendicularOffset(BorderSide side, float distance) => side switch
+    {
+        BorderSide.Top => (0, -distance),
+        BorderSide.Right => (distance, 0),
+        BorderSide.Bottom => (0, distance),
+        _ => (-distance, 0)
+    };
+
+    /// <summary>
+    /// Draws the outline around the border box, offset outward by
+    /// <c>outline-offset</c>. The outline never affects layout and is painted
+    /// on top of the element's own rendering.
+    /// </summary>
+    private static void DrawOutline(SKCanvas canvas, Panel panel, SKRect rect, byte alpha)
+    {
+        var style = panel.ComputedStyle;
+        if (style.OutlineStyle is "none" or "hidden" || style.OutlineWidth <= 0) return;
+        var width = style.OutlineWidth;
+        var half = width / 2f;
+        var color = new SKColor(style.OutlineColor.R, style.OutlineColor.G, style.OutlineColor.B,
+            (byte)(style.OutlineColor.A * alpha / 255));
+        var outer = new SKRect(
+            rect.Left - style.OutlineOffset - half, rect.Top - style.OutlineOffset - half,
+            rect.Right + style.OutlineOffset + half, rect.Bottom + style.OutlineOffset + half);
+        var corner = Math.Max(0, style.BorderRadius + style.OutlineOffset + half);
+
+        if (style.OutlineStyle is "double" or "groove" or "ridge")
+        {
+            var inner = new SKRect(
+                outer.Left + 5f * width / 6f, outer.Top + 5f * width / 6f,
+                outer.Right - 5f * width / 6f, outer.Bottom - 5f * width / 6f);
+            var (outerColor, innerColor) = style.OutlineStyle switch
+            {
+                "groove" => (Darken(color), Lighten(color)),
+                "ridge" => (Lighten(color), Darken(color)),
+                _ => (color, color)
+            };
+            using var outerPath = new SKPath();
+            outerPath.AddRoundRect(outer, corner, corner);
+            using var innerPath = new SKPath();
+            innerPath.AddRoundRect(inner, Math.Max(0, corner - 5f * width / 6f), Math.Max(0, corner - 5f * width / 6f));
+            DrawStroke(canvas, outerPath, width / 3f, outerColor);
+            DrawStroke(canvas, innerPath, width / 3f, innerColor);
+            return;
+        }
+
+        using var path = new SKPath();
+        path.AddRoundRect(outer, corner, corner);
+        SKPathEffect? effect = null;
+        if (style.OutlineStyle == "dashed") effect = SKPathEffect.CreateDash([3f * width, 3f * width], 0);
+        else if (style.OutlineStyle == "dotted") effect = SKPathEffect.CreateDash([0.02f, 2f * width], 0);
+        // inset/outset render as a plain solid ring (CSS outlines have no per-side shading).
+        DrawStroke(canvas, path, width, color, effect: effect, roundCap: style.OutlineStyle == "dotted");
+        effect?.Dispose();
+    }
+
+    private static SKColor Darken(SKColor color) => new(
+        (byte)(color.Red * 0.55f), (byte)(color.Green * 0.55f), (byte)(color.Blue * 0.55f), color.Alpha);
+
+    private static SKColor Lighten(SKColor color) => new(
+        (byte)(color.Red + (255 - color.Red) * 0.45f),
+        (byte)(color.Green + (255 - color.Green) * 0.45f),
+        (byte)(color.Blue + (255 - color.Blue) * 0.45f),
+        color.Alpha);
+
+    private static void DrawStroke(SKCanvas canvas, SKPath path, float strokeWidth, SKColor color,
+        float dx = 0, float dy = 0, SKPathEffect? effect = null, bool roundCap = false)
+    {
+        using var paint = new SKPaint
+        {
+            Color = color,
+            StrokeWidth = strokeWidth,
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeCap = roundCap ? SKStrokeCap.Round : SKStrokeCap.Butt,
+            PathEffect = effect
+        };
+        canvas.Save();
+        if (dx != 0 || dy != 0) canvas.Translate(dx, dy);
+        canvas.DrawPath(path, paint);
+        canvas.Restore();
     }
 
     private static void DrawText(SKCanvas canvas, Panel panel, SKRect rect, string text, byte alpha)

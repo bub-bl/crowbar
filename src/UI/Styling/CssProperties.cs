@@ -161,12 +161,38 @@ public static class CssProperties
         Register(Length("padding-bottom", s => s.PaddingBottom, (s, v) => s.PaddingBottom = v, allowAuto: false));
         Register(Length("padding-left", s => s.PaddingLeft, (s, v) => s.PaddingLeft = v, allowAuto: false));
 
-        // Border widths participate in the box model through Yoga.
+        // Border: the widths participate in the box model through Yoga; the
+        // style and color are paint-only. `border`/`border-width`/`border-style`/
+        // `border-color` are 1-to-4 value shorthands, plus per-side longhands.
         Register(new BorderCssProperty());
-        Register(Length("border-top", s => s.BorderTop, (s, v) => s.BorderTop = v, allowAuto: false));
-        Register(Length("border-right", s => s.BorderRight, (s, v) => s.BorderRight = v, allowAuto: false));
-        Register(Length("border-bottom", s => s.BorderBottom, (s, v) => s.BorderBottom = v, allowAuto: false));
-        Register(Length("border-left", s => s.BorderLeft, (s, v) => s.BorderLeft = v, allowAuto: false));
+        Register(new BorderWidthCssProperty());
+        Register(new BorderStyleCssProperty());
+        Register(new BorderColorCssProperty());
+        Register(new BorderSideCssProperty("border-top", (s, v) => s.BorderTop = v, (s, v) => s.BorderTopStyle = v, (s, v) => s.BorderTopColor = v));
+        Register(new BorderSideCssProperty("border-right", (s, v) => s.BorderRight = v, (s, v) => s.BorderRightStyle = v, (s, v) => s.BorderRightColor = v));
+        Register(new BorderSideCssProperty("border-bottom", (s, v) => s.BorderBottom = v, (s, v) => s.BorderBottomStyle = v, (s, v) => s.BorderBottomColor = v));
+        Register(new BorderSideCssProperty("border-left", (s, v) => s.BorderLeft = v, (s, v) => s.BorderLeftStyle = v, (s, v) => s.BorderLeftColor = v));
+        Register(Length("border-top-width", s => s.BorderTop, (s, v) => s.BorderTop = v, allowAuto: false));
+        Register(Length("border-right-width", s => s.BorderRight, (s, v) => s.BorderRight = v, allowAuto: false));
+        Register(Length("border-bottom-width", s => s.BorderBottom, (s, v) => s.BorderBottom = v, allowAuto: false));
+        Register(Length("border-left-width", s => s.BorderLeft, (s, v) => s.BorderLeft = v, allowAuto: false));
+        Register(Keyword("border-top-style", s => s.BorderTopStyle, (s, v) => s.BorderTopStyle = v, "none", BorderStyleKeywords));
+        Register(Keyword("border-right-style", s => s.BorderRightStyle, (s, v) => s.BorderRightStyle = v, "none", BorderStyleKeywords));
+        Register(Keyword("border-bottom-style", s => s.BorderBottomStyle, (s, v) => s.BorderBottomStyle = v, "none", BorderStyleKeywords));
+        Register(Keyword("border-left-style", s => s.BorderLeftStyle, (s, v) => s.BorderLeftStyle = v, "none", BorderStyleKeywords));
+        Register(Color("border-top-color", s => s.BorderTopColor, (s, v) => s.BorderTopColor = v, UiColor.Black));
+        Register(Color("border-right-color", s => s.BorderRightColor, (s, v) => s.BorderRightColor = v, UiColor.Black));
+        Register(Color("border-bottom-color", s => s.BorderBottomColor, (s, v) => s.BorderBottomColor = v, UiColor.Black));
+        Register(Color("border-left-color", s => s.BorderLeftColor, (s, v) => s.BorderLeftColor = v, UiColor.Black));
+
+        // Outline: drawn outside the border box, never affects layout.
+        Register(new OutlineCssProperty());
+        Register(Keyword("outline-style", s => s.OutlineStyle, (s, v) => s.OutlineStyle = v, "none", BorderStyleKeywords));
+        Register(Number("outline-width", s => s.OutlineWidth, (s, v) => s.OutlineWidth = v, 0,
+            parser: CssValueParsers.TryParseOutlineWidth));
+        Register(Number("outline-offset", s => s.OutlineOffset, (s, v) => s.OutlineOffset = v, 0,
+            parser: CssValueParsers.TryParseOffsetLength));
+        Register(Color("outline-color", s => s.OutlineColor, (s, v) => s.OutlineColor = v, UiColor.Black));
 
         // Absolute positioning offsets.
         Register(Length("top", s => s.PositionTop, (s, v) => s.PositionTop = v));
@@ -203,6 +229,7 @@ public static class CssProperties
 
     private static readonly string[] AlignKeywords = ["auto", "flex-start", "flex-end", "center", "stretch", "baseline", "space-between", "space-around", "space-evenly", "start", "end"];
     private static readonly string[] JustifyKeywords = ["auto", "flex-start", "flex-end", "center", "stretch", "space-between", "space-around", "space-evenly", "start", "end"];
+    private static readonly string[] BorderStyleKeywords = ["none", "hidden", "solid", "dashed", "dotted", "double", "groove", "ridge", "inset", "outset"];
 
     private sealed class MarginCssProperty : CompoundCssProperty
     {
@@ -329,7 +356,12 @@ public static class CssProperties
         }
     }
 
-    /// <summary>Extracts the border width from the <c>border</c> shorthand (<c>1px solid #ccc</c>).</summary>
+    /// <summary>
+    /// The <c>border</c> shorthand: width, style and color in any order
+    /// (<c>1px solid #ccc</c>, <c>solid</c>, <c>2px dashed</c>...), applied to
+    /// all four sides. At least one valid component is required, mirroring CSS
+    /// (missing parts keep their current value).
+    /// </summary>
     private sealed class BorderCssProperty : CompoundCssProperty
     {
         public BorderCssProperty() : base("border")
@@ -338,18 +370,178 @@ public static class CssProperties
 
         public override bool TryApply(ComputedStyle style, string rawValue)
         {
+            var applied = false;
             foreach (var token in rawValue.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 if (CssValueParsers.TryParseCssLength(token, out var length, allowAuto: false, allowContent: false) && length.IsDefined)
                 {
                     style.Border = length;
                     style.BorderTop = style.BorderRight = style.BorderBottom = style.BorderLeft = length;
-                    return true;
+                    applied = true;
+                }
+                else if (IsBorderStyle(token))
+                {
+                    style.BorderTopStyle = style.BorderRightStyle = style.BorderBottomStyle = style.BorderLeftStyle = token.ToLowerInvariant();
+                    applied = true;
+                }
+                else if (UiColor.TryParse(token, out var color))
+                {
+                    style.BorderTopColor = style.BorderRightColor = style.BorderBottomColor = style.BorderLeftColor = color;
+                    applied = true;
                 }
             }
-            return false;
+            return applied;
         }
     }
+
+    /// <summary>
+    /// The per-side <c>border-top/-right/-bottom/-left</c> shorthand: width,
+    /// style and color in any order, applied to that single side.
+    /// </summary>
+    private sealed class BorderSideCssProperty : CompoundCssProperty
+    {
+        private readonly Action<ComputedStyle, CssLength> _setWidth;
+        private readonly Action<ComputedStyle, string> _setStyle;
+        private readonly Action<ComputedStyle, UiColor> _setColor;
+
+        public BorderSideCssProperty(string name, Action<ComputedStyle, CssLength> setWidth,
+            Action<ComputedStyle, string> setStyle, Action<ComputedStyle, UiColor> setColor) : base(name)
+        {
+            _setWidth = setWidth;
+            _setStyle = setStyle;
+            _setColor = setColor;
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            var applied = false;
+            foreach (var token in rawValue.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (CssValueParsers.TryParseCssLength(token, out var length, allowAuto: false, allowContent: false) && length.IsDefined)
+                {
+                    _setWidth(style, length);
+                    applied = true;
+                }
+                else if (IsBorderStyle(token))
+                {
+                    _setStyle(style, token.ToLowerInvariant());
+                    applied = true;
+                }
+                else if (UiColor.TryParse(token, out var color))
+                {
+                    _setColor(style, color);
+                    applied = true;
+                }
+            }
+            return applied;
+        }
+    }
+
+    /// <summary>The <c>border-width</c> shorthand: 1 to 4 lengths applied to each side.</summary>
+    private sealed class BorderWidthCssProperty : CompoundCssProperty
+    {
+        public BorderWidthCssProperty() : base("border-width")
+        {
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            if (!CssValueParsers.TryParseLengthBox(rawValue, out var box)) return false;
+            style.Border = box.Top;
+            style.BorderTop = box.Top;
+            style.BorderRight = box.Right;
+            style.BorderBottom = box.Bottom;
+            style.BorderLeft = box.Left;
+            return true;
+        }
+    }
+
+    /// <summary>The <c>border-style</c> shorthand: 1 to 4 keywords applied to each side.</summary>
+    private sealed class BorderStyleCssProperty : CompoundCssProperty
+    {
+        public BorderStyleCssProperty() : base("border-style")
+        {
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            var parts = rawValue.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length is < 1 or > 4) return false;
+            var values = new string[parts.Length];
+            for (var i = 0; i < parts.Length; i++)
+            {
+                if (!IsBorderStyle(parts[i])) return false;
+                values[i] = parts[i].ToLowerInvariant();
+            }
+            style.BorderTopStyle = values[0];
+            style.BorderRightStyle = values.Length > 1 ? values[1] : values[0];
+            style.BorderBottomStyle = values.Length > 2 ? values[2] : values[0];
+            style.BorderLeftStyle = values.Length > 3 ? values[3] : values[1];
+            return true;
+        }
+    }
+
+    /// <summary>The <c>border-color</c> shorthand: 1 to 4 colors applied to each side.</summary>
+    private sealed class BorderColorCssProperty : CompoundCssProperty
+    {
+        public BorderColorCssProperty() : base("border-color")
+        {
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            var parts = rawValue.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (parts.Length is < 1 or > 4) return false;
+            var values = new UiColor[parts.Length];
+            for (var i = 0; i < parts.Length; i++)
+            {
+                if (!UiColor.TryParse(parts[i], out values[i])) return false;
+            }
+            style.BorderTopColor = values[0];
+            style.BorderRightColor = values.Length > 1 ? values[1] : values[0];
+            style.BorderBottomColor = values.Length > 2 ? values[2] : values[0];
+            style.BorderLeftColor = values.Length > 3 ? values[3] : values[1];
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// The <c>outline</c> shorthand: width, style and color in any order. The
+    /// outline is painted outside the border box and never affects layout.
+    /// </summary>
+    private sealed class OutlineCssProperty : CompoundCssProperty
+    {
+        public OutlineCssProperty() : base("outline")
+        {
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            var applied = false;
+            foreach (var token in rawValue.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (CssValueParsers.TryParseOutlineWidth(token, out var width))
+                {
+                    style.OutlineWidth = width;
+                    applied = true;
+                }
+                else if (IsBorderStyle(token))
+                {
+                    style.OutlineStyle = token.ToLowerInvariant();
+                    applied = true;
+                }
+                else if (UiColor.TryParse(token, out var color))
+                {
+                    style.OutlineColor = color;
+                    applied = true;
+                }
+            }
+            return applied;
+        }
+    }
+
+    private static bool IsBorderStyle(string token) =>
+        Array.IndexOf(BorderStyleKeywords, token.ToLowerInvariant()) >= 0;
 
     /// <summary>
     /// The <c>scrollbar-color</c> shorthand: <c>auto</c> resets to the engine
