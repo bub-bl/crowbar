@@ -52,6 +52,27 @@ public sealed class TransformList : IEquatable<TransformList>
     /// <summary>True when the value is <c>none</c> (no transform applied).</summary>
     public bool IsNone => Ops.Count == 0;
 
+    /// <summary>
+    /// True when the composed matrix is the identity even though the list is not
+    /// empty — e.g. <c>translate(0px, 0px)</c>, or an animation that ended at
+    /// the identity. Such a list must not route through the transformed-paint
+    /// path (local-space children + cull exemption): the result is identical
+    /// and the identity short-circuit keeps damage culling in screen space.
+    /// </summary>
+    public bool IsIdentity
+    {
+        get
+        {
+            foreach (var op in Ops)
+            {
+                var m = OpMatrix(op, 1, 1);
+                if (Math.Abs(m.ScaleX - 1) > 1e-4f || Math.Abs(m.SkewY) > 1e-4f || Math.Abs(m.SkewX) > 1e-4f ||
+                    Math.Abs(m.ScaleY - 1) > 1e-4f || Math.Abs(m.TransX) > 1e-4f || Math.Abs(m.TransY) > 1e-4f) return false;
+            }
+            return true;
+        }
+    }
+
     public bool Equals(TransformList? other) => other is not null && Ops.SequenceEqual(other.Ops);
     public override bool Equals(object? obj) => Equals(obj as TransformList);
     public override int GetHashCode()

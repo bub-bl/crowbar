@@ -43,7 +43,7 @@ public class TextInput : Panel
         ValueChanged?.Invoke(value);
         Invalidate();
     }
-    internal void FocusAtEnd() { CaretIndex = Value.Length; CaretVisible = true; _caretTime = 0; Invalidate(); }
+    internal void FocusAtEnd() { CaretIndex = Value.Length; CaretVisible = true; _caretTime = 0; InvalidatePaint(); }
     internal void CopyInteractionStateFrom(TextInput previous)
     {
         CaretIndex = Math.Clamp(previous.CaretIndex, 0, Value.Length);
@@ -57,7 +57,8 @@ public class TextInput : Panel
     {
         if (!IsFocused) { CaretVisible = false; _caretTime = 0; return; }
         _caretTime += Math.Max(0, deltaTime);
-        if (_caretTime >= 0.5f) { _caretTime = 0; CaretVisible = !CaretVisible; Invalidate(); }
+        // Blinking only repaints the caret; the text box geometry is unchanged.
+        if (_caretTime >= 0.5f) { _caretTime = 0; CaretVisible = !CaretVisible; InvalidatePaint(); }
     }
     internal void HandleKey(int keyCode, bool isDown, string? text = null)
     {
@@ -91,7 +92,7 @@ public class TextInput : Panel
                 : (_shiftDown ? " )!@#$%^&*("[keyCode - 0x2F] : (char)keyCode);
             Insert(character);
         }
-        CaretVisible = true; _caretTime = 0; Invalidate();
+        CaretVisible = true; _caretTime = 0; InvalidatePaint();
     }
 
     internal void BeginPointerSelection(float x)
@@ -110,7 +111,7 @@ public class TextInput : Panel
         ResetCaret();
     }
 
-    internal void EndPointerSelection() => _draggingSelection = false;
+    internal void EndPointerSelection() { _draggingSelection = false; InvalidatePaint(); }
 
     private void MoveCaret(int index)
     {
@@ -151,6 +152,9 @@ public class TextInput : Panel
         CaretIndex = start + replacement.Length;
         SelectionStart = SelectionEnd = CaretIndex;
         ValueChanged?.Invoke(Value);
+        // The text itself changed: the content box width may change, so this
+        // needs a real layout (not just a caret repaint).
+        Invalidate();
         ResetCaret();
     }
     private int PreviousWord(int index)
@@ -185,7 +189,7 @@ public class TextInput : Panel
 
         return Value.Length;
     }
-    private void ResetCaret() { CaretVisible = true; _caretTime = 0; Invalidate(); }
+    private void ResetCaret() { CaretVisible = true; _caretTime = 0; InvalidatePaint(); }
 }
 
 public class Image : Panel

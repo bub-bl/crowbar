@@ -145,7 +145,10 @@ public static class CssProperties
         Register(Length("flex-basis", s => s.FlexBasis, (s, v) => s.FlexBasis = v, allowContent: true, animatable: true));
         Register(new FlexCssProperty());
         Register(Number("aspect-ratio", s => s.AspectRatio, (s, v) => s.AspectRatio = v, 0));
-        Register(Number("opacity", s => s.Opacity, (s, v) => s.Opacity = v, 1, animatable: true));
+        // opacity multiplies down the tree (group opacity), so it participates
+        // in inheritance like color: children must refresh when an ancestor's
+        // animation moves it.
+        Register(Number("opacity", s => s.Opacity, (s, v) => s.Opacity = v, 1, inherited: true, animatable: true));
         Register(Number("border-radius", s => s.BorderRadius, (s, v) => s.BorderRadius = v, 0, animatable: true,
             parser: CssValueParsers.TryParseLength));
         Register(Number("font-size", s => s.FontSize, (s, v) => s.FontSize = v, 16, inherited: true,

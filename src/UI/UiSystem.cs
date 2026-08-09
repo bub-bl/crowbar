@@ -11,7 +11,7 @@ public sealed partial class UiSystem : IDisposable
     private readonly Dictionary<string, StyleSheet> _scopedStyleSheets = new(StringComparer.OrdinalIgnoreCase);
     public StyleSheet? GlobalStyleSheet { get; private set; }
     public StyleSheet StyleSheet { get; private set; } = new();
-    public bool IsDirty => Renderer.IsDirty || Screen.LayoutDirty || Screen.Layout is { Width: 0 };
+    public bool IsDirty => Renderer.IsDirty || Screen.LayoutDirty || Screen.AnyPaintDirty || Screen.AnyStyleDirty || Screen.AnyInheritedDirty || Screen.Layout is { Width: 0 };
     private RazorPanel? _razorRoot;
     private RazorComponentFactory? _razorFactory;
     private bool _razorRenderPending;
@@ -180,6 +180,9 @@ public sealed partial class UiSystem : IDisposable
         }
         StyleSheet = combined;
         Renderer.StyleSheet = StyleSheet;
+        // A stylesheet swap can change any computed property, so force a full
+        // cascade + layout pass (style-sheet loads are rare).
+        Screen.Invalidate();
         Renderer.MarkDirty();
     }
 
@@ -190,11 +193,7 @@ public sealed partial class UiSystem : IDisposable
         return Path.ChangeExtension(razorPath, ".razor.css");
     }
 
-    public ReadOnlyMemory<byte> Render()
-    {
-        if (Screen.LayoutDirty) Renderer.MarkDirty();
-        return Renderer.Render(Screen);
-    }
+    public ReadOnlyMemory<byte> Render() => Renderer.Render(Screen);
     internal void RenderRazorIfNeeded()
     {
         if (_razorRoot is null || (!_razorRenderPending && !_razorRoot.NeedsBuild())) return;

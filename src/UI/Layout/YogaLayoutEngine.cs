@@ -29,7 +29,52 @@ public sealed class YogaLayoutEngine
         root.ClearDirty();
     }
 
+    /// <summary>
+    /// Re-runs the cascade over the whole tree (without Yoga) and returns true
+    /// when any layout-affecting property changed anywhere — in which case the
+    /// caller must run a full layout pass. Used for style-only invalidations
+    /// (classes, inline styles, pseudo-state): most of the time only paint
+    /// changes, and the layout is skipped entirely.
+    /// </summary>
+    public static bool ApplyStylesTracked(Panel root, StyleSheet? sheet)
+    {
+        var layoutChanged = false;
+        ApplyStylesCore(root, sheet, null, ref layoutChanged);
+        return layoutChanged;
+    }
+
+    /// <summary>
+    /// Re-applies inherited values (color, opacity, text metrics, text-shadow)
+    /// from each parent's current composed style without re-running the CSS
+    /// cascade. Used when a keyframe animation or transition changed an
+    /// inherited property on an ancestor: the children's baked values from the
+    /// last cascade are stale. Returns true when a layout-affecting property
+    /// changed somewhere (e.g. an animated font-size), in which case the caller
+    /// must run a full layout pass. The walk is allocation-free.
+    /// </summary>
+    public static bool ApplyInheritanceOnly(Panel root)
+    {
+        var layoutChanged = false;
+        foreach (var child in root.Children) ApplyInheritance(child, root.ComputedStyle, ref layoutChanged);
+        return layoutChanged;
+    }
+
+    private static void ApplyInheritance(Panel panel, ComputedStyle inherited, ref bool layoutChanged)
+    {
+        var previous = panel.ComputedStyle;
+        panel.RestoreRestingStyle();
+        ApplyInherited(panel.ComputedStyle, inherited);
+        if (!previous.LayoutPropsEqual(panel.ComputedStyle)) layoutChanged = true;
+        foreach (var child in panel.Children) ApplyInheritance(child, panel.ComputedStyle, ref layoutChanged);
+    }
+
     private static void ApplyStyles(Panel panel, StyleSheet? sheet, ComputedStyle? inherited)
+    {
+        var unused = false;
+        ApplyStylesCore(panel, sheet, inherited, ref unused);
+    }
+
+    private static void ApplyStylesCore(Panel panel, StyleSheet? sheet, ComputedStyle? inherited, ref bool layoutChanged)
     {
         ComputedStyle computed;
         if (sheet is not null)
@@ -43,23 +88,34 @@ public sealed class YogaLayoutEngine
             StyleSheet.Apply(computed, panel.InlineStyle);
         }
 
+        var previous = panel.ComputedStyle;
         panel.ApplyComputedStyle(computed);
-        if (inherited is not null)
-        {
-            if (panel.ComputedStyle.Color == UiColor.White) panel.ComputedStyle.Color = inherited.Color;
-            panel.ComputedStyle.Opacity *= inherited.Opacity;
-            // Text is rendered by the leaf label/input inside controls such as
-            // Button. Carry the inherited text metrics down so the leaf uses
-            // the same alignment and line box as its parent.
-            if (panel.ComputedStyle.TextAlign == "left") panel.ComputedStyle.TextAlign = inherited.TextAlign;
-            if (panel.ComputedStyle.VerticalAlign == "top") panel.ComputedStyle.VerticalAlign = inherited.VerticalAlign;
-            if (Math.Abs(panel.ComputedStyle.FontSize - 16) < 0.0001f) panel.ComputedStyle.FontSize = inherited.FontSize;
-            if (panel.ComputedStyle.LineHeight == 0) panel.ComputedStyle.LineHeight = inherited.LineHeight;
-            // text-shadow inherits like color: carry the parent's list down when
-            // the child did not declare one of its own.
-            if (panel.ComputedStyle.TextShadows.Length == 0) panel.ComputedStyle.TextShadows = inherited.TextShadows;
-        }
-        foreach (var child in panel.Children) ApplyStyles(child, sheet, panel.ComputedStyle);
+        ApplyInherited(panel.ComputedStyle, inherited);
+        if (!previous.LayoutPropsEqual(panel.ComputedStyle)) layoutChanged = true;
+        foreach (var child in panel.Children) ApplyStylesCore(child, sheet, panel.ComputedStyle, ref layoutChanged);
+    }
+
+    /// <summary>
+    /// Applies the inherited-value block: opacity multiplies, and the text
+    /// metrics/color/shadow sentinels flow down when the child did not declare
+    /// its own. Mirrored by <see cref="ApplyInheritance"/> so the animation
+    /// refresh pass stays in sync with the cascade.
+    /// </summary>
+    private static void ApplyInherited(ComputedStyle style, ComputedStyle? inherited)
+    {
+        if (inherited is null) return;
+        if (style.Color == UiColor.White) style.Color = inherited.Color;
+        style.Opacity *= inherited.Opacity;
+        // Text is rendered by the leaf label/input inside controls such as
+        // Button. Carry the inherited text metrics down so the leaf uses
+        // the same alignment and line box as its parent.
+        if (style.TextAlign == "left") style.TextAlign = inherited.TextAlign;
+        if (style.VerticalAlign == "top") style.VerticalAlign = inherited.VerticalAlign;
+        if (Math.Abs(style.FontSize - 16) < 0.0001f) style.FontSize = inherited.FontSize;
+        if (style.LineHeight == 0) style.LineHeight = inherited.LineHeight;
+        // text-shadow inherits like color: carry the parent's list down when
+        // the child did not declare one of its own.
+        if (style.TextShadows.Length == 0) style.TextShadows = inherited.TextShadows;
     }
 
     private static Node BuildYogaTree(Panel panel)

@@ -6,11 +6,13 @@ public sealed partial class UiSystem
     private string? _stylePath;
     private string? _watchDirectory;
     private Dictionary<string, DateTime>? _watchSnapshot;
+    private FileSystemWatcher? _watcher;
     private string _razorClassName = "Root";
     private volatile bool _reloadRequested;
     private DateTime _reloadNotBeforeUtc;
     private DateTime _lastRazorWriteUtc;
     private DateTime _lastStyleWriteUtc;
+    private DateTime _lastPollUtc = DateTime.MinValue;
 
     private bool _styleIsScoped;
 
@@ -40,6 +42,8 @@ public sealed partial class UiSystem
         }
         _lastRazorWriteUtc = GetWriteTime(_razorPath);
         _lastStyleWriteUtc = _stylePath is null ? DateTime.MinValue : GetWriteTime(_stylePath);
+        var directory = Path.GetDirectoryName(_razorPath);
+        if (directory is not null) StartWatcher(directory, Path.GetFileName(_razorPath), includeSubdirectories: false);
     }
 
     /// <summary>Watches every .razor / .razor.css / .razor.scss file under <paramref name="directory"/>.
@@ -51,11 +55,60 @@ public sealed partial class UiSystem
         StopWatching();
         _watchDirectory = Path.GetFullPath(directory);
         _watchSnapshot = TakeDirectorySnapshot(_watchDirectory);
+        StartWatcher(_watchDirectory, "*.razor*", includeSubdirectories: true);
     }
+
+    /// <summary>
+    /// Installs a <see cref="FileSystemWatcher"/> as the primary change source.
+    /// Events are debounced in <see cref="ProcessFileReload"/>; a throttled
+    /// directory snapshot (every <see cref="PollInterval"/>) remains as a safety
+    /// net for changes the watcher misses (network drives, editors that replace
+    /// files without events, ...).
+    /// </summary>
+    private void StartWatcher(string directory, string filter, bool includeSubdirectories)
+    {
+        if (!Directory.Exists(directory)) return;
+        try
+        {
+            _watcher = new FileSystemWatcher(directory, filter)
+            {
+                IncludeSubdirectories = includeSubdirectories,
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.CreationTime
+            };
+            _watcher.Changed += OnFileSystemEvent;
+            _watcher.Created += OnFileSystemEvent;
+            _watcher.Deleted += OnFileSystemEvent;
+            _watcher.Renamed += OnFileSystemEvent;
+            _watcher.EnableRaisingEvents = true;
+        }
+        catch (Exception ex)
+        {
+            // The polling fallback keeps hot reload working if the watcher
+            // cannot be created (permissions, missing FS support).
+            Console.WriteLine($"[UI] File watcher unavailable: {ex.Message}");
+            _watcher?.Dispose();
+            _watcher = null;
+        }
+    }
+
+    private void OnFileSystemEvent(object sender, FileSystemEventArgs e)
+    {
+        _reloadRequested = true;
+        _reloadNotBeforeUtc = DateTime.UtcNow.AddMilliseconds(200);
+    }
+
+    /// <summary>How often the snapshot safety-net poll runs when a watcher is active (2 s).</summary>
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(2);
 
     public void Update(float deltaTime = 1f / 60f)
     {
-        DetectFileChanges();
+        // The FileSystemWatcher is the primary change source; the snapshot poll
+        // is only a safety net, so it runs at a fraction of the frame rate.
+        if (DateTime.UtcNow - _lastPollUtc >= PollInterval)
+        {
+            _lastPollUtc = DateTime.UtcNow;
+            DetectFileChanges();
+        }
         ProcessFileReload();
         RenderRazorIfNeeded();
         AdvanceAnimations(Screen, deltaTime);
@@ -188,6 +241,8 @@ public sealed partial class UiSystem
 
     public void StopWatching()
     {
+        _watcher?.Dispose();
+        _watcher = null;
         _razorPath = null;
         _stylePath = null;
         _watchDirectory = null;

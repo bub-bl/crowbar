@@ -58,6 +58,7 @@ public sealed unsafe class WebGpuContext : IDisposable
     private int _uiWidth;
     private int _uiHeight;
     private bool _uiTextureDirty = true;
+    private List<UiRectInt> _fullScreenDamage = [];
 
     // Offscreen 3D scene: the cube renders here instead of directly on the
     // surface, then the scene is blitted to the surface. backdrop-filter
@@ -234,11 +235,20 @@ public sealed unsafe class WebGpuContext : IDisposable
             // rasteriser. Il faut donc interroger l'état de l'UI avant Render,
             // pas uniquement Renderer.IsDirty à cet instant.
             bool uiChanged = _uiTextureDirty || Ui.IsDirty;
-            var pixels = Ui.Render();
-            if (uiChanged && pixels.Length > 0)
+            Ui.Render();
+            if (uiChanged && Ui.Renderer.PixelBuffer != 0)
             {
-                UpdateUiTexture(pixels.Span);
-                _uiTextureDirty = false;
+                // Skia's premultiplied pixels are uploaded as-is (no CPU
+                // conversion): the UI shader un-premultiplies and decodes sRGB.
+                // Only the damaged sub-rects are copied, so paint-only changes
+                // (hover, caret, animation ticks) upload a handful of small
+                // regions instead of the whole 1280x720 texture every frame.
+                var damage = _uiTextureDirty ? _fullScreenDamage : Ui.Renderer.DamageRects;
+                if (damage.Count > 0)
+                {
+                    UpdateUiTexture(Ui.Renderer.PixelBuffer, Ui.Renderer.RowBytes, damage);
+                    _uiTextureDirty = false;
+                }
             }
             Runtime.SetPipeline(surfacePass, WebGpuRenderPipeline.FromNative((nint)_uiPipeline));
             Runtime.SetBindGroup(surfacePass, WebGpuBindGroup.FromNative((nint)_uiBindGroup), 0);
@@ -900,16 +910,17 @@ public sealed unsafe class WebGpuContext : IDisposable
             Usage = TextureUsage.TextureBinding | TextureUsage.CopyDst,
             Dimension = TextureDimension.Dimension2D,
             Size = new Extent3D { Width = (uint)Math.Max(1, width), Height = (uint)Math.Max(1, height), DepthOrArrayLayers = 1 },
-            // sRGB format: Skia rasterizes sRGB-encoded bytes into the bitmap,
-            // so sampling must decode them to linear (and the sRGB surface then
-            // re-encodes). A plain Unorm format would double-encode and wash
-            // out the whole UI.
-            Format = TextureFormat.Rgba8UnormSrgb, MipLevelCount = 1, SampleCount = 1
+            // Plain unorm format: Skia's premultiplied sRGB-encoded bytes are
+            // uploaded raw, and Ui.wgsl un-premultiplies + decodes sRGB in the
+            // fragment shader. The old sRGB format made the hardware decode the
+            // premultiplied values, flattening translucent colors to near-black.
+            Format = TextureFormat.Rgba8Unorm, MipLevelCount = 1, SampleCount = 1
         };
         _uiTexture = Runtime.Api.DeviceCreateTexture(Device.UnsafeHandle, in textureDescriptor);
         _uiTextureView = Runtime.Api.TextureCreateView(_uiTexture, null);
         _uiWidth = Math.Max(1, width); _uiHeight = Math.Max(1, height);
         _uiTextureDirty = true;
+        _fullScreenDamage = [new UiRectInt(0, 0, _uiWidth, _uiHeight)];
 
         if (_uiPipeline != null) Runtime.Api.RenderPipelineRelease(_uiPipeline);
         if (_uiShader != null) Runtime.Api.ShaderModuleRelease(_uiShader);
@@ -966,39 +977,28 @@ public sealed unsafe class WebGpuContext : IDisposable
         Runtime.Api.PipelineLayoutRelease(pipelineLayout);
     }
 
-    private void UpdateUiTexture(ReadOnlySpan<byte> pixels)
+    /// <summary>
+    /// Uploads the UI texture from the Skia bitmap's native premultiplied sRGB
+    /// pixels. Only the damaged sub-rects are written: each copy uses the
+    /// bitmap's row stride as the source layout and the rect origin as the
+    /// texture offset, so paint-only changes never touch the full buffer.
+    /// The un-premultiply + sRGB decode happens in Ui.wgsl, not on the CPU.
+    /// </summary>
+    private void UpdateUiTexture(nint pixels, int rowBytes, IReadOnlyList<UiRectInt> damage)
     {
-        if (_uiTexture == null) return;
-        // Skia outputs premultiplied sRGB-space RGBA. The UI texture is an sRGB
-        // format, so the GPU decodes the premultiplied RGB to linear before
-        // blending — that turns translucent colors into near-black (a blue glow
-        // decodes to a tiny linear value and reads as an invisible darkening).
-        // Un-premultiplying the raw bytes keeps the straight sRGB color intact
-        // through the decode, so the SrcAlpha blend reproduces browser-style
-        // compositing while opaque pixels still round-trip exactly.
-        Span<byte> straight = pixels.Length <= 4096 ? stackalloc byte[pixels.Length] : new byte[pixels.Length];
-        for (int i = 0; i + 3 < pixels.Length; i += 4)
+        if (_uiTexture == null || pixels == 0) return;
+        foreach (var region in damage)
         {
-            byte a = pixels[i + 3];
-            if (a == 0 || a == 255)
-            {
-                straight[i] = pixels[i]; straight[i + 1] = pixels[i + 1];
-                straight[i + 2] = pixels[i + 2]; straight[i + 3] = a;
-            }
-            else
-            {
-                straight[i] = (byte)Math.Min(255, pixels[i] * 255 / a);
-                straight[i + 1] = (byte)Math.Min(255, pixels[i + 1] * 255 / a);
-                straight[i + 2] = (byte)Math.Min(255, pixels[i + 2] * 255 / a);
-                straight[i + 3] = a;
-            }
-        }
-        fixed (byte* data = straight)
-        {
-            var destination = new ImageCopyTexture { Texture = _uiTexture };
-            var layout = new TextureDataLayout { BytesPerRow = (uint)(_uiWidth * 4), RowsPerImage = (uint)_uiHeight };
-            var extent = new Extent3D { Width = (uint)_uiWidth, Height = (uint)_uiHeight, DepthOrArrayLayers = 1 };
-            Runtime.Api.QueueWriteTexture((Queue*)Queue.NativeHandle, in destination, data, (nuint)pixels.Length, in layout, in extent);
+            var x = Math.Max(0, region.X);
+            var y = Math.Max(0, region.Y);
+            var width = Math.Min(region.Width, _uiWidth - x);
+            var height = Math.Min(region.Height, _uiHeight - y);
+            if (width <= 0 || height <= 0) continue;
+            var source = pixels + (nint)y * rowBytes + x * 4;
+            var destination = new ImageCopyTexture { Texture = _uiTexture, Origin = new Origin3D { X = (uint)x, Y = (uint)y, Z = 0 } };
+            var layout = new TextureDataLayout { BytesPerRow = (uint)rowBytes, RowsPerImage = (uint)height };
+            var extent = new Extent3D { Width = (uint)width, Height = (uint)height, DepthOrArrayLayers = 1 };
+            Runtime.Api.QueueWriteTexture((Queue*)Queue.NativeHandle, in destination, (byte*)source, (nuint)((uint)rowBytes * (uint)height), in layout, in extent);
         }
     }
 

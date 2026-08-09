@@ -116,10 +116,59 @@ public sealed class ComputedStyle
     public TransformOrigin TransformOrigin { get; set; } = TransformOrigin.Center;
 
     /// <summary>True when the panel carries a non-identity transform.</summary>
-    public bool HasTransform => !Transform.IsNone;
+    public bool HasTransform => !Transform.IsNone && !Transform.IsIdentity;
 
     public UiColor BackgroundColor { get; set; } = UiColor.Transparent;
     public UiColor Color { get; set; } = UiColor.White;
 
     public ComputedStyle Clone() => (ComputedStyle)MemberwiseClone();
+
+    /// <summary>
+    /// The subset of properties that participate in Yoga layout. Comparing only
+    /// these lets the renderer decide whether a style change requires a full
+    /// layout pass (re-measure + reflow) or just a repaint: color, opacity,
+    /// transform, shadows, borders colors, radius, outline, z-index, scrollbar
+    /// styling and overflow are all paint-only.
+    /// </summary>
+    private static readonly string[] LayoutAffectingProperties =
+    [
+        "display", "flex-direction", "flex-wrap", "align-items", "align-content", "align-self",
+        "justify-content", "justify-items", "justify-self", "position", "direction", "box-sizing",
+        "width", "height", "min-width", "max-width", "min-height", "max-height",
+        "flex", "flex-grow", "flex-shrink", "flex-basis", "aspect-ratio",
+        "margin", "margin-top", "margin-right", "margin-bottom", "margin-left",
+        "padding", "padding-top", "padding-right", "padding-bottom", "padding-left",
+        "border", "border-width", "border-top", "border-right", "border-bottom", "border-left",
+        "border-top-width", "border-right-width", "border-bottom-width", "border-left-width",
+        "top", "right", "bottom", "left",
+        "gap", "row-gap", "column-gap",
+        "font-size", "line-height"
+    ];
+
+    /// <summary>True when every layout-affecting property matches <paramref name="other"/>.</summary>
+    public bool LayoutPropsEqual(ComputedStyle other)
+    {
+        foreach (var name in LayoutAffectingProperties)
+        {
+            if (!CssProperties.TryGet(name, out var property)) continue;
+            if (!property.ValuesEqual(property.GetValue(this), property.GetValue(other))) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// True when every inherited property matches <paramref name="other"/>. The
+    /// cascade bakes inherited values (color, opacity, text metrics, shadows)
+    /// into each child's computed style, so when an animation or transition
+    /// moves one of them on an ancestor, the descendants must be refreshed.
+    /// </summary>
+    public bool InheritedPropsEqual(ComputedStyle other)
+    {
+        foreach (var property in CssProperties.All)
+        {
+            if (!property.Inherited) continue;
+            if (!property.ValuesEqual(property.GetValue(this), property.GetValue(other))) return false;
+        }
+        return true;
+    }
 }

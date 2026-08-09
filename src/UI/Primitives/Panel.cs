@@ -33,6 +33,10 @@ public class Panel
     private bool _isEnabled = true;
     private bool _isChecked;
     internal bool LayoutDirty { get; private set; } = true;
+    /// <summary>Set when only the panel's paint changed (hover, caret, scroll, animation tick).</summary>
+    internal bool PaintDirty { get; private set; }
+    /// <summary>Set when the cascade may produce a different style (classes, inline style, pseudo-state).</summary>
+    internal bool StyleDirty { get; private set; }
 
     private readonly HashSet<string> _scopeIds = new(StringComparer.OrdinalIgnoreCase);
     public IReadOnlySet<string> ScopeIds => _scopeIds;
@@ -51,7 +55,7 @@ public class Panel
         if (_scopeIds.Add(scopeId))
         {
             Attributes[scopeId] = string.Empty;
-            Invalidate();
+            MarkStyleDirty();
         }
     }
     public bool HasScope(string scopeId) => !string.IsNullOrEmpty(scopeId) && _scopeIds.Contains(scopeId);
@@ -94,15 +98,17 @@ public class Panel
         if (Math.Abs(nextX - ScrollX) < 0.001f && Math.Abs(nextY - ScrollY) < 0.001f) return;
         ScrollX = nextX;
         ScrollY = nextY;
-        Invalidate();
+        // Scrolling only shifts the painted content; the layout boxes are
+        // unchanged, so this is a paint-only invalidation.
+        InvalidatePaint();
     }
 
     /// <summary>Scrolls by the given delta, clamped to the scrollable range.</summary>
     public void ScrollBy(float dx, float dy) => ScrollTo(ScrollX + dx, ScrollY + dy);
 
     public bool IsVisible { get; set; } = true;
-    public bool IsEnabled { get => _isEnabled; set { if (_isEnabled != value) { _isEnabled = value; Invalidate(); } } }
-    public bool IsChecked { get => _isChecked; set { if (_isChecked != value) { _isChecked = value; Invalidate(); } } }
+    public bool IsEnabled { get => _isEnabled; set { if (_isEnabled != value) { _isEnabled = value; MarkStyleDirty(); } } }
+    public bool IsChecked { get => _isChecked; set { if (_isChecked != value) { _isChecked = value; MarkStyleDirty(); } } }
     public bool IsHovered { get; private set; }
     public bool IsPressed { get; private set; }
     public bool IsFocused { get; private set; }
@@ -111,8 +117,13 @@ public class Panel
     public event Action<Panel, UiPointerEvent>? PointerDown;
     public event Action<Panel, UiPointerEvent>? PointerUp;
 
-    public void AddClass(string value) { if (_classes.Add(value)) Invalidate(); }
-    public void RemoveClass(string value) { if (_classes.Remove(value)) Invalidate(); }
+    // Class, inline-style and pseudo-state mutations feed the CSS cascade and
+    // are therefore style-dirty: the renderer re-runs the (cheap) cascade pass
+    // and only escalates to a full layout when a layout-affecting property
+    // actually changed. Structural changes (children, scope attributes) still
+    // invalidate the layout directly.
+    public void AddClass(string value) { if (_classes.Add(value)) MarkStyleDirty(); }
+    public void RemoveClass(string value) { if (_classes.Remove(value)) MarkStyleDirty(); }
     public void AddChild(Panel child)
     {
         child.Parent?._children.Remove(child);
@@ -122,8 +133,29 @@ public class Panel
     }
     public void RemoveChild(Panel child) { if (_children.Remove(child)) { child.Parent = null; Invalidate(); } }
     public void ClearChildren() { foreach (var child in _children) child.Parent = null; _children.Clear(); Invalidate(); }
-    public void SetInlineStyle(string key, string value) { InlineStyle[key] = value; Invalidate(); }
+    public void SetInlineStyle(string key, string value) { InlineStyle[key] = value; MarkStyleDirty(); }
+    /// <summary>Marks the whole subtree as needing a full layout pass (and therefore a full repaint).</summary>
     public void Invalidate() { LayoutDirty = true; Parent?.Invalidate(); }
+    /// <summary>
+    /// Marks only the panel's painted output as stale: the next render repaints
+    /// the affected region without re-running the Yoga layout. Used by caret
+    /// blinking, selection, scrolling, hover/pressed/focus state and animation
+    /// ticks that do not move boxes.
+    /// </summary>
+    public void InvalidatePaint()
+    {
+        PaintDirty = true;
+        for (var p = Parent; p is not null; p = p.Parent)
+            if (p is ScreenPanel screen) screen.AnyPaintDirty = true;
+    }
+    /// <summary>Marks the panel's cascade inputs as changed (classes, inline style, pseudo-state).</summary>
+    internal void MarkStyleDirty()
+    {
+        StyleDirty = true;
+        PaintDirty = true;
+        for (var p = Parent; p is not null; p = p.Parent)
+            if (p is ScreenPanel screen) { screen.AnyPaintDirty = true; screen.AnyStyleDirty = true; }
+    }
     internal void ApplyComputedStyle(ComputedStyle target)
     {
         if (!_hasComputedStyle)
@@ -282,10 +314,46 @@ public class Panel
         // target instead of staying at the last interpolated value.
         if (advanced)
         {
-            ComputedStyle = Compose();
-            Invalidate();
+            var previous = ComputedStyle;
+            var composed = Compose();
+            ComputedStyle = composed;
+            // Keyframe/transition ticks that only move paint (transform,
+            // opacity, color, shadows, ...) repaint the damaged region; ticks
+            // that change geometry reflow the layout.
+            if (previous.LayoutPropsEqual(composed)) InvalidatePaint();
+            else Invalidate();
+            // Inherited properties (color, opacity, text metrics, shadows) are
+            // baked into the children's computed styles during the cascade;
+            // when an animation moves one of them, the descendants hold stale
+            // values until the cheap inheritance-only refresh re-applies them.
+            if (!previous.InheritedPropsEqual(composed)) MarkInheritanceDirty();
         }
         return advanced;
+    }
+
+    /// <summary>
+    /// Restores the resting (non-inherited, non-animated) computed style. The
+    /// inheritance refresh pass calls this to clear previously baked inherited
+    /// values before re-applying them from the parent's current composed style.
+    /// The resting target is cloned (never assigned by reference): the refresh
+    /// mutates the panel's own style in place, and the clone keeps the resting
+    /// target pristine for the next refresh.
+    /// </summary>
+    internal void RestoreRestingStyle()
+    {
+        if (_styleTarget is null) return;
+        if (_animations.Count == 0 && _transitions.Count == 0) ComputedStyle = _styleTarget.Clone();
+    }
+
+    /// <summary>
+    /// Marks the tree as needing an inheritance refresh: an ancestor's
+    /// animation or transition changed an inherited property, so the
+    /// descendants' baked values from the last cascade are stale.
+    /// </summary>
+    internal void MarkInheritanceDirty()
+    {
+        for (var p = Parent; p is not null; p = p.Parent)
+            if (p is ScreenPanel screen) screen.AnyInheritedDirty = true;
     }
 
     private bool AdvanceTransitions(float deltaTime)
@@ -392,13 +460,21 @@ public class Panel
         if (IsHovered == value) return;
         IsHovered = value;
         if (value) PointerEnter?.Invoke(this); else PointerExit?.Invoke(this);
-        Invalidate();
+        // Pseudo-state feeds the cascade; the renderer re-runs it and only
+        // reflows when a layout-affecting property actually changed.
+        MarkStyleDirty();
     }
-    internal void SetPressed(bool value) { if (IsPressed != value) { IsPressed = value; Invalidate(); } }
-    internal void SetFocused(bool value) { if (IsFocused != value) { IsFocused = value; Invalidate(); } }
+    internal void SetPressed(bool value) { if (IsPressed != value) { IsPressed = value; MarkStyleDirty(); } }
+    internal void SetFocused(bool value) { if (IsFocused != value) { IsFocused = value; MarkStyleDirty(); } }
     internal void RaisePointerDown(UiPointerEvent e) => PointerDown?.Invoke(this, e);
     internal void RaisePointerUp(UiPointerEvent e) => PointerUp?.Invoke(this, e);
-    internal void ClearDirty() { LayoutDirty = false; foreach (var child in _children) child.ClearDirty(); }
+    internal void ClearDirty()
+    {
+        LayoutDirty = false;
+        PaintDirty = false;
+        StyleDirty = false;
+        foreach (var child in _children) child.ClearDirty();
+    }
 }
 
 public abstract class PanelComponent : Panel
@@ -445,8 +521,19 @@ public sealed class ScreenPanel : Panel
     public float ScreenWidth { get; private set; }
     public float ScreenHeight { get; private set; }
 
+    /// <summary>True when any panel in the tree carries a pending paint-only invalidation.</summary>
+    internal bool AnyPaintDirty { get; set; }
+    /// <summary>True when any panel in the tree carries a pending cascade (style) invalidation.</summary>
+    internal bool AnyStyleDirty { get; set; }
+    /// <summary>True when an ancestor animation/transition moved an inherited property.</summary>
+    internal bool AnyInheritedDirty { get; set; }
+
     public void SetViewport(float width, float height)
     {
+        // No-op when the size did not change: SetViewport is called on every
+        // render pass and must not re-invalidate (which would force a full
+        // layout every frame even for paint-only changes).
+        if (Math.Abs(ScreenWidth - width) < 0.001f && Math.Abs(ScreenHeight - height) < 0.001f) return;
         ScreenWidth = width; ScreenHeight = height;
         Layout = new UiRect(0, 0, width / Scale, height / Scale);
         Invalidate();

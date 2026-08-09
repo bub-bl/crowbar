@@ -14,6 +14,13 @@ public interface IUiRenderer
     UiSize Size { get; }
     ReadOnlyMemory<byte> Render(ScreenPanel root);
     bool IsDirty { get; }
+
+    /// <summary>Native pointer to the rasterized pixels (premultiplied sRGB RGBA), valid after <see cref="Render"/>.</summary>
+    nint PixelBuffer { get; }
+    /// <summary>Byte stride between rows of <see cref="PixelBuffer"/>.</summary>
+    int RowBytes { get; }
+    /// <summary>Pixel rectangles damaged by the last <see cref="Render"/> (empty when nothing was repainted).</summary>
+    IReadOnlyList<UiRectInt> DamageRects { get; }
 }
 
 /// <summary>
@@ -33,12 +40,19 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     private SKSurface? _surface;
     private byte[] _pixels = [];
     private bool _dirty = true;
+    private bool _forceFull;
+    private bool _collectBackdrops = true;
+    private bool _partialCull;
     private readonly List<BackdropRegion> _backdrops = [];
+    private readonly List<UiRectInt> _damage = [];
 
     public StyleSheet? StyleSheet { get; set; }
     public UiSize Size { get; private set; }
     public bool IsDirty => _dirty;
     public int LayoutPasses => _layout.LayoutPasses;
+    public nint PixelBuffer => _bitmap is null ? 0 : _bitmap.GetPixels();
+    public int RowBytes => _bitmap?.RowBytes ?? 0;
+    public IReadOnlyList<UiRectInt> DamageRects => _damage;
 
     /// <summary>
     /// The backdrop-filter regions collected by the last raster pass, in paint
@@ -62,33 +76,136 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             _bitmap.GetPixels(), _bitmap.RowBytes);
         _pixels = new byte[width * height * 4];
         _dirty = true;
+        _forceFull = true;
     }
 
+    /// <summary>
+    /// Rasterizes the UI into the backing bitmap. The raster is incremental:
+    /// a full layout pass (and full clear) only runs when the layout is dirty;
+    /// paint-only invalidations (hover, caret, scroll, animation ticks) repaint
+    /// just the union of the damaged panel rectangles, clipped. The damaged
+    /// rects are exposed through <see cref="DamageRects"/> so the GPU compositor
+    /// uploads only those sub-regions of the texture.
+    /// </summary>
     public ReadOnlyMemory<byte> Render(ScreenPanel root)
     {
-        if (!_dirty && _pixels.Length != 0) return _pixels;
+        if (!_dirty && _bitmap is not null && !root.AnyPaintDirty && !root.AnyStyleDirty && !root.AnyInheritedDirty && !root.LayoutDirty)
+        {
+            _damage.Clear();
+            return _pixels;
+        }
         if (_bitmap is null || _bitmap.Width != Math.Max(1, (int)Size.Width) || _bitmap.Height != Math.Max(1, (int)Size.Height)) Resize(Math.Max(1, (int)Size.Width), Math.Max(1, (int)Size.Height));
         root.SetViewport(Size.Width, Size.Height);
-        _layout.Layout(root, Size.Width / Math.Max(0.01f, root.Scale), Size.Height / Math.Max(0.01f, root.Scale), StyleSheet);
-        var canvas = _surface!.Canvas;
-        canvas.Clear(SKColors.Transparent);
+
+        // Style-only invalidations (classes, inline styles, pseudo-state) re-run
+        // the cascade; they escalate to a full layout only when a
+        // layout-affecting property actually changed somewhere. Animation ticks
+        // that moved an inherited property (color, opacity, text metrics,
+        // shadows) run the cheap inheritance-only refresh instead.
+        var needsLayout = root.LayoutDirty;
+        if (root.AnyStyleDirty)
+        {
+            if (YogaLayoutEngine.ApplyStylesTracked(root, StyleSheet)) needsLayout = true;
+            root.AnyInheritedDirty = false;
+        }
+        else if (root.AnyInheritedDirty && !needsLayout)
+        {
+            if (YogaLayoutEngine.ApplyInheritanceOnly(root)) needsLayout = true;
+            root.AnyInheritedDirty = false;
+        }
+        if (needsLayout)
+        {
+            _layout.Layout(root, Size.Width / Math.Max(0.01f, root.Scale), Size.Height / Math.Max(0.01f, root.Scale), StyleSheet);
+        }
+
+        // Collect the damaged regions and the backdrop-filter regions (mirroring
+        // DrawPanel's recursion) when we are not doing a full redraw anyway.
+        _damage.Clear();
         _backdrops.Clear();
-        DrawPanel(canvas, _surface!, root, 0, 0, root.Opacity);
+        var fullRedraw = needsLayout || _forceFull;
+        if (!fullRedraw)
+        {
+            fullRedraw = CollectDamage(root, inTransform: false, opacity: root.Opacity);
+            if (!fullRedraw && _damage.Count == 0)
+            {
+                _dirty = false;
+                root.AnyPaintDirty = false;
+                root.AnyStyleDirty = false;
+                root.AnyInheritedDirty = false;
+                root.ClearDirty();
+                return _pixels;
+            }
+            fullRedraw |= DamageTooLarge();
+        }
+        if (fullRedraw)
+        {
+            _damage.Clear();
+            _damage.Add(new UiRectInt(0, 0, Math.Max(1, (int)Size.Width), Math.Max(1, (int)Size.Height)));
+        }
+
+        var canvas = _surface!.Canvas;
+        if (fullRedraw)
+        {
+            canvas.Clear(SKColors.Transparent);
+            _backdrops.Clear();
+            _collectBackdrops = true;
+            DrawPanel(canvas, _surface!, root, 0, 0, root.Opacity);
+        }
+        else
+        {
+            // Redraw the tree clipped to each damaged rect: the previous
+            // frame's pixels outside the clip stay, and the tree repaints every
+            // pixel inside it (the root background covers the region), so the
+            // result is pixel-identical to a full render within the damage.
+            // Panels whose painted extent (box + shadows/blur/outline margins)
+            // does not touch the damage are skipped, so a neighboring panel's
+            // shadow that bleeds into the region is still redrawn correctly.
+            _collectBackdrops = false;
+            _partialCull = true;
+            try
+            {
+                foreach (var d in _damage)
+                {
+                    var rect = new SKRect(d.X, d.Y, d.X + d.Width, d.Y + d.Height);
+                    canvas.Save();
+                    canvas.ClipRect(rect);
+                    using (var clearPaint = new SKPaint { BlendMode = SKBlendMode.Src, Color = SKColors.Transparent })
+                        canvas.DrawRect(rect, clearPaint);
+                    DrawPanel(canvas, _surface!, root, 0, 0, root.Opacity);
+                    canvas.Restore();
+                }
+            }
+            finally { _partialCull = false; }
+        }
+
         _bitmap!.PeekPixels().GetPixelSpan().CopyTo(_pixels);
+        root.ClearDirty();
+        root.AnyPaintDirty = false;
+        root.AnyStyleDirty = false;
+        root.AnyInheritedDirty = false;
+        _forceFull = false;
         _dirty = false;
         return _pixels;
     }
 
-    private void DrawPanel(SKCanvas canvas, SKSurface surface, Panel panel, float ox, float oy, float opacity)
+    private void DrawPanel(SKCanvas canvas, SKSurface surface, Panel panel, float ox, float oy, float opacity, bool inTransform = false)
     {
         var rect = new SKRect(panel.Layout.X + ox, panel.Layout.Y + oy, panel.Layout.Right + ox, panel.Layout.Bottom + oy);
         var style = panel.ComputedStyle;
+        var transformed = style.HasTransform;
+        // On the partial path, skip subtrees that cannot touch the damage: their
+        // pixels are unchanged and stay in the backing bitmap. Transformed
+        // panels and panels under a transformed ancestor are always drawn
+        // (their children live in a local space whose screen bounds are not
+        // simply their layout rect, so damage culling in screen space would be
+        // wrong).
+        if (_partialCull && !inTransform && !transformed && !IntersectsAnyDamage(rect, PaintExtentMargin(style))) return;
         var alpha = (byte)Math.Clamp(style.Opacity * opacity * 255, 0, 255);
 
         // transform: paint-only (never affects layout). Transformed panels
         // bypass the backdrop-filter and filter layer paths (the transform is
         // applied around the whole paint).
-        if (style.HasTransform)
+        if (transformed)
         {
             // The matrix maps the panel's local box (0,0,w,h) onto its global
             // position, with translate/rotate/scale applied around the resolved
@@ -104,7 +221,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             SKMatrix.Concat(ref composed, canvas.TotalMatrix, matrix);
             canvas.SetMatrix(composed);
             var localRect = new SKRect(0, 0, rect.Width, rect.Height);
-            DrawPanelContent(canvas, surface, panel, localRect, alpha, -panel.Layout.X, -panel.Layout.Y, opacity);
+            DrawPanelContent(canvas, surface, panel, localRect, alpha, -panel.Layout.X, -panel.Layout.Y, opacity, inTransform: true);
             canvas.RestoreToCount(saveCount);
             return;
         }
@@ -121,9 +238,15 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         {
             if (CssFilterFunctions.IsGpuBackdropExpressible(style.BackdropFilter))
             {
-                _backdrops.Add(new BackdropRegion(
-                    rect.Left, rect.Top, rect.Width, rect.Height,
-                    style.BorderRadius, style.Opacity * opacity, style.BackgroundColor, style.BackdropFilter));
+                // On the partial path the backdrop regions are collected during
+                // the damage walk (one full-tree pass) instead of per damaged
+                // rect, so they are not duplicated.
+                if (_collectBackdrops)
+                {
+                    _backdrops.Add(new BackdropRegion(
+                        rect.Left, rect.Top, rect.Width, rect.Height,
+                        style.BorderRadius, style.Opacity * opacity, style.BackgroundColor, style.BackdropFilter));
+                }
             }
             else if (CssFilterFunctions.BuildImageFilter(style.BackdropFilter) is { } backdropFilter)
             {
@@ -146,16 +269,16 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             using var own = ownFilter;
             using var filterPaint = new SKPaint { ImageFilter = own };
             canvas.SaveLayer(filterPaint);
-            DrawPanelContent(canvas, surface, panel, rect, alpha, ox, oy, opacity);
+            DrawPanelContent(canvas, surface, panel, rect, alpha, ox, oy, opacity, inTransform);
             canvas.Restore();
         }
         else
         {
-            DrawPanelContent(canvas, surface, panel, rect, alpha, ox, oy, opacity);
+            DrawPanelContent(canvas, surface, panel, rect, alpha, ox, oy, opacity, inTransform);
         }
     }
 
-    private void DrawPanelContent(SKCanvas canvas, SKSurface surface, Panel panel, SKRect rect, byte alpha, float ox, float oy, float opacity)
+    private void DrawPanelContent(SKCanvas canvas, SKSurface surface, Panel panel, SKRect rect, byte alpha, float ox, float oy, float opacity, bool inTransform = false)
     {
         // Box shadows follow the CSS painting order: outer shadows below the
         // box's own background, inset shadows above it (and below the border),
@@ -190,10 +313,10 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 rect.Right - panel.LayoutBorder.Right,
                 rect.Bottom - panel.LayoutBorder.Bottom);
             canvas.ClipRect(clip);
-            DrawChildren(canvas, surface, panel, ox, oy, opacity);
+            DrawChildren(canvas, surface, panel, ox, oy, opacity, inTransform);
             canvas.Restore();
         }
-        else DrawChildren(canvas, surface, panel, ox, oy, opacity);
+        else DrawChildren(canvas, surface, panel, ox, oy, opacity, inTransform);
         // Scrollbars overlay the content edge and stay visible regardless of the
         // scroll position, so they are drawn after restoring the clip.
         DrawScrollBars(canvas, panel, ox, oy);
@@ -208,17 +331,17 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     /// skipped entirely when every sibling shares the default z-index (0), so
     /// the common case stays allocation-free.
     /// </summary>
-    private void DrawChildren(SKCanvas canvas, SKSurface surface, Panel panel, float ox, float oy, float opacity)
+    private void DrawChildren(SKCanvas canvas, SKSurface surface, Panel panel, float ox, float oy, float opacity, bool inTransform)
     {
         var children = panel.Children;
         if (children.Count > 1 && children.Any(child => child.ComputedStyle.ZIndex != 0))
         {
             foreach (var child in children.OrderBy(child => child.ComputedStyle.ZIndex))
-                DrawPanel(canvas, surface, child, ox - panel.ScrollX, oy - panel.ScrollY, opacity);
+                DrawPanel(canvas, surface, child, ox - panel.ScrollX, oy - panel.ScrollY, opacity, inTransform);
         }
         else
         {
-            foreach (var child in children) DrawPanel(canvas, surface, child, ox - panel.ScrollX, oy - panel.ScrollY, opacity);
+            foreach (var child in children) DrawPanel(canvas, surface, child, ox - panel.ScrollX, oy - panel.ScrollY, opacity, inTransform);
         }
     }
 
@@ -626,7 +749,157 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         return lines.Count == 0 ? [string.Empty] : lines;
     }
 
-    public void MarkDirty() => _dirty = true;
+    public void MarkDirty() { _dirty = true; _forceFull = true; }
+
+    /// <summary>
+    /// Walks the tree once to collect the damaged rectangles of every panel with
+    /// a pending paint/style invalidation, plus the GPU backdrop-filter regions
+    /// (mirroring <see cref="DrawPanel"/>'s recursion). Returns true when a full
+    /// redraw is required instead (a dirty panel lives under a transformed
+    /// ancestor, whose painted position cannot be cheaply bounded).
+    /// </summary>
+    private bool CollectDamage(Panel panel, bool inTransform, float opacity)
+    {
+        var full = false;
+        var style = panel.ComputedStyle;
+        var transformed = style.HasTransform;
+        var effectiveTransform = inTransform || transformed;
+
+        if (panel.PaintDirty || panel.StyleDirty)
+        {
+            if (inTransform)
+            {
+                // The panel is painted inside a transformed local space; its
+                // layout rect does not bound the painted pixels. Fall back to a
+                // full redraw (transformed subtrees are rare).
+                full = true;
+            }
+            else
+            {
+                var rect = new SKRect(panel.Layout.X, panel.Layout.Y, panel.Layout.Right, panel.Layout.Bottom);
+                var margin = PaintExtentMargin(style);
+                rect.Inflate(margin, margin);
+                if (transformed) rect = TransformBounds(rect, style);
+                // Scrolled containers: the content is painted shifted by the
+                // scroll offset, so the damage must cover the content extents.
+                if ((panel.ScrollX != 0 || panel.ScrollY != 0) && panel.Children.Count > 0)
+                {
+                    var content = new SKRect(float.MaxValue, float.MaxValue, float.MinValue, float.MinValue);
+                    foreach (var child in panel.Children)
+                    {
+                        content.Left = Math.Min(content.Left, child.Layout.X - panel.ScrollX);
+                        content.Top = Math.Min(content.Top, child.Layout.Y - panel.ScrollY);
+                        content.Right = Math.Max(content.Right, child.Layout.Right - panel.ScrollX);
+                        content.Bottom = Math.Max(content.Bottom, child.Layout.Bottom - panel.ScrollY);
+                    }
+                    if (content.Left <= content.Right && content.Top <= content.Bottom)
+                        rect = Union(rect, content);
+                }
+                AddDamage(rect);
+            }
+        }
+
+        // Backdrop regions mirror DrawPanel: only in the non-transform path.
+        if (!transformed && !style.BackdropFilter.IsNone && CssFilterFunctions.IsGpuBackdropExpressible(style.BackdropFilter))
+        {
+            _backdrops.Add(new BackdropRegion(
+                panel.Layout.X, panel.Layout.Y, panel.Layout.Width, panel.Layout.Height,
+                style.BorderRadius, style.Opacity * opacity, style.BackgroundColor, style.BackdropFilter));
+        }
+
+        foreach (var child in panel.Children)
+            if (CollectDamage(child, effectiveTransform, opacity)) full = true;
+        return full;
+    }
+
+    private static SKRect Union(SKRect a, SKRect b) => new(
+        Math.Min(a.Left, b.Left), Math.Min(a.Top, b.Top),
+        Math.Max(a.Right, b.Right), Math.Max(a.Bottom, b.Bottom));
+
+    /// <summary>True when the rect inflated by <paramref name="margin"/> touches any damaged region.</summary>
+    private bool IntersectsAnyDamage(SKRect rect, float margin)
+    {
+        if (margin > 0) rect.Inflate(margin, margin);
+        foreach (var d in _damage)
+        {
+            if (rect.IntersectsWith(new SKRect(d.X, d.Y, d.X + d.Width, d.Y + d.Height))) return true;
+        }
+        return false;
+    }
+
+    private void AddDamage(SKRect rect)
+    {
+        rect.Intersect(new SKRect(0, 0, Size.Width, Size.Height));
+        if (rect.IsEmpty) return;
+        var left = (int)MathF.Floor(rect.Left);
+        var top = (int)MathF.Floor(rect.Top);
+        var right = (int)MathF.Ceiling(rect.Right);
+        var bottom = (int)MathF.Ceiling(rect.Bottom);
+        _damage.Add(new UiRectInt(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top)));
+    }
+
+    /// <summary>True when the accumulated damage covers so much of the screen that a full clear + redraw is cheaper.</summary>
+    private bool DamageTooLarge()
+    {
+        if (_damage.Count > 32) return true;
+        long area = 0;
+        long total = Math.Max(1, (long)Size.Width * (long)Size.Height);
+        foreach (var d in _damage) area += (long)d.Width * d.Height;
+        return area > total / 2;
+    }
+
+    /// <summary>How far a panel's paint can extend beyond its border box (shadows, blurs, outline).</summary>
+    private static float PaintExtentMargin(ComputedStyle style)
+    {
+        var margin = 0f;
+        foreach (var shadow in style.BoxShadows)
+            margin = Math.Max(margin, Math.Abs(shadow.OffsetX) + Math.Abs(shadow.OffsetY) + shadow.BlurRadius + shadow.SpreadRadius);
+        foreach (var shadow in style.TextShadows)
+            margin = Math.Max(margin, Math.Abs(shadow.OffsetX) + Math.Abs(shadow.OffsetY) + shadow.BlurRadius);
+        margin = Math.Max(margin, FilterExtentMargin(style.Filter));
+        margin = Math.Max(margin, style.OutlineWidth + Math.Abs(style.OutlineOffset));
+        return margin;
+    }
+
+    private static float FilterExtentMargin(CssFilter filter)
+    {
+        var margin = 0f;
+        foreach (var function in filter.Functions)
+        {
+            var name = function.Name.ToLowerInvariant();
+            var p = function.Parameters;
+            if (name == "blur" && p.Count > 0)
+                margin = Math.Max(margin, p[0] * 3f);
+            else if (name == "drop-shadow")
+                margin = Math.Max(margin,
+                    (p.Count > 0 ? Math.Abs(p[0]) : 0) +
+                    (p.Count > 1 ? Math.Abs(p[1]) : 0) +
+                    (p.Count > 2 ? p[2] * 3f : 0));
+        }
+        return margin;
+    }
+
+    /// <summary>Bounding box of a panel rect mapped through its CSS transform.</summary>
+    private static SKRect TransformBounds(SKRect rect, ComputedStyle style)
+    {
+        var matrix = style.Transform.BuildMatrix(rect.Width, rect.Height, style.TransformOrigin, rect.Left, rect.Top);
+        var points = new[]
+        {
+            new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Right, rect.Top),
+            new SKPoint(rect.Right, rect.Bottom), new SKPoint(rect.Left, rect.Bottom)
+        };
+        matrix.MapPoints(points);
+        var bounds = new SKRect(points[0].X, points[0].Y, points[0].X, points[0].Y);
+        for (var i = 1; i < points.Length; i++)
+        {
+            bounds.Left = Math.Min(bounds.Left, points[i].X);
+            bounds.Top = Math.Min(bounds.Top, points[i].Y);
+            bounds.Right = Math.Max(bounds.Right, points[i].X);
+            bounds.Bottom = Math.Max(bounds.Bottom, points[i].Y);
+        }
+        return bounds;
+    }
+
     public void Dispose()
     {
         _surface?.Dispose();
