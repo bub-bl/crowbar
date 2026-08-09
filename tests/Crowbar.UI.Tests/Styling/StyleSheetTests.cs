@@ -298,6 +298,49 @@ public class StyleSheetTests
     }
 
     [Fact]
+    public void AttributeSelectorWithQuotedValueWithSpacesMatches()
+    {
+        var panel = PanelWithClass("box");
+        panel.Attributes["data-label"] = "hello world";
+        var style = Compute(".box[data-label=\"hello world\"] { width: 40px; }", panel);
+        Assert.Equal(CssLength.Points(40), style.Width);
+        Assert.Equal(CssLength.Undefined, Compute(".box[data-label=\"other\"] { width: 9px; }", panel).Width);
+    }
+
+    [Fact]
+    public void AttributePresenceSelectorMatchesScopeAttribute()
+    {
+        var panel = PanelWithClass("box");
+        panel.AddScope("b-abc");
+        Assert.True(panel.HasScope("b-abc"));
+        var style = Compute(".box[b-abc] { width: 25px; }", panel);
+        Assert.Equal(CssLength.Points(25), style.Width);
+        Assert.Equal(CssLength.Undefined, Compute(".box[b-other] { width: 9px; }", panel).Width);
+    }
+
+    [Fact]
+    public void UniversalWithClassAndMultipleClassesMatch()
+    {
+        var panel = PanelWithClass("a");
+        panel.AddClass("b");
+        var style = Compute("*.a.b { width: 30px; }", panel);
+        Assert.Equal(CssLength.Points(30), style.Width);
+        Assert.Equal(CssLength.Undefined, Compute("*.a.c { width: 9px; }", panel).Width);
+    }
+
+    [Fact]
+    public void ScopedPseudoRuleMatchesHoveredPanel()
+    {
+        var panel = PanelWithClass("btn");
+        panel.AddScope("b-abc");
+        var sheet = StyleSheet.Parse(".btn[b-abc]:hover { background-color: #00ff00; }");
+        panel.SetHovered(false);
+        Assert.Equal(new UiColor(0, 0, 0, 0), sheet.Compute(panel).BackgroundColor);
+        panel.SetHovered(true);
+        Assert.Equal(new UiColor(0, 255, 0, 255), sheet.Compute(panel).BackgroundColor);
+    }
+
+    [Fact]
     public void ParseHandlesCommentsFreeCssAndMultipleRules()
     {
         var sheet = StyleSheet.Parse(".a { width: 1px; } .b { width: 2px; }");

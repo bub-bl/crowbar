@@ -207,7 +207,13 @@ public sealed unsafe class WebGpuContext : IDisposable
             }
         };
         WebGpuRenderPassEncoder surfacePass = Runtime.BeginRenderPass(encoder, surfacePassDescription);
+        RenderPipeline* currentPipeline = null;
+        // The scene blit and the UI overlay share the UI pipeline. wgpu-native's
+        // SetPipeline is comparatively expensive (global lock + validation), so
+        // binding the same pipeline twice per frame is avoided: the command
+        // stream keeps the last bound pipeline until it changes.
         Runtime.SetPipeline(surfacePass, WebGpuRenderPipeline.FromNative((nint)_uiPipeline));
+        currentPipeline = _uiPipeline;
         Runtime.SetBindGroup(surfacePass, WebGpuBindGroup.FromNative((nint)_sceneBindGroup), 0);
         Runtime.SetVertexBuffer(surfacePass, WebGpuBuffer.FromNative((nint)_uiVertexBuffer), (ulong)(6 * 4 * sizeof(float)));
         Runtime.Draw(surfacePass, 6);
@@ -223,6 +229,7 @@ public sealed unsafe class WebGpuContext : IDisposable
         {
             UpdateBackdropParams(backdrops);
             Runtime.SetPipeline(surfacePass, WebGpuRenderPipeline.FromNative((nint)_backdropPipeline));
+            currentPipeline = _backdropPipeline;
             Runtime.SetBindGroup(surfacePass, WebGpuBindGroup.FromNative((nint)_backdropBindGroup), 0);
             Runtime.SetVertexBuffer(surfacePass, WebGpuBuffer.FromNative((nint)_uiVertexBuffer), (ulong)(6 * 4 * sizeof(float)));
             Runtime.DrawInstanced(surfacePass, 6, (uint)Math.Min(backdrops.Count, MaxBackdropRegions));
@@ -250,7 +257,12 @@ public sealed unsafe class WebGpuContext : IDisposable
                     _uiTextureDirty = false;
                 }
             }
-            Runtime.SetPipeline(surfacePass, WebGpuRenderPipeline.FromNative((nint)_uiPipeline));
+            if (currentPipeline != _uiPipeline)
+            {
+                Runtime.SetPipeline(surfacePass, WebGpuRenderPipeline.FromNative((nint)_uiPipeline));
+                currentPipeline = _uiPipeline;
+            }
+
             Runtime.SetBindGroup(surfacePass, WebGpuBindGroup.FromNative((nint)_uiBindGroup), 0);
             Runtime.SetVertexBuffer(surfacePass, WebGpuBuffer.FromNative((nint)_uiVertexBuffer), (ulong)(6 * 4 * sizeof(float)));
             Runtime.Draw(surfacePass, 6);

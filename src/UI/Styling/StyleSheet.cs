@@ -3,25 +3,33 @@ using System.Text.RegularExpressions;
 
 namespace Crowbar.UI;
 
-/// <summary>A single CSS rule: a selector, its declarations and its cascade order.</summary>
+/// <summary>
+/// A single CSS rule: a selector, its declarations and its cascade order. The
+/// selector is parsed once (lazily) into a compiled form so matching a panel
+/// never runs a regex or allocates: the cascade calls <see cref="Matches"/>
+/// for every rule on every re-cascade, and the animated demo page re-cascades
+/// subtrees every frame.
+/// </summary>
 public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, string> Properties, int Order)
 {
+    private CompiledSelector? _compiled;
+
     public bool Matches(Panel panel)
     {
-        var parts = Selector.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length == 0 || !MatchesSimple(parts[^1], panel)) return false;
+        var parts = (_compiled ??= CompiledSelector.Parse(Selector)).Parts;
+        if (parts.Length == 0 || !parts[^1].Matches(panel)) return false;
         var ancestor = panel.Parent;
         for (var i = parts.Length - 2; i >= 0; i--)
         {
-            if (parts[i] == ">")
+            if (parts[i].IsCombinator)
             {
                 i--;
-                if (i < 0 || ancestor is null || !MatchesSimple(parts[i], ancestor)) return false;
+                if (i < 0 || ancestor is null || !parts[i].Matches(ancestor)) return false;
                 ancestor = ancestor.Parent;
             }
             else
             {
-                while (ancestor is not null && !MatchesSimple(parts[i], ancestor)) ancestor = ancestor.Parent;
+                while (ancestor is not null && !parts[i].Matches(ancestor)) ancestor = ancestor.Parent;
                 if (ancestor is null) return false;
                 ancestor = ancestor.Parent;
             }
@@ -30,48 +38,180 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
         return true;
     }
 
-    private static bool MatchesSimple(string selector, Panel panel)
+    /// <summary>
+    /// A selector split on whitespace into tokens: compound selectors (with
+    /// their type/class/id/attribute/pseudo parts extracted once) and the
+    /// <c>&gt;</c> combinator. Matching is pure string comparison, no regex.
+    /// </summary>
+    private sealed class CompiledSelector
     {
-        var pseudoIndex = selector.IndexOf(':');
-        var simple = pseudoIndex >= 0 ? selector[..pseudoIndex] : selector;
-        var pseudo = pseudoIndex >= 0 ? selector[(pseudoIndex + 1)..] : string.Empty;
-        if (pseudo.Length > 0 &&
-            !pseudo.Equals("hover", StringComparison.OrdinalIgnoreCase) &&
-            !pseudo.Equals("active", StringComparison.OrdinalIgnoreCase) &&
-            !pseudo.Equals("focus", StringComparison.OrdinalIgnoreCase) &&
-            !pseudo.Equals("disabled", StringComparison.OrdinalIgnoreCase) &&
-            !pseudo.Equals("checked", StringComparison.OrdinalIgnoreCase)) return false;
-        if (pseudo.Equals("hover", StringComparison.OrdinalIgnoreCase) && !panel.IsHovered) return false;
-        if (pseudo.Equals("active", StringComparison.OrdinalIgnoreCase) && !panel.IsPressed) return false;
-        if (pseudo.Equals("focus", StringComparison.OrdinalIgnoreCase) && !panel.IsFocused) return false;
-        if (pseudo.Equals("disabled", StringComparison.OrdinalIgnoreCase) && panel.IsEnabled) return false;
-        if (pseudo.Equals("checked", StringComparison.OrdinalIgnoreCase) && !panel.IsChecked) return false;
-        if (simple == "*") return true;
-        var type = simple.StartsWith('*') ? string.Empty : Regex.Match(simple, "^[a-zA-Z][a-zA-Z0-9_-]*").Value;
-        if (!string.IsNullOrEmpty(type) && !type.Equals(panel.TagName, StringComparison.OrdinalIgnoreCase)) return false;
-        foreach (Match match in Regex.Matches(simple, "[.#]([a-zA-Z0-9_-]+)"))
+        public readonly Part[] Parts;
+
+        private CompiledSelector(Part[] parts) => Parts = parts;
+
+        public static CompiledSelector Parse(string selector)
         {
-            if (match.Value[0] == '.' && !panel.Classes.Contains(match.Groups[1].Value)) return false;
-            if (match.Value[0] == '#' && !string.Equals(panel.Id, match.Groups[1].Value, StringComparison.OrdinalIgnoreCase))
-                return false;
+            // Split on whitespace, but not inside [...] attribute selectors
+            // (a quoted value may contain spaces: [data-label="a b"]).
+            var tokens = new List<string>();
+            var depth = 0;
+            var start = 0;
+            for (var i = 0; i < selector.Length; i++)
+            {
+                var c = selector[i];
+                if (c == '[') depth++;
+                else if (c == ']') depth = Math.Max(0, depth - 1);
+                else if (depth == 0 && char.IsWhiteSpace(c))
+                {
+                    if (i > start) tokens.Add(selector[start..i]);
+                    start = i + 1;
+                }
+            }
+
+            if (start < selector.Length) tokens.Add(selector[start..]);
+            var parts = new Part[tokens.Count];
+            for (var i = 0; i < tokens.Count; i++)
+            {
+                if (tokens[i] == ">") parts[i] = Part.Combinator;
+                else parts[i] = Part.ParseCompound(tokens[i]);
+            }
+
+            return new CompiledSelector(parts);
+        }
+    }
+
+    /// <summary>
+    /// One token of a parsed selector: either the child combinator or a
+    /// compound selector whose type, classes, id, attributes and pseudo-class
+    /// were extracted once (mirroring the previous regex-based matching).
+    /// </summary>
+    private readonly struct Part
+    {
+        public static readonly Part Combinator = new(isCombinator: true);
+
+        private readonly bool _isCombinator;
+        private readonly string _type = string.Empty;
+        private readonly string _pseudo = string.Empty;
+        private readonly string[] _classes = [];
+        private readonly string _id = string.Empty;
+        private readonly (string Name, string? Value)[] _attributes = [];
+
+        public bool IsCombinator => _isCombinator;
+
+        private Part(string type, string pseudo, string[] classes, string id, (string Name, string? Value)[] attributes)
+            : this(false)
+        {
+            _type = type;
+            _pseudo = pseudo;
+            _classes = classes;
+            _id = id;
+            _attributes = attributes;
         }
 
-        foreach (Match match in Regex.Matches(simple, @"\[([a-zA-Z0-9_-]+)(?:=([^\]]+))?\]"))
+        private Part(bool isCombinator) => _isCombinator = isCombinator;
+
+        public static Part ParseCompound(string compound)
         {
-            var attrName = match.Groups[1].Value;
-            var attrVal = match.Groups[2].Success ? match.Groups[2].Value.Trim('"', '\'') : null;
-            if (attrVal is null)
+            var pseudoIndex = compound.IndexOf(':');
+            var simple = pseudoIndex >= 0 ? compound[..pseudoIndex] : compound;
+            var pseudo = pseudoIndex >= 0 ? compound[(pseudoIndex + 1)..] : string.Empty;
+
+            // Type selector: a leading run of [a-zA-Z0-9_-] starting with a letter.
+            string type = string.Empty;
+            var index = 0;
+            if (simple.Length > 0 && simple[0] != '*' && char.IsLetter(simple[0]))
             {
-                if (!panel.Attributes.ContainsKey(attrName) && !panel.HasScope(attrName)) return false;
+                var start = 0;
+                while (index < simple.Length && (char.IsLetterOrDigit(simple[index]) || simple[index] is '_' or '-')) index++;
+                type = simple[start..index];
             }
-            else
+            else if (simple.Length > 0 && simple[0] == '*')
             {
-                if (!panel.Attributes.TryGetValue(attrName, out var v) ||
-                    !string.Equals(v, attrVal, StringComparison.OrdinalIgnoreCase)) return false;
+                index = 1;
             }
+
+            var classes = new List<string>();
+            string id = string.Empty;
+            var attributes = new List<(string Name, string? Value)>();
+            while (index < simple.Length)
+            {
+                var c = simple[index];
+                if (c == '.' || c == '#')
+                {
+                    var start = ++index;
+                    while (index < simple.Length && (char.IsLetterOrDigit(simple[index]) || simple[index] is '_' or '-')) index++;
+                    if (index > start)
+                    {
+                        var name = simple[start..index];
+                        if (c == '.') classes.Add(name);
+                        else id = name;
+                    }
+                }
+                else if (c == '[')
+                {
+                    index++;
+                    var nameStart = index;
+                    while (index < simple.Length && (char.IsLetterOrDigit(simple[index]) || simple[index] is '_' or '-')) index++;
+                    var attrName = simple[nameStart..index];
+                    string? attrValue = null;
+                    if (index < simple.Length && simple[index] == '=')
+                    {
+                        index++;
+                        var valueStart = index;
+                        while (index < simple.Length && simple[index] != ']') index++;
+                        attrValue = simple[valueStart..index].Trim('"', '\'');
+                    }
+
+                    if (index < simple.Length && simple[index] == ']') index++;
+                    if (attrName.Length > 0) attributes.Add((attrName, attrValue));
+                }
+                else
+                {
+                    // Unknown character: the regex-based matcher treated it as a
+                    // separator (it simply did not match), so skip past it.
+                    index++;
+                }
+            }
+
+            return new Part(type, pseudo, classes.ToArray(), id, attributes.ToArray());
         }
 
-        return true;
+        public bool Matches(Panel panel)
+        {
+            if (IsCombinator) return false;
+            if (_pseudo.Length > 0 &&
+                !_pseudo.Equals("hover", StringComparison.OrdinalIgnoreCase) &&
+                !_pseudo.Equals("active", StringComparison.OrdinalIgnoreCase) &&
+                !_pseudo.Equals("focus", StringComparison.OrdinalIgnoreCase) &&
+                !_pseudo.Equals("disabled", StringComparison.OrdinalIgnoreCase) &&
+                !_pseudo.Equals("checked", StringComparison.OrdinalIgnoreCase)) return false;
+            if (_pseudo.Equals("hover", StringComparison.OrdinalIgnoreCase) && !panel.IsHovered) return false;
+            if (_pseudo.Equals("active", StringComparison.OrdinalIgnoreCase) && !panel.IsPressed) return false;
+            if (_pseudo.Equals("focus", StringComparison.OrdinalIgnoreCase) && !panel.IsFocused) return false;
+            if (_pseudo.Equals("disabled", StringComparison.OrdinalIgnoreCase) && panel.IsEnabled) return false;
+            if (_pseudo.Equals("checked", StringComparison.OrdinalIgnoreCase) && !panel.IsChecked) return false;
+            if (_type.Length > 0 && !_type.Equals(panel.TagName, StringComparison.OrdinalIgnoreCase)) return false;
+            foreach (var className in _classes)
+            {
+                if (!panel.Classes.Contains(className)) return false;
+            }
+
+            if (_id.Length > 0 && !string.Equals(panel.Id, _id, StringComparison.OrdinalIgnoreCase)) return false;
+            foreach (var (attrName, attrVal) in _attributes)
+            {
+                if (attrVal is null)
+                {
+                    if (!panel.Attributes.ContainsKey(attrName) && !panel.HasScope(attrName)) return false;
+                }
+                else
+                {
+                    if (!panel.Attributes.TryGetValue(attrName, out var v) ||
+                        !string.Equals(v, attrVal, StringComparison.OrdinalIgnoreCase)) return false;
+                }
+            }
+
+            return true;
+        }
     }
 }
 

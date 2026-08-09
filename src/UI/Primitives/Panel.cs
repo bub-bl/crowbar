@@ -380,7 +380,7 @@ public class Panel
             if (animation.State == AnimationState.None || animation.LastProgress < 0) continue;
             if (!Keyframes.TryGet(animation.Spec.Name, out var keyframes) || keyframes.Frames.Count == 0) continue;
             var progress = animation.State == AnimationState.Filled ? animation.FillProgress : animation.LastProgress;
-            result = Keyframes.Sample(result, keyframes, progress);
+            Keyframes.SampleInto(result, keyframes, progress);
         }
         foreach (var (name, transition) in _transitions)
         {
