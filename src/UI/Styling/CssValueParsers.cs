@@ -133,16 +133,48 @@ public static class CssValueParsers
         return float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
     }
 
-    /// <summary>Parses a duration, expressed in seconds (<c>200ms</c> or <c>0.2s</c>).</summary>
-    public static bool TryParseTime(string value, out float result)
+    /// <summary>
+    /// Parses a duration, expressed in seconds (<c>200ms</c> or <c>0.2s</c>).
+    /// Durations are clamped to zero unless <paramref name="allowNegative"/> is
+    /// set (negative delays are valid CSS).
+    /// </summary>
+    public static bool TryParseTime(string value, out float result, bool allowNegative = false)
     {
         result = 0;
         value = value.Trim().ToLowerInvariant();
         var multiplier = value.EndsWith("ms", StringComparison.Ordinal) ? 0.001f : 1f;
         value = value.TrimEnd('m', 's');
         if (!float.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds)) return false;
-        result = Math.Max(0, seconds * multiplier);
+        result = seconds * multiplier;
+        if (!allowNegative) result = Math.Max(0, result);
         return true;
+    }
+
+    /// <summary>
+    /// Parses a transform length: a px length or unitless number that may be
+    /// negative (unlike layout lengths, transform offsets are not clamped).
+    /// </summary>
+    public static bool TryParseTransformLength(string value, out float result)
+    {
+        result = 0;
+        var trimmed = value.Trim();
+        if (trimmed.EndsWith("px", StringComparison.OrdinalIgnoreCase)) trimmed = trimmed[..^2];
+        return float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
+    }
+
+    /// <summary>Parses an angle in degrees (<c>45deg</c> or a unitless number).</summary>
+    public static bool TryParseAngle(string value, out float result)
+    {
+        result = 0;
+        var trimmed = value.Trim();
+        if (trimmed.EndsWith("deg", StringComparison.OrdinalIgnoreCase)) trimmed = trimmed[..^3];
+        else if (trimmed.EndsWith("turn", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!float.TryParse(trimmed[..^4], NumberStyles.Float, CultureInfo.InvariantCulture, out var turns)) return false;
+            result = turns * 360;
+            return true;
+        }
+        return float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
     }
 
     /// <summary>
@@ -272,6 +304,35 @@ public static class CssValueParsers
     /// colors survive the tokenization.
     /// </summary>
     private static string[] TokenizeShadow(string value)
+    {
+        var tokens = new List<string>();
+        var depth = 0;
+        var start = -1;
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (c is '(' or '[') depth++;
+            else if (c is ')' or ']') depth--;
+            if (char.IsWhiteSpace(c) && depth == 0)
+            {
+                if (start >= 0)
+                {
+                    tokens.Add(value[start..i]);
+                    start = -1;
+                }
+            }
+            else if (start < 0) start = i;
+        }
+        if (start >= 0) tokens.Add(value[start..]);
+        return tokens.ToArray();
+    }
+
+    /// <summary>
+    /// Splits a value on whitespace, keeping parenthesized groups together so
+    /// function values such as <c>steps(4, end)</c> or
+    /// <c>cubic-bezier(0.1, 0.2, 0.3, 0.4)</c> survive the tokenization.
+    /// </summary>
+    public static string[] SplitWhitespaceTokens(string value)
     {
         var tokens = new List<string>();
         var depth = 0;

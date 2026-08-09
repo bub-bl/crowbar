@@ -85,6 +85,26 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var style = panel.ComputedStyle;
         var alpha = (byte)Math.Clamp(style.Opacity * opacity * 255, 0, 255);
 
+        // transform: paint-only (never affects layout). The transform origin is
+        // the box center (the CSS default), so translate/rotate/scale are
+        // applied around the center and the panel is drawn in its local
+        // coordinates. Children are drawn inside the transformed space and move
+        // with their parent. Transformed panels bypass the backdrop-filter and
+        // filter layer paths (the transform is applied around the whole paint).
+        if (style.HasTransform)
+        {
+            var saveCount = canvas.Save();
+            canvas.Translate(rect.MidX, rect.MidY);
+            canvas.Translate(style.TranslateX, style.TranslateY);
+            canvas.RotateDegrees(style.Rotate);
+            canvas.Scale(style.ScaleX, style.ScaleY);
+            canvas.Translate(-rect.Width / 2f, -rect.Height / 2f);
+            var localRect = new SKRect(0, 0, rect.Width, rect.Height);
+            DrawPanelContent(canvas, surface, panel, localRect, alpha, -rect.Left, -rect.Top, opacity);
+            canvas.RestoreToCount(saveCount);
+            return;
+        }
+
         // backdrop-filter: the backdrop itself is filtered by the GPU compositor
         // (Backdrop.wgsl) sampling the WebGPU 3D viewport, not by Skia — this is
         // what keeps the frame rate up: the CPU never sees the scene, and the UI

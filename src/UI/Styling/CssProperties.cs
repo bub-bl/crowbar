@@ -147,7 +147,7 @@ public static class CssProperties
         Register(Number("line-height", s => s.LineHeight, (s, v) => s.LineHeight = v, 0, inherited: true,
             parser: CssValueParsers.TryParseLength));
         Register(Number("transition-duration", s => s.TransitionDuration, (s, v) => s.TransitionDuration = v, 0,
-            parser: CssValueParsers.TryParseTime));
+            parser: static (string v, out float r) => CssValueParsers.TryParseTime(v, out r)));
 
         // Box model: shorthand + individual sides.
         Register(new MarginCssProperty());
@@ -215,6 +215,40 @@ public static class CssProperties
 
         // Transitions.
         Register(new TransitionCssProperty());
+        Register(Number("transition-delay", s => s.TransitionDelay, (s, v) => s.TransitionDelay = v, 0,
+            parser: static (string v, out float r) => CssValueParsers.TryParseTime(v, out r, allowNegative: true)));
+
+        // Animations: keyframes are registered in the global Keyframes registry
+        // (from @keyframes blocks or user code); these descriptors drive them.
+        Register(Text("animation-name", s => s.AnimationName, (s, v) => s.AnimationName = v, "none"));
+        Register(Number("animation-duration", s => s.AnimationDuration, (s, v) => s.AnimationDuration = v, 0,
+            parser: static (string v, out float r) => CssValueParsers.TryParseTime(v, out r)));
+        Register(Text("animation-timing-function", s => s.AnimationTimingFunction, (s, v) =>
+            s.AnimationTimingFunction = v, "ease"));
+        Register(Number("animation-iteration-count", s => s.AnimationIterationCount, (s, v) =>
+            s.AnimationIterationCount = v, 1, parser: TryParseIterationCount));
+        Register(Keyword("animation-direction", s => s.AnimationDirection, (s, v) => s.AnimationDirection = v,
+            "normal", "normal", "reverse", "alternate", "alternate-reverse"));
+        Register(Number("animation-delay", s => s.AnimationDelay, (s, v) => s.AnimationDelay = v, 0,
+            parser: static (string v, out float r) => CssValueParsers.TryParseTime(v, out r, allowNegative: true)));
+        Register(Keyword("animation-fill-mode", s => s.AnimationFillMode, (s, v) => s.AnimationFillMode = v,
+            "none", "none", "forwards", "backwards", "both"));
+        Register(Keyword("animation-play-state", s => s.AnimationPlayState, (s, v) => s.AnimationPlayState = v,
+            "running", "running", "paused"));
+        Register(new AnimationCssProperty());
+
+        // Transform: the `transform` shorthand drives five animatable
+        // components. They are paint-only (never affect layout) and shared by
+        // transitions and keyframe animations through the registry.
+        Register(Number("translate-x", s => s.TranslateX, (s, v) => s.TranslateX = v, 0, animatable: true,
+            parser: CssValueParsers.TryParseTransformLength));
+        Register(Number("translate-y", s => s.TranslateY, (s, v) => s.TranslateY = v, 0, animatable: true,
+            parser: CssValueParsers.TryParseTransformLength));
+        Register(Number("scale-x", s => s.ScaleX, (s, v) => s.ScaleX = v, 1, animatable: true));
+        Register(Number("scale-y", s => s.ScaleY, (s, v) => s.ScaleY = v, 1, animatable: true));
+        Register(Number("rotate", s => s.Rotate, (s, v) => s.Rotate = v, 0, animatable: true,
+            parser: CssValueParsers.TryParseAngle));
+        Register(new TransformCssProperty());
 
         // Filters: the effect lists are parsed and applied through the
         // CssFilterFunctions registry, which owns every filter function.
@@ -550,6 +584,17 @@ public static class CssProperties
     private static bool IsBorderStyle(string token) =>
         Array.IndexOf(BorderStyleKeywords, token.ToLowerInvariant()) >= 0;
 
+    /// <summary>Parses <c>animation-iteration-count</c>: a number or <c>infinite</c>.</summary>
+    private static bool TryParseIterationCount(string value, out float result)
+    {
+        if (value.Trim().Equals("infinite", StringComparison.OrdinalIgnoreCase))
+        {
+            result = float.PositiveInfinity;
+            return true;
+        }
+        return CssValueParsers.TryParseNumber(value, out result);
+    }
+
     /// <summary>
     /// A shadow-list property (<c>box-shadow</c>, <c>text-shadow</c>). Values are
     /// compared by content so an identical re-parse does not look like a style
@@ -612,6 +657,12 @@ public static class CssProperties
         }
     }
 
+    /// <summary>
+    /// The <c>transition</c> shorthand: <c>&lt;property&gt; &lt;duration&gt;
+    /// &lt;timing-function&gt;? &lt;delay&gt;?</c> with the timing function and
+    /// delay in either order after the duration. The property may be <c>none</c>,
+    /// <c>all</c> or a comma-separated list of names.
+    /// </summary>
     private sealed class TransitionCssProperty : CompoundCssProperty
     {
         public TransitionCssProperty() : base("transition")
@@ -620,13 +671,163 @@ public static class CssProperties
 
         public override bool TryApply(ComputedStyle style, string rawValue)
         {
-            var parts = rawValue.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            var parts = CssValueParsers.SplitWhitespaceTokens(rawValue);
             if (parts.Length == 0) return false;
             style.TransitionProperty = parts[0];
-            if (parts.Length > 1 && CssValueParsers.TryParseTime(parts[1], out var duration))
-                style.TransitionDuration = duration;
-            if (parts.Length > 2) style.TransitionTimingFunction = parts[2];
+            var sawDuration = false;
+            var sawDelay = false;
+            for (var i = 1; i < parts.Length; i++)
+            {
+                if (CssValueParsers.TryParseTime(parts[i], out var time, allowNegative: true))
+                {
+                    if (!sawDuration) { style.TransitionDuration = time; sawDuration = true; }
+                    else if (!sawDelay) { style.TransitionDelay = time; sawDelay = true; }
+                }
+                else if (TimingFunctions.IsKeyword(parts[i]))
+                {
+                    style.TransitionTimingFunction = parts[i];
+                }
+            }
             return true;
         }
     }
+
+    /// <summary>
+    /// The <c>animation</c> shorthand:
+    /// <c>&lt;name&gt; &lt;duration&gt; &lt;timing-function&gt;? &lt;delay&gt;?
+    /// &lt;iteration-count&gt;? &lt;direction&gt;? &lt;fill-mode&gt;?
+    /// &lt;play-state&gt;?</c>. The name is the token that matches no descriptor;
+    /// durations/delays must carry a time unit so bare numbers read as iteration
+    /// counts. <c>animation: none</c> clears the animation.
+    /// </summary>
+    private sealed class AnimationCssProperty : CompoundCssProperty
+    {
+        public AnimationCssProperty() : base("animation")
+        {
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            var parts = CssValueParsers.SplitWhitespaceTokens(rawValue);
+            if (parts.Length == 0) return false;
+            var name = "none";
+            var nameSet = false;
+            var duration = 0f;
+            var delay = 0f;
+            var sawDuration = false;
+            var sawDelay = false;
+            var timing = "ease";
+            var iteration = 1f;
+            var direction = "normal";
+            var fillMode = "none";
+            var playState = "running";
+
+            foreach (var part in parts)
+            {
+                var lower = part.ToLowerInvariant();
+                if (TimingFunctions.IsKeyword(part)) timing = part;
+                else if (lower is "normal" or "reverse" or "alternate" or "alternate-reverse") direction = lower;
+                else if (lower is "running" or "paused") playState = lower;
+                else if (lower is "forwards" or "backwards" or "both" || (lower == "none" && nameSet)) fillMode = lower;
+                else if (TryParseIterationCount(part, out var count)) iteration = count;
+                else if (TryParseAnimationTime(part, out var time))
+                {
+                    if (!sawDuration) { duration = time; sawDuration = true; }
+                    else if (!sawDelay) { delay = time; sawDelay = true; }
+                }
+                else if (!nameSet) { name = part; nameSet = true; }
+                // Unknown tokens are ignored, mirroring CSS.
+            }
+
+            style.AnimationName = name;
+            style.AnimationDuration = duration;
+            style.AnimationTimingFunction = timing;
+            style.AnimationIterationCount = iteration;
+            style.AnimationDirection = direction;
+            style.AnimationDelay = delay;
+            style.AnimationFillMode = fillMode;
+            style.AnimationPlayState = playState;
+            return true;
+        }
+
+        /// <summary>Times in the shorthand must carry a unit (s/ms), so iteration counts stay numeric.</summary>
+        private static bool TryParseAnimationTime(string value, out float result)
+        {
+            result = 0;
+            return value.Trim().EndsWith('s') && CssValueParsers.TryParseTime(value, out result, allowNegative: true);
+        }
+    }
+
+    /// <summary>
+    /// The <c>transform</c> shorthand: a space-separated list of
+    /// <c>translate(...)</c>/<c>translateX/Y</c>, <c>scale(...)</c> and
+    /// <c>rotate(...)</c> functions (or <c>none</c>). Functions are applied in a
+    /// fixed order (translate → rotate → scale) around the box center; the
+    /// resulting components are individually animatable.
+    /// </summary>
+    private sealed class TransformCssProperty : CompoundCssProperty
+    {
+        public TransformCssProperty() : base("transform")
+        {
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            var trimmed = rawValue.Trim();
+            if (trimmed.Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                style.TranslateX = 0;
+                style.TranslateY = 0;
+                style.ScaleX = 1;
+                style.ScaleY = 1;
+                style.Rotate = 0;
+                return true;
+            }
+
+            var applied = false;
+            foreach (var function in CssValueParsers.SplitWhitespaceTokens(trimmed))
+            {
+                var open = function.IndexOf('(');
+                if (open <= 0 || !function.EndsWith(')')) continue;
+                var fn = function[..open].Trim().ToLowerInvariant();
+                var args = function[(open + 1)..^1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                switch (fn)
+                {
+                    case "translate" when args.Length is 1 or 2 &&
+                                              CssValueParsers.TryParseTransformLength(args[0], out var tx):
+                        style.TranslateX = tx;
+                        style.TranslateY = args.Length == 2 && CssValueParsers.TryParseTransformLength(args[1], out var ty)
+                            ? ty
+                            : 0;
+                        applied = true;
+                        break;
+                    case "translatex" when args.Length == 1 &&
+                                            CssValueParsers.TryParseTransformLength(args[0], out var tx2):
+                        style.TranslateX = tx2;
+                        applied = true;
+                        break;
+                    case "translatey" when args.Length == 1 &&
+                                            CssValueParsers.TryParseTransformLength(args[0], out var ty2):
+                        style.TranslateY = ty2;
+                        applied = true;
+                        break;
+                    case "scale" when args.Length is 1 or 2 &&
+                                       CssValueParsers.TryParseNumber(args[0], out var sx):
+                        style.ScaleX = sx;
+                        style.ScaleY = args.Length == 2 && CssValueParsers.TryParseNumber(args[1], out var sy)
+                            ? sy
+                            : sx;
+                        applied = true;
+                        break;
+                    case "rotate" when args.Length == 1 && CssValueParsers.TryParseAngle(args[0], out var deg):
+                        style.Rotate = deg;
+                        applied = true;
+                        break;
+                }
+            }            return applied;
+        }
+    }
+
+
 }
+

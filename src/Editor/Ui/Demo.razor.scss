@@ -1,5 +1,31 @@
 @use 'variables' as *;
 
+// Animations custom : définies via @keyframes et pilotées par la propriété
+// `animation`. Toutes les propriétés animables (opacity, transform, couleurs,
+// bordures...) peuvent être interpolées entre les keyframes ; le timing est
+// contrôlé par animation-timing-function (ease, linear, cubic-bezier, steps).
+@keyframes title-in {
+    from {
+        opacity: 0;
+        transform: translate(0px, 14px);
+    }
+    to {
+        opacity: 1;
+        transform: translate(0px, 0px);
+    }
+}
+
+// Les transitions restent actives sur les propriétés que l'animation ne pilote
+// pas : le bouton pulse en continu tout en gardant son fade de couleur au survol.
+@keyframes action-pulse {
+    0%, 100% {
+        transform: scale(1);
+    }
+    50% {
+        transform: scale(1.04);
+    }
+}
+
 root {
     width: 1280px;
     height: 720px;
@@ -24,6 +50,8 @@ root {
 .title {
     height: 32px;
     color: $text;
+    // `both` : le titre garde son état final une fois l'animation terminée.
+    animation: title-in 0.6s ease-out both;
 }
 
 .subtitle {
@@ -58,6 +86,9 @@ root {
     vertical-align: center;
     line-height: 34px;
     transition: background-color 180ms ease;
+    // Pulse infini (alternate) : la transition de couleur au survol continue de
+    // fonctionner car elle porte sur une propriété différente de l'animation.
+    animation: action-pulse 1.2s ease-in-out infinite alternate;
 
     &:hover {
         background-color: $accent-hover;

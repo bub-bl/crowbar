@@ -91,8 +91,10 @@ public class CssPropertyRegistryTests
         ui.Render();
         Assert.Equal(new UiColor(255, 0, 0, 255), panel.ComputedStyle.BackgroundColor);
 
+        // Halfway through the transition with the CSS `ease` curve
+        // (cubic-bezier(0.25, 0.1, 0.25, 1)) the progress is ~0.803, not 0.5.
         ui.Update(0.1f);
-        Assert.Equal(new UiColor(128, 0, 128, 255), panel.ComputedStyle.BackgroundColor);
+        Assert.Equal(new UiColor(50, 0, 205, 255), panel.ComputedStyle.BackgroundColor);
 
         ui.Update(0.1f);
         Assert.Equal(new UiColor(0, 0, 255, 255), panel.ComputedStyle.BackgroundColor);

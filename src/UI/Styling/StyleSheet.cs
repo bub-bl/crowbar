@@ -94,6 +94,9 @@ public sealed class StyleSheet
     {
         var sheet = new StyleSheet();
         var order = 0;
+        if (!string.IsNullOrWhiteSpace(scopeId)) css = ScopeKeyframeNames(css, scopeId.Trim());
+        css = StripKeyframes(css, out var keyframeBlocks);
+        foreach (var (name, body) in keyframeBlocks) Keyframes.Register(ParseKeyframes(name, body));
         foreach (Match match in Regex.Matches(css, "(?s)([^{}]+)\\{([^{}]*)\\}"))
         {
             var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -113,6 +116,129 @@ public sealed class StyleSheet
         }
 
         return sheet;
+    }
+
+    /// <summary>
+    /// Removes every <c>@keyframes</c> block from the css text and returns its
+    /// (name, body) pairs. The body still contains the per-keyframe rule blocks;
+    /// brace depth is tracked so nested braces (one per keyframe) are kept
+    /// together instead of being misread as style rules.
+    /// </summary>
+    private static string StripKeyframes(string css, out List<(string Name, string Body)> keyframes)
+    {
+        keyframes = [];
+        var sb = new StringBuilder();
+        var index = 0;
+        while (index < css.Length)
+        {
+            var at = css.IndexOf("@keyframes", index, StringComparison.OrdinalIgnoreCase);
+            if (at < 0)
+            {
+                sb.Append(css, index, css.Length - index);
+                break;
+            }
+            sb.Append(css, index, at - index);
+
+            var nameStart = at + "@keyframes".Length;
+            while (nameStart < css.Length && char.IsWhiteSpace(css[nameStart])) nameStart++;
+            var nameEnd = nameStart;
+            while (nameEnd < css.Length && (char.IsLetterOrDigit(css[nameEnd]) || css[nameEnd] is '_' or '-')) nameEnd++;
+            if (nameEnd == nameStart)
+            {
+                sb.Append(css, at, "@keyframes".Length);
+                index = at + "@keyframes".Length;
+                continue;
+            }
+            var name = css[nameStart..nameEnd];
+            var brace = css.IndexOf('{', nameEnd);
+            if (brace < 0)
+            {
+                sb.Append(css, at, css.Length - at);
+                break;
+            }
+            var depth = 1;
+            var end = brace + 1;
+            for (; end < css.Length && depth > 0; end++)
+            {
+                if (css[end] == '{') depth++;
+                else if (css[end] == '}') depth--;
+            }
+            if (depth > 0)
+            {
+                // Unterminated block: keep it as-is and stop.
+                sb.Append(css, at, css.Length - at);
+                break;
+            }
+            keyframes.Add((name, css[(brace + 1)..(end - 1)]));
+            index = end;
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Renames the keyframes of a scoped stylesheet: each <c>@keyframes name</c>
+    /// definition becomes <c>&lt;scopeId&gt;-name</c> and the matching usages in
+    /// <c>animation</c>/<c>animation-name</c> declarations are rewritten, so
+    /// components never collide on keyframe names (mirroring Blazor CSS
+    /// isolation).
+    /// </summary>
+    private static string ScopeKeyframeNames(string css, string scopeId)
+    {
+        var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        css = Regex.Replace(css, "@keyframes\\s+([a-zA-Z0-9_-]+)", match =>
+        {
+            var name = match.Groups[1].Value;
+            var scoped = scopeId + "-" + name;
+            names[name] = scoped;
+            return "@keyframes " + scoped;
+        });
+        if (names.Count == 0) return css;
+        return Regex.Replace(css, "(?i)(animation(?:-name)?\\s*:\\s*)([^;\\r\\n}]+)", match =>
+        {
+            var value = match.Groups[2].Value;
+            foreach (var (raw, scoped) in names)
+            {
+                value = Regex.Replace(value, "(?<![a-zA-Z0-9_-])" + Regex.Escape(raw) + "(?![a-zA-Z0-9_-])", scoped);
+            }
+            return match.Groups[1].Value + value;
+        });
+    }
+
+    /// <summary>
+    /// Parses the body of a <c>@keyframes</c> block into an ordered keyframe
+    /// list. Comma-separated selectors (<c>0%, 100%</c>) register one keyframe
+    /// per offset, sharing the declarations.
+    /// </summary>
+    private static KeyframeList ParseKeyframes(string name, string body)
+    {
+        var frames = new List<KeyframeFrame>();
+        foreach (Match match in Regex.Matches(body, "(?s)([^{}]+)\\{([^{}]*)\\}"))
+        {
+            var declarations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var declaration in match.Groups[2].Value.Split(';'))
+            {
+                var split = declaration.Split(':', 2);
+                if (split.Length == 2) declarations[split[0].Trim()] = split[1].Trim();
+            }
+            foreach (var selector in match.Groups[1].Value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                frames.Add(new KeyframeFrame(ParseKeyframeOffset(selector), declarations));
+            }
+        }
+        return new KeyframeList(name, frames);
+    }
+
+    /// <summary>Parses a keyframe selector (<c>from</c>, <c>to</c> or a percentage) into a [0, 1] offset.</summary>
+    private static float ParseKeyframeOffset(string selector)
+    {
+        var trimmed = selector.Trim();
+        if (trimmed.Equals("from", StringComparison.OrdinalIgnoreCase)) return 0;
+        if (trimmed.Equals("to", StringComparison.OrdinalIgnoreCase)) return 1;
+        if (trimmed.EndsWith('%')) trimmed = trimmed[..^1];
+        return float.TryParse(trimmed, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture,
+            out var percent)
+            ? Math.Clamp(percent / 100f, 0f, 1f)
+            : 0;
     }
 
     public static string ScopeSelector(string selector, string scopeId)
