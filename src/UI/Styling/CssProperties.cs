@@ -194,6 +194,13 @@ public static class CssProperties
             parser: CssValueParsers.TryParseOffsetLength));
         Register(Color("outline-color", s => s.OutlineColor, (s, v) => s.OutlineColor = v, UiColor.Black));
 
+        // Shadows: box-shadow paints below the box's own background, text-shadow
+        // paints below the glyphs (and inherits like color).
+        Register(new ShadowListCssProperty<BoxShadow>("box-shadow",
+            s => s.BoxShadows, (s, v) => s.BoxShadows = v, CssValueParsers.TryParseBoxShadows, inherited: false));
+        Register(new ShadowListCssProperty<TextShadow>("text-shadow",
+            s => s.TextShadows, (s, v) => s.TextShadows = v, CssValueParsers.TryParseTextShadows, inherited: true));
+
         // Absolute positioning offsets.
         Register(Length("top", s => s.PositionTop, (s, v) => s.PositionTop = v));
         Register(Length("right", s => s.PositionRight, (s, v) => s.PositionRight = v));
@@ -542,6 +549,41 @@ public static class CssProperties
 
     private static bool IsBorderStyle(string token) =>
         Array.IndexOf(BorderStyleKeywords, token.ToLowerInvariant()) >= 0;
+
+    /// <summary>
+    /// A shadow-list property (<c>box-shadow</c>, <c>text-shadow</c>). Values are
+    /// compared by content so an identical re-parse does not look like a style
+    /// change (reference equality would flag every recompute as different).
+    /// </summary>
+    private sealed class ShadowListCssProperty<T> : CssProperty
+    {
+        private readonly Func<ComputedStyle, T[]> _getter;
+        private readonly Action<ComputedStyle, T[]> _setter;
+        private readonly TryParseHandler<T[]> _parser;
+
+        public ShadowListCssProperty(string name, Func<ComputedStyle, T[]> getter,
+            Action<ComputedStyle, T[]> setter, TryParseHandler<T[]> parser, bool inherited)
+            : base(name, inherited, animatable: false)
+        {
+            _getter = getter;
+            _setter = setter;
+            _parser = parser;
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            if (!_parser(rawValue, out var value)) return false;
+            _setter(style, value);
+            return true;
+        }
+
+        public override object? GetValue(ComputedStyle style) => _getter(style);
+        public override void SetValue(ComputedStyle style, object? value) => _setter(style, (T[])value!);
+        public override object? DefaultValue => Array.Empty<T>();
+        public override bool ValuesEqual(object? a, object? b) =>
+            a is T[] left && b is T[] right ? left.AsSpan().SequenceEqual(right) : ReferenceEquals(a, b);
+        public override object? Lerp(object? from, object? to, float t) => null;
+    }
 
     /// <summary>
     /// The <c>scrollbar-color</c> shorthand: <c>auto</c> resets to the engine

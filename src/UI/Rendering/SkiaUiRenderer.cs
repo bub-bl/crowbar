@@ -133,12 +133,17 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
 
     private void DrawPanelContent(SKCanvas canvas, SKSurface surface, Panel panel, SKRect rect, byte alpha, float ox, float oy, float opacity)
     {
+        // Box shadows follow the CSS painting order: outer shadows below the
+        // box's own background, inset shadows above it (and below the border),
+        // both following the border-box rounded shape.
+        DrawBoxShadows(canvas, panel, rect, alpha, inset: false);
         var background = panel.ComputedStyle.BackgroundColor;
         if (background.A > 0)
         {
             using var paint = new SKPaint { Color = new SKColor(background.R, background.G, background.B, (byte)(background.A * alpha / 255)), IsAntialias = true };
             canvas.DrawRoundRect(rect, panel.ComputedStyle.BorderRadius, panel.ComputedStyle.BorderRadius, paint);
         }
+        DrawBoxShadows(canvas, panel, rect, alpha, inset: true);
         // Borders paint above the background and below the content; the widths
         // come from the layout pass (they participate in the box model).
         DrawBorders(canvas, panel, rect, alpha);
@@ -218,6 +223,78 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             var thumb = ScrollBars.HorizontalThumb(panel);
             using var thumbPaint = new SKPaint { Color = thumbColor, IsAntialias = true };
             canvas.DrawRoundRect(thumb.X + ox, thumb.Y + oy, thumb.Width, thumb.Height, radius, radius, thumbPaint);
+        }
+    }
+
+    /// <summary>
+    /// Draws the CSS <c>box-shadow</c> list below the box's background. Each
+    /// shadow follows the border-box rounded shape shifted by its offset and
+    /// inflated by the spread; blur is applied as a Gaussian (sigma = blur / 2).
+    /// Inset shadows draw the translated body clipped to the border box, leaving
+    /// the inner band along the edges opposite the offset.
+    /// </summary>
+    private static void DrawBoxShadows(SKCanvas canvas, Panel panel, SKRect rect, byte alpha, bool inset)
+    {
+        var shadows = panel.ComputedStyle.BoxShadows;
+        if (shadows.Length == 0) return;
+        var radius = Math.Min(panel.ComputedStyle.BorderRadius, Math.Min(rect.Width, rect.Height) / 2f);
+        foreach (var shadow in shadows.Where(shadow => shadow.Inset == inset))
+        {
+            using var paint = new SKPaint
+            {
+                Color = new SKColor(shadow.Color.R, shadow.Color.G, shadow.Color.B, (byte)(shadow.Color.A * alpha / 255)),
+                IsAntialias = true
+            };
+            if (shadow.BlurRadius > 0)
+                // Decal (not the default Clamp) so the blur never smears edge
+                // content across the filter bounds — Clamp mirrors the shadow
+                // band to the opposite side of an inset ring.
+                paint.ImageFilter = SKImageFilter.CreateBlur(shadow.BlurRadius * 0.5f, shadow.BlurRadius * 0.5f, SKShaderTileMode.Decal, null);
+
+            var spread = shadow.SpreadRadius;
+            if (shadow.Inset)
+            {
+                canvas.Save();
+                using (var clipPath = new SKPath())
+                {
+                    clipPath.AddRoundRect(rect, radius, radius);
+                    canvas.ClipPath(clipPath);
+                }
+                // An inset shadow is the border box minus the shadow shape (the
+                // box translated by the offset and contracted by the spread).
+                // The shape is clamped to the border box so the even-odd ring
+                // stays exactly box \ shape and never fills the shape's
+                // out-of-box extension (which would blur a mirrored band on the
+                // opposite edge). Positive spread contracts the shape (the
+                // corners shrink along with it), matching the CSS spec.
+                using (var ring = new SKPath { FillType = SKPathFillType.EvenOdd })
+                {
+                    ring.AddRoundRect(rect, radius, radius);
+                    var hole = new SKRect(
+                        Math.Clamp(rect.Left + shadow.OffsetX + spread, rect.Left, rect.Right),
+                        Math.Clamp(rect.Top + shadow.OffsetY + spread, rect.Top, rect.Bottom),
+                        Math.Clamp(rect.Right + shadow.OffsetX - spread, rect.Left, rect.Right),
+                        Math.Clamp(rect.Bottom + shadow.OffsetY - spread, rect.Top, rect.Bottom));
+                    var holeRadius = Math.Max(0, radius - spread);
+                    ring.AddRoundRect(hole, holeRadius, holeRadius);
+                    canvas.DrawPath(ring, paint);
+                }
+                canvas.Restore();
+            }
+            else
+            {
+                var shadowRadius = Math.Max(0, radius + spread);
+                var shadowRect = new SKRect(
+                    rect.Left + shadow.OffsetX - spread,
+                    rect.Top + shadow.OffsetY - spread,
+                    rect.Right + shadow.OffsetX + spread,
+                    rect.Bottom + shadow.OffsetY + spread);
+                using (var path = new SKPath())
+                {
+                    path.AddRoundRect(shadowRect, shadowRadius, shadowRadius);
+                    canvas.DrawPath(path, paint);
+                }
+            }
         }
     }
 
@@ -477,6 +554,19 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 var selectionRight = x + font.MeasureText(text[..selectionEnd]);
                 using var selectionPaint = new SKPaint { Color = new SKColor(50, 120, 220, alpha), IsAntialias = true };
                 canvas.DrawRect(new SKRect(selectionLeft, y, selectionRight, y + lineHeight), selectionPaint);
+            }
+            // Text shadows paint below the glyphs (first shadow on top), offset
+            // from the text position and optionally blurred.
+            foreach (var shadow in style.TextShadows)
+            {
+                using var shadowPaint = new SKPaint
+                {
+                    Color = new SKColor(shadow.Color.R, shadow.Color.G, shadow.Color.B, (byte)(shadow.Color.A * alpha / 255)),
+                    IsAntialias = true
+                };
+                if (shadow.BlurRadius > 0)
+                    shadowPaint.ImageFilter = SKImageFilter.CreateBlur(shadow.BlurRadius * 0.5f, shadow.BlurRadius * 0.5f, SKShaderTileMode.Decal, null);
+                canvas.DrawText(line, x + shadow.OffsetX, baseline + shadow.OffsetY, SKTextAlign.Left, font, shadowPaint);
             }
             canvas.DrawText(line, x, baseline, SKTextAlign.Left, font, paint);
             y += lineHeight;

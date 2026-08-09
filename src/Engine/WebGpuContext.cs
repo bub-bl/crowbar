@@ -941,11 +941,12 @@ public sealed unsafe class WebGpuContext : IDisposable
             var wgsl = new ShaderModuleWGSLDescriptor { Code = (byte*)code }; wgsl.Chain.SType = SType.ShaderModuleWgslDescriptor;
             var shaderDescriptor = new ShaderModuleDescriptor { NextInChain = (ChainedStruct*)&wgsl };
             _uiShader = Runtime.Api.DeviceCreateShaderModule(Device.UnsafeHandle, in shaderDescriptor);
-            // The UI texture is premultiplied RGBA (Skia rasterizes with
-            // SKAlphaType.Premul) and now carries transparency (the scene is no
-            // longer baked into it), so the correct premultiplied blend is
-            // src One / dst OneMinusSrcAlpha.
-            var blend = new BlendState { Color = new BlendComponent { Operation = BlendOperation.Add, SrcFactor = BlendFactor.One, DstFactor = BlendFactor.OneMinusSrcAlpha }, Alpha = new BlendComponent { Operation = BlendOperation.Add, SrcFactor = BlendFactor.One, DstFactor = BlendFactor.OneMinusSrcAlpha } };
+            // The UI texture holds straight (un-premultiplied) sRGB RGBA —
+            // UpdateUiTexture converts Skia's premultiplied output so the sRGB
+            // decode keeps the translucent colors intact instead of flattening
+            // them to near-black. The color blend is SrcAlpha over dst, and the
+            // alpha channel blends as src over dst.
+            var blend = new BlendState { Color = new BlendComponent { Operation = BlendOperation.Add, SrcFactor = BlendFactor.SrcAlpha, DstFactor = BlendFactor.OneMinusSrcAlpha }, Alpha = new BlendComponent { Operation = BlendOperation.Add, SrcFactor = BlendFactor.One, DstFactor = BlendFactor.OneMinusSrcAlpha } };
             var target = new ColorTargetState { Format = _surfaceFormat, WriteMask = ColorWriteMask.All, Blend = &blend };
             var fragment = new FragmentState { Module = _uiShader, EntryPoint = (byte*)fragmentEntry, TargetCount = 1, Targets = &target };
             VertexAttribute* attrs = stackalloc VertexAttribute[2];
@@ -968,7 +969,31 @@ public sealed unsafe class WebGpuContext : IDisposable
     private void UpdateUiTexture(ReadOnlySpan<byte> pixels)
     {
         if (_uiTexture == null) return;
-        fixed (byte* data = pixels)
+        // Skia outputs premultiplied sRGB-space RGBA. The UI texture is an sRGB
+        // format, so the GPU decodes the premultiplied RGB to linear before
+        // blending — that turns translucent colors into near-black (a blue glow
+        // decodes to a tiny linear value and reads as an invisible darkening).
+        // Un-premultiplying the raw bytes keeps the straight sRGB color intact
+        // through the decode, so the SrcAlpha blend reproduces browser-style
+        // compositing while opaque pixels still round-trip exactly.
+        Span<byte> straight = pixels.Length <= 4096 ? stackalloc byte[pixels.Length] : new byte[pixels.Length];
+        for (int i = 0; i + 3 < pixels.Length; i += 4)
+        {
+            byte a = pixels[i + 3];
+            if (a == 0 || a == 255)
+            {
+                straight[i] = pixels[i]; straight[i + 1] = pixels[i + 1];
+                straight[i + 2] = pixels[i + 2]; straight[i + 3] = a;
+            }
+            else
+            {
+                straight[i] = (byte)Math.Min(255, pixels[i] * 255 / a);
+                straight[i + 1] = (byte)Math.Min(255, pixels[i + 1] * 255 / a);
+                straight[i + 2] = (byte)Math.Min(255, pixels[i + 2] * 255 / a);
+                straight[i + 3] = a;
+            }
+        }
+        fixed (byte* data = straight)
         {
             var destination = new ImageCopyTexture { Texture = _uiTexture };
             var layout = new TextureDataLayout { BytesPerRow = (uint)(_uiWidth * 4), RowsPerImage = (uint)_uiHeight };

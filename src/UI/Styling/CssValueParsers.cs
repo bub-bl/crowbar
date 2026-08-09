@@ -145,6 +145,156 @@ public static class CssValueParsers
         return true;
     }
 
+    /// <summary>
+    /// Parses a <c>box-shadow</c> list (<c>none</c> or comma-separated shadows).
+    /// Each shadow is <c>inset? &lt;x&gt; &lt;y&gt; &lt;blur&gt;? &lt;spread&gt;? &lt;color&gt;?</c>
+    /// with the components in any order; offsets and spread may be negative.
+    /// </summary>
+    public static bool TryParseBoxShadows(string value, out BoxShadow[] shadows)
+    {
+        shadows = [];
+        var trimmed = value.Trim();
+        if (trimmed.Equals("none", StringComparison.OrdinalIgnoreCase)) return true;
+        var parts = SplitShadowList(trimmed);
+        if (parts.Length == 0) return false;
+        var list = new List<BoxShadow>(parts.Length);
+        foreach (var part in parts)
+        {
+            if (!TryParseBoxShadow(part, out var shadow)) return false;
+            list.Add(shadow);
+        }
+        shadows = list.ToArray();
+        return true;
+    }
+
+    /// <summary>
+    /// Parses a <c>text-shadow</c> list (<c>none</c> or comma-separated shadows).
+    /// Each shadow is <c>&lt;color&gt;? &lt;x&gt; &lt;y&gt; &lt;blur&gt;?</c> with the
+    /// components in any order; offsets may be negative.
+    /// </summary>
+    public static bool TryParseTextShadows(string value, out TextShadow[] shadows)
+    {
+        shadows = [];
+        var trimmed = value.Trim();
+        if (trimmed.Equals("none", StringComparison.OrdinalIgnoreCase)) return true;
+        var parts = SplitShadowList(trimmed);
+        if (parts.Length == 0) return false;
+        var list = new List<TextShadow>(parts.Length);
+        foreach (var part in parts)
+        {
+            if (!TryParseTextShadow(part, out var shadow)) return false;
+            list.Add(shadow);
+        }
+        shadows = list.ToArray();
+        return true;
+    }
+
+    private static bool TryParseBoxShadow(string value, out BoxShadow shadow)
+    {
+        shadow = default;
+        var inset = false;
+        var lengths = new List<float>(4);
+        var color = UiColor.Black;
+        foreach (var token in TokenizeShadow(value))
+        {
+            if (token.Equals("inset", StringComparison.OrdinalIgnoreCase))
+            {
+                inset = true;
+            }
+            else if (UiColor.TryParse(token, out var parsedColor))
+            {
+                color = parsedColor;
+            }
+            else if (TryParseOffsetLength(token, out var length))
+            {
+                lengths.Add(length);
+            }
+            else return false;
+        }
+        if (lengths.Count is < 2 or > 4) return false;
+        shadow = new BoxShadow(
+            lengths[0], lengths[1],
+            lengths.Count > 2 ? Math.Max(0, lengths[2]) : 0,
+            lengths.Count > 3 ? lengths[3] : 0,
+            color, inset);
+        return true;
+    }
+
+    private static bool TryParseTextShadow(string value, out TextShadow shadow)
+    {
+        shadow = default;
+        var lengths = new List<float>(3);
+        var color = UiColor.Black;
+        foreach (var token in TokenizeShadow(value))
+        {
+            if (UiColor.TryParse(token, out var parsedColor))
+            {
+                color = parsedColor;
+            }
+            else if (TryParseOffsetLength(token, out var length))
+            {
+                lengths.Add(length);
+            }
+            else return false;
+        }
+        if (lengths.Count is < 2 or > 3) return false;
+        shadow = new TextShadow(
+            lengths[0], lengths[1],
+            lengths.Count > 2 ? Math.Max(0, lengths[2]) : 0,
+            color);
+        return true;
+    }
+
+    /// <summary>Splits a shadow list on top-level commas (ignores commas inside rgb()/hsl()/...).</summary>
+    private static string[] SplitShadowList(string value)
+    {
+        var parts = new List<string>();
+        var depth = 0;
+        var start = 0;
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (c is '(' or '[') depth++;
+            else if (c is ')' or ']') depth--;
+            else if (c == ',' && depth == 0)
+            {
+                parts.Add(value[start..i]);
+                start = i + 1;
+            }
+        }
+        parts.Add(value[start..]);
+        return parts.Where(static part => !string.IsNullOrWhiteSpace(part)).ToArray();
+    }
+
+    /// <summary>
+    /// Splits a single shadow into whitespace-separated tokens, keeping
+    /// parenthesized groups (<c>rgba(0, 0, 0, 0.5)</c>) together so function
+    /// colors survive the tokenization.
+    /// </summary>
+    private static string[] TokenizeShadow(string value)
+    {
+        var tokens = new List<string>();
+        var depth = 0;
+        var start = -1;
+        for (var i = 0; i < value.Length; i++)
+        {
+            var c = value[i];
+            if (c is '(' or '[') depth++;
+            else if (c is ')' or ']') depth--;
+            if (char.IsWhiteSpace(c) && depth == 0)
+            {
+                if (start >= 0)
+                {
+                    tokens.Add(value[start..i]);
+                    start = -1;
+                }
+            }
+            else if (start < 0) start = i;
+        }
+        if (start >= 0) tokens.Add(value[start..]);
+        return tokens.ToArray();
+    }
+
     /// <summary>Parses the 1 to 4 value box shorthand (margin/padding), lengths may be <c>auto</c>.</summary>
     public static bool TryParseLengthBox(string value, out BoxValues<CssLength> box, bool allowAuto = false)
     {

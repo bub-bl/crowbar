@@ -92,6 +92,10 @@ public sealed class ComputedStyle
     public UiColor ScrollbarTrackColor { get; set; } = new(15, 24, 40, 110);
 
     public float Opacity { get; set; } = 1;
+    /// <summary>The CSS <c>box-shadow</c> list, painted below the background (first shadow on top).</summary>
+    public BoxShadow[] BoxShadows { get; set; } = [];
+    /// <summary>The CSS <c>text-shadow</c> list, painted below the text glyphs (first shadow on top).</summary>
+    public TextShadow[] TextShadows { get; set; } = [];
     /// <summary>The CSS <c>filter</c> list applied to the panel's own rendering (background, text, children).</summary>
     public CssFilter Filter { get; set; } = CssFilter.None;
     /// <summary>The CSS <c>backdrop-filter</c> list applied to the pixels painted behind the panel.</summary>

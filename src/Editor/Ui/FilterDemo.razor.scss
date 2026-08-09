@@ -267,3 +267,48 @@ root {
     outline: 2px dotted $accent;
     outline-offset: -6px;
 }
+
+// box-shadow (drop, colored, inset) and text-shadow. The border demo above
+// ends at y ~454, so the shadow demo slots in right below it.
+.shadow-demo {
+    position: absolute;
+    left: 940px;
+    top: 408px;
+    width: 310px;
+    gap: 10px;
+}
+
+.shadow-title {
+    width: 310px;
+    height: 22px;
+    color: $text-secondary;
+    font-size: 13px;
+}
+
+.shadow-card {
+    width: 310px;
+    height: 44px;
+    border-radius: 8px;
+    background-color: $surface-raised;
+    color: $text-secondary;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 44px;
+    box-sizing: border-box;
+}
+
+.shadow-drop { box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); }
+.shadow-color { box-shadow: 0 6px 0 -2px rgba(52, 120, 212, 0.4); }
+.shadow-inset { box-shadow: inset 0 4px 10px rgba(0, 0, 0, 0.55); }
+
+.shadow-text {
+    width: 310px;
+    height: 34px;
+    color: $text;
+    font-size: 14px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 34px;
+    text-shadow: 0 2px 6px rgba(52, 120, 212, 0.8);
+}

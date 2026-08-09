@@ -55,6 +55,9 @@ public sealed class YogaLayoutEngine
             if (panel.ComputedStyle.VerticalAlign == "top") panel.ComputedStyle.VerticalAlign = inherited.VerticalAlign;
             if (Math.Abs(panel.ComputedStyle.FontSize - 16) < 0.0001f) panel.ComputedStyle.FontSize = inherited.FontSize;
             if (panel.ComputedStyle.LineHeight == 0) panel.ComputedStyle.LineHeight = inherited.LineHeight;
+            // text-shadow inherits like color: carry the parent's list down when
+            // the child did not declare one of its own.
+            if (panel.ComputedStyle.TextShadows.Length == 0) panel.ComputedStyle.TextShadows = inherited.TextShadows;
         }
         foreach (var child in panel.Children) ApplyStyles(child, sheet, panel.ComputedStyle);
     }
