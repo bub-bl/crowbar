@@ -15,7 +15,7 @@ internal static class HtmlPanelParser
     {
         root.TagName = "root";
         if (!string.IsNullOrEmpty(root.ScopeId)) root.AddScope(root.ScopeId);
-        var preservedInputs = FindInputs(root);
+        var previousTree = SnapshotTree(root);
         root.ClearChildren();
         if (string.IsNullOrWhiteSpace(markup)) return root;
         try
@@ -24,11 +24,12 @@ internal static class HtmlPanelParser
             var index = 0;
             foreach (var node in xml.Root!.Nodes())
             {
-                // Keys mirror panel positions so that preserved inputs and child
-                // components line up across renders. Whitespace-only text nodes
-                // produce no panel, so they must not consume an index.
+                // Keys mirror panel positions so that preserved inputs, child
+                // components and animation state line up across renders.
+                // Whitespace-only text nodes produce no panel, so they must not
+                // consume an index.
                 if (node is XText whitespace && string.IsNullOrWhiteSpace(whitespace.Value)) continue;
-                AddNode(root, node, root, components, $"root/{index}", preservedInputs);
+                AddNode(root, node, root, components, $"root/{index}", previousTree);
                 index++;
             }
 
@@ -40,28 +41,50 @@ internal static class HtmlPanelParser
         }
     }
 
-    private static Dictionary<string, TextInput> FindInputs(Panel root)
+    /// <summary>
+    /// Snapshots the current panel tree keyed by its positional paths — the
+    /// same keys <see cref="AddNode"/> assigns while rebuilding. A re-render
+    /// uses the snapshot to restore preserved input state and to hand the
+    /// running CSS animation/transition clocks over to the fresh panels, so a
+    /// re-render does not restart them.
+    /// </summary>
+    private static Dictionary<string, Panel> SnapshotTree(Panel root)
     {
-        var result = new Dictionary<string, TextInput>(StringComparer.Ordinal);
+        var result = new Dictionary<string, Panel>(StringComparer.Ordinal);
         Visit(root, "root", result);
         return result;
 
-        static void Visit(Panel panel, string key, Dictionary<string, TextInput> result)
+        static void Visit(Panel panel, string key, Dictionary<string, Panel> result)
         {
-            if (panel is TextInput input) result[key] = input;
+            result[key] = panel;
             for (var i = 0; i < panel.Children.Count; i++) Visit(panel.Children[i], $"{key}/{i}", result);
         }
     }
 
+    /// <summary>
+    /// Hands the running CSS animation/transition clocks of the previous panel
+    /// at <paramref name="key"/> (when it is the same kind of element) over to
+    /// <paramref name="fresh"/>. Text nodes and elements both participate; the
+    /// reference check guards fragment panels that are reused across renders
+    /// rather than rebuilt.
+    /// </summary>
+    private static void TransferAnimationState(IReadOnlyDictionary<string, Panel>? previousTree, string key, Panel fresh)
+    {
+        if (previousTree is null || !previousTree.TryGetValue(key, out var previous) || ReferenceEquals(previous, fresh)) return;
+        if (previous.GetType() != fresh.GetType()) return;
+        if (!string.Equals(previous.TagName, fresh.TagName, StringComparison.OrdinalIgnoreCase)) return;
+        fresh.CarryOverAnimationState(previous);
+    }
+
     private static void AddNode(Panel parent, XNode node, RazorPanel runtime,
         IReadOnlyDictionary<string, Func<RazorPanel>>? components, string key,
-        IReadOnlyDictionary<string, TextInput> preservedInputs)
+        IReadOnlyDictionary<string, Panel>? previousTree)
     {
         if (node is XText text)
         {
             if (FragmentMarkerRegex.IsMatch(text.Value))
             {
-                SpliceChildContent(parent, text.Value, runtime, key, preservedInputs);
+                SpliceChildContent(parent, text.Value, runtime, key, previousTree);
                 return;
             }
 
@@ -69,6 +92,7 @@ internal static class HtmlPanelParser
             {
                 var textPanel = new Panel { TagName = "text", Text = text.Value };
                 if (!string.IsNullOrEmpty(runtime.ScopeId)) textPanel.AddScope(runtime.ScopeId);
+                TransferAnimationState(previousTree, key, textPanel);
                 parent.AddChild(textPanel);
             }
 
@@ -158,6 +182,10 @@ internal static class HtmlPanelParser
         };
         panel.TagName = element.Name.LocalName;
         if (!string.IsNullOrEmpty(runtime.ScopeId)) panel.AddScope(runtime.ScopeId);
+        // The panel tree is rebuilt on every render: keep the running CSS
+        // animations/transitions of the panel that was here before, so a
+        // re-render does not restart them.
+        TransferAnimationState(previousTree, key, panel);
         string? click = null, change = null, bind = null;
         string? declaredValue = null;
         foreach (var attribute in element.Attributes())
@@ -187,16 +215,16 @@ internal static class HtmlPanelParser
         foreach (var child in element.Nodes())
         {
             if (child is XText whitespace && string.IsNullOrWhiteSpace(whitespace.Value)) continue;
-            AddNode(panel, child, runtime, components, $"{key}/{childIndex}", preservedInputs);
+            AddNode(panel, child, runtime, components, $"{key}/{childIndex}", previousTree);
             childIndex++;
         }
 
         if (panel is TextInput inputValue)
         {
-            if (preservedInputs.TryGetValue(key, out var previous))
+            if (previousTree is not null && previousTree.TryGetValue(key, out var previous) && previous is TextInput preserved)
             {
-                inputValue.SetValue(previous.Value, previous.CaretIndex);
-                inputValue.CopyInteractionStateFrom(previous);
+                inputValue.SetValue(preserved.Value, preserved.CaretIndex);
+                inputValue.CopyInteractionStateFrom(preserved);
             }
             else inputValue.SetValue(declaredValue ?? string.Empty);
         }
@@ -229,7 +257,7 @@ internal static class HtmlPanelParser
     /// parent's capture pass, so they are restored here instead).
     /// </summary>
     private static void SpliceChildContent(Panel parent, string content, RazorPanel runtime, string key,
-        IReadOnlyDictionary<string, TextInput> preservedInputs)
+        IReadOnlyDictionary<string, Panel>? previousTree)
     {
         var lastSlash = key.LastIndexOf('/');
         var parentKey = lastSlash > 0 ? key[..lastSlash] : key;
@@ -246,7 +274,13 @@ internal static class HtmlPanelParser
             {
                 foreach (var panel in panels)
                 {
-                    RestorePreservedInputs(panel, $"{parentKey}/{insertIndex}", preservedInputs);
+                    var panelKey = $"{parentKey}/{insertIndex}";
+                    RestorePreservedInputs(panel, panelKey, previousTree);
+                    // A fragment whose markup changed was rebuilt with fresh
+                    // panels: carry their animation clocks over from the panel
+                    // that occupied the spot before. Unchanged fragments reuse
+                    // the same instances, which the reference check skips.
+                    TransferAnimationState(previousTree, panelKey, panel);
                     parent.AddChild(panel);
                     insertIndex++;
                 }
@@ -273,22 +307,25 @@ internal static class HtmlPanelParser
     {
         if (nodes.Count == 0) return null;
         var container = new Panel();
-        var emptyPreserved = new Dictionary<string, TextInput>(StringComparer.Ordinal);
+        // Fragment keys are local to the fragment capture and never match the
+        // previous tree's positional paths; state is handed over at splice time
+        // (see SpliceChildContent), so no snapshot is needed here.
         for (var i = 0; i < nodes.Count; i++)
-            AddNode(container, nodes[i], runtime, components, $"{key}/fragment/{name}/{i}", emptyPreserved);
+            AddNode(container, nodes[i], runtime, components, $"{key}/fragment/{name}/{i}", previousTree: null);
         return [.. container.Children];
     }
 
     private static void RestorePreservedInputs(Panel panel, string key,
-        IReadOnlyDictionary<string, TextInput> preservedInputs)
+        IReadOnlyDictionary<string, Panel>? previousTree)
     {
-        if (panel is TextInput input && preservedInputs.TryGetValue(key, out var previous))
+        if (panel is TextInput input && previousTree is not null &&
+            previousTree.TryGetValue(key, out var previous) && previous is TextInput previousInput)
         {
-            input.SetValue(previous.Value, previous.CaretIndex);
-            input.CopyInteractionStateFrom(previous);
+            input.SetValue(previousInput.Value, previousInput.CaretIndex);
+            input.CopyInteractionStateFrom(previousInput);
         }
 
         for (var i = 0; i < panel.Children.Count; i++)
-            RestorePreservedInputs(panel.Children[i], $"{key}/{i}", preservedInputs);
+            RestorePreservedInputs(panel.Children[i], $"{key}/{i}", previousTree);
     }
 }

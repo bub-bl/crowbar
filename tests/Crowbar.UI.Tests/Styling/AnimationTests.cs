@@ -874,6 +874,90 @@ public class AnimationTests
         Assert.Equal(new UiColor(0, 0, 255, 255), panel.ComputedStyle.BackgroundColor);
     }
 
+    // ---- re-render continuity ----------------------------------------------
+
+    [Fact]
+    public void RazorReRenderDoesNotRestartRunningAnimations()
+    {
+        Keyframes.Clear();
+        Keyframes.Define("fade-keep",
+            KeyframeFrame.At(0f, ("opacity", "0")),
+            KeyframeFrame.At(1f, ("opacity", "1")));
+        using var ui = TestUi.Create();
+        ui.LoadRazor("""
+            <div class="box"></div>
+            <button @onclick="Increment">@count</button>
+            @code {
+                private int count;
+                private void Increment() { count++; StateHasChanged(); }
+            }
+            """, "AnimKeep");
+        ui.LoadStyles(".box { animation: fade-keep 1s linear; }");
+        ui.Render();
+
+        var box = TestUi.Find(ui.Screen, p => p.Classes.Contains("box"));
+        Assert.NotNull(box);
+        Assert.Equal(0f, box!.ComputedStyle.Opacity, 3);
+
+        ui.Update(0.5f);
+        Assert.Equal(0.5f, box.ComputedStyle.Opacity, 3);
+
+        // A Razor re-render rebuilds the panel tree; the running animation
+        // must not restart from the first keyframe.
+        var button = TestUi.Find(ui.Screen, p => p is Button);
+        ui.ProcessPointerDown(button!.Layout.X + 1, button.Layout.Y + 1);
+        ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
+        ui.Update(); // StateHasChanged → re-render, then the clock ticks on
+        ui.Render();
+
+        var rerendered = TestUi.Find(ui.Screen, p => p.Classes.Contains("box"));
+        Assert.NotNull(rerendered);
+        Assert.NotSame(box, rerendered); // the tree was rebuilt, not patched
+        // Still ~halfway through the animation instead of back at 0.
+        Assert.InRange(rerendered!.ComputedStyle.Opacity, 0.4f, 0.6f);
+    }
+
+    [Fact]
+    public void RazorReRenderDoesNotRestartRunningTransitions()
+    {
+        using var ui = TestUi.Create();
+        ui.LoadRazor("""
+            <div class="box" style="opacity: @(faded ? 0 : 1)"></div>
+            <button @onclick="Toggle">@count</button>
+            @code {
+                private int count;
+                private bool faded;
+                private void Toggle() { faded = !faded; count++; StateHasChanged(); }
+            }
+            """, "TransitionKeep");
+        ui.LoadStyles(".box { transition: opacity 0.2s linear; }");
+        ui.Render();
+
+        var box = TestUi.Find(ui.Screen, p => p.Classes.Contains("box"));
+        Assert.Equal(1f, box!.ComputedStyle.Opacity, 3);
+
+        // Click once: the markup now declares opacity 0, so the re-render must
+        // start a transition from the current value instead of snapping.
+        var button = TestUi.Find(ui.Screen, p => p is Button);
+        ui.ProcessPointerDown(button!.Layout.X + 1, button.Layout.Y + 1);
+        ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
+        ui.Update(0); // re-render: rebuilds the tree, no tick yet
+        ui.Render(); // cascade starts the transition from the visible value
+
+        var rerendered = TestUi.Find(ui.Screen, p => p.Classes.Contains("box"));
+        Assert.NotNull(rerendered);
+        Assert.NotSame(box, rerendered);
+        Assert.Equal(1f, rerendered!.ComputedStyle.Opacity, 3); // t = 0: still at the start value
+
+        // The transition runs on the rebuilt panel: halfway after 0.1s.
+        ui.Update(0.1f);
+        Assert.Equal(0.5f, rerendered.ComputedStyle.Opacity, 3);
+        ui.Update(0.05f);
+        Assert.Equal(0.25f, rerendered.ComputedStyle.Opacity, 3);
+        ui.Update(0.2f);
+        Assert.Equal(0f, rerendered.ComputedStyle.Opacity, 3); // done → target
+    }
+
     // ---- timing functions ---------------------------------------------------
 
     [Fact]

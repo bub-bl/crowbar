@@ -195,6 +195,34 @@ public class Panel
     }
 
     /// <summary>
+    /// Carries the running animation/transition clocks and the last composed
+    /// style over from a previous panel instance that occupied the same
+    /// position. Razor re-renders rebuild the panel tree (see
+    /// <see cref="HtmlPanelParser"/>), so without this hand-off every re-render
+    /// would restart CSS animations and transitions from scratch. The resting
+    /// style target is kept so the next cascade reconciles the clocks against
+    /// the freshly computed style instead of restarting them, and a style
+    /// change introduced by the re-render still starts a transition from the
+    /// currently visible value.
+    /// </summary>
+    internal void CarryOverAnimationState(Panel previous)
+    {
+        if (!previous._hasComputedStyle) return;
+        _animations.AddRange(previous._animations);
+        previous._animations.Clear();
+        foreach (var (name, transition) in previous._transitions) _transitions[name] = transition;
+        previous._transitions.Clear();
+        _styleTarget = previous._styleTarget;
+        _animationBase = previous._animationBase;
+        _hasComputedStyle = true;
+        // The composed style is only worth carrying while something is
+        // animating: a plain panel gets its style from the cascade anyway, and
+        // the clone keeps this panel's inherited-value application from
+        // mutating the (discarded) previous panel's style.
+        if (_animations.Count > 0 || _transitions.Count > 0) ComputedStyle = previous.ComputedStyle.Clone();
+    }
+
+    /// <summary>
     /// Reconciles the running animation list with <paramref name="target"/>'s
     /// animation specs: entries whose config (excluding play-state) is unchanged
     /// keep their clock and state, changed or new entries restart, dropped
