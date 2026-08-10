@@ -164,8 +164,10 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     /// <summary>
     /// Rasterizes the UI into the backing bitmap. The raster is incremental:
     /// a full layout pass (and full clear) only runs when the layout is dirty;
-    /// paint-only invalidations (hover, caret, scroll, animation ticks) repaint
-    /// just the union of the damaged panel rectangles, clipped. The damaged
+    /// ordinary paint-only invalidations (hover, caret, scroll) repaint just the
+    /// union of the damaged panel rectangles, clipped. Dynamic animations and
+    /// transitions intentionally escalate to a full repaint because their
+    /// previous paint extent is not available to a safe partial clear. The damaged
     /// rects are exposed through <see cref="DamageRects"/> so the GPU compositor
     /// uploads only those sub-regions of the texture.
     /// </summary>
@@ -922,8 +924,8 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     /// Walks the tree once to collect the damaged rectangles of every panel with
     /// a pending paint/style invalidation, plus the GPU backdrop-filter regions
     /// (mirroring <see cref="DrawPanel"/>'s recursion). Returns true when a full
-    /// redraw is required instead (a dirty panel lives under a transformed
-    /// ancestor, whose painted position cannot be cheaply bounded).
+    /// redraw is required instead (a dirty panel is dynamic or lives under a
+    /// transformed ancestor whose painted position cannot be cheaply bounded).
     /// </summary>
     private bool CollectDamage(Panel panel, bool inTransform, float opacity)
     {
@@ -931,14 +933,20 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var style = panel.ComputedStyle;
         var transformed = style.HasTransform;
         var effectiveTransform = inTransform || transformed;
+        // An animation or transition can paint outside both the previous and
+        // current layout boxes (transform, shadow, blur, outline, text-shadow).
+        // The renderer does not retain the previous composed style here, so a
+        // partial clear cannot safely remove the old frame. Prefer a coherent
+        // full redraw for dynamic panels; this is correctness-critical for the
+        // demo's continuously animated title, subtitle and action buttons.
+        var hasDynamicPaint = style.Animations.Any(animation => animation.HasAnimation)
+            || style.Transitions.Any(transition => transition.Duration > 0
+                && !transition.Property.Equals("none", StringComparison.OrdinalIgnoreCase));
 
         if (panel.PaintDirty || panel.StyleDirty)
         {
-            if (inTransform)
+            if (inTransform || hasDynamicPaint)
             {
-                // The panel is painted inside a transformed local space; its
-                // layout rect does not bound the painted pixels. Fall back to a
-                // full redraw (transformed subtrees are rare).
                 full = true;
             }
             else

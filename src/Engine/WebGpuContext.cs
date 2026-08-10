@@ -232,6 +232,34 @@ public sealed unsafe class WebGpuContext : IDisposable
         Runtime.Draw(scenePass, CubeVertexCount);
         Runtime.EndRenderPass(scenePass);
 
+        // Rasterize and upload the UI before reading any GPU-composited regions.
+        // The renderer recalculates fills, backdrops and decorations while it
+        // renders. Reading those lists before Ui.Render() made the compositor
+        // use the previous frame's geometry, while the texture already contained
+        // the current frame. That one-frame skew is especially visible when an
+        // animation changes transform, hover shadows or fill delegation: stale
+        // quads then expose/cover the wrong pixels and look like ghosted edges.
+        bool uiChanged = false;
+        if (Ui is not null)
+        {
+            uiChanged = _uiTextureDirty || Ui.IsDirty;
+            Ui.Render();
+            if (uiChanged && Ui.Renderer.PixelBuffer != 0)
+            {
+                // Skia's premultiplied pixels are uploaded as-is (no CPU
+                // conversion): the UI shader un-premultiplies and decodes sRGB.
+                // Only the damaged sub-rects are copied, so paint-only changes
+                // (hover, caret, animation ticks) upload a handful of small
+                // regions instead of the whole 1280x720 texture.
+                var damage = _uiTextureDirty ? _fullScreenDamage : Ui.Renderer.DamageRects;
+                if (damage.Count > 0)
+                {
+                    UpdateUiTexture(Ui.Renderer.PixelBuffer, Ui.Renderer.RowBytes, damage);
+                    _uiTextureDirty = false;
+                }
+            }
+        }
+
         // Pass 2: composite the scene, the backdrop-filter regions and the UI
         // onto the surface. The scene blit reuses the UI pipeline (opaque
         // texture, so the alpha blend is a plain overwrite); the backdrop
@@ -308,26 +336,6 @@ public sealed unsafe class WebGpuContext : IDisposable
 
         if (Ui is not null && _uiPipeline != null && _uiBindGroup != null)
         {
-            // Ui.Render() peut découvrir une invalidation de layout/style (par
-            // exemple :hover) et marquer le renderer dirty juste avant de
-            // rasteriser. Il faut donc interroger l'état de l'UI avant Render,
-            // pas uniquement Renderer.IsDirty à cet instant.
-            bool uiChanged = _uiTextureDirty || Ui.IsDirty;
-            Ui.Render();
-            if (uiChanged && Ui.Renderer.PixelBuffer != 0)
-            {
-                // Skia's premultiplied pixels are uploaded as-is (no CPU
-                // conversion): the UI shader un-premultiplies and decodes sRGB.
-                // Only the damaged sub-rects are copied, so paint-only changes
-                // (hover, caret, animation ticks) upload a handful of small
-                // regions instead of the whole 1280x720 texture every frame.
-                var damage = _uiTextureDirty ? _fullScreenDamage : Ui.Renderer.DamageRects;
-                if (damage.Count > 0)
-                {
-                    UpdateUiTexture(Ui.Renderer.PixelBuffer, Ui.Renderer.RowBytes, damage);
-                    _uiTextureDirty = false;
-                }
-            }
             if (currentPipeline != _uiPipeline)
             {
                 Runtime.SetPipeline(surfacePass, WebGpuRenderPipeline.FromNative((nint)_uiPipeline));
