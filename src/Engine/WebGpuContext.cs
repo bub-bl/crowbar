@@ -42,8 +42,8 @@ public sealed unsafe class WebGpuContext : IDisposable
     private float _cameraYaw = -MathF.PI / 4f;
     private float _cameraPitch = -0.42f;
     private bool _mouseLookActive;
-    private int _mouseCenterX;
-    private int _mouseCenterY;
+    private int _lastMouseX;
+    private int _lastMouseY;
     private bool _hasPresentedFrame;
     private bool _disposed;
     public UiSystem? Ui { get; set; }
@@ -1059,6 +1059,12 @@ public sealed unsafe class WebGpuContext : IDisposable
             (nuint)sizeof(CameraUniforms));
     }
 
+    /// <summary>
+    /// Updates the camera from the real cursor movement while the right button
+    /// is held. The cursor remains visible and follows the user's movement;
+    /// unlike an FPS-style mouse-look implementation, it is never warped back
+    /// to the center of the window.
+    /// </summary>
     private void UpdateMouseLook()
     {
         if (!IsKeyDown(0x02)) // VK_RBUTTON
@@ -1067,35 +1073,23 @@ public sealed unsafe class WebGpuContext : IDisposable
             return;
         }
 
+        if (!GetCursorPos(out Point cursor))
+            return;
+
         if (!_mouseLookActive)
         {
-            CenterCursor();
+            _lastMouseX = cursor.X;
+            _lastMouseY = cursor.Y;
             _mouseLookActive = true;
             return;
         }
 
-        if (!GetCursorPos(out Point cursor))
-            return;
-
-        float deltaX = cursor.X - _mouseCenterX;
-        float deltaY = cursor.Y - _mouseCenterY;
-        CenterCursor();
+        float deltaX = cursor.X - _lastMouseX;
+        float deltaY = cursor.Y - _lastMouseY;
+        _lastMouseX = cursor.X;
+        _lastMouseY = cursor.Y;
         _cameraYaw += deltaX * 0.003f;
         _cameraPitch = Math.Clamp(_cameraPitch - deltaY * 0.003f, -1.45f, 1.45f);
-    }
-
-    private void CenterCursor()
-    {
-        if (!GetClientRect(_windowHandle, out Rect client))
-            return;
-
-        Point center = new((client.Left + client.Right) / 2, (client.Top + client.Bottom) / 2);
-        if (!ClientToScreen(_windowHandle, ref center))
-            return;
-
-        _mouseCenterX = center.X;
-        _mouseCenterY = center.Y;
-        SetCursorPos(_mouseCenterX, _mouseCenterY);
     }
 
     private static bool IsKeyDown(int key) => (GetAsyncKeyState(key) & 0x8000) != 0;
@@ -1111,20 +1105,8 @@ public sealed unsafe class WebGpuContext : IDisposable
     [DllImport("user32.dll")]
     private static extern bool GetCursorPos(out Point point);
 
-    [DllImport("user32.dll")]
-    private static extern bool SetCursorPos(int x, int y);
-
-    [DllImport("user32.dll")]
-    private static extern bool GetClientRect(nint window, out Rect rect);
-
-    [DllImport("user32.dll")]
-    private static extern bool ClientToScreen(nint window, ref Point point);
-
     [StructLayout(LayoutKind.Sequential)]
     private struct Point { public int X, Y; public Point(int x, int y) => (X, Y) = (x, y); }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Rect { public int Left, Top, Right, Bottom; }
 
     private void CreateCameraResources()
     {
