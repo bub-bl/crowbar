@@ -519,6 +519,10 @@ public sealed class MediaQuery
 public sealed class StyleSheet
 {
     private readonly List<StyleRule> _rules = [];
+    // The combined sheet may contain rules from several source sheets whose
+    // order values overlap. Sort that merged list once, not once per panel on
+    // every cascade.
+    private StyleRule[]? _orderedRules;
     // Pre-filtered pseudo-element rule lists: the cascade synthesizes
     // ::before/::after content per panel, so iterating only the rules that
     // actually target the pseudo element (instead of re-matching every rule)
@@ -538,6 +542,7 @@ public sealed class StyleSheet
     private void AddRule(StyleRule rule)
     {
         _rules.Add(rule);
+        _orderedRules = null;
         var pseudo = rule.PseudoElement;
         if (pseudo.Length == 0) return;
         if (pseudo.Equals("before", StringComparison.OrdinalIgnoreCase)) _beforeRules.Add(rule);
@@ -547,6 +552,7 @@ public sealed class StyleSheet
     public void Clear()
     {
         _rules.Clear();
+        _orderedRules = null;
         _beforeRules.Clear();
         _afterRules.Clear();
     }
@@ -842,9 +848,14 @@ public sealed class StyleSheet
     {
         var style = new ComputedStyle();
         var mediaEnabled = !_viewportSet;
-        foreach (var rule in _rules.Where(r => r.Matches(panel) && (mediaEnabled || r.Media?.Matches(_viewportWidth, _viewportHeight) != false))
-                     .OrderBy(r => r.Order))
+        var orderedRules = _orderedRules ??= _rules.OrderBy(rule => rule.Order).ToArray();
+        for (var i = 0; i < orderedRules.Length; i++)
+        {
+            var rule = orderedRules[i];
+            if (!rule.Matches(panel)) continue;
+            if (!mediaEnabled && rule.Media?.Matches(_viewportWidth, _viewportHeight) == false) continue;
             Apply(style, rule.Properties);
+        }
         Apply(style, panel.InlineStyle);
         return style;
     }
