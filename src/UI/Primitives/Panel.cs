@@ -66,6 +66,18 @@ public class Panel
     /// instead of Skia (see <see cref="SkiaUiRenderer.CollectDecorations"/>).
     /// </summary>
     internal byte GpuDecorationFlags;
+    /// <summary>
+    /// Screen-space bounds of the panel's whole painted subtree (own border box
+    /// inflated by the paint-extent margin, unioned with every descendant),
+    /// computed by the renderer on each partial redraw (see
+    /// <see cref="SkiaUiRenderer.ComputeSubtreePaintBounds"/>). The
+    /// partial-raster cull uses it so a panel whose own box misses the damage
+    /// is still redrawn when its children overflow it — otherwise those
+    /// children are erased on the next paint-only redraw.
+    /// </summary>
+    internal UiRect SubtreePaintBounds;
+    /// <summary>True when the panel or any descendant has a CSS transform; such subtrees are never culled.</summary>
+    internal bool SubtreeHasTransform;
     public ComputedStyle ComputedStyle { get; internal set; } = new();
     public UiRect Layout { get; internal set; }
     /// <summary>Horizontal scroll offset of the content box, in layout units.</summary>

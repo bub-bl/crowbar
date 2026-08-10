@@ -225,6 +225,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 return _pixels;
             }
             fullRedraw |= DamageTooLarge();
+            if (!fullRedraw) ComputeSubtreePaintBounds(root, inTransform: false);
         }
         if (fullRedraw)
         {
@@ -283,12 +284,18 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var style = panel.ComputedStyle;
         var transformed = style.HasTransform;
         // On the partial path, skip subtrees that cannot touch the damage: their
-        // pixels are unchanged and stay in the backing bitmap. Transformed
+        // pixels are unchanged and stay in the backing bitmap. The cull uses the
+        // whole-subtree paint bounds (own box + shadows/blurs/outline unioned
+        // with every descendant — see ComputeSubtreePaintBounds), because a
+        // panel whose own box misses the damage can still have children that
+        // overflow it (e.g. absolutely-positioned cards hanging below their
+        // container), and culling the parent would erase them. Transformed
         // panels and panels under a transformed ancestor are always drawn
         // (their children live in a local space whose screen bounds are not
         // simply their layout rect, so damage culling in screen space would be
         // wrong).
-        if (_partialCull && !inTransform && !transformed && !IntersectsAnyDamage(rect, PaintExtentMargin(style))) return;
+        if (_partialCull && !inTransform && !transformed && !panel.SubtreeHasTransform &&
+            !IntersectsAnyDamage(SubtreeRect(panel, ox, oy), 0)) return;
         var alpha = (byte)Math.Clamp(style.Opacity * opacity * 255, 0, 255);
 
         // transform: paint-only (never affects layout). Transformed panels
@@ -990,6 +997,46 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             if (CollectDamage(child, effectiveTransform, opacity)) full = true;
         return full;
     }
+
+    /// <summary>
+    /// Computes each panel's subtree paint bounds in screen space — the panel's
+    /// own border box inflated by its paint-extent margin (box-shadows, blurs,
+    /// outline) unioned with every descendant's — plus whether the subtree
+    /// contains a transform. Runs post-order on the partial path so the
+    /// <see cref="DrawPanel"/> cull can decide whether the panel's painted
+    /// pixels can possibly touch the damage: without the descendant bounds, a
+    /// panel whose own box misses the damage but whose children overflow it
+    /// (absolute positioning, oversized content) would be culled and its
+    /// children erased on the next paint-only redraw. Transformed subtrees are
+    /// always drawn by the cull, so their (layout-space) bounds are never
+    /// consulted; the flag is what keeps their ancestors from culling.
+    /// </summary>
+    private static (UiRect Bounds, bool HasTransform) ComputeSubtreePaintBounds(Panel panel, bool inTransform)
+    {
+        var style = panel.ComputedStyle;
+        var bounds = new SKRect(panel.Layout.X, panel.Layout.Y, panel.Layout.Right, panel.Layout.Bottom);
+        var margin = PaintExtentMargin(style);
+        if (margin > 0) bounds.Inflate(margin, margin);
+        var hasTransform = inTransform || style.HasTransform;
+        foreach (var child in panel.Children)
+        {
+            var (childBounds, childTransform) = ComputeSubtreePaintBounds(child, hasTransform);
+            bounds = Union(bounds, new SKRect(childBounds.X, childBounds.Y, childBounds.Right, childBounds.Bottom));
+            hasTransform |= childTransform;
+        }
+        panel.SubtreePaintBounds = new UiRect(bounds.Left, bounds.Top, bounds.Width, bounds.Height);
+        panel.SubtreeHasTransform = hasTransform;
+        return (panel.SubtreePaintBounds, hasTransform);
+    }
+
+    /// <summary>
+    /// Converts a panel's cached <see cref="Panel.SubtreePaintBounds"/> (layout
+    /// space) into a screen-space SKRect by applying the accumulated scroll
+    /// offset, matching how <see cref="DrawPanel"/> positions the subtree.
+    /// </summary>
+    private static SKRect SubtreeRect(Panel panel, float ox, float oy) => new(
+        panel.SubtreePaintBounds.X + ox, panel.SubtreePaintBounds.Y + oy,
+        panel.SubtreePaintBounds.Right + ox, panel.SubtreePaintBounds.Bottom + oy);
 
     /// <summary>
     /// Decides which outer box-shadows, uniform borders and solid backgrounds
