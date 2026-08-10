@@ -362,3 +362,76 @@ root {
     transform: rotate(25deg);
     transform-origin: 0% 0%;
 }
+
+// Galerie des images : le logo (carré 1:1, fond transparent) montre la
+// différence entre object-fit contain (lettre-boisé) et cover (recadré), puis
+// background-image couvre la taille, la position et la répétition.
+.image-demo {
+    width: 220px;
+    margin: 32px 32px 32px 0;
+    gap: 8px;
+}
+
+// Les titres et hints partagés avec la colonne de démo sont prévus pour une
+// largeur de 360px ; on les rétrécit ici pour tenir dans la colonne.
+.image-demo .demo-title {
+    width: 220px;
+}
+
+.image-demo .hint {
+    width: 220px;
+}
+
+.img-row {
+    width: 220px;
+    flex-direction: row;
+    gap: 8px;
+}
+
+.img-cell {
+    width: 106px;
+    align-items: center;
+    gap: 4px;
+}
+
+.demo-img {
+    width: 106px;
+    height: 70px;
+    background-color: $surface-deep;
+    border-radius: 8px;
+}
+
+.demo-img.contain {
+    object-fit: contain;
+}
+
+.demo-img.cover {
+    object-fit: cover;
+}
+
+.img-label {
+    width: 106px;
+    height: 14px;
+    color: $text-muted;
+    font-size: 9px;
+    text-align: center;
+}
+
+.bg-cover {
+    width: 220px;
+    height: 96px;
+    background-image: url("Ui/images/crowbar.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    border-radius: 8px;
+}
+
+.bg-tile {
+    width: 220px;
+    height: 52px;
+    background-image: url("Ui/images/crowbar.png");
+    background-size: 32px 32px;
+    background-repeat: repeat;
+    border-radius: 8px;
+}

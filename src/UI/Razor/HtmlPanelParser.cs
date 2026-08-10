@@ -202,6 +202,14 @@ internal static class HtmlPanelParser
                 }
             else if (attribute.Name.LocalName.Equals("value", StringComparison.OrdinalIgnoreCase) && panel is TextInput)
                 declaredValue = attribute.Value;
+            else if (attribute.Name.LocalName.Equals("src", StringComparison.OrdinalIgnoreCase) && panel is Image image)
+            {
+                // The image source feeds the renderer (object-fit) and the
+                // layout measure (intrinsic size); the attribute stays in the
+                // panel so attribute selectors like img[src=...] keep matching.
+                image.Source = attribute.Value;
+                panel.Attributes["src"] = attribute.Value;
+            }
             else if (attribute.Name.LocalName.Equals("data-codex-onclick", StringComparison.OrdinalIgnoreCase))
                 click = attribute.Value;
             else if (attribute.Name.LocalName.Equals("data-codex-onchange", StringComparison.OrdinalIgnoreCase))

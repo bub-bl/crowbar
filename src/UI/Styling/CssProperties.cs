@@ -144,7 +144,7 @@ public static class CssProperties
         Register(Number("flex-shrink", s => s.FlexShrink, (s, v) => s.FlexShrink = v, 1));
         Register(Length("flex-basis", s => s.FlexBasis, (s, v) => s.FlexBasis = v, allowContent: true, animatable: true));
         Register(new FlexCssProperty());
-        Register(Number("aspect-ratio", s => s.AspectRatio, (s, v) => s.AspectRatio = v, 0));
+        Register(new AspectRatioCssProperty());
         // opacity multiplies down the tree (group opacity), so it participates
         // in inheritance like color: children must refresh when an ancestor's
         // animation moves it.
@@ -278,6 +278,28 @@ public static class CssProperties
         // CssFilterFunctions registry, which owns every filter function.
         Register(Filter("filter", s => s.Filter, (s, v) => s.Filter = v));
         Register(Filter("backdrop-filter", s => s.BackdropFilter, (s, v) => s.BackdropFilter = v));
+
+        // Background images and object-fit: the image is loaded through the
+        // UiImageCache at layout/paint time, so these properties only carry the
+        // parsed source and fitting parameters.
+        Register(new BackgroundCssProperty());
+        Register(new CssProperty<string?>("background-image", s => s.BackgroundImage, (s, v) => s.BackgroundImage = v,
+            static (string value, out string? url) => CssValueParsers.TryParseUrl(value, out url),
+            null, inherited: false, animatable: false, lerper: null));
+        Register(new CssProperty<BackgroundSize>("background-size", s => s.BackgroundSize, (s, v) => s.BackgroundSize = v,
+            static (string value, out BackgroundSize result) => CssValueParsers.TryParseBackgroundSize(value, out result),
+            BackgroundSize.AutoAuto, inherited: false, animatable: false, lerper: null));
+        Register(new CssProperty<CssPosition>("background-position", s => s.BackgroundPosition, (s, v) => s.BackgroundPosition = v,
+            static (string value, out CssPosition result) => CssValueParsers.TryParseCssPosition(value, out result),
+            CssPosition.TopLeft, inherited: false, animatable: false, lerper: null));
+        Register(new CssProperty<CssRepeat>("background-repeat", s => s.BackgroundRepeat, (s, v) => s.BackgroundRepeat = v,
+            static (string value, out CssRepeat result) => CssValueParsers.TryParseRepeat(value, out result),
+            CssRepeat.Repeat, inherited: false, animatable: false, lerper: null));
+        Register(Keyword("object-fit", s => s.ObjectFit, (s, v) => s.ObjectFit = v, "fill",
+            "fill", "contain", "cover", "none", "scale-down"));
+        Register(new CssProperty<CssPosition>("object-position", s => s.ObjectPosition, (s, v) => s.ObjectPosition = v,
+            static (string value, out CssPosition result) => CssValueParsers.TryParseCssPosition(value, out result),
+            CssPosition.Center, inherited: false, animatable: false, lerper: null));
 
         // Colors.
         Register(Color("background-color", s => s.BackgroundColor, (s, v) => s.BackgroundColor = v,
@@ -418,6 +440,149 @@ public static class CssProperties
             style.FlexShrink = Math.Max(0, shrink);
             style.FlexBasis = basis;
             return true;
+        }
+    }
+
+    /// <summary>
+    /// The <c>aspect-ratio</c> property: a ratio given as a plain number
+    /// (<c>2</c>) or as <c>w / h</c> (<c>16 / 9</c>), optionally prefixed with
+    /// <c>auto</c> — <c>auto</c> prefers the element's intrinsic ratio (an
+    /// image's) when one is available, falling back to the declared ratio (or
+    /// none) otherwise. The numeric part drives Yoga; the flag is exposed on
+    /// the computed style for the layout engine.
+    /// </summary>
+    private sealed class AspectRatioCssProperty : CssProperty
+    {
+        public AspectRatioCssProperty() : base("aspect-ratio")
+        {
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            var slash = rawValue.IndexOf('/');
+            var numerator = (slash >= 0 ? rawValue[..slash] : rawValue).Trim();
+            var denominator = slash >= 0 ? rawValue[(slash + 1)..].Trim() : null;
+
+            var auto = false;
+            if (numerator.StartsWith("auto", StringComparison.OrdinalIgnoreCase))
+            {
+                auto = true;
+                numerator = numerator["auto".Length..].Trim();
+            }
+
+            float ratio;
+            if (numerator.Length == 0)
+            {
+                // `auto` alone: intrinsic ratio only, no fallback.
+                if (denominator is not null) return false;
+                ratio = 0;
+            }
+            else if (denominator is null)
+            {
+                if (!CssValueParsers.TryParseNumber(numerator, out ratio)) return false;
+            }
+            else
+            {
+                if (!CssValueParsers.TryParseNumber(numerator, out var width) ||
+                    !CssValueParsers.TryParseNumber(denominator, out var height) || height == 0) return false;
+                ratio = width / height;
+            }
+
+            style.AspectRatio = ratio;
+            style.AspectRatioAuto = auto;
+            return true;
+        }
+
+        // The value is packed with the auto flag so change detection and
+        // equality see `aspect-ratio: auto` and `aspect-ratio: 1` as different.
+        public override object? GetValue(ComputedStyle style) => (style.AspectRatio, style.AspectRatioAuto);
+        public override void SetValue(ComputedStyle style, object? value)
+        {
+            var (ratio, auto) = ((float, bool))value!;
+            style.AspectRatio = ratio;
+            style.AspectRatioAuto = auto;
+        }
+
+        public override object? DefaultValue => (0f, false);
+        public override bool ValuesEqual(object? a, object? b) =>
+            a is (float ra, bool aa) && b is (float rb, bool ab) && Math.Abs(ra - rb) < 0.0001f && aa == ab;
+        public override object? Lerp(object? from, object? to, float t) => null;
+    }
+
+    /// <summary>
+    /// The <c>background</c> shorthand: <c>background: url(...) no-repeat
+    /// center / cover #000000</c>. Tokens are routed to the individual
+    /// background properties (image, color, repeat, position and — after a
+    /// <c>/</c> — size); unknown tokens are ignored, mirroring CSS leniency.
+    /// </summary>
+    private sealed class BackgroundCssProperty : CompoundCssProperty
+    {
+        public BackgroundCssProperty() : base("background")
+        {
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            var applied = false;
+            var positionTokens = new List<string>();
+            var sizeTokens = new List<string>();
+            var afterSlash = false;
+            // The <color> may appear on either side of the <position> / <size>
+            // separator, so the whole declaration is tokenized with the slash
+            // tracked per token instead of splitting the raw string.
+            foreach (var token in CssValueParsers.SplitWhitespaceTokens(rawValue))
+            {
+                if (token == "/")
+                {
+                    afterSlash = true;
+                    continue;
+                }
+                if (CssValueParsers.TryParseUrl(token, out var url))
+                {
+                    style.BackgroundImage = url;
+                    applied = true;
+                }
+                else if (UiColor.TryParse(token, out var color))
+                {
+                    style.BackgroundColor = color;
+                    applied = true;
+                }
+                else if (!afterSlash && CssValueParsers.TryParseRepeat(token, out var repeat))
+                {
+                    style.BackgroundRepeat = repeat;
+                    applied = true;
+                }
+                else if (afterSlash && IsSizeToken(token))
+                {
+                    sizeTokens.Add(token);
+                    applied = true;
+                }
+                else if (!afterSlash && CssValueParsers.TryParseCssPosition(token, out _))
+                {
+                    positionTokens.Add(token);
+                    applied = true;
+                }
+            }
+
+            if (positionTokens.Count > 0 &&
+                CssValueParsers.TryParseCssPosition(string.Join(' ', positionTokens), out var position))
+            {
+                style.BackgroundPosition = position;
+            }
+            if (sizeTokens.Count > 0 &&
+                CssValueParsers.TryParseBackgroundSize(string.Join(' ', sizeTokens), out var size))
+            {
+                style.BackgroundSize = size;
+            }
+            return applied;
+        }
+
+        /// <summary>True when a token can be a <c>background-size</c> component (cover, contain, auto, length, percentage).</summary>
+        private static bool IsSizeToken(string token)
+        {
+            var lower = token.ToLowerInvariant();
+            if (lower is "cover" or "contain" or "auto") return true;
+            return CssValueParsers.TryParseBackgroundSize(token, out _);
         }
     }
 

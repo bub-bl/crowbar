@@ -14,12 +14,12 @@ public sealed class YogaLayoutEngine
 {
     public int LayoutPasses { get; private set; }
 
-    public void Layout(Panel root, float width, float height, StyleSheet? sheet = null)
+    public void Layout(Panel root, float width, float height, StyleSheet? sheet = null, UiImageCache? cache = null)
     {
         LayoutPasses++;
         ApplyStyles(root, sheet, null);
         var style = root.ComputedStyle;
-        var yogaRoot = BuildYogaTree(root);
+        var yogaRoot = BuildYogaTree(root, cache ?? UiImageCache.Shared);
         // The root always gets an explicit size: the CSS size when set (points
         // or percent, resolved against the viewport) or the full viewport.
         yogaRoot.Style.SetDimension(Dimension.Width, style.Width.IsDefined ? ToSize(style.Width) : StyleSizeLength.Points(width));
@@ -118,7 +118,7 @@ public sealed class YogaLayoutEngine
         if (style.TextShadows.Length == 0) style.TextShadows = inherited.TextShadows;
     }
 
-    private static Node BuildYogaTree(Panel panel)
+    private static Node BuildYogaTree(Panel panel, UiImageCache cache)
     {
         var style = panel.ComputedStyle;
         var node = new Node(Config.Default)
@@ -147,12 +147,23 @@ public sealed class YogaLayoutEngine
         ApplyBoxEdges(node, style);
         ApplyPositionOffsets(node, style);
         ApplyGaps(node, style);
-        if (style.AspectRatio > 0) node.Style.AspectRatio = new FloatOptional(style.AspectRatio);
-        ApplyTextMeasure(node, panel, style);
+        // aspect-ratio: the declared ratio drives Yoga unless `auto` is set and
+        // the image carries an intrinsic ratio — then the image wins, matching
+        // CSS (an image with `aspect-ratio: auto` sizes by its pixels).
+        var intrinsicRatio = 0f;
+        if (panel is Image image && !string.IsNullOrEmpty(image.Source) &&
+            cache.TryGetSize(image.Source, out var imageWidth, out var imageHeight) && imageHeight > 0)
+            intrinsicRatio = imageWidth / imageHeight;
+        if (style.AspectRatioAuto)
+        {
+            if (intrinsicRatio > 0) node.Style.AspectRatio = new FloatOptional(intrinsicRatio);
+        }
+        else if (style.AspectRatio > 0) node.Style.AspectRatio = new FloatOptional(style.AspectRatio);
+        ApplyTextMeasure(node, panel, style, cache, intrinsicRatio);
 
         for (var i = 0; i < panel.Children.Count; i++)
         {
-            var child = BuildYogaTree(panel.Children[i]);
+            var child = BuildYogaTree(panel.Children[i], cache);
             node.InsertChild(child, (nuint)i);
             child.SetOwner(node);
         }
@@ -208,7 +219,7 @@ public sealed class YogaLayoutEngine
         if (style.RowGap.IsDefined) node.Style.SetGap(Gutter.Row, ToLength(style.RowGap));
     }
 
-    private static void ApplyTextMeasure(Node node, Panel panel, ComputedStyle style)
+    private static void ApplyTextMeasure(Node node, Panel panel, ComputedStyle style, UiImageCache cache, float intrinsicRatio)
     {
         if ((panel.TagName.Equals("text", StringComparison.OrdinalIgnoreCase) || panel is TextInput) && !string.IsNullOrEmpty(panel is TextInput input ? input.Value : panel.Text))
         {
@@ -229,6 +240,22 @@ public sealed class YogaLayoutEngine
             {
                 Width = Math.Min(availableWidth > 0 ? availableWidth : float.MaxValue, textWidth),
                 Height = lineHeight
+            });
+        }
+        else if (panel is Image image && !string.IsNullOrEmpty(image.Source) &&
+                 cache.TryGetSize(image.Source, out var imageWidth, out var imageHeight) && imageWidth > 0 && imageHeight > 0)
+        {
+            // An <img> without explicit dimensions sizes to its intrinsic
+            // pixels; with one axis fixed, the other follows the ratio (the
+            // measure callback receives the resolved constraint per axis).
+            var ratio = imageWidth / imageHeight;
+            node.SetMeasureFunc((_, width, widthMode, height, heightMode) =>
+            {
+                if (heightMode == MeasureMode.Exactly && height > 0)
+                    return new YGSize { Width = height * ratio, Height = height };
+                if (widthMode == MeasureMode.Exactly && width > 0)
+                    return new YGSize { Width = width, Height = width / ratio };
+                return new YGSize { Width = imageWidth, Height = imageHeight };
             });
         }
     }

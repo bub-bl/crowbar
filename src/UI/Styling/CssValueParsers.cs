@@ -399,6 +399,190 @@ public static class CssValueParsers
         box = new BoxValues<CssLength>(top, right, bottom, left);
         return true;
     }
+
+    /// <summary>
+    /// Parses an image reference: <c>none</c> (null) or <c>url(...)</c> with an
+    /// optional quoted or unquoted URL. Used by <c>background-image</c>.
+    /// </summary>
+    public static bool TryParseUrl(string value, out string? url)
+    {
+        url = null;
+        var trimmed = value.Trim();
+        if (trimmed.Equals("none", StringComparison.OrdinalIgnoreCase)) return true;
+        if (trimmed.Length < 6 ||
+            !trimmed.StartsWith("url(", StringComparison.OrdinalIgnoreCase) ||
+            !trimmed.EndsWith(')')) return false;
+        var inner = trimmed[4..^1].Trim();
+        if (inner.Length >= 2 && inner[0] is '"' or '\'' && inner[^1] == inner[0]) inner = inner[1..^1];
+        if (string.IsNullOrEmpty(inner)) return false;
+        url = inner;
+        return true;
+    }
+
+    /// <summary>
+    /// Parses a CSS position (<c>background-position</c>, <c>object-position</c>):
+    /// one or two components, each a keyword (<c>left</c>/<c>center</c>/<c>right</c>/
+    /// <c>top</c>/<c>bottom</c>), percentage or length (negative lengths allowed).
+    /// Keywords become percentages; a single value centers the missing axis.
+    /// </summary>
+    public static bool TryParseCssPosition(string value, out CssPosition position)
+    {
+        position = CssPosition.Center;
+        var parts = SplitWhitespaceTokens(value);
+        if (parts.Length is < 1 or > 2) return false;
+
+        // Resolves one component: its horizontal value (or undefined), its
+        // vertical value (or undefined), whether it is a top/bottom keyword
+        // (which pins the vertical axis) and whether it is `center` (which
+        // occupies both axes).
+        static bool ParseComponent(string token, out CssLength x, out CssLength y,
+            out bool verticalKeyword, out bool center)
+        {
+            x = CssLength.Undefined;
+            y = CssLength.Undefined;
+            verticalKeyword = false;
+            center = false;
+            switch (token.ToLowerInvariant())
+            {
+                case "left": x = CssLength.Percent(0); return true;
+                case "right": x = CssLength.Percent(100); return true;
+                case "top": y = CssLength.Percent(0); verticalKeyword = true; return true;
+                case "bottom": y = CssLength.Percent(100); verticalKeyword = true; return true;
+                case "center": x = CssLength.Percent(50); y = CssLength.Percent(50); center = true; return true;
+                default: return TryParsePositionComponent(token, out x);
+            }
+        }
+
+        if (parts.Length == 1)
+        {
+            if (!ParseComponent(parts[0], out var x, out var y, out var vertical, out _)) return false;
+            position = vertical ? new CssPosition(CssLength.Percent(50), y) : new CssPosition(x, CssLength.Percent(50));
+            return true;
+        }
+
+        if (!ParseComponent(parts[0], out var x1, out var y1, out var vk1, out var c1) ||
+            !ParseComponent(parts[1], out var x2, out var y2, out var vk2, out var c2)) return false;
+
+        // A top/bottom keyword pins the vertical axis; the other value is
+        // horizontal (center supplies 50%).
+        if (vk1) { if (vk2) return false; position = new CssPosition(x2.IsDefined ? x2 : CssLength.Percent(50), y1); return true; }
+        if (vk2) { if (vk1) return false; position = new CssPosition(x1.IsDefined ? x1 : CssLength.Percent(50), y2); return true; }
+
+        // Otherwise the first value is horizontal and the second vertical.
+        // `center` may occupy either axis: `center left` reads (left, center)
+        // and `left center` reads (left, center) too, while a length or
+        // percentage after `center` is the vertical axis (`center 10px`).
+        if (c1 && !c2)
+        {
+            if (parts[1].Equals("left", StringComparison.OrdinalIgnoreCase) ||
+                parts[1].Equals("right", StringComparison.OrdinalIgnoreCase))
+                position = new CssPosition(x2, CssLength.Percent(50));
+            else position = new CssPosition(CssLength.Percent(50), x2);
+            return true;
+        }
+        if (c2 && !c1)
+        {
+            position = new CssPosition(x1, CssLength.Percent(50));
+            return true;
+        }
+        position = new CssPosition(x1, x2);
+        return true;
+    }
+
+    /// <summary>
+    /// Parses <c>background-size</c>: <c>cover</c>, <c>contain</c>, or one/two
+    /// <c>auto</c> | length | percentage values (negative lengths are clamped).
+    /// </summary>
+    public static bool TryParseBackgroundSize(string value, out BackgroundSize size)
+    {
+        size = BackgroundSize.AutoAuto;
+        var parts = SplitWhitespaceTokens(value);
+        if (parts.Length is < 1 or > 2) return false;
+        var first = parts[0].ToLowerInvariant();
+        if (first is "cover" or "contain")
+        {
+            if (parts.Length != 1) return false;
+            size = new BackgroundSize(
+                first == "cover" ? BackgroundSizeType.Cover : BackgroundSizeType.Contain,
+                CssLength.Undefined, CssLength.Undefined);
+            return true;
+        }
+        if (!TryParseSizeComponent(parts[0], out var width)) return false;
+        var height = CssLength.Auto;
+        if (parts.Length == 2 && !TryParseSizeComponent(parts[1], out height)) return false;
+        size = new BackgroundSize(BackgroundSizeType.Explicit, width, height);
+        return true;
+    }
+
+    /// <summary>
+    /// Parses <c>background-repeat</c>: one or two <c>repeat</c> / <c>no-repeat</c>
+    /// / <c>space</c> / <c>round</c> values, or the single-axis keywords
+    /// <c>repeat-x</c> and <c>repeat-y</c>.
+    /// </summary>
+    public static bool TryParseRepeat(string value, out CssRepeat repeat)
+    {
+        repeat = CssRepeat.Repeat;
+        var parts = SplitWhitespaceTokens(value);
+        if (parts.Length is < 1 or > 2) return false;
+        var lower = parts[0].ToLowerInvariant();
+        if (lower is "repeat-x" or "repeat-y")
+        {
+            if (parts.Length != 1) return false;
+            repeat = lower == "repeat-x"
+                ? new CssRepeat(RepeatMode.Repeat, RepeatMode.NoRepeat)
+                : new CssRepeat(RepeatMode.NoRepeat, RepeatMode.Repeat);
+            return true;
+        }
+        if (!TryParseRepeatMode(parts[0], out var x)) return false;
+        var y = x;
+        if (parts.Length == 2 && !TryParseRepeatMode(parts[1], out y)) return false;
+        repeat = new CssRepeat(x, y);
+        return true;
+    }
+
+    /// <summary>Parses one background-size component: <c>auto</c>, percentage or px length (clamped to zero).</summary>
+    private static bool TryParseSizeComponent(string value, out CssLength result)
+    {
+        if (value.Equals("auto", StringComparison.OrdinalIgnoreCase))
+        {
+            result = CssLength.Auto;
+            return true;
+        }
+        if (!TryParsePositionComponent(value, out result)) return false;
+        result = result.Unit == CssLengthUnit.Percent
+            ? CssLength.Percent(Math.Max(0, result.Value))
+            : CssLength.Points(Math.Max(0, result.Value));
+        return true;
+    }
+
+    /// <summary>Parses a raw position component: a percentage or px length that may be negative.</summary>
+    private static bool TryParsePositionComponent(string value, out CssLength result)
+    {
+        result = CssLength.Undefined;
+        var trimmed = value.Trim();
+        if (trimmed.EndsWith('%'))
+        {
+            if (!float.TryParse(trimmed[..^1], NumberStyles.Float, CultureInfo.InvariantCulture, out var percent)) return false;
+            result = CssLength.Percent(percent);
+            return true;
+        }
+        if (trimmed.EndsWith("px", StringComparison.OrdinalIgnoreCase)) trimmed = trimmed[..^2];
+        if (!float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out var points)) return false;
+        result = CssLength.Points(points);
+        return true;
+    }
+
+    private static bool TryParseRepeatMode(string token, out RepeatMode mode)
+    {
+        switch (token.ToLowerInvariant())
+        {
+            case "repeat": mode = RepeatMode.Repeat; return true;
+            case "no-repeat": mode = RepeatMode.NoRepeat; return true;
+            case "space": mode = RepeatMode.Space; return true;
+            case "round": mode = RepeatMode.Round; return true;
+            default: mode = RepeatMode.Repeat; return false;
+        }
+    }
 }
 
 /// <summary>Resolved box-shorthand values (top, right, bottom, left).</summary>

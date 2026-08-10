@@ -28,6 +28,16 @@ public static class TestUi
         return null;
     }
 
+    /// <summary>Every panel matching the predicate, in document order.</summary>
+    public static List<Panel> FindAll(Panel? root, Func<Panel, bool> predicate)
+    {
+        var result = new List<Panel>();
+        if (root is null) return result;
+        if (predicate(root)) result.Add(root);
+        foreach (var child in root.Children) result.AddRange(FindAll(child, predicate));
+        return result;
+    }
+
     /// <summary>All visible text in document order.</summary>
     public static List<string> Texts(Panel? root)
     {

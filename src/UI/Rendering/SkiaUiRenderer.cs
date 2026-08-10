@@ -99,6 +99,13 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     public StyleSheet? StyleSheet { get; set; }
 
     /// <summary>
+    /// The image cache used to resolve <c>&lt;img&gt;</c> sources and
+    /// <c>background-image</c> URLs at layout and paint time. Swap it to route
+    /// image loading through a custom asset pipeline (or a test cache).
+    /// </summary>
+    public UiImageCache ImageCache { get; set; } = UiImageCache.Shared;
+
+    /// <summary>
     /// When enabled, outer box-shadows and uniform solid borders that are safe
     /// to composite on the GPU (see <see cref="CollectDecorations"/>) are
     /// skipped by the Skia raster and emitted as <see cref="Decorations"/> for
@@ -201,7 +208,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         }
         if (needsLayout)
         {
-            _layout.Layout(root, Size.Width / Math.Max(0.01f, root.Scale), Size.Height / Math.Max(0.01f, root.Scale), StyleSheet);
+            _layout.Layout(root, Size.Width / Math.Max(0.01f, root.Scale), Size.Height / Math.Max(0.01f, root.Scale), StyleSheet, ImageCache);
         }
 
         // Collect the damaged regions and the backdrop-filter regions (mirroring
@@ -395,12 +402,19 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             using var paint = new SKPaint { Color = new SKColor(background.R, background.G, background.B, (byte)(background.A * alpha / 255)), IsAntialias = true };
             canvas.DrawRoundRect(rect, panel.ComputedStyle.BorderRadius, panel.ComputedStyle.BorderRadius, paint);
         }
+        // The background image paints above the background color and below the
+        // inset shadows, borders and content, following CSS painting order.
+        DrawBackgroundImage(canvas, panel, rect, alpha);
         DrawBoxShadows(canvas, panel, rect, alpha, inset: true);
         // Borders paint above the background and below the content; the widths
         // come from the layout pass (they participate in the box model). A
         // uniform solid border delegated to the GPU is skipped here.
         if (!GpuDecorations || (panel.GpuDecorationFlags & (byte)PanelDecorationFlags.Border) == 0)
             DrawBorders(canvas, panel, rect, alpha);
+        // An <img> panel paints its source into the content box, fitted per
+        // object-fit/object-position (default fill: stretch to the box).
+        if (panel is Image image && !string.IsNullOrEmpty(image.Source))
+            DrawImageContent(canvas, panel, image.Source, rect, alpha);
         var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
         // An empty focused input still needs a text pass so its caret can be
         // drawn at the beginning of the field.
@@ -431,6 +445,229 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // and outside the border box (it never affects layout).
         DrawOutline(canvas, panel, rect, alpha);
     }
+
+    /// <summary>
+    /// Paints the CSS <c>background-image</c> of a panel into its padding box
+    /// (the CSS default positioning area), clipped to the border-box rounded
+    /// shape so a border-radius crops it like the background color. Sizing,
+    /// placement and tiling follow <c>background-size</c>,
+    /// <c>background-position</c> and <c>background-repeat</c>.
+    /// </summary>
+    private void DrawBackgroundImage(SKCanvas canvas, Panel panel, SKRect rect, byte alpha)
+    {
+        var style = panel.ComputedStyle;
+        if (string.IsNullOrEmpty(style.BackgroundImage)) return;
+        if (ImageCache.Get(style.BackgroundImage) is not { } image) return;
+        // The background positioning area is the padding box (border box minus
+        // the borders), per background-origin: padding-box.
+        var border = panel.LayoutBorder;
+        var padding = panel.LayoutPadding;
+        var area = new SKRect(
+            rect.Left + border.Left + padding.Left, rect.Top + border.Top + padding.Top,
+            rect.Right - border.Right - padding.Right, rect.Bottom - border.Bottom - padding.Bottom);
+        var radius = Math.Min(style.BorderRadius, Math.Min(rect.Width, rect.Height) / 2f);
+        canvas.Save();
+        using (var clip = new SKPath())
+        {
+            clip.AddRoundRect(rect, radius, radius);
+            canvas.ClipPath(clip, antialias: true);
+        }
+        DrawImageTiled(canvas, image, area, style.BackgroundSize, style.BackgroundPosition, style.BackgroundRepeat, alpha);
+        canvas.Restore();
+    }
+
+    /// <summary>
+    /// Paints the source of an <c>&lt;img&gt;</c> panel into its content box,
+    /// fitted per <c>object-fit</c>/<c>object-position</c> (default <c>fill</c>:
+    /// stretch). Clipped to the border-box rounded shape like any other content.
+    /// </summary>
+    private void DrawImageContent(SKCanvas canvas, Panel panel, string source, SKRect rect, byte alpha)
+    {
+        if (ImageCache.Get(source) is not { } image) return;
+        var style = panel.ComputedStyle;
+        // The object-fit area is the content box (border box minus borders and padding).
+        var border = panel.LayoutBorder;
+        var padding = panel.LayoutPadding;
+        var content = new SKRect(
+            rect.Left + border.Left + padding.Left, rect.Top + border.Top + padding.Top,
+            rect.Right - border.Right - padding.Right, rect.Bottom - border.Bottom - padding.Bottom);
+        var radius = Math.Min(style.BorderRadius, Math.Min(rect.Width, rect.Height) / 2f);
+        canvas.Save();
+        using (var clip = new SKPath())
+        {
+            clip.AddRoundRect(rect, radius, radius);
+            canvas.ClipPath(clip, antialias: true);
+        }
+        DrawObjectFitted(canvas, image, content, style.ObjectFit, style.ObjectPosition, alpha);
+        canvas.Restore();
+    }
+
+    /// <summary>
+    /// Draws an image tiled across <paramref name="area"/> following the
+    /// background size/position/repeat rules: <c>cover</c>/<c>contain</c> fit
+    /// the whole image, explicit sizes stretch (one <c>auto</c> axis keeps the
+    /// ratio), <c>round</c> scales the tile to an integer repetition count and
+    /// <c>space</c> distributes whole tiles with even gaps. <c>no-repeat</c>
+    /// draws a single tile anchored at the position; repeated axes use the
+    /// position as the phase of the first tile.
+    /// </summary>
+    private void DrawImageTiled(SKCanvas canvas, SKImage image, SKRect area,
+        BackgroundSize size, CssPosition position, CssRepeat repeat, byte alpha)
+    {
+        var imageWidth = image.Width;
+        var imageHeight = image.Height;
+        if (imageWidth <= 0 || imageHeight <= 0 || area.Width <= 0 || area.Height <= 0) return;
+
+        float tileWidth = imageWidth;
+        float tileHeight = imageHeight;
+        switch (size.Type)
+        {
+            case BackgroundSizeType.Cover:
+            {
+                var scale = Math.Max(area.Width / imageWidth, area.Height / imageHeight);
+                tileWidth = imageWidth * scale;
+                tileHeight = imageHeight * scale;
+                break;
+            }
+            case BackgroundSizeType.Contain:
+            {
+                var scale = Math.Min(area.Width / imageWidth, area.Height / imageHeight);
+                tileWidth = imageWidth * scale;
+                tileHeight = imageHeight * scale;
+                break;
+            }
+            case BackgroundSizeType.Explicit:
+            {
+                tileWidth = ResolveLength(size.Width, area.Width, imageWidth);
+                tileHeight = ResolveLength(size.Height, area.Height, imageHeight);
+                if (size.Width.Unit == CssLengthUnit.Auto && size.Height.Unit != CssLengthUnit.Auto)
+                    tileWidth = tileHeight * imageWidth / imageHeight;
+                else if (size.Height.Unit == CssLengthUnit.Auto && size.Width.Unit != CssLengthUnit.Auto)
+                    tileHeight = tileWidth * imageHeight / imageWidth;
+                break;
+            }
+        }
+
+        var modeX = repeat.X;
+        var modeY = repeat.Y;
+        // round scales the tile up/down so a whole number of repetitions fit.
+        if (modeX == RepeatMode.Round && tileWidth > 0)
+            tileWidth = area.Width / Math.Max(1, MathF.Round(area.Width / tileWidth));
+        if (modeY == RepeatMode.Round && tileHeight > 0)
+            tileHeight = area.Height / Math.Max(1, MathF.Round(area.Height / tileHeight));
+        if (tileWidth <= 0 || tileHeight <= 0) return;
+
+        using var paint = new SKPaint { Color = new SKColor(255, 255, 255, alpha), IsAntialias = true };
+        var sampling = new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None);
+
+        // space distributes whole tiles with even gaps, ignoring the position.
+        if (modeX == RepeatMode.Space || modeY == RepeatMode.Space)
+        {
+            var countX = modeX == RepeatMode.Space ? Math.Max(1, (int)MathF.Floor(area.Width / tileWidth)) : 1;
+            var countY = modeY == RepeatMode.Space ? Math.Max(1, (int)MathF.Floor(area.Height / tileHeight)) : 1;
+            var gapX = modeX == RepeatMode.Space ? (area.Width - countX * tileWidth) / (countX + 1) : 0;
+            var gapY = modeY == RepeatMode.Space ? (area.Height - countY * tileHeight) / (countY + 1) : 0;
+            for (var i = 0; i < countX; i++)
+            for (var j = 0; j < countY; j++)
+            {
+                var x = area.Left + gapX + i * (tileWidth + gapX);
+                var y = area.Top + gapY + j * (tileHeight + gapY);
+                canvas.DrawImage(image, new SKRect(x, y, x + tileWidth, y + tileHeight), sampling, paint);
+            }
+            return;
+        }
+
+        // no-repeat anchors a single tile at the position; repeated axes use the
+        // position as the phase so `center` still centers the tiled pattern.
+        var posX = ResolvePosition(position.X, area.Width - tileWidth);
+        var posY = ResolvePosition(position.Y, area.Height - tileHeight);
+        var startX = modeX == RepeatMode.NoRepeat ? area.Left + posX : area.Left - PositiveMod(-posX, tileWidth);
+        var startY = modeY == RepeatMode.NoRepeat ? area.Top + posY : area.Top - PositiveMod(-posY, tileHeight);
+
+        if (modeX == RepeatMode.NoRepeat && modeY == RepeatMode.NoRepeat)
+        {
+            canvas.DrawImage(image, new SKRect(startX, startY, startX + tileWidth, startY + tileHeight), sampling, paint);
+            return;
+        }
+
+        for (var y = startY; y < area.Bottom; y += tileHeight)
+        for (var x = startX; x < area.Right; x += tileWidth)
+            canvas.DrawImage(image, new SKRect(x, y, x + tileWidth, y + tileHeight), sampling, paint);
+    }
+
+    /// <summary>
+    /// Draws an image into its content box following <c>object-fit</c>: fill
+    /// stretches, contain fits, cover crops, none draws at intrinsic size and
+    /// scale-down picks the smaller of none/contain. The fitted image is
+    /// aligned by <c>object-position</c> (default center).
+    /// </summary>
+    private static void DrawObjectFitted(SKCanvas canvas, SKImage image, SKRect area,
+        string fit, CssPosition position, byte alpha)
+    {
+        var imageWidth = image.Width;
+        var imageHeight = image.Height;
+        if (imageWidth <= 0 || imageHeight <= 0 || area.Width <= 0 || area.Height <= 0) return;
+
+        float drawWidth;
+        float drawHeight;
+        switch (fit.ToLowerInvariant())
+        {
+            case "contain":
+            {
+                var scale = Math.Min(area.Width / imageWidth, area.Height / imageHeight);
+                drawWidth = imageWidth * scale;
+                drawHeight = imageHeight * scale;
+                break;
+            }
+            case "cover":
+            {
+                var scale = Math.Max(area.Width / imageWidth, area.Height / imageHeight);
+                drawWidth = imageWidth * scale;
+                drawHeight = imageHeight * scale;
+                break;
+            }
+            case "none":
+                drawWidth = imageWidth;
+                drawHeight = imageHeight;
+                break;
+            case "scale-down":
+            {
+                var scale = Math.Min(1f, Math.Min(area.Width / imageWidth, area.Height / imageHeight));
+                drawWidth = imageWidth * scale;
+                drawHeight = imageHeight * scale;
+                break;
+            }
+            default: // fill
+                drawWidth = area.Width;
+                drawHeight = area.Height;
+                break;
+        }
+
+        var x = area.Left + ResolvePosition(position.X, area.Width - drawWidth);
+        var y = area.Top + ResolvePosition(position.Y, area.Height - drawHeight);
+        using var paint = new SKPaint { Color = new SKColor(255, 255, 255, alpha), IsAntialias = true };
+        canvas.DrawImage(image, new SKRect(x, y, x + drawWidth, y + drawHeight),
+            new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), paint);
+    }
+
+    /// <summary>Resolves a background-size component against the area and the intrinsic size.</summary>
+    private static float ResolveLength(CssLength length, float container, float intrinsic) => length.Unit switch
+    {
+        CssLengthUnit.Percent => Math.Max(0, container * length.Value / 100f),
+        CssLengthUnit.Points => Math.Max(0, length.Value),
+        _ => intrinsic
+    };
+
+    /// <summary>Resolves a position component against the free space: percent of the free space, or a px offset.</summary>
+    private static float ResolvePosition(CssLength length, float free) => length.Unit switch
+    {
+        CssLengthUnit.Percent => free * length.Value / 100f,
+        CssLengthUnit.Points => length.Value,
+        _ => 0
+    };
+
+    /// <summary>The positive remainder of <paramref name="value"/> modulo <paramref name="modulus"/>.</summary>
+    private static float PositiveMod(float value, float modulus) => ((value % modulus) + modulus) % modulus;
 
     /// <summary>
     /// Draws the children of a panel in stacking order: ascending z-index with a
@@ -1246,6 +1483,10 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     private static bool PanelRepaintsTexture(Panel panel, ComputedStyle style, bool gpuFill, bool gpuBorder)
     {
         if (style.BackgroundColor.A > 0 && !gpuFill) return true;
+        // Background images and <img> sources are painted into the UI texture
+        // (never delegated), so the panel always repaints when invalidated.
+        if (!string.IsNullOrEmpty(style.BackgroundImage)) return true;
+        if (panel is Image { Source: not null and not "" }) return true;
         var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
         if (!string.IsNullOrEmpty(text) || panel is TextInput { IsFocused: true }) return true;
         var lb = panel.LayoutBorder;

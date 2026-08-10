@@ -22,6 +22,9 @@
   <ItemGroup>
     <ProjectReference Include="..\Engine\Engine.csproj" />
     <Content Update="Ui\**\*.razor" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Images referenced by the SCSS/CSS url() resolve against the app base
+         directory, so they must land next to the compiled .razor files. -->
+    <Content Include="Ui\**\*.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Compile SCSS to CSS with dart-sass on build. DartSassBuilder scans

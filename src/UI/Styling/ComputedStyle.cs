@@ -119,6 +119,23 @@ public sealed class ComputedStyle
     public bool HasTransform => !Transform.IsNone && !Transform.IsIdentity;
 
     public UiColor BackgroundColor { get; set; } = UiColor.Transparent;
+    /// <summary>The CSS <c>background-image</c> source (<c>url(...)</c>), or null for <c>none</c>.</summary>
+    public string? BackgroundImage { get; set; }
+    /// <summary>The CSS <c>background-size</c> (auto, cover, contain or explicit lengths).</summary>
+    public BackgroundSize BackgroundSize { get; set; } = BackgroundSize.AutoAuto;
+    /// <summary>The CSS <c>background-position</c> (initial: <c>0% 0%</c>).</summary>
+    public CssPosition BackgroundPosition { get; set; } = CssPosition.TopLeft;
+    /// <summary>The CSS <c>background-repeat</c> per axis (initial: <c>repeat</c>).</summary>
+    public CssRepeat BackgroundRepeat { get; set; } = CssRepeat.Repeat;
+    /// <summary>The CSS <c>object-fit</c> of an <c>&lt;img&gt;</c> panel (fill, contain, cover, none, scale-down).</summary>
+    public string ObjectFit { get; set; } = "fill";
+    /// <summary>The CSS <c>object-position</c> (initial: <c>50% 50%</c>).</summary>
+    public CssPosition ObjectPosition { get; set; } = CssPosition.Center;
+    /// <summary>
+    /// True when <c>aspect-ratio</c> was declared with the <c>auto</c> keyword:
+    /// the element's intrinsic ratio (an image's) wins when one is available.
+    /// </summary>
+    public bool AspectRatioAuto { get; set; }
     public UiColor Color { get; set; } = UiColor.White;
 
     public ComputedStyle Clone() => (ComputedStyle)MemberwiseClone();
