@@ -91,9 +91,17 @@ public sealed class TransformList : IEquatable<TransformList>
     {
         var ox = origin.ResolveX(width);
         var oy = origin.ResolveY(height);
-        var m = SKMatrix.CreateTranslation(offsetX + ox, offsetY + oy);
+        // SkiaSharp's instance PostConcat(other) pre-multiplies (this = other ·
+        // this), so each matrix must be introduced in the order it applies to a
+        // point. Build the product as T(offset+origin) · ops · T(-origin): start
+        // with the innermost shift (local point relative to the origin), apply
+        // the functions in CSS order, then place the result at the box position.
+        // The naive "T(offset+origin) first" order lands the back-shift before
+        // the functions and pivots the transform around the NEGATED origin — a
+        // scale then grows toward the bottom-right instead of around its center.
+        var m = SKMatrix.CreateTranslation(-ox, -oy);
         foreach (var op in Ops) m = m.PostConcat(OpMatrix(op, width, height));
-        m = m.PostConcat(SKMatrix.CreateTranslation(-ox, -oy));
+        m = m.PostConcat(SKMatrix.CreateTranslation(offsetX + ox, offsetY + oy));
         return m;
     }
 

@@ -1429,14 +1429,18 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             new SKPoint(rect.Left, rect.Top), new SKPoint(rect.Right, rect.Top),
             new SKPoint(rect.Right, rect.Bottom), new SKPoint(rect.Left, rect.Bottom)
         };
-        matrix.MapPoints(points);
-        var bounds = new SKRect(points[0].X, points[0].Y, points[0].X, points[0].Y);
-        for (var i = 1; i < points.Length; i++)
+        // MapPoints(SKPoint[]) returns a NEW array in SkiaSharp; the input is not
+        // mutated. The bounds of the transformed rect are what damage tracking
+        // needs (the partial raster must repaint wherever the transform moved
+        // the paint, or the old pixels stay behind as ghost residue).
+        var mapped = matrix.MapPoints(points);
+        var bounds = new SKRect(mapped[0].X, mapped[0].Y, mapped[0].X, mapped[0].Y);
+        for (var i = 1; i < mapped.Length; i++)
         {
-            bounds.Left = Math.Min(bounds.Left, points[i].X);
-            bounds.Top = Math.Min(bounds.Top, points[i].Y);
-            bounds.Right = Math.Max(bounds.Right, points[i].X);
-            bounds.Bottom = Math.Max(bounds.Bottom, points[i].Y);
+            bounds.Left = Math.Min(bounds.Left, mapped[i].X);
+            bounds.Top = Math.Min(bounds.Top, mapped[i].Y);
+            bounds.Right = Math.Max(bounds.Right, mapped[i].X);
+            bounds.Bottom = Math.Max(bounds.Bottom, mapped[i].Y);
         }
         return bounds;
     }
