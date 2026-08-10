@@ -110,6 +110,43 @@
         <div class="bg-tile"></div>
         <div class="hint">url(...) + size / position / repeat</div>
     </div>
+
+    <div class="feature-demo">
+        <div class="demo-title">EVENTS — keyboard / wheel / lambda</div>
+        <div class="key-box" @onkeydown="OnKey" @onwheel="OnWheel" @onclick="() => _lambdaCount++">
+            CLICK TO FOCUS · KEY @_lastKey · WHEEL @_wheelCount · LAMBDA @_lambdaCount
+        </div>
+        <div class="hint">onkeydown / onwheel / onclick="() => _lambdaCount++"</div>
+
+        <div class="demo-title">INPUTS — checkbox / radio</div>
+        <div class="toggle-row">
+            <input type="checkbox" checked="@_checked" @onchange="OnChecked" />
+            <span class="toggle-label">checkbox · @_checked</span>
+        </div>
+        <div class="toggle-row">
+            <input type="radio" name="pick" checked="@_pick == 'a'" @onchange="OnPickA" />
+            <span class="toggle-label">radio A</span>
+            <input type="radio" name="pick" checked="@_pick == 'b'" @onchange="OnPickB" />
+            <span class="toggle-label">radio B</span>
+        </div>
+
+        <div class="demo-title">TYPOGRAPHY</div>
+        <div class="type-bold">font-weight: bold</div>
+        <div class="type-spaced">letter-spacing: 3px</div>
+        <div class="type-caps">text-transform: uppercase</div>
+        <div class="type-underline">text-decoration: underline line-through</div>
+        <div class="type-ellipsis">white-space: nowrap + text-overflow: ellipsis on a very long line</div>
+
+        <div class="demo-title">PSEUDO — ::before / ::after</div>
+        <div class="pseudo-badge">generated content</div>
+        <div class="striped">
+            <div class="s-line">:nth-child(odd)</div>
+            <div class="s-line">:nth-child(even)</div>
+            <div class="s-line">:not(:first-child) margin</div>
+        </div>
+        <div class="media-box">@@media (min-width: 900px) — redimensionnez</div>
+        <a class="nav-link" href="/filters">→ /filters via &lt;a href&gt;</a>
+    </div>
 </div>
 
 @code {
@@ -131,5 +168,20 @@
     }
 
     private void GoToFilters() => NavigateTo("/filters");
+
+    private bool _checked;
+    private string _pick = "a";
+    private string _lastKey = "-";
+    private int _wheelCount;
+    private int _lambdaCount;
+
+    private void OnChecked(bool value) { _checked = value; }
+    private void OnPickA() { _pick = "a"; }
+    private void OnPickB() { _pick = "b"; }
+    private void OnKey(Crowbar.UI.KeyEvent e)
+    {
+        if (e.IsDown) _lastKey = e.KeyCode.ToString();
+    }
+    private void OnWheel(Crowbar.UI.WheelEvent e) { _wheelCount++; }
 
 }

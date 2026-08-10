@@ -88,6 +88,13 @@ public class Panel
     public float MaxScrollX { get; internal set; }
     /// <summary>Maximum vertical scroll offset, set by the layout pass from the overflowing children.</summary>
     public float MaxScrollY { get; internal set; }
+    /// <summary>Generated <c>::before</c> content (text + computed style), set by the cascade.</summary>
+    internal PseudoContent? PseudoBefore;
+    /// <summary>Generated <c>::after</c> content (text + computed style), set by the cascade.</summary>
+    internal PseudoContent? PseudoAfter;
+    /// <summary>Text and computed style of a generated <c>::before</c>/<c>::after</c> element.</summary>
+    internal readonly record struct PseudoContent(string Text, ComputedStyle Style);
+
     /// <summary>Resolved padding of the last layout pass (percentages included).</summary>
     public UiThickness LayoutPadding { get; internal set; }
     /// <summary>Resolved border width of the last layout pass.</summary>
@@ -120,6 +127,7 @@ public class Panel
         // Scrolling only shifts the painted content; the layout boxes are
         // unchanged, so this is a paint-only invalidation.
         InvalidatePaint();
+        Scrolled?.Invoke(this);
     }
 
     /// <summary>Scrolls by the given delta, clamped to the scrollable range.</summary>
@@ -133,8 +141,18 @@ public class Panel
     public bool IsFocused { get; private set; }
     public event Action<Panel>? PointerEnter;
     public event Action<Panel>? PointerExit;
+    public event Action<Panel, UiPointerEvent>? PointerMove;
     public event Action<Panel, UiPointerEvent>? PointerDown;
     public event Action<Panel, UiPointerEvent>? PointerUp;
+    public event Action<Panel, UiPointerEvent>? DoubleClicked;
+    public event Action<Panel, WheelEvent>? PointerWheel;
+    public event Action<Panel>? Focused;
+    public event Action<Panel>? Blurred;
+    public event Action<Panel>? Scrolled;
+    public event Action<Panel, KeyEvent>? KeyDown;
+    public event Action<Panel, KeyEvent>? KeyUp;
+    /// <summary>Raised when the panel is clicked (any panel with a handler, not just buttons).</summary>
+    public event Action<UiPointerEvent>? Clicked;
 
     // Class, inline-style and pseudo-state mutations feed the CSS cascade and
     // are therefore style-dirty: the renderer re-runs the (cheap) cascade pass
@@ -395,12 +413,19 @@ public class Panel
     /// <summary>
     /// Marks the tree as needing an inheritance refresh: an ancestor's
     /// animation or transition changed an inherited property, so the
-    /// descendants' baked values from the last cascade are stale.
+    /// descendants' baked values from the last cascade are stale. Records the
+    /// animated panel so the refresh can be scoped to its subtree instead of
+    /// re-walking the whole tree every frame (continuously animating leaves
+    /// would otherwise force an O(tree) pass per frame).
     /// </summary>
     internal void MarkInheritanceDirty()
     {
         for (var p = Parent; p is not null; p = p.Parent)
-            if (p is ScreenPanel screen) screen.AnyInheritedDirty = true;
+            if (p is ScreenPanel screen)
+            {
+                screen.AnyInheritedDirty = true;
+                screen.AddInheritanceDirtyRoot(this);
+            }
     }
 
     private bool AdvanceTransitions(float deltaTime)
@@ -513,8 +538,18 @@ public class Panel
     }
     internal void SetPressed(bool value) { if (IsPressed != value) { IsPressed = value; MarkStyleDirty(); } }
     internal void SetFocused(bool value) { if (IsFocused != value) { IsFocused = value; MarkStyleDirty(); } }
+    internal void RaisePointerMove(UiPointerEvent e) => PointerMove?.Invoke(this, e);
     internal void RaisePointerDown(UiPointerEvent e) => PointerDown?.Invoke(this, e);
     internal void RaisePointerUp(UiPointerEvent e) => PointerUp?.Invoke(this, e);
+    internal void RaiseDoubleClicked(UiPointerEvent e) => DoubleClicked?.Invoke(this, e);
+    internal void RaisePointerWheel(WheelEvent e) => PointerWheel?.Invoke(this, e);
+    internal void RaiseKeyDown(KeyEvent e) => KeyDown?.Invoke(this, e);
+    internal void RaiseKeyUp(KeyEvent e) => KeyUp?.Invoke(this, e);
+    internal void RaiseFocused() => Focused?.Invoke(this);
+    internal void RaiseBlurred() => Blurred?.Invoke(this);
+    internal void RaiseClicked(UiPointerEvent e) => Clicked?.Invoke(e);
+    /// <summary>True when a <see cref="Clicked"/> handler is attached (events cannot be read from outside the declaring class).</summary>
+    internal bool HasClickedHandler => Clicked is not null;
     internal void ClearDirty()
     {
         LayoutDirty = false;
@@ -574,6 +609,18 @@ public sealed class ScreenPanel : Panel
     internal bool AnyStyleDirty { get; set; }
     /// <summary>True when an ancestor animation/transition moved an inherited property.</summary>
     internal bool AnyInheritedDirty { get; set; }
+
+    // The panels whose animation/transition moved an inherited property this
+    // frame; the inheritance refresh walks only their subtrees. Tiny by design
+    // (one entry per animated panel per frame), cleared after each refresh.
+    private readonly List<Panel> _inheritanceDirtyRoots = [];
+
+    internal IReadOnlyList<Panel> InheritanceDirtyRoots => _inheritanceDirtyRoots;
+    internal void AddInheritanceDirtyRoot(Panel panel)
+    {
+        if (!_inheritanceDirtyRoots.Contains(panel)) _inheritanceDirtyRoots.Add(panel);
+    }
+    internal void ClearInheritanceDirtyRoots() => _inheritanceDirtyRoots.Clear();
 
     public void SetViewport(float width, float height)
     {

@@ -147,6 +147,37 @@ public class RazorComponentTests
     }
 
     [Fact]
+    public void StatefulChildComponentSurvivesParentRerender()
+    {
+        using var ui = TestUi.Create();
+        ui.RegisterRazorComponent("StatefulChild", """
+            <div>child: @count <button @onclick="Increment">increment</button></div>
+            @code {
+                private int count;
+                private void Increment() { count++; }
+            }
+            """, "StatefulChild");
+        ui.LoadRazor("""
+            <div>
+                <StatefulChild />
+                <button @onclick="Refresh">refresh</button>
+            </div>
+            @code {
+                private void Refresh() { StateHasChanged(); }
+            }
+            """, "StatefulParent");
+        ui.Render();
+
+        var childButton = TestUi.FindAll(ui.Screen, p => p is Button)[0];
+        ui.ProcessPointerDown(childButton.Layout.X + 1, childButton.Layout.Y + 1);
+        ui.ProcessPointerUp(childButton.Layout.X + 1, childButton.Layout.Y + 1);
+        ui.Update();
+        ui.Render();
+
+        Assert.Contains(TestUi.Texts(ui.Screen), text => text.Contains("child: 1", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ChildContentDisappearsAndRestores()
     {
         using var ui = TestUi.Create();

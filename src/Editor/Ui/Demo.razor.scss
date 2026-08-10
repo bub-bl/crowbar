@@ -69,6 +69,10 @@ root {
     height: 720px;
     flex-direction: row;
     align-items: flex-start;
+    // Les quatre colonnes dépassent 1280px ; le conteneur défile
+    // horizontalement (drag de la barre ou shift + molette) au lieu de
+    // rétrécir les colonnes (leurs enfants à largeur fixe déborderaient).
+    overflow: auto;
     // Opaque : la scène 3D WebGPU (cube) tourne toujours derrière l'UI pour la
     // page Filters (backdrop-filter) ; ici elle ne doit pas transparaître.
     background-color: $surface;
@@ -79,6 +83,7 @@ root {
     height: 640px;
     margin: 32px;
     padding: 18px;
+    flex-shrink: 0;
     background-color: $surface-card;
     border-radius: 12px;
 }
@@ -204,6 +209,7 @@ root {
     width: 380px;
     margin: 32px;
     gap: 8px;
+    flex-shrink: 0;
 }
 
 .demo-title {
@@ -370,6 +376,7 @@ root {
     width: 220px;
     margin: 32px 32px 32px 0;
     gap: 8px;
+    flex-shrink: 0;
 }
 
 // Les titres et hints partagés avec la colonne de démo sont prévus pour une
@@ -434,4 +441,151 @@ root {
     background-size: 32px 32px;
     background-repeat: repeat;
     border-radius: 8px;
+}
+
+// Colonne « features » : événements clavier/souris, checkbox/radio,
+// typographie (font-weight, letter-spacing, text-transform, text-decoration,
+// white-space + ellipsis), pseudo-éléments ::before/::after, pseudo-classes et
+// @media queries.
+.feature-demo {
+    width: 220px;
+    margin: 32px 32px 32px 0;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.feature-demo .demo-title {
+    width: 220px;
+}
+
+.feature-demo .hint {
+    width: 220px;
+}
+
+.key-box {
+    width: 220px;
+    height: 44px;
+    background-color: $surface-deep;
+    border: 1px solid #3a3f52;
+    border-radius: 8px;
+    color: $text-muted;
+    font-size: 10px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 44px;
+}
+
+.toggle-row {
+    width: 220px;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+}
+
+.toggle-label {
+    color: $text-muted;
+    font-size: 11px;
+}
+
+.type-bold {
+    font-weight: bold;
+    color: $text;
+}
+
+.type-spaced {
+    letter-spacing: 3px;
+    color: $text;
+}
+
+.type-caps {
+    text-transform: uppercase;
+    color: $text;
+    font-size: 11px;
+}
+
+.type-underline {
+    text-decoration: underline line-through;
+    color: $text;
+}
+
+.type-ellipsis {
+    width: 220px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: $text;
+    font-size: 11px;
+}
+
+.pseudo-badge {
+    width: 220px;
+    height: 26px;
+    background-color: $surface-deep;
+    border-radius: 6px;
+    color: $text;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 26px;
+}
+
+// Contenu généré : un chevron avant, une étoile après.
+.pseudo-badge::before {
+    content: "▸ ";
+    color: #7aa2f7;
+}
+
+.pseudo-badge::after {
+    content: " ✦";
+    color: #bb9af7;
+}
+
+.striped {
+    width: 220px;
+    gap: 4px;
+}
+
+.s-line {
+    width: 220px;
+    height: 18px;
+    border-radius: 4px;
+    background-color: $surface-deep;
+    color: $text-muted;
+    font-size: 10px;
+    padding-left: 8px;
+    line-height: 18px;
+}
+
+.s-line:nth-child(odd) {
+    background-color: #23283a;
+}
+
+.s-line:not(:first-child) {
+    margin-top: 4px;
+}
+
+.media-box {
+    width: 220px;
+    height: 26px;
+    border-radius: 6px;
+    background-color: #1f2434;
+    color: $text-muted;
+    font-size: 10px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 26px;
+}
+
+// La boîte media passe au bleu au-delà de 900px de largeur de fenêtre.
+@media (min-width: 900px) {
+    .media-box {
+        background-color: #2a3f5f;
+        color: #9ecbff;
+    }
+}
+
+.nav-link {
+    color: #7aa2f7;
+    font-size: 11px;
+    text-decoration: underline;
 }

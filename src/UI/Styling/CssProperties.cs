@@ -156,6 +156,21 @@ public static class CssProperties
         Register(Number("line-height", s => s.LineHeight, (s, v) => s.LineHeight = v, 0, inherited: true,
             parser: CssValueParsers.TryParseLength));
 
+        // Typography: family/weight/tracking/case/decoration/whitespace flow
+        // down like color and are applied at measure and paint time by the
+        // layout engine and the renderer.
+        Register(new FontWeightCssProperty());
+        Register(Text("font-family", s => s.FontFamily, (s, v) => s.FontFamily = v, "sans-serif", inherited: true));
+        Register(Number("letter-spacing", s => s.LetterSpacing, (s, v) => s.LetterSpacing = v, 0, inherited: true,
+            parser: CssValueParsers.TryParseSignedLength));
+        // Text/white-space inherit like color; values are validated at paint
+        // time (unknown keywords behave as the default), so the free-form Text
+        // registration with inherited: true is enough here.
+        Register(Text("text-transform", s => s.TextTransform, (s, v) => s.TextTransform = v, "none", inherited: true));
+        Register(Text("text-decoration", s => s.TextDecoration, (s, v) => s.TextDecoration = v, "none", inherited: true));
+        Register(Text("white-space", s => s.WhiteSpace, (s, v) => s.WhiteSpace = v, "normal", inherited: true));
+        Register(Keyword("text-overflow", s => s.TextOverflow, (s, v) => s.TextOverflow = v, "clip", "clip", "ellipsis"));
+
         // Box model: shorthand + individual sides.
         Register(new MarginCssProperty());
         Register(Length("margin-top", s => s.MarginTop, (s, v) => s.MarginTop = v, animatable: true));
@@ -441,6 +456,43 @@ public static class CssProperties
             style.FlexBasis = basis;
             return true;
         }
+    }
+
+    /// <summary>
+    /// The <c>font-weight</c> property: a keyword (<c>normal</c>, <c>bold</c>,
+    /// <c>bolder</c>, <c>lighter</c>) or an explicit 100-900 weight in steps of
+    /// 100. <c>bolder</c>/<c>lighter</c> step the current value by one weight.
+    /// </summary>
+    private sealed class FontWeightCssProperty : CssProperty
+    {
+        public FontWeightCssProperty() : base("font-weight", inherited: true)
+        {
+        }
+
+        public override bool TryApply(ComputedStyle style, string rawValue)
+        {
+            var trimmed = rawValue.Trim().ToLowerInvariant();
+            int weight;
+            switch (trimmed)
+            {
+                case "normal": weight = 400; break;
+                case "bold": weight = 700; break;
+                case "bolder": weight = Math.Min(900, style.FontWeight + 100); break;
+                case "lighter": weight = Math.Max(100, style.FontWeight - 100); break;
+                default:
+                    if (!int.TryParse(trimmed, out weight)) return false;
+                    break;
+            }
+            if (weight is < 100 or > 900 || weight % 100 != 0) return false;
+            style.FontWeight = weight;
+            return true;
+        }
+
+        public override object? GetValue(ComputedStyle style) => style.FontWeight;
+        public override void SetValue(ComputedStyle style, object? value) => style.FontWeight = (int)value!;
+        public override object? DefaultValue => 400;
+        public override bool ValuesEqual(object? a, object? b) => (int)a! == (int)b!;
+        public override object? Lerp(object? from, object? to, float t) => null;
     }
 
     /// <summary>

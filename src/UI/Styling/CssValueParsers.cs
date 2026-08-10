@@ -25,6 +25,15 @@ public static class CssValueParsers
         return true;
     }
 
+    /// <summary>Parses a signed CSS length (letter-spacing: negative values allowed).</summary>
+    public static bool TryParseSignedLength(string value, out float result)
+    {
+        result = 0;
+        var trimmed = value.Trim();
+        if (trimmed.EndsWith("px", StringComparison.OrdinalIgnoreCase)) trimmed = trimmed[..^2];
+        return float.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out result);
+    }
+
     /// <summary>Parses a nullable CSS length (null means "unspecified"), clamped to zero.</summary>
     public static bool TryParseDimension(string value, out float? result)
     {

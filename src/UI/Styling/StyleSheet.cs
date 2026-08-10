@@ -10,32 +10,102 @@ namespace Crowbar.UI;
 /// for every rule on every re-cascade, and the animated demo page re-cascades
 /// subtrees every frame.
 /// </summary>
-public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, string> Properties, int Order)
+public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, string> Properties, int Order,
+    MediaQuery? Media = null)
 {
     private CompiledSelector? _compiled;
+
+    /// <summary>The pseudo-element the selector targets (<c>before</c>, <c>after</c>) or empty.</summary>
+    public string PseudoElement
+    {
+        get
+        {
+            var parts = (_compiled ??= CompiledSelector.Parse(Selector)).Parts;
+            return parts.Length > 0 ? parts[^1].PseudoElement : string.Empty;
+        }
+    }
 
     public bool Matches(Panel panel)
     {
         var parts = (_compiled ??= CompiledSelector.Parse(Selector)).Parts;
         if (parts.Length == 0 || !parts[^1].Matches(panel)) return false;
-        var ancestor = panel.Parent;
+        // Walk the selector right-to-left. Each compound must be found relative
+        // to the previously matched element: as an ancestor (whitespace), a
+        // parent (>), the immediately preceding sibling (+) or any preceding
+        // sibling (~). The combinator token between two compounds, when present,
+        // sits at the position right of the left compound.
+        var previous = panel;
         for (var i = parts.Length - 2; i >= 0; i--)
         {
-            if (parts[i].IsCombinator)
-            {
-                i--;
-                if (i < 0 || ancestor is null || !parts[i].Matches(ancestor)) return false;
-                ancestor = ancestor.Parent;
-            }
-            else
-            {
-                while (ancestor is not null && !parts[i].Matches(ancestor)) ancestor = ancestor.Parent;
-                if (ancestor is null) return false;
-                ancestor = ancestor.Parent;
-            }
+            if (parts[i].IsCombinator) continue; // read via the relation of the compound to its right
+            var relation = i + 1 < parts.Length && parts[i + 1].IsCombinator
+                ? parts[i + 1].CombinatorKind
+                : SelectorCombinator.Descendant;
+            var matched = FindMatch(parts[i], previous, relation);
+            if (matched is null) return false;
+            previous = matched;
         }
 
         return true;
+    }
+
+    /// <summary>
+    /// Matches a pseudo-element rule (<c>.x::before</c>) against a panel: the
+    /// selector's last compound must carry the pseudo-element and its base
+    /// (plus the whole chain) must match the panel. Used to synthesize
+    /// <c>content</c> for the cascade.
+    /// </summary>
+    public bool MatchesPseudo(Panel panel, string pseudoElement)
+    {
+        var parts = (_compiled ??= CompiledSelector.Parse(Selector)).Parts;
+        if (parts.Length == 0 || !parts[^1].PseudoElement.Equals(pseudoElement, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (!parts[^1].MatchesBase(panel)) return false;
+        var previous = panel;
+        for (var i = parts.Length - 2; i >= 0; i--)
+        {
+            if (parts[i].IsCombinator) continue;
+            var relation = i + 1 < parts.Length && parts[i + 1].IsCombinator
+                ? parts[i + 1].CombinatorKind
+                : SelectorCombinator.Descendant;
+            var matched = FindMatch(parts[i], previous, relation);
+            if (matched is null) return false;
+            previous = matched;
+        }
+
+        return true;
+    }
+
+    /// <summary>Finds the element the compound must match relative to <paramref name="previous"/>.</summary>
+    private static Panel? FindMatch(Part compound, Panel previous, SelectorCombinator relation)
+    {
+        switch (relation)
+        {
+            case SelectorCombinator.Child:
+            {
+                var directParent = previous.Parent;
+                return directParent is not null && compound.Matches(directParent) ? directParent : null;
+            }
+            case SelectorCombinator.Adjacent:
+            {
+                var siblingParent = previous.Parent;
+                if (siblingParent is null) return null;
+                var index = Part.SiblingIndex(previous);
+                return index > 0 && compound.Matches(siblingParent.Children[index - 1]) ? siblingParent.Children[index - 1] : null;
+            }
+            case SelectorCombinator.GeneralSibling:
+            {
+                var siblingParent = previous.Parent;
+                if (siblingParent is null) return null;
+                for (var i = Part.SiblingIndex(previous) - 1; i >= 0; i--)
+                    if (compound.Matches(siblingParent.Children[i])) return siblingParent.Children[i];
+                return null;
+            }
+            default: // Descendant
+                for (var ancestor = previous.Parent; ancestor is not null; ancestor = ancestor.Parent)
+                    if (compound.Matches(ancestor)) return ancestor;
+                return null;
+        }
     }
 
     /// <summary>
@@ -52,16 +122,20 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
         public static CompiledSelector Parse(string selector)
         {
             // Split on whitespace, but not inside [...] attribute selectors
-            // (a quoted value may contain spaces: [data-label="a b"]).
+            // (a quoted value may contain spaces: [data-label="a b"]) or inside
+            // functional pseudo-class parens (:not(.a .b), :nth-child(2n+1)).
             var tokens = new List<string>();
             var depth = 0;
+            var parens = 0;
             var start = 0;
             for (var i = 0; i < selector.Length; i++)
             {
                 var c = selector[i];
                 if (c == '[') depth++;
                 else if (c == ']') depth = Math.Max(0, depth - 1);
-                else if (depth == 0 && char.IsWhiteSpace(c))
+                else if (c == '(') parens++;
+                else if (c == ')') parens = Math.Max(0, parens - 1);
+                else if (depth == 0 && parens == 0 && char.IsWhiteSpace(c))
                 {
                     if (i > start) tokens.Add(selector[start..i]);
                     start = i + 1;
@@ -72,7 +146,9 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
             var parts = new Part[tokens.Count];
             for (var i = 0; i < tokens.Count; i++)
             {
-                if (tokens[i] == ">") parts[i] = Part.Combinator;
+                if (tokens[i] == ">") parts[i] = Part.ChildCombinator;
+                else if (tokens[i] == "+") parts[i] = Part.AdjacentCombinator;
+                else if (tokens[i] == "~") parts[i] = Part.GeneralSiblingCombinator;
                 else parts[i] = Part.ParseCompound(tokens[i]);
             }
 
@@ -81,51 +157,61 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
     }
 
     /// <summary>
-    /// One token of a parsed selector: either the child combinator or a
-    /// compound selector whose type, classes, id, attributes and pseudo-class
-    /// were extracted once (mirroring the previous regex-based matching).
+    /// One token of a parsed selector: either a combinator (<c>&gt;</c>, <c>+</c>,
+    /// <c>~</c>) or a compound selector whose type, classes, id, attributes and
+    /// pseudo-classes (including functional forms like <c>:not(.x)</c> and
+    /// <c>:nth-child(2n+1)</c>) were extracted once.
     /// </summary>
     private readonly struct Part
     {
-        public static readonly Part Combinator = new(isCombinator: true);
+        public static readonly Part ChildCombinator = new(isCombinator: true, SelectorCombinator.Child);
+        public static readonly Part AdjacentCombinator = new(isCombinator: true, SelectorCombinator.Adjacent);
+        public static readonly Part GeneralSiblingCombinator = new(isCombinator: true, SelectorCombinator.GeneralSibling);
 
         private readonly bool _isCombinator;
+        private readonly SelectorCombinator _combinatorKind;
         private readonly string _type = string.Empty;
-        private readonly string _pseudo = string.Empty;
+        private readonly PseudoClass[] _pseudoClasses = [];
+        private readonly string _pseudoElement = string.Empty;
         private readonly string[] _classes = [];
         private readonly string _id = string.Empty;
         private readonly (string Name, string? Value)[] _attributes = [];
 
         public bool IsCombinator => _isCombinator;
+        public SelectorCombinator CombinatorKind => _combinatorKind;
+        /// <summary>The pseudo-element name (<c>before</c>, <c>after</c>) or empty for ordinary compounds.</summary>
+        public string PseudoElement => _pseudoElement;
 
-        private Part(string type, string pseudo, string[] classes, string id, (string Name, string? Value)[] attributes)
-            : this(false)
+        private Part(string type, PseudoClass[] pseudoClasses, string pseudoElement, string[] classes, string id,
+            (string Name, string? Value)[] attributes)
+            : this(false, SelectorCombinator.Descendant)
         {
             _type = type;
-            _pseudo = pseudo;
+            _pseudoClasses = pseudoClasses;
+            _pseudoElement = pseudoElement;
             _classes = classes;
             _id = id;
             _attributes = attributes;
         }
 
-        private Part(bool isCombinator) => _isCombinator = isCombinator;
+        private Part(bool isCombinator, SelectorCombinator kind)
+        {
+            _isCombinator = isCombinator;
+            _combinatorKind = kind;
+        }
 
         public static Part ParseCompound(string compound)
         {
-            var pseudoIndex = compound.IndexOf(':');
-            var simple = pseudoIndex >= 0 ? compound[..pseudoIndex] : compound;
-            var pseudo = pseudoIndex >= 0 ? compound[(pseudoIndex + 1)..] : string.Empty;
-
             // Type selector: a leading run of [a-zA-Z0-9_-] starting with a letter.
             string type = string.Empty;
             var index = 0;
-            if (simple.Length > 0 && simple[0] != '*' && char.IsLetter(simple[0]))
+            if (compound.Length > 0 && compound[0] != '*' && char.IsLetter(compound[0]))
             {
                 var start = 0;
-                while (index < simple.Length && (char.IsLetterOrDigit(simple[index]) || simple[index] is '_' or '-')) index++;
-                type = simple[start..index];
+                while (index < compound.Length && (char.IsLetterOrDigit(compound[index]) || compound[index] is '_' or '-')) index++;
+                type = compound[start..index];
             }
-            else if (simple.Length > 0 && simple[0] == '*')
+            else if (compound.Length > 0 && compound[0] == '*')
             {
                 index = 1;
             }
@@ -133,16 +219,18 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
             var classes = new List<string>();
             string id = string.Empty;
             var attributes = new List<(string Name, string? Value)>();
-            while (index < simple.Length)
+            var pseudoClasses = new List<PseudoClass>();
+            string pseudoElement = string.Empty;
+            while (index < compound.Length)
             {
-                var c = simple[index];
+                var c = compound[index];
                 if (c == '.' || c == '#')
                 {
                     var start = ++index;
-                    while (index < simple.Length && (char.IsLetterOrDigit(simple[index]) || simple[index] is '_' or '-')) index++;
+                    while (index < compound.Length && (char.IsLetterOrDigit(compound[index]) || compound[index] is '_' or '-')) index++;
                     if (index > start)
                     {
-                        var name = simple[start..index];
+                        var name = compound[start..index];
                         if (c == '.') classes.Add(name);
                         else id = name;
                     }
@@ -151,19 +239,44 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
                 {
                     index++;
                     var nameStart = index;
-                    while (index < simple.Length && (char.IsLetterOrDigit(simple[index]) || simple[index] is '_' or '-')) index++;
-                    var attrName = simple[nameStart..index];
+                    while (index < compound.Length && (char.IsLetterOrDigit(compound[index]) || compound[index] is '_' or '-')) index++;
+                    var attrName = compound[nameStart..index];
                     string? attrValue = null;
-                    if (index < simple.Length && simple[index] == '=')
+                    if (index < compound.Length && compound[index] == '=')
                     {
                         index++;
                         var valueStart = index;
-                        while (index < simple.Length && simple[index] != ']') index++;
-                        attrValue = simple[valueStart..index].Trim('"', '\'');
+                        while (index < compound.Length && compound[index] != ']') index++;
+                        attrValue = compound[valueStart..index].Trim('\"', '\'');
                     }
 
-                    if (index < simple.Length && simple[index] == ']') index++;
+                    if (index < compound.Length && compound[index] == ']') index++;
                     if (attrName.Length > 0) attributes.Add((attrName, attrValue));
+                }
+                else if (c == ':')
+                {
+                    var doubleColon = index + 1 < compound.Length && compound[index + 1] == ':';
+                    index += doubleColon ? 2 : 1;
+                    var nameStart = index;
+                    while (index < compound.Length && (char.IsLetterOrDigit(compound[index]) || compound[index] is '_' or '-')) index++;
+                    var name = compound[nameStart..index];
+                    string? argument = null;
+                    if (index < compound.Length && compound[index] == '(')
+                    {
+                        var depth = 1;
+                        var argumentStart = ++index;
+                        while (index < compound.Length && depth > 0)
+                        {
+                            if (compound[index] == '(') depth++;
+                            else if (compound[index] == ')') depth--;
+                            index++;
+                        }
+
+                        argument = compound[argumentStart..Math.Max(argumentStart, index - 1)].Trim();
+                    }
+
+                    if (doubleColon) pseudoElement = name;
+                    else pseudoClasses.Add(new PseudoClass(name, argument));
                 }
                 else
                 {
@@ -173,23 +286,22 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
                 }
             }
 
-            return new Part(type, pseudo, classes.ToArray(), id, attributes.ToArray());
+            return new Part(type, pseudoClasses.ToArray(), pseudoElement, classes.ToArray(), id, attributes.ToArray());
         }
 
         public bool Matches(Panel panel)
         {
             if (IsCombinator) return false;
-            if (_pseudo.Length > 0 &&
-                !_pseudo.Equals("hover", StringComparison.OrdinalIgnoreCase) &&
-                !_pseudo.Equals("active", StringComparison.OrdinalIgnoreCase) &&
-                !_pseudo.Equals("focus", StringComparison.OrdinalIgnoreCase) &&
-                !_pseudo.Equals("disabled", StringComparison.OrdinalIgnoreCase) &&
-                !_pseudo.Equals("checked", StringComparison.OrdinalIgnoreCase)) return false;
-            if (_pseudo.Equals("hover", StringComparison.OrdinalIgnoreCase) && !panel.IsHovered) return false;
-            if (_pseudo.Equals("active", StringComparison.OrdinalIgnoreCase) && !panel.IsPressed) return false;
-            if (_pseudo.Equals("focus", StringComparison.OrdinalIgnoreCase) && !panel.IsFocused) return false;
-            if (_pseudo.Equals("disabled", StringComparison.OrdinalIgnoreCase) && panel.IsEnabled) return false;
-            if (_pseudo.Equals("checked", StringComparison.OrdinalIgnoreCase) && !panel.IsChecked) return false;
+            // Pseudo-element selectors never match panels as ordinary rules;
+            // they are consumed separately (see StyleRule.MatchesPseudo).
+            if (_pseudoElement.Length > 0) return false;
+            return MatchesBase(panel);
+        }
+
+        /// <summary>Matches the compound ignoring any pseudo-element part (used by <see cref="StyleRule.MatchesPseudo"/>).</summary>
+        public bool MatchesBase(Panel panel)
+        {
+            if (IsCombinator) return false;
             if (_type.Length > 0 && !_type.Equals(panel.TagName, StringComparison.OrdinalIgnoreCase)) return false;
             foreach (var className in _classes)
             {
@@ -210,7 +322,189 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
                 }
             }
 
+            foreach (var pseudo in _pseudoClasses)
+                if (!MatchesPseudo(pseudo, panel)) return false;
             return true;
+        }
+
+        private static bool MatchesPseudo(PseudoClass pseudo, Panel panel)
+        {
+            switch (pseudo.Name.ToLowerInvariant())
+            {
+                case "hover": return panel.IsHovered;
+                case "active": return panel.IsPressed;
+                case "focus": return panel.IsFocused;
+                case "focus-within": return IsFocusedWithin(panel);
+                case "disabled": return !panel.IsEnabled;
+                case "enabled": return panel.IsEnabled;
+                case "checked": return panel.IsChecked;
+                case "first-child": return SiblingIndex(panel) == 0;
+                case "last-child": return panel.Parent is not null && SiblingIndex(panel) == panel.Parent.Children.Count - 1;
+                case "only-child": return panel.Parent is not null && panel.Parent.Children.Count == 1;
+                case "nth-child": return NthMatches(panel, pseudo.Argument, reversed: false);
+                case "nth-last-child": return NthMatches(panel, pseudo.Argument, reversed: true);
+                case "empty": return panel.Children.Count == 0;
+                case "not":
+                    // Simple-selector negation only (a compound, not a complex
+                    // selector with combinators): the common `:not(.x)` case.
+                    return pseudo.Argument is not null && !ParseCompound(pseudo.Argument).Matches(panel);
+                default: return false;
+            }
+        }
+
+        private static bool IsFocusedWithin(Panel panel)
+        {
+            if (panel.IsFocused) return true;
+            foreach (var child in panel.Children)
+                if (IsFocusedWithin(child)) return true;
+            return false;
+        }
+
+        /// <summary>The 0-based index of the panel among its parent's children.</summary>
+        internal static int SiblingIndex(Panel panel)
+        {
+            var parent = panel.Parent;
+            if (parent is null) return 0;
+            for (var i = 0; i < parent.Children.Count; i++)
+                if (ReferenceEquals(parent.Children[i], panel)) return i;
+            return 0;
+        }
+
+        /// <summary>Matches <c>an+b</c>, <c>odd</c>, <c>even</c> or a literal position (1-based).</summary>
+        private static bool NthMatches(Panel panel, string? argument, bool reversed)
+        {
+            if (string.IsNullOrWhiteSpace(argument)) return false;
+            var expr = argument.Trim().ToLowerInvariant();
+            var count = panel.Parent?.Children.Count ?? 1;
+            var position = reversed ? count - SiblingIndex(panel) : SiblingIndex(panel) + 1;
+            if (expr == "odd") return position % 2 == 1;
+            if (expr == "even") return position % 2 == 0;
+            var formula = Regex.Match(expr, @"^([+-]?\d*)n(?:([+-]\d+))?$");
+            if (formula.Success)
+            {
+                var aText = formula.Groups[1].Value;
+                var a = aText is "" or "+" ? 1 : aText == "-" ? -1 : int.Parse(aText);
+                var b = formula.Groups[2].Success ? int.Parse(formula.Groups[2].Value) : 0;
+                var diff = position - b;
+                return a != 0 && diff % a == 0 && diff / a >= 0;
+            }
+
+            return int.TryParse(expr, out var exact) && position == exact;
+        }
+    }
+
+    /// <summary>A parsed pseudo-class: name plus the (optional) functional argument.</summary>
+    private readonly record struct PseudoClass(string Name, string? Argument);
+
+    /// <summary>The relation between two compounds of a selector.</summary>
+    internal enum SelectorCombinator
+    {
+        Descendant,
+        Child,
+        Adjacent,
+        GeneralSibling
+    }
+}
+
+/// <summary>The media feature of a <c>@media</c> condition.</summary>
+public enum MediaFeature
+{
+    MinWidth,
+    MaxWidth,
+    Width,
+    MinHeight,
+    MaxHeight,
+    Height
+}
+
+/// <summary>One <c>(feature: value)</c> condition of a media query.</summary>
+public readonly record struct MediaCondition(MediaFeature Feature, float Value)
+{
+    public bool Matches(float width, float height) => Feature switch
+    {
+        MediaFeature.MinWidth => width >= Value,
+        MediaFeature.MaxWidth => width <= Value,
+        MediaFeature.Width => Math.Abs(width - Value) < 0.5f,
+        MediaFeature.MinHeight => height >= Value,
+        MediaFeature.MaxHeight => height <= Value,
+        MediaFeature.Height => Math.Abs(height - Value) < 0.5f,
+        _ => true
+    };
+}
+
+/// <summary>
+/// A parsed <c>@media</c> query: comma-separated alternatives (OR), each an
+/// <c>and</c>-joined list of conditions. Width/height features are evaluated
+/// against the viewport recorded on the style sheet.
+/// </summary>
+public sealed class MediaQuery
+{
+    private readonly List<List<MediaCondition>> _alternatives;
+
+    private MediaQuery(List<List<MediaCondition>> alternatives) => _alternatives = alternatives;
+
+    public bool Matches(float width, float height)
+    {
+        foreach (var alternative in _alternatives)
+        {
+            var all = true;
+            foreach (var condition in alternative)
+            {
+                if (!condition.Matches(width, height)) { all = false; break; }
+            }
+
+            if (all) return true;
+        }
+        return false;
+    }
+
+    /// <summary>Parses the prelude of an <c>@media</c> block; null means "matches everything".</summary>
+    internal static MediaQuery? Parse(string prelude)
+    {
+        if (prelude.Trim().Equals("all", StringComparison.OrdinalIgnoreCase)) return null;
+        var alternatives = new List<List<MediaCondition>>();
+        foreach (var alternative in prelude.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            // `all` as one alternative of an OR list matches everything.
+            if (alternative.Equals("all", StringComparison.OrdinalIgnoreCase))
+            {
+                alternatives.Add([]);
+                continue;
+            }
+
+            var conditions = new List<MediaCondition>();
+            foreach (var part in alternative.Split("and", StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                if (TryParseCondition(part, out var condition)) conditions.Add(condition);
+            }
+
+            if (conditions.Count > 0) alternatives.Add(conditions);
+        }
+        return alternatives.Count == 0 ? null : new MediaQuery(alternatives);
+    }
+
+    /// <summary>Parses one <c>(min-width: 800px)</c> condition (px values only).</summary>
+    private static bool TryParseCondition(string token, out MediaCondition condition)
+    {
+        condition = default;
+        var trimmed = token.Trim();
+        if (trimmed.Length >= 2 && trimmed[0] == '(' && trimmed[^1] == ')') trimmed = trimmed[1..^1].Trim();
+        var colon = trimmed.IndexOf(':');
+        if (colon < 0) return false;
+        var name = trimmed[..colon].Trim().ToLowerInvariant();
+        var valueText = trimmed[(colon + 1)..].Trim();
+        if (valueText.EndsWith("px", StringComparison.OrdinalIgnoreCase)) valueText = valueText[..^2];
+        if (!float.TryParse(valueText, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var value)) return false;
+        switch (name)
+        {
+            case "min-width": condition = new MediaCondition(MediaFeature.MinWidth, value); return true;
+            case "max-width": condition = new MediaCondition(MediaFeature.MaxWidth, value); return true;
+            case "width": condition = new MediaCondition(MediaFeature.Width, value); return true;
+            case "min-height": condition = new MediaCondition(MediaFeature.MinHeight, value); return true;
+            case "max-height": condition = new MediaCondition(MediaFeature.MaxHeight, value); return true;
+            case "height": condition = new MediaCondition(MediaFeature.Height, value); return true;
+            default: return false;
         }
     }
 }
@@ -225,10 +519,51 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
 public sealed class StyleSheet
 {
     private readonly List<StyleRule> _rules = [];
+    // Pre-filtered pseudo-element rule lists: the cascade synthesizes
+    // ::before/::after content per panel, so iterating only the rules that
+    // actually target the pseudo element (instead of re-matching every rule)
+    // keeps the per-frame re-cascade cheap.
+    private readonly List<StyleRule> _beforeRules = [];
+    private readonly List<StyleRule> _afterRules = [];
+    private float _viewportWidth;
+    private float _viewportHeight;
+    private bool _viewportSet;
     public IReadOnlyList<StyleRule> Rules => _rules;
 
-    public void AddRules(IEnumerable<StyleRule> rules) => _rules.AddRange(rules);
-    public void Clear() => _rules.Clear();
+    public void AddRules(IEnumerable<StyleRule> rules)
+    {
+        foreach (var rule in rules) AddRule(rule);
+    }
+
+    private void AddRule(StyleRule rule)
+    {
+        _rules.Add(rule);
+        var pseudo = rule.PseudoElement;
+        if (pseudo.Length == 0) return;
+        if (pseudo.Equals("before", StringComparison.OrdinalIgnoreCase)) _beforeRules.Add(rule);
+        else if (pseudo.Equals("after", StringComparison.OrdinalIgnoreCase)) _afterRules.Add(rule);
+    }
+
+    public void Clear()
+    {
+        _rules.Clear();
+        _beforeRules.Clear();
+        _afterRules.Clear();
+    }
+
+    /// <summary>True when the sheet carries at least one rule targeting the pseudo element.</summary>
+    internal bool HasPseudoRules(string pseudoElement) =>
+        pseudoElement.Equals("before", StringComparison.OrdinalIgnoreCase)
+            ? _beforeRules.Count > 0
+            : _afterRules.Count > 0;
+
+    /// <summary>Records the viewport used to evaluate <c>@media</c> queries.</summary>
+    public void SetViewport(float width, float height)
+    {
+        _viewportWidth = width;
+        _viewportHeight = height;
+        _viewportSet = true;
+    }
 
     public static StyleSheet Parse(string css, string? scopeId = null)
     {
@@ -237,25 +572,90 @@ public sealed class StyleSheet
         if (!string.IsNullOrWhiteSpace(scopeId)) css = ScopeKeyframeNames(css, scopeId.Trim());
         css = StripKeyframes(css, out var keyframeBlocks);
         foreach (var (name, body) in keyframeBlocks) Keyframes.Register(ParseKeyframes(name, body));
-        foreach (Match match in Regex.Matches(css, "(?s)([^{}]+)\\{([^{}]*)\\}"))
+        ParseRules(sheet, css, media: null, scopeId, ref order);
+        return sheet;
+    }
+
+    /// <summary>
+    /// Scans a css chunk for style rules, descending into <c>@media</c> blocks
+    /// (whose rules carry the parsed media condition). Brace depth is tracked so
+    /// nested blocks and rule bodies are not misread. Other at-rules are
+    /// skipped like unknown syntax.
+    /// </summary>
+    private static void ParseRules(StyleSheet sheet, string css, MediaQuery? media, string? scopeId, ref int order)
+    {
+        var index = 0;
+        while (index < css.Length)
         {
-            var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var declaration in match.Groups[2].Value.Split(';'))
+            while (index < css.Length && char.IsWhiteSpace(css[index])) index++;
+            if (index >= css.Length) break;
+            if (css[index] == '@' && RegionMatches(css, index, "@media"))
             {
-                var split = declaration.Split(':', 2);
-                if (split.Length == 2) properties[split[0].Trim()] = split[1].Trim();
+                var open = css.IndexOf('{', index);
+                if (open < 0) break;
+                var query = MediaQuery.Parse(css[(index + "@media".Length)..open]);
+                var close = FindMatchingBrace(css, open);
+                if (close < 0) break;
+                ParseRules(sheet, css[(open + 1)..close], query, scopeId, ref order);
+                index = close + 1;
+                continue;
             }
 
-            foreach (var selector in match.Groups[1].Value.Split(',', StringSplitOptions.RemoveEmptyEntries))
-            {
-                var scopedSelector = string.IsNullOrWhiteSpace(scopeId)
-                    ? selector.Trim()
-                    : ScopeSelector(selector.Trim(), scopeId.Trim());
-                sheet._rules.Add(new StyleRule(scopedSelector, properties, order++));
-            }
+            var brace = css.IndexOf('{', index);
+            if (brace < 0) break;
+            var ruleEnd = FindMatchingBrace(css, brace);
+            if (ruleEnd < 0) break;
+            var selectorText = css[index..brace].Trim();
+            var body = css[(brace + 1)..ruleEnd];
+            // Unknown at-rules (and stray text) must not become selector rules
+            // that could match every panel.
+            if (selectorText.Length > 0 && !selectorText.StartsWith('@'))
+                AddSelectorRules(sheet, selectorText, body, media, scopeId, ref order);
+            index = ruleEnd + 1;
+        }
+    }
+
+    /// <summary>Adds the rules of one rule block, one per comma-separated selector.</summary>
+    private static void AddSelectorRules(StyleSheet sheet, string selectorText, string body, MediaQuery? media,
+        string? scopeId, ref int order)
+    {
+        var properties = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var declaration in body.Split(';'))
+        {
+            var split = declaration.Split(':', 2);
+            if (split.Length == 2) properties[split[0].Trim()] = split[1].Trim();
         }
 
-        return sheet;
+        foreach (var selector in selectorText.Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = selector.Trim();
+            if (trimmed.Length == 0) continue;
+            var scopedSelector = string.IsNullOrWhiteSpace(scopeId)
+                ? trimmed
+                : ScopeSelector(trimmed, scopeId.Trim());
+            sheet.AddRule(new StyleRule(scopedSelector, properties, order++, media));
+        }
+    }
+
+    /// <summary>Finds the index just after the closing brace matching the brace at <paramref name="open"/>.</summary>
+    private static int FindMatchingBrace(string css, int open)
+    {
+        var depth = 1;
+        for (var i = open + 1; i < css.Length; i++)
+        {
+            if (css[i] == '{') depth++;
+            else if (css[i] == '}') depth--;
+            if (depth == 0) return i;
+        }
+
+        return -1;
+    }
+
+    /// <summary>Case-insensitive prefix match of <paramref name="text"/> at <paramref name="index"/>.</summary>
+    private static bool RegionMatches(string css, int index, string text)
+    {
+        if (index + text.Length > css.Length) return false;
+        return css.AsSpan(index, text.Length).Equals(text.AsSpan(), StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -441,9 +841,57 @@ public sealed class StyleSheet
     public ComputedStyle Compute(Panel panel)
     {
         var style = new ComputedStyle();
-        foreach (var rule in _rules.Where(r => r.Matches(panel)).OrderBy(r => r.Order)) Apply(style, rule.Properties);
+        var mediaEnabled = !_viewportSet;
+        foreach (var rule in _rules.Where(r => r.Matches(panel) && (mediaEnabled || r.Media?.Matches(_viewportWidth, _viewportHeight) != false))
+                     .OrderBy(r => r.Order))
+            Apply(style, rule.Properties);
         Apply(style, panel.InlineStyle);
         return style;
+    }
+
+    /// <summary>
+    /// Computes the content and style of a matching <c>::before</c>/<c>::after</c>
+    /// rule. The pseudo element inherits from the panel's computed style, then
+    /// its own declarations override (content, color, font properties,
+    /// letter-spacing, text-transform, text-decoration). Returns false when no
+    /// rule matches; <paramref name="content"/> is null when the rule sets no
+    /// text content (an empty or attr() pseudo element).
+    /// </summary>
+    internal bool TryComputePseudo(Panel panel, string pseudoElement, ComputedStyle inherited,
+        out string? content, out ComputedStyle style)
+    {
+        content = null;
+        style = inherited.Clone();
+        var rules = pseudoElement.Equals("before", StringComparison.OrdinalIgnoreCase) ? _beforeRules : _afterRules;
+        if (rules.Count == 0) return false;
+        var found = false;
+        var mediaEnabled = !_viewportSet;
+        foreach (var rule in rules)
+        {
+            if (rule.Media is not null && !mediaEnabled && !rule.Media.Matches(_viewportWidth, _viewportHeight)) continue;
+            if (!rule.MatchesPseudo(panel, pseudoElement)) continue;
+            found = true;
+            foreach (var (name, value) in rule.Properties)
+            {
+                if (name.Equals("content", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (ParseContent(value, panel) is { } text) content = text;
+                }
+                else CssProperties.TryApply(style, name, value);
+            }
+        }
+
+        return found;
+    }
+
+    /// <summary>Parses <c>content: "text"</c>, <c>content: 'text'</c> or <c>content: attr(name)</c>.</summary>
+    private static string? ParseContent(string value, Panel panel)
+    {
+        var trimmed = value.Trim();
+        if (trimmed.Length >= 2 && trimmed[0] is '"' or '\'' && trimmed[^1] == trimmed[0]) return trimmed[1..^1];
+        var attr = Regex.Match(trimmed, @"^attr\(\s*([A-Za-z_][A-Za-z0-9_-]*)\s*\)$");
+        if (attr.Success) return panel.Attributes.TryGetValue(attr.Groups[1].Value, out var attributeValue) ? attributeValue : null;
+        return trimmed.Length == 0 ? null : trimmed;
     }
 
     /// <summary>

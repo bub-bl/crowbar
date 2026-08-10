@@ -6,6 +6,10 @@ public sealed partial class UiSystem
     private Panel? _captured;
     private Panel? _scrollDragPanel;
     private bool _scrollDragVertical;
+    private Panel? _lastClickPanel;
+    private long _lastClickTime;
+    private float _lastClickX;
+    private float _lastClickY;
     public Panel? FocusedPanel { get; private set; }
     public event Action<Panel, UiPointerEvent>? PointerMoved;
     public event Action<Panel, UiPointerEvent>? PointerDown;
@@ -21,7 +25,12 @@ public sealed partial class UiSystem
         UpdateHoverPath(hit);
         _hovered = hit;
         if (_captured is TextInput textInput) textInput.UpdatePointerSelection(x / Math.Max(0.01f, Screen.Scale));
-        if (hit is not null) PointerMoved?.Invoke(hit, new UiPointerEvent(x, y));
+        if (hit is not null)
+        {
+            var e = new UiPointerEvent(x, y);
+            PointerMoved?.Invoke(hit, e);
+            for (var current = hit; current is not null; current = current.Parent) current.RaisePointerMove(e);
+        }
         return hit;
     }
 
@@ -37,8 +46,29 @@ public sealed partial class UiSystem
         PointerDown?.Invoke(hit, e);
         for (var current = hit; current is not null; current = current.Parent) current.RaisePointerDown(e);
         _captured = hit is Button or TextInput ? hit : null;
+        // A click toggles the nearest checkbox/radio on the hit path (deepest
+        // first), then fires on the deepest clickable panel (any panel with a
+        // Clicked handler, not just buttons) and stops bubbling there.
         for (var current = hit; current is not null; current = current.Parent)
-            if (current is Button buttonPanel) { buttonPanel.RaiseClicked(e); break; }
+        {
+            if (current is ToggleInput toggleInput) { ToggleRadioGroup(toggleInput); break; }
+        }
+        for (var current = hit; current is not null; current = current.Parent)
+        {
+            if (current.HasClickedHandler) { current.RaiseClicked(e); break; }
+        }
+        // Double-click: a second press close in time and space to the first
+        // one fires DoubleClicked on the hit panel path.
+        var now = Environment.TickCount64;
+        if (_lastClickPanel is not null && ReferenceEquals(_lastClickPanel, hit) &&
+            now - _lastClickTime < 400 && Math.Abs(x - _lastClickX) < 6 && Math.Abs(y - _lastClickY) < 6)
+        {
+            for (var current = hit; current is not null; current = current.Parent) current.RaiseDoubleClicked(e);
+        }
+        _lastClickPanel = hit;
+        _lastClickTime = now;
+        _lastClickX = x;
+        _lastClickY = y;
         return hit;
     }
 
@@ -99,9 +129,38 @@ public sealed partial class UiSystem
 
     private void UpdateFocus(Panel? panel)
     {
-        if (FocusedPanel is not null && !ReferenceEquals(FocusedPanel, panel)) FocusedPanel.SetFocused(false);
-        panel?.SetFocused(true);
+        if (FocusedPanel is not null && !ReferenceEquals(FocusedPanel, panel))
+        {
+            FocusedPanel.SetFocused(false);
+            FocusedPanel.RaiseBlurred();
+        }
+        if (panel is not null && !ReferenceEquals(FocusedPanel, panel))
+        {
+            panel.SetFocused(true);
+            panel.RaiseFocused();
+        }
         FocusedPanel = panel;
+    }
+
+    /// <summary>
+    /// Toggles a checkbox, or checks a radio and unchecks the other radios of
+    /// the same group (mutual exclusion by the <c>name</c> attribute).
+    /// </summary>
+    private void ToggleRadioGroup(ToggleInput toggle)
+    {
+        if (!toggle.IsRadio) { toggle.Toggle(); return; }
+        if (toggle.IsChecked) return; // A checked radio cannot be unchecked by clicking itself.
+        foreach (var sibling in AllToggles(Screen).Where(other => other.IsRadio && !ReferenceEquals(other, toggle) &&
+                     string.Equals(other.GroupName, toggle.GroupName, StringComparison.Ordinal)))
+            sibling.SetCheckedQuiet(false);
+        toggle.Toggle();
+    }
+
+    private static IEnumerable<ToggleInput> AllToggles(Panel panel)
+    {
+        if (panel is ToggleInput toggle) yield return toggle;
+        foreach (var child in panel.Children)
+            foreach (var nested in AllToggles(child)) yield return nested;
     }
 
     private const float WheelScrollStep = 40f;
@@ -115,7 +174,11 @@ public sealed partial class UiSystem
     {
         var hit = Screen.HitTest(x / Math.Max(0.01f, Screen.Scale), y / Math.Max(0.01f, Screen.Scale));
         if (hit is null) return;
+        var wheel = new WheelEvent(deltaX, deltaY);
         PointerWheelChanged?.Invoke(hit, deltaX, deltaY);
+        // @onwheel handlers fire on the hovered path regardless of whether a
+        // scrollable ancestor absorbs the wheel.
+        for (var current = hit; current is not null; current = current.Parent) current.RaisePointerWheel(wheel);
         // Scroll the nearest scrollable ancestor under the cursor: vertical wheel
         // deltas prefer vertical scrolling, horizontal deltas horizontal. A delta
         // is reused on the other axis when the preferred one cannot scroll.
@@ -137,7 +200,12 @@ public sealed partial class UiSystem
     {
         if (FocusedPanel is TextInput input) input.HandleKey(keyEvent.KeyCode, keyEvent.IsDown, keyEvent.Text);
         else if (FocusedPanel is not null) TryScrollFromKeyboard(FocusedPanel, keyEvent);
-        if (FocusedPanel is not null) KeyChanged?.Invoke(FocusedPanel, keyEvent);
+        if (FocusedPanel is not null)
+        {
+            if (keyEvent.IsDown) FocusedPanel.RaiseKeyDown(keyEvent);
+            else FocusedPanel.RaiseKeyUp(keyEvent);
+            KeyChanged?.Invoke(FocusedPanel, keyEvent);
+        }
     }
 
     /// <summary>Scrolls the nearest scrollable ancestor of the focused panel with the arrow/page keys.</summary>

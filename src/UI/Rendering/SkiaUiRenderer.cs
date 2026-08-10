@@ -200,11 +200,24 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         {
             if (YogaLayoutEngine.ApplyStylesTracked(root, StyleSheet)) needsLayout = true;
             root.AnyInheritedDirty = false;
+            root.ClearInheritanceDirtyRoots();
         }
         else if (root.AnyInheritedDirty && !needsLayout)
         {
-            if (YogaLayoutEngine.ApplyInheritanceOnly(root)) needsLayout = true;
+            // Scope the inheritance refresh to the subtrees of the animated
+            // panels that moved an inherited property, instead of walking the
+            // whole tree every frame.
+            if (root.InheritanceDirtyRoots.Count > 0)
+            {
+                foreach (var animated in root.InheritanceDirtyRoots)
+                {
+                    if (animated.Parent is null) continue; // detached since the tick
+                    if (YogaLayoutEngine.ApplyInheritanceSubtree(animated)) needsLayout = true;
+                }
+            }
+            else if (YogaLayoutEngine.ApplyInheritanceOnly(root)) needsLayout = true;
             root.AnyInheritedDirty = false;
+            root.ClearInheritanceDirtyRoots();
         }
         if (needsLayout)
         {
@@ -230,6 +243,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 root.AnyPaintDirty = false;
                 root.AnyStyleDirty = false;
                 root.AnyInheritedDirty = false;
+                root.ClearInheritanceDirtyRoots();
                 root.ClearDirty();
                 return _pixels;
             }
@@ -282,6 +296,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         root.AnyPaintDirty = false;
         root.AnyStyleDirty = false;
         root.AnyInheritedDirty = false;
+        root.ClearInheritanceDirtyRoots();
         _forceFull = false;
         _dirty = false;
         return _pixels;
@@ -415,10 +430,23 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // object-fit/object-position (default fill: stretch to the box).
         if (panel is Image image && !string.IsNullOrEmpty(image.Source))
             DrawImageContent(canvas, panel, image.Source, rect, alpha);
+        // Checkboxes and radios paint their indicator into the content box
+        // (square + check, or circle + dot when checked).
+        if (panel is ToggleInput toggleInput) DrawToggle(canvas, panel, rect, toggleInput, alpha);
         var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
         // An empty focused input still needs a text pass so its caret can be
         // drawn at the beginning of the field.
         if (!string.IsNullOrEmpty(text) || panel is TextInput { IsFocused: true }) DrawText(canvas, panel, rect, text, alpha);
+        // Generated ::before/::after content of non-text panels paints as
+        // decorative inline text at the content box start (before) and end
+        // (after), using the pseudo element's own computed style.
+        if (panel.TagName != "text" && panel is not TextInput)
+        {
+            if (panel.PseudoBefore is { } pseudoBefore)
+                DrawPseudoText(canvas, panel, rect, pseudoBefore.Style, pseudoBefore.Text, start: true, alpha);
+            if (panel.PseudoAfter is { } pseudoAfter)
+                DrawPseudoText(canvas, panel, rect, pseudoAfter.Style, pseudoAfter.Text, start: false, alpha);
+        }
         // Children are drawn at the scrolled position (content coordinates minus
         // the scroll offset) and clipped to the padding box when the panel clips
         // its content (overflow hidden/scroll/auto/clip). Siblings paint in
@@ -668,6 +696,69 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
 
     /// <summary>The positive remainder of <paramref name="value"/> modulo <paramref name="modulus"/>.</summary>
     private static float PositiveMod(float value, float modulus) => ((value % modulus) + modulus) % modulus;
+
+    /// <summary>
+    /// Paints the checkbox/radio indicator of a <see cref="ToggleInput"/>:
+    /// a rounded square with a checkmark, or a circle with a dot, in the
+    /// content box top-left corner. The indicator follows the panel's
+    /// enabled state (grayed when disabled).
+    /// </summary>
+    private static void DrawToggle(SKCanvas canvas, Panel panel, SKRect rect, ToggleInput toggle, byte alpha)
+    {
+        var style = panel.ComputedStyle;
+        var border = panel.LayoutBorder;
+        var padding = panel.LayoutPadding;
+        var size = Math.Max(12, Math.Min(16,
+            Math.Min(rect.Width - border.Left - border.Right - padding.Left - padding.Right,
+                rect.Height - border.Top - border.Bottom - padding.Top - padding.Bottom)));
+        if (size <= 0) return;
+        var x = rect.Left + border.Left + padding.Left;
+        var y = rect.Top + border.Top + padding.Top;
+        var box = new SKRect(x, y, x + size, y + size);
+        var dim = panel.IsEnabled ? 1f : 0.5f;
+        var accent = panel.IsChecked ? new SKColor(40, 100, 220, (byte)(alpha * dim)) : new SKColor(120, 120, 130, (byte)(alpha * dim));
+        using var fill = new SKPaint { Color = new SKColor(255, 255, 255, (byte)(255 * alpha * dim)), IsAntialias = true };
+        using var outline = new SKPaint
+        {
+            Color = new SKColor(90, 90, 100, (byte)(255 * alpha * dim)),
+            IsAntialias = true,
+            Style = SKPaintStyle.Stroke,
+            StrokeWidth = 1.5f
+        };
+        if (toggle.IsRadio)
+        {
+            canvas.DrawOval(box, fill);
+            canvas.DrawOval(box, outline);
+            if (toggle.IsChecked)
+            {
+                using var dot = new SKPaint { Color = accent, IsAntialias = true };
+                canvas.DrawOval(box, dot);
+            }
+        }
+        else
+        {
+            var radius = Math.Min(4f, size / 4f);
+            canvas.DrawRoundRect(box, radius, radius, fill);
+            canvas.DrawRoundRect(box, radius, radius, outline);
+            if (toggle.IsChecked)
+            {
+                using var check = new SKPaint
+                {
+                    Color = accent,
+                    IsAntialias = true,
+                    Style = SKPaintStyle.Stroke,
+                    StrokeWidth = Math.Max(1.5f, size / 8f),
+                    StrokeCap = SKStrokeCap.Round,
+                    StrokeJoin = SKStrokeJoin.Round
+                };
+                using var path = new SKPath();
+                path.MoveTo(x + size * 0.2f, y + size * 0.52f);
+                path.LineTo(x + size * 0.42f, y + size * 0.7f);
+                path.LineTo(x + size * 0.82f, y + size * 0.3f);
+                canvas.DrawPath(path, check);
+            }
+        }
+    }
 
     /// <summary>
     /// Draws the children of a panel in stacking order: ascending z-index with a
@@ -1017,7 +1108,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var contentWidth = Math.Max(0, rect.Width - padding.Left - padding.Right);
         var contentHeight = Math.Max(0, rect.Height - padding.Top - padding.Bottom);
         var lineHeight = style.LineHeight > 0 ? style.LineHeight : style.FontSize * 1.25f;
-        using var font = new SKFont { Size = style.FontSize };
+        using var font = TextLayout.CreateFont(style);
         var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
         if (string.IsNullOrEmpty(text))
         {
@@ -1026,7 +1117,15 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         }
 
         var metrics = font.Metrics;
-        var lines = WrapText(text, font, contentWidth);
+        // ::before/::after content of a text panel joins the text as one flow
+        // (the layout box already measured it the same way). Concatenation is
+        // skipped when the panel has no generated content (the common case),
+        // avoiding an allocation per text panel per frame.
+        var displayText = panel is TextInput || (panel.PseudoBefore is null && panel.PseudoAfter is null)
+            ? text
+            : (panel.PseudoBefore?.Text ?? string.Empty) + text + (panel.PseudoAfter?.Text ?? string.Empty);
+        var transformed = TextLayout.ApplyTransform(displayText, style.TextTransform);
+        var lines = TextLayout.Wrap(transformed, font, contentWidth, style.WhiteSpace, style.LetterSpacing, style.TextOverflow);
         var blockHeight = lines.Count * lineHeight;
         var y = style.VerticalAlign.Equals("center", StringComparison.OrdinalIgnoreCase)
             ? top + Math.Max(0, (contentHeight - blockHeight) / 2)
@@ -1039,7 +1138,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var yMax = float.MinValue;
         for (var i = 0; i < lines.Count; i++)
         {
-            var measured = font.MeasureText(lines[i]);
+            var measured = TextLayout.Measure(font, lines[i], style.LetterSpacing);
             var x = style.TextAlign.Equals("center", StringComparison.OrdinalIgnoreCase)
                 ? left + Math.Max(0, (contentWidth - measured) / 2)
                 : style.TextAlign.Equals("right", StringComparison.OrdinalIgnoreCase)
@@ -1074,9 +1173,16 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var lineHeight = style.LineHeight > 0 ? style.LineHeight : style.FontSize * 1.25f;
 
         using var paint = new SKPaint { Color = new SKColor(style.Color.R, style.Color.G, style.Color.B, alpha), IsAntialias = true };
-        using var font = new SKFont { Size = style.FontSize };
+        using var font = TextLayout.CreateFont(style);
         var metrics = font.Metrics;
-        var lines = panel is TextInput ? [text] : WrapText(text, font, contentWidth);
+        // ::before/::after content of a text panel joins the text as one flow
+        // (the layout box already measured it the same way). Concatenation is
+        // skipped when the panel has no generated content (the common case).
+        var displayText = panel is TextInput || (panel.PseudoBefore is null && panel.PseudoAfter is null)
+            ? text
+            : (panel.PseudoBefore?.Text ?? string.Empty) + text + (panel.PseudoAfter?.Text ?? string.Empty);
+        var transformed = TextLayout.ApplyTransform(displayText, style.TextTransform);
+        var lines = panel is TextInput ? [transformed] : TextLayout.Wrap(transformed, font, contentWidth, style.WhiteSpace, style.LetterSpacing, style.TextOverflow);
         var blockHeight = lines.Count * lineHeight;
         var y = style.VerticalAlign.Equals("center", StringComparison.OrdinalIgnoreCase)
             ? top + Math.Max(0, (contentHeight - blockHeight) / 2)
@@ -1088,7 +1194,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
 
         foreach (var line in lines)
         {
-            var measured = font.MeasureText(line);
+            var measured = TextLayout.Measure(font, line, style.LetterSpacing);
             var x = style.TextAlign.Equals("center", StringComparison.OrdinalIgnoreCase)
                 ? left + Math.Max(0, (contentWidth - measured) / 2)
                 : style.TextAlign.Equals("right", StringComparison.OrdinalIgnoreCase)
@@ -1099,12 +1205,12 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             // donc tenir compte de la hauteur de la ligne pour que le glyphe soit
             // réellement centré dans un input ou un bouton.
             var baseline = y + lineHeight / 2f - (metrics.Ascent + metrics.Descent) / 2f;
-            if (panel is TextInput selectionInput && selectionInput.HasSelection && line == text)
+            if (panel is TextInput selectionInput && selectionInput.HasSelection && line == transformed)
             {
                 var selectionStart = Math.Min(selectionInput.SelectionStart, selectionInput.SelectionEnd);
                 var selectionEnd = Math.Max(selectionInput.SelectionStart, selectionInput.SelectionEnd);
-                var selectionLeft = x + font.MeasureText(text[..selectionStart]);
-                var selectionRight = x + font.MeasureText(text[..selectionEnd]);
+                var selectionLeft = x + TextLayout.Measure(font, transformed[..selectionStart], style.LetterSpacing);
+                var selectionRight = x + TextLayout.Measure(font, transformed[..selectionEnd], style.LetterSpacing);
                 using var selectionPaint = new SKPaint { Color = new SKColor(50, 120, 220, alpha), IsAntialias = true };
                 canvas.DrawRect(new SKRect(selectionLeft, y, selectionRight, y + lineHeight), selectionPaint);
             }
@@ -1119,40 +1225,80 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 };
                 if (shadow.BlurRadius > 0)
                     shadowPaint.ImageFilter = SKImageFilter.CreateBlur(shadow.BlurRadius * 0.5f, shadow.BlurRadius * 0.5f, SKShaderTileMode.Decal, null);
-                canvas.DrawText(line, x + shadow.OffsetX, baseline + shadow.OffsetY, SKTextAlign.Left, font, shadowPaint);
+                TextLayout.Draw(canvas, line, x + shadow.OffsetX, baseline + shadow.OffsetY, font, shadowPaint, style.LetterSpacing);
             }
-            canvas.DrawText(line, x, baseline, SKTextAlign.Left, font, paint);
+            TextLayout.Draw(canvas, line, x, baseline, font, paint, style.LetterSpacing);
+            DrawTextDecorations(canvas, style, line, x, baseline, metrics, measured, alpha);
             y += lineHeight;
         }
 
         if (panel is TextInput input && input.IsFocused && input.CaretVisible && lines.Count == 1)
         {
-            var caretX = firstLineX + font.MeasureText(input.Value[..Math.Clamp(input.CaretIndex, 0, input.Value.Length)]);
+            var caretX = firstLineX + TextLayout.Measure(font, transformed[..Math.Clamp(input.CaretIndex, 0, transformed.Length)], style.LetterSpacing);
             using var caretPaint = new SKPaint { Color = paint.Color, StrokeWidth = 1.5f, IsAntialias = true };
             canvas.DrawLine(caretX, top + 3, caretX, top + Math.Max(font.Size + 3, contentHeight - 3), caretPaint);
         }
     }
 
-    private static List<string> WrapText(string text, SKFont font, float width)
+    /// <summary>
+    /// Draws the generated content of a <c>::before</c>/<c>::after</c> element
+    /// of a non-text panel: a single line at the content box start (top-left)
+    /// or end (bottom-left), styled by the pseudo element's computed style.
+    /// </summary>
+    private static void DrawPseudoText(SKCanvas canvas, Panel panel, SKRect rect, ComputedStyle style, string text,
+        bool start, byte alpha)
     {
-        if (width <= 0 || font.MeasureText(text) <= width) return text.Split('\n').ToList();
-        var lines = new List<string>();
-        foreach (var rawLine in text.Split('\n'))
+        var border = panel.LayoutBorder;
+        var padding = panel.LayoutPadding;
+        var left = rect.Left + border.Left + padding.Left;
+        var top = rect.Top + border.Top + padding.Top;
+        var contentHeight = Math.Max(0, rect.Height - border.Top - border.Bottom - padding.Top - padding.Bottom);
+        using var font = TextLayout.CreateFont(style);
+        var metrics = font.Metrics;
+        var transformed = TextLayout.ApplyTransform(text, style.TextTransform);
+        using var paint = new SKPaint { Color = new SKColor(style.Color.R, style.Color.G, style.Color.B, alpha), IsAntialias = true };
+        var lineHeight = style.LineHeight > 0 ? style.LineHeight : style.FontSize * 1.25f;
+        var y = start ? top : top + Math.Max(0, contentHeight - lineHeight);
+        var baseline = y + lineHeight / 2f - (metrics.Ascent + metrics.Descent) / 2f;
+        TextLayout.Draw(canvas, transformed, left, baseline, font, paint, style.LetterSpacing);
+        DrawTextDecorations(canvas, style, transformed, left, baseline, metrics,
+            TextLayout.Measure(font, transformed, style.LetterSpacing), alpha);
+    }
+
+    /// <summary>
+    /// Paints the <c>text-decoration</c> lines (underline, overline,
+    /// line-through — space-separated combinations allowed) across the
+    /// measured width of one line, using the text color.
+    /// </summary>
+    private static void DrawTextDecorations(SKCanvas canvas, ComputedStyle style, string line, float x, float baseline,
+        SKFontMetrics metrics, float measured, byte alpha)
+    {
+        var decoration = style.TextDecoration;
+        if (string.IsNullOrWhiteSpace(decoration) || decoration.Equals("none", StringComparison.OrdinalIgnoreCase)) return;
+        using var paint = new SKPaint
         {
-            var current = string.Empty;
-            foreach (var word in rawLine.Split(' '))
+            Color = new SKColor(style.Color.R, style.Color.G, style.Color.B, alpha),
+            IsAntialias = true,
+            StrokeWidth = Math.Max(1f, style.FontSize / 12f)
+        };
+        var end = x + measured;
+        var tokens = decoration.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        foreach (var token in tokens)
+        {
+            switch (token.ToLowerInvariant())
             {
-                var candidate = string.IsNullOrEmpty(current) ? word : current + " " + word;
-                if (!string.IsNullOrEmpty(current) && font.MeasureText(candidate) > width)
-                {
-                    lines.Add(current);
-                    current = word;
-                }
-                else current = candidate;
+                case "underline":
+                    canvas.DrawLine(x, baseline + Math.Max(1.5f, metrics.Descent * 0.25f), end,
+                        baseline + Math.Max(1.5f, metrics.Descent * 0.25f), paint);
+                    break;
+                case "overline":
+                    canvas.DrawLine(x, baseline + metrics.Ascent - 1.5f, end, baseline + metrics.Ascent - 1.5f, paint);
+                    break;
+                case "line-through":
+                    canvas.DrawLine(x, baseline - metrics.Ascent * 0.35f, end, baseline - metrics.Ascent * 0.35f, paint);
+                    break;
             }
-            if (!string.IsNullOrEmpty(current)) lines.Add(current);
         }
-        return lines.Count == 0 ? [string.Empty] : lines;
     }
 
     public void MarkDirty() { _dirty = true; _forceFull = true; }
@@ -1487,6 +1633,8 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // (never delegated), so the panel always repaints when invalidated.
         if (!string.IsNullOrEmpty(style.BackgroundImage)) return true;
         if (panel is Image { Source: not null and not "" }) return true;
+        // Checkboxes/radios paint their indicator into the texture.
+        if (panel is ToggleInput) return true;
         var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
         if (!string.IsNullOrEmpty(text) || panel is TextInput { IsFocused: true }) return true;
         var lb = panel.LayoutBorder;

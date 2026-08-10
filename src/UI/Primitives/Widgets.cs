@@ -14,8 +14,6 @@ public class Button : Panel
         TagName = "button";
         AddChild(new Label(text));
     }
-    public event Action<UiPointerEvent>? Clicked;
-    internal void RaiseClicked(UiPointerEvent e) => Clicked?.Invoke(e);
 }
 
 public class TextInput : Panel
@@ -174,14 +172,15 @@ public class TextInput : Panel
         var contentX = Math.Max(0, x - Layout.X - LayoutPadding.Left);
         if (string.IsNullOrEmpty(Value) || contentX <= 0) return 0;
 
-        using var font = new SkiaSharp.SKFont { Size = ComputedStyle.FontSize };
-        var totalWidth = font.MeasureText(Value);
+        using var font = TextLayout.CreateFont(ComputedStyle);
+        var tracking = ComputedStyle.LetterSpacing;
+        var totalWidth = TextLayout.Measure(font, Value, tracking);
         if (contentX >= totalWidth) return Value.Length;
 
         float prevWidth = 0f;
         for (var i = 0; i < Value.Length; i++)
         {
-            var nextWidth = font.MeasureText(Value[..(i + 1)]);
+            var nextWidth = TextLayout.Measure(font, Value[..(i + 1)], tracking);
             var midPoint = (prevWidth + nextWidth) / 2f;
             if (contentX < midPoint) return i;
             prevWidth = nextWidth;
@@ -196,6 +195,47 @@ public class Image : Panel
 {
     public Image() { TagName = "image"; }
     public string? Source { get; set; }
+}
+
+/// <summary>
+/// A checkbox or radio button: a clickable indicator drawn by the renderer
+/// that toggles <see cref="Panel.IsChecked"/> (and feeds the <c>:checked</c>
+/// pseudo-class). Radios sharing a <see cref="GroupName"/> behave as a group:
+/// checking one unchecks the others.
+/// </summary>
+public class ToggleInput : Panel
+{
+    public ToggleInput(bool radio = false)
+    {
+        TagName = "input";
+        IsRadio = radio;
+    }
+
+    /// <summary>True for a radio button (circle + dot), false for a checkbox (square + check).</summary>
+    public bool IsRadio { get; }
+
+    /// <summary>The <c>name</c> attribute: radios sharing it are mutually exclusive.</summary>
+    public string? GroupName { get; set; }
+
+    /// <summary>Raised when the checked state changes.</summary>
+    public event Action<bool>? CheckedChanged;
+
+    /// <summary>Sets the checked state without firing <see cref="CheckedChanged"/> (used for radio-group reset).</summary>
+    internal void SetCheckedQuiet(bool value)
+    {
+        if (IsChecked == value) return;
+        IsChecked = value;
+        MarkStyleDirty();
+    }
+
+    internal void Toggle()
+    {
+        var next = !IsChecked;
+        if (IsRadio && !next) return; // A checked radio cannot be unchecked by clicking itself.
+        IsChecked = next;
+        CheckedChanged?.Invoke(next);
+        MarkStyleDirty();
+    }
 }
 
 public static class PanelExtensions

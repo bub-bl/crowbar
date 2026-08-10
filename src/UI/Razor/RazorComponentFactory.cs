@@ -27,11 +27,11 @@ namespace Crowbar.UI;
 /// consumed by <see cref="UiSystem"/>.</item>
 /// </list>
 /// </summary>
-public sealed class RazorComponentFactory(IReadOnlyDictionary<string, Func<RazorPanel>>? components = null)
+public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorComponentSource>? components = null)
     : IRazorComponentCompiler
 {
-    private readonly IReadOnlyDictionary<string, Func<RazorPanel>> _components =
-        components ?? new Dictionary<string, Func<RazorPanel>>(StringComparer.OrdinalIgnoreCase);
+    private readonly IReadOnlyDictionary<string, RazorComponentSource> _components =
+        components ?? new Dictionary<string, RazorComponentSource>(StringComparer.OrdinalIgnoreCase);
 
     public PanelComponent Compile(string razorSource, string className, Type baseType, params Assembly[] references)
     {
@@ -45,17 +45,38 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, Func<Razor
         return CreateTemplate(assembly, className);
     }
 
+    /// <summary>Compiles a source component, closing generic <c>@typeparam</c> types with the given arguments.</summary>
+    public RazorPanel CompileTemplate(string razorSource, string className, Type baseType,
+        IReadOnlyDictionary<string, string>? typeArguments, params Assembly[] references)
+    {
+        var assembly = CompileAssembly(razorSource, className, baseType, references);
+        var names = TypeParamNamesFromSource(razorSource);
+        Type[]? types = null;
+        if (names.Length > 0 && typeArguments is { Count: > 0 })
+        {
+            types = names.Select(name =>
+                    typeArguments.TryGetValue(name, out var argument)
+                        ? ResolveTypeArgument(argument, references)
+                        : throw new InvalidOperationException($"Razor component '{className}' requires type parameter '{name}'."))
+                .ToArray();
+        }
+
+        return CreateTemplate(assembly, className, types);
+    }
+
     /// <summary>
     /// Compiles the component from a file, caching the emitted assembly by
-    /// (path, className, write time) so hot reloads of unchanged files skip the
-    /// Roslyn emit. A fresh template instance is created on every call.
+    /// (path, className, write time, type arguments) so hot reloads of
+    /// unchanged files skip the Roslyn emit. A fresh template instance is
+    /// created on every call.
     /// </summary>
     public RazorPanel CompileTemplateFromFile(string razorPath, string className, Type baseType,
-        params Assembly[] references)
+        IReadOnlyDictionary<string, string>? typeArguments, params Assembly[] references)
     {
         razorPath = Path.GetFullPath(razorPath);
         var writeTime = File.GetLastWriteTimeUtc(razorPath).Ticks;
-        var cacheKey = razorPath + "|" + className + "|" + (baseType.FullName ?? baseType.Name);
+        var typeArgsKey = typeArguments is null ? string.Empty : string.Join(",", typeArguments.Values);
+        var cacheKey = razorPath + "|" + className + "|" + (baseType.FullName ?? baseType.Name) + "|" + typeArgsKey;
         var assembly = TemplateAssemblyCache.Get(cacheKey, writeTime);
         if (assembly is null)
         {
@@ -63,8 +84,27 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, Func<Razor
             TemplateAssemblyCache.Set(cacheKey, writeTime, assembly);
         }
 
-        return CreateTemplate(assembly, className);
+        var source = ReadStableFileText(razorPath);
+        var names = TypeParamNamesFromSource(source);
+        Type[]? types = null;
+        if (names.Length > 0 && typeArguments is { Count: > 0 })
+        {
+            types = names.Select(name =>
+                typeArguments.TryGetValue(name, out var argument)
+                    ? ResolveTypeArgument(argument, references)
+                    : throw new InvalidOperationException($"Razor component '{className}' requires type parameter '{name}'."))
+                .ToArray();
+        }
+
+        return CreateTemplate(assembly, className, types);
     }
+
+    /// <summary>
+    /// Compiles the component from a file without type arguments, keeping the
+    /// simpler call shape for non-generic components.
+    /// </summary>
+    public RazorPanel CompileTemplateFromFile(string razorPath, string className, Type baseType,
+        params Assembly[] references) => CompileTemplateFromFile(razorPath, className, baseType, null, references);
 
     private static Assembly CompileAssembly(string razorSource, string className, Type baseType,
         params Assembly[] references)
@@ -73,7 +113,11 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, Func<Razor
         // markers before Razor parses the document. This keeps the generated
         // class strongly typed for @code, @if, @foreach and expressions while
         // allowing the native Panel tree to attach delegates after rendering.
-        var source = RewriteCodeToFunctions(RewriteUiAttributes(razorSource));
+        // @typeparam is a components-only directive: it is rewritten out and the
+        // generated class is turned generic below (the type arguments come from
+        // the usage site at runtime).
+        var typeParameters = TypeParamNamesFromSource(razorSource);
+        var source = RewriteCodeToFunctions(RewriteUiAttributes(RewriteTypeParams(razorSource, typeParameters)));
 
         var engine = CreateProjectEngine();
         var directives = ParseDirectives(source, engine, className);
@@ -86,6 +130,11 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, Func<Razor
         var generationEngine = CreateProjectEngine(directives.NamespaceName);
         var codeDocument = generationEngine.Process(document, fileKind: null, [], []);
         var generatedCode = codeDocument.GetCSharpDocument().GeneratedCode;
+        // A generic component becomes `class Template<T> : RazorPanel` so the
+        // @code members can use the type parameter; the closed type is
+        // instantiated with the type arguments supplied at the usage site.
+        if (typeParameters.Length > 0)
+            generatedCode = MakeClassGeneric(generatedCode, typeParameters);
         var defaultUsings = new[]
         {
             "System",
@@ -118,13 +167,23 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, Func<Razor
         return Assembly.Load(stream.ToArray());
     }
 
-    private static RazorPanel CreateTemplate(Assembly assembly, string className)
+    private static RazorPanel CreateTemplate(Assembly assembly, string className, Type[]? typeArguments = null)
     {
         var generatedType = assembly.GetTypes()
                                 .FirstOrDefault(t => t.Name.Equals(className, StringComparison.OrdinalIgnoreCase))
                             ?? assembly.GetTypes().FirstOrDefault(t => typeof(RazorPanel).IsAssignableFrom(t));
         if (generatedType is null)
             throw new InvalidOperationException("Razor output did not contain a component type.");
+        if (typeArguments is { Length: > 0 })
+        {
+            if (!generatedType.IsGenericTypeDefinition)
+                generatedType = assembly.GetTypes()
+                    .FirstOrDefault(t => t.IsGenericTypeDefinition &&
+                                         t.Name.StartsWith(className + "`", StringComparison.OrdinalIgnoreCase));
+            if (generatedType is null || !generatedType.IsGenericTypeDefinition)
+                throw new InvalidOperationException($"Razor component '{className}' is not generic.");
+            generatedType = generatedType.MakeGenericType(typeArguments);
+        }
         var templateInstance = (RazorPanel)Activator.CreateInstance(generatedType)!;
         if (string.IsNullOrEmpty(templateInstance.ScopeId))
             templateInstance.ScopeId = $"b-{className.ToLowerInvariant()}";
@@ -204,18 +263,102 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, Func<Razor
         var markup = template.RenderMarkupAsync().GetAwaiter().GetResult();
         var root = HtmlPanelParser.Parse(markup, template, _components);
         template.EndRenderPass();
+        template.ApplyRefs();
         var firstRender = template.MarkBuilt(null);
         template.MarkChildContentBuilt();
         template.NotifyRendered(firstRender);
         return root;
     }
 
+    /// <summary>Extracts the type parameter names of <c>@typeparam</c> directives.</summary>
+    internal static string[] TypeParamNamesFromSource(string source)
+    {
+        var names = new List<string>();
+        foreach (Match match in Regex.Matches(source, @"@typeparam\s+([A-Za-z_][A-Za-z0-9_]*)"))
+            if (!names.Contains(match.Groups[1].Value, StringComparer.Ordinal)) names.Add(match.Groups[1].Value);
+        return [.. names];
+    }
+
+    /// <summary>Removes <c>@typeparam</c> directives (the generated class is made generic separately).</summary>
+    private static string RewriteTypeParams(string source, IReadOnlyList<string> names)
+    {
+        var result = source;
+        foreach (var name in names)
+            result = Regex.Replace(result, @"@typeparam\s+" + Regex.Escape(name) + @"\b[^\r\n]*", string.Empty);
+        return result;
+    }
+
+    /// <summary>Rewrites the generated <c>class Template :</c> declaration to <c>class Template&lt;T&gt; :</c>.</summary>
+    private static string MakeClassGeneric(string generatedCode, IReadOnlyList<string> typeParameters)
+    {
+        // The legacy Razor engine names the generated class `Template`
+        // regardless of the component name, so match the first class
+        // declaration rather than the file name.
+        // The generated document contains a single class declaration, so a
+        // global replace is safe.
+        const string pattern = @"(?m)(public\s+class\s+[A-Za-z_][A-Za-z0-9_]*\s*)(:)";
+        return Regex.Replace(generatedCode, pattern,
+            m => m.Groups[1].Value + "<" + string.Join(", ", typeParameters) + "> " + m.Groups[2].Value);
+    }
+
+    /// <summary>Resolves a type-argument name (<c>int</c>, <c>typeof(Foo)</c>, <c>System.Int32</c>) to a Type.</summary>
+    private static Type ResolveTypeArgument(string argument, Assembly[] references)
+    {
+        var trimmed = argument.Trim();
+        var typeOf = Regex.Match(trimmed, @"^typeof\s*\(\s*([^)]+)\s*\)$");
+        if (typeOf.Success) trimmed = typeOf.Groups[1].Value.Trim();
+        var keyword = trimmed switch
+        {
+            "int" => "System.Int32",
+            "long" => "System.Int64",
+            "short" => "System.Int16",
+            "byte" => "System.Byte",
+            "sbyte" => "System.SByte",
+            "uint" => "System.UInt32",
+            "ulong" => "System.UInt64",
+            "ushort" => "System.UInt16",
+            "float" => "System.Single",
+            "double" => "System.Double",
+            "decimal" => "System.Decimal",
+            "bool" => "System.Boolean",
+            "char" => "System.Char",
+            "string" => "System.String",
+            "object" => "System.Object",
+            _ => null
+        };
+        return ResolveType(keyword ?? trimmed, references, "type argument", []);
+    }
+
     private static string RewriteUiAttributes(string source)
     {
+        // @on* attributes are rewritten to synthetic data-codex-* attributes
+        // that the native parser turns into panel event handlers. The writer
+        // contract of the generated class only needs to pass the expression
+        // text through as a string, which legacy Razor does natively.
         source = RewriteAttribute(source, "@onclick", "data-codex-onclick");
+        source = RewriteAttribute(source, "@ondblclick", "data-codex-ondblclick");
         source = RewriteAttribute(source, "@onchange", "data-codex-onchange");
+        source = RewriteAttribute(source, "@oninput", "data-codex-oninput");
+        source = RewriteAttribute(source, "@onkeydown", "data-codex-onkeydown");
+        source = RewriteAttribute(source, "@onkeyup", "data-codex-onkeyup");
+        source = RewriteAttribute(source, "@onmousemove", "data-codex-onmousemove");
+        source = RewriteAttribute(source, "@onmousedown", "data-codex-onmousedown");
+        source = RewriteAttribute(source, "@onmouseup", "data-codex-onmouseup");
+        source = RewriteAttribute(source, "@onmouseenter", "data-codex-onmouseenter");
+        source = RewriteAttribute(source, "@onmouseleave", "data-codex-onmouseleave");
+        source = RewriteAttribute(source, "@onwheel", "data-codex-onwheel");
+        source = RewriteAttribute(source, "@onfocus", "data-codex-onfocus");
+        source = RewriteAttribute(source, "@onblur", "data-codex-onblur");
+        source = RewriteAttribute(source, "@onscroll", "data-codex-onscroll");
         source = RewriteAttribute(source, "@bind-value", "data-codex-bind-value");
         source = RewriteAttribute(source, "@bind", "data-codex-bind-value");
+        // Reconciliation, references and attribute splatting: @key/@ref/
+        // @attributes become synthetic attributes the parser resolves after
+        // rendering (the key is used for state transfer, the ref assigns the
+        // panel/component to a field, the attributes are merged into the panel).
+        source = RewriteAttribute(source, "@key", "data-codex-key");
+        source = RewriteAttribute(source, "@ref", "data-codex-ref");
+        source = RewriteAttribute(source, "@attributes", "data-codex-attributes");
         return source;
     }
 
@@ -309,6 +452,29 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, Func<Razor
     /// </summary>
     private static string RewriteCodeToFunctions(string source) =>
         Regex.Replace(source, @"(?m)^(\s*)@code(?=[\s{])", "$1@functions");
+}
+
+/// <summary>
+/// The value of the component registry: creates component instances on demand
+/// and exposes the component's <c>@typeparam</c> names so the parser can route
+/// matching attributes as type arguments instead of parameters.
+/// </summary>
+public sealed class RazorComponentSource
+{
+    private readonly Func<IReadOnlyDictionary<string, string>?, RazorPanel> _create;
+
+    public RazorComponentSource(string[] typeParameters,
+        Func<IReadOnlyDictionary<string, string>?, RazorPanel> create)
+    {
+        TypeParameters = typeParameters;
+        _create = create;
+    }
+
+    /// <summary>The <c>@typeparam</c> names of the component, in declaration order.</summary>
+    public string[] TypeParameters { get; }
+
+    /// <summary>Creates an instance, closing generic type parameters when <paramref name="typeArguments"/> is provided.</summary>
+    public RazorPanel Create(IReadOnlyDictionary<string, string>? typeArguments = null) => _create(typeArguments);
 }
 
 /// <summary>Directives extracted from a Razor source through the language API.</summary>

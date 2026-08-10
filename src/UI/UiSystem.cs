@@ -15,7 +15,7 @@ public sealed partial class UiSystem : IDisposable
     private RazorPanel? _razorRoot;
     private RazorComponentFactory? _razorFactory;
     private bool _razorRenderPending;
-    private readonly Dictionary<string, Func<RazorPanel>> _razorComponents = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, RazorComponentSource> _razorComponents = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PageRoute> _pages = [];
     private readonly List<PageRoute> _manualPages = [];
     private readonly Dictionary<string, string> _directoryTags = new(StringComparer.OrdinalIgnoreCase);
@@ -37,12 +37,15 @@ public sealed partial class UiSystem : IDisposable
             LoadScopedStyles(tagName, cssSource, scopeId);
         }
         var factory = new RazorComponentFactory();
-        _razorComponents[tagName] = () =>
+        var typeParameters = RazorComponentFactory.TypeParamNamesFromSource(source);
+        _razorComponents[tagName] = new RazorComponentSource(typeParameters, typeArguments =>
         {
-            var template = factory.CompileTemplate(source, className, typeof(PanelComponent), typeof(UiSystem).Assembly);
+            var template = typeArguments is null
+                ? factory.CompileTemplate(source, className, typeof(PanelComponent), typeof(UiSystem).Assembly)
+                : factory.CompileTemplate(source, className, typeof(PanelComponent), typeArguments, typeof(UiSystem).Assembly);
             template.ScopeId = scopeId;
             return template;
-        };
+        });
     }
 
     public void RegisterRazorComponentFromFile(string tagName, string razorPath, string className)
@@ -63,12 +66,14 @@ public sealed partial class UiSystem : IDisposable
         var cssPath = GetAssociatedCssPath(razorPath);
         if (File.Exists(cssPath)) LoadScopedStyles(tagName, ReadStableTextCached(cssPath), scopeId);
         var fileFactory = new RazorComponentFactory();
-        _razorComponents[tagName] = () =>
+        var typeParameters = RazorComponentFactory.TypeParamNamesFromSource(File.Exists(razorPath) ? ReadStableTextCached(razorPath) : string.Empty);
+        _razorComponents[tagName] = new RazorComponentSource(typeParameters, typeArguments =>
         {
-            var template = fileFactory.CompileTemplateFromFile(razorPath, className, typeof(PanelComponent), typeof(UiSystem).Assembly);
+            var template = fileFactory.CompileTemplateFromFile(razorPath, className, typeof(PanelComponent),
+                typeArguments, typeof(UiSystem).Assembly);
             template.ScopeId = scopeId;
             return template;
-        };
+        });
     }
 
     /// <summary>
@@ -122,7 +127,18 @@ public sealed partial class UiSystem : IDisposable
         }
     }
 
-    public void SetViewport(int width, int height) => Renderer.Resize(width, height);
+    public void SetViewport(int width, int height)
+    {
+        Renderer.Resize(width, height);
+        // Media queries are evaluated against the viewport: record it on every
+        // sheet so the next cascade applies the right rules, then force a full
+        // re-cascade (resizes are rare).
+        GlobalStyleSheet?.SetViewport(width, height);
+        foreach (var sheet in _scopedStyleSheets.Values) sheet.SetViewport(width, height);
+        StyleSheet.SetViewport(width, height);
+        Screen.Invalidate();
+        Renderer.MarkDirty();
+    }
 
     public void LoadRazorFromFile(string razorPath, string className = "Root")
     {

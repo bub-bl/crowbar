@@ -59,6 +59,20 @@ public sealed class YogaLayoutEngine
         return layoutChanged;
     }
 
+    /// <summary>
+    /// Re-applies inherited values to the subtree of <paramref name="root"/>
+    /// (the panel whose animation moved an inherited property). The refresh is
+    /// scoped to the affected subtree instead of walking the whole tree, so a
+    /// continuously animated leaf (an infinite color/text-shadow pulse) does
+    /// not force an O(tree) inheritance pass every frame.
+    /// </summary>
+    public static bool ApplyInheritanceSubtree(Panel root)
+    {
+        var layoutChanged = false;
+        foreach (var child in root.Children) ApplyInheritance(child, root.ComputedStyle, ref layoutChanged);
+        return layoutChanged;
+    }
+
     private static void ApplyInheritance(Panel panel, ComputedStyle inherited, ref bool layoutChanged)
     {
         var previous = panel.ComputedStyle;
@@ -91,6 +105,29 @@ public sealed class YogaLayoutEngine
         var previous = panel.ComputedStyle;
         panel.ApplyComputedStyle(computed);
         ApplyInherited(panel.ComputedStyle, inherited);
+        // Generated ::before/::after content is recomputed with the panel's
+        // fresh computed style as the inheritance base, so a class change or
+        // re-cascade refreshes the pseudo elements too.
+        if (sheet is not null)
+        {
+            // Pseudo rules are rare; skip the (cheap) lookup entirely when the
+            // sheet carries no rule for the pseudo element.
+            panel.PseudoBefore = sheet.HasPseudoRules("before")
+                && sheet.TryComputePseudo(panel, "before", panel.ComputedStyle, out var beforeText, out var beforeStyle)
+                && beforeText is not null
+                ? new Panel.PseudoContent(beforeText, beforeStyle)
+                : null;
+            panel.PseudoAfter = sheet.HasPseudoRules("after")
+                && sheet.TryComputePseudo(panel, "after", panel.ComputedStyle, out var afterText, out var afterStyle)
+                && afterText is not null
+                ? new Panel.PseudoContent(afterText, afterStyle)
+                : null;
+        }
+        else
+        {
+            panel.PseudoBefore = null;
+            panel.PseudoAfter = null;
+        }
         if (!previous.LayoutPropsEqual(panel.ComputedStyle)) layoutChanged = true;
         foreach (var child in panel.Children) ApplyStylesCore(child, sheet, panel.ComputedStyle, ref layoutChanged);
     }
@@ -113,6 +150,15 @@ public sealed class YogaLayoutEngine
         if (style.VerticalAlign == "top") style.VerticalAlign = inherited.VerticalAlign;
         if (Math.Abs(style.FontSize - 16) < 0.0001f) style.FontSize = inherited.FontSize;
         if (style.LineHeight == 0) style.LineHeight = inherited.LineHeight;
+        // Typography inherits like color: carry the parent's family/weight/
+        // tracking/case/decoration/whitespace down when the child did not
+        // declare its own.
+        if (style.FontFamily == "sans-serif") style.FontFamily = inherited.FontFamily;
+        if (style.FontWeight == 400) style.FontWeight = inherited.FontWeight;
+        if (style.LetterSpacing == 0) style.LetterSpacing = inherited.LetterSpacing;
+        if (style.TextTransform == "none") style.TextTransform = inherited.TextTransform;
+        if (style.WhiteSpace == "normal") style.WhiteSpace = inherited.WhiteSpace;
+        if (style.TextDecoration == "none") style.TextDecoration = inherited.TextDecoration;
         // text-shadow inherits like color: carry the parent's list down when
         // the child did not declare one of its own.
         if (style.TextShadows.Length == 0) style.TextShadows = inherited.TextShadows;
@@ -224,23 +270,42 @@ public sealed class YogaLayoutEngine
         if ((panel.TagName.Equals("text", StringComparison.OrdinalIgnoreCase) || panel is TextInput) && !string.IsNullOrEmpty(panel is TextInput input ? input.Value : panel.Text))
         {
             var text = panel is TextInput inputValue ? inputValue.Value : panel.Text;
-            var fontSize = style.FontSize;
             var lineHeight = style.LineHeight > 0 ? style.LineHeight : style.FontSize * 1.25f;
             // Yoga treats the measure result as the content box and adds the
             // node's padding/border around it, so the callback must only size
             // the text itself. The text is measured with the same Skia font as
-            // the renderer so the layout box matches the drawn glyphs.
-            var textWidth = 0f;
-            using (var font = new SKFont { Size = fontSize })
+            // the renderer so the layout box matches the drawn glyphs: family,
+            // weight, tracking, transform and white-space wrap are applied in
+            // both places through TextLayout. Wrapping against the available
+            // width makes a constrained text panel grow vertically.
+            // ::before/::after content of a text panel joins the text as one
+            // display flow (measured with the panel's font), so the layout box
+            // covers the generated content too.
+            var displayText = (panel.PseudoBefore?.Text ?? string.Empty) + text + (panel.PseudoAfter?.Text ?? string.Empty);
+            node.SetMeasureFunc((_, availableWidth, widthMode, _, _) =>
             {
-                foreach (var line in text.Split('\n'))
-                    textWidth = Math.Max(textWidth, font.MeasureText(line));
-            }
-            node.SetMeasureFunc((_, availableWidth, _, _, _) => new YGSize
-            {
-                Width = Math.Min(availableWidth > 0 ? availableWidth : float.MaxValue, textWidth),
-                Height = lineHeight
+                using var font = TextLayout.CreateFont(style);
+                var transformed = TextLayout.ApplyTransform(displayText, style.TextTransform);
+                var wrapWidth = widthMode == MeasureMode.Undefined || availableWidth <= 0
+                    ? float.MaxValue
+                    : availableWidth;
+                var lines = TextLayout.Wrap(transformed, font, wrapWidth, style.WhiteSpace, style.LetterSpacing,
+                    style.TextOverflow);
+                var width = 0f;
+                foreach (var line in lines)
+                    width = Math.Max(width, TextLayout.Measure(font, line, style.LetterSpacing));
+                return new YGSize
+                {
+                    Width = availableWidth > 0 ? Math.Min(availableWidth, width) : width,
+                    Height = Math.Max(lineHeight, lines.Count * lineHeight)
+                };
             });
+        }
+        else if (panel is ToggleInput)
+        {
+            // A checkbox/radio without explicit dimensions sizes to its
+            // intrinsic indicator box (like a native form control).
+            node.SetMeasureFunc((_, _, _, _, _) => new YGSize { Width = 16, Height = 16 });
         }
         else if (panel is Image image && !string.IsNullOrEmpty(image.Source) &&
                  cache.TryGetSize(image.Source, out var imageWidth, out var imageHeight) && imageWidth > 0 && imageHeight > 0)

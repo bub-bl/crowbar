@@ -11,7 +11,7 @@ namespace Crowbar.UI;
 internal static class HtmlPanelParser
 {
     public static PanelComponent Parse(string markup, RazorPanel root,
-        IReadOnlyDictionary<string, Func<RazorPanel>>? components = null)
+        IReadOnlyDictionary<string, RazorComponentSource>? components = null)
     {
         root.TagName = "root";
         if (!string.IsNullOrEmpty(root.ScopeId)) root.AddScope(root.ScopeId);
@@ -57,7 +57,17 @@ internal static class HtmlPanelParser
         static void Visit(Panel panel, string key, Dictionary<string, Panel> result)
         {
             result[key] = panel;
-            for (var i = 0; i < panel.Children.Count; i++) Visit(panel.Children[i], $"{key}/{i}", result);
+            for (var i = 0; i < panel.Children.Count; i++)
+            {
+                var child = panel.Children[i];
+                // Keyed panels are snapshotted under their key identity (not
+                // their position), mirroring AddNode's effective-key paths, so
+                // a sibling insertion above them cannot steal their state.
+                var childKey = child.Attributes.TryGetValue("data-codex-key", out var keyValue)
+                    ? $"{key}/key:{keyValue}"
+                    : $"{key}/{i}";
+                Visit(child, childKey, result);
+            }
         }
     }
 
@@ -77,7 +87,7 @@ internal static class HtmlPanelParser
     }
 
     private static void AddNode(Panel parent, XNode node, RazorPanel runtime,
-        IReadOnlyDictionary<string, Func<RazorPanel>>? components, string key,
+        IReadOnlyDictionary<string, RazorComponentSource>? components, string key,
         IReadOnlyDictionary<string, Panel>? previousTree)
     {
         if (node is XText text)
@@ -100,9 +110,25 @@ internal static class HtmlPanelParser
         }
 
         if (node is not XElement element) return;
-        if (components is not null && components.TryGetValue(element.Name.LocalName, out var componentFactory))
+        if (components is not null && components.TryGetValue(element.Name.LocalName, out var componentSource))
         {
-            var child = runtime.GetOrCreateChild(key, element.Name.LocalName, componentFactory);
+            // Attributes matching the component's @typeparam names are type
+            // arguments (the closed generic is created by the source), not
+            // parameters; the rest are parameters as usual.
+            var typeParams = componentSource.TypeParameters;
+            var typeArguments = typeParams.Length == 0
+                ? null
+                : element.Attributes()
+                    .Where(a => typeParams.Contains(a.Name.LocalName, StringComparer.OrdinalIgnoreCase))
+                    .ToDictionary(a => a.Name.LocalName, a => a.Value, StringComparer.OrdinalIgnoreCase);
+            // Component instances are stateful (BuildHash, fragments and child
+            // components) and must survive parent re-renders. Creating a fresh
+            // instance here bypasses the reconciliation cache and, for file
+            // components, recompiles/reopens the .razor file on every render.
+            var child = runtime.GetOrCreateChild(key, element.Name.LocalName,
+                () => componentSource.Create(typeArguments));
+            if (element.Attribute("data-codex-ref") is { } refAttribute)
+                runtime.AddRef(CleanRefName(refAttribute.Value), child);
             child.StateChanged = runtime.StateHasChanged;
             child.NavigationRequested = runtime.NavigationRequested;
             foreach (var attribute in element.Attributes())
@@ -112,6 +138,8 @@ internal static class HtmlPanelParser
                         child.AddClass(value);
                 else if (attribute.Name.LocalName.StartsWith("data-codex-", StringComparison.OrdinalIgnoreCase))
                     continue; // Skip synthetic event attributes – they are handled only on HTML elements
+                else if (typeParams.Contains(attribute.Name.LocalName, StringComparer.OrdinalIgnoreCase))
+                    continue; // Type argument, not a parameter.
                 else child.SetParameter(attribute.Name.LocalName, attribute.Value);
             }
 
@@ -172,9 +200,12 @@ internal static class HtmlPanelParser
             return;
         }
 
+        var inputType = element.Attribute("type")?.Value.Trim().ToLowerInvariant();
         var panel = element.Name.LocalName.ToLowerInvariant() switch
         {
             "button" => new Button(),
+            "input" when inputType is "checkbox" => new ToggleInput(),
+            "input" when inputType is "radio" => new ToggleInput(radio: true),
             "input" => new TextInput(),
             "img" or "image" => new Image(),
             "label" or "span" => new Label(),
@@ -182,12 +213,30 @@ internal static class HtmlPanelParser
         };
         panel.TagName = element.Name.LocalName;
         if (!string.IsNullOrEmpty(runtime.ScopeId)) panel.AddScope(runtime.ScopeId);
+        // @key="expr" gives the element a stable identity: its state (input
+        // values, animation clocks) is transferred by the key value instead of
+        // the positional index, so inserting a sibling above it no longer
+        // steals its state. The attribute stays on the panel so the snapshot
+        // can see it and selectors keep matching.
+        var keyAttribute = element.Attribute("data-codex-key");
+        var effectiveKey = keyAttribute is not null ? $"{key}/key:{keyAttribute.Value}" : key;
+        if (element.Attribute("data-codex-ref") is { } elementRef)
+            runtime.AddRef(CleanRefName(elementRef.Value), panel);
         // The panel tree is rebuilt on every render: keep the running CSS
         // animations/transitions of the panel that was here before, so a
         // re-render does not restart them.
-        TransferAnimationState(previousTree, key, panel);
+        TransferAnimationState(previousTree, effectiveKey, panel);
         string? click = null, change = null, bind = null;
         string? declaredValue = null;
+        var handlers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        // @attributes="dict" splats a runtime dictionary onto the element;
+        // explicit attributes processed by the loop below override splatted
+        // values (last one wins, mirroring the source order).
+        if (element.Attribute("data-codex-attributes") is { } splatAttribute)
+        {
+            foreach (var (splatName, splatValue) in runtime.ResolveAttributes(splatAttribute.Value) ?? [])
+                ApplySplattedAttribute(panel, splatName, splatValue?.ToString() ?? string.Empty);
+        }
         foreach (var attribute in element.Attributes())
         {
             if (attribute.Name == "class")
@@ -210,26 +259,38 @@ internal static class HtmlPanelParser
                 image.Source = attribute.Value;
                 panel.Attributes["src"] = attribute.Value;
             }
-            else if (attribute.Name.LocalName.Equals("data-codex-onclick", StringComparison.OrdinalIgnoreCase))
-                click = attribute.Value;
-            else if (attribute.Name.LocalName.Equals("data-codex-onchange", StringComparison.OrdinalIgnoreCase))
-                change = attribute.Value;
+            else if (attribute.Name.LocalName.Equals("name", StringComparison.OrdinalIgnoreCase) && panel is ToggleInput toggle)
+                toggle.GroupName = attribute.Value;
+            else if (attribute.Name.LocalName.Equals("disabled", StringComparison.OrdinalIgnoreCase))
+                panel.IsEnabled = false;
+            else if (attribute.Name.LocalName.Equals("checked", StringComparison.OrdinalIgnoreCase) && panel is ToggleInput)
+                panel.IsChecked = IsTruthyAttribute(attribute.Value);
+            else if (attribute.Name.LocalName.StartsWith("data-codex-on", StringComparison.OrdinalIgnoreCase))
+                handlers[attribute.Name.LocalName["data-codex-on".Length..]] = attribute.Value;
             else if (attribute.Name.LocalName.Equals("data-codex-bind-value", StringComparison.OrdinalIgnoreCase))
                 bind = attribute.Value;
             else panel.Attributes[attribute.Name.LocalName] = attribute.Value;
         }
+        click = handlers.GetValueOrDefault("click");
+        change = handlers.GetValueOrDefault("change") ?? handlers.GetValueOrDefault("input");
 
         var childIndex = 0;
         foreach (var child in element.Nodes())
         {
             if (child is XText whitespace && string.IsNullOrWhiteSpace(whitespace.Value)) continue;
-            AddNode(panel, child, runtime, components, $"{key}/{childIndex}", previousTree);
+            // A keyed child keeps its identity path (`<parent>/key:<value>`)
+            // instead of a positional index, so inserting or removing siblings
+            // above it does not shift its state transfer key. The value is
+            // appended by AddNode itself.
+            var keyedChild = child is XElement childElement && childElement.Attribute("data-codex-key") is not null;
+            AddNode(panel, child, runtime, components,
+                keyedChild ? effectiveKey : $"{effectiveKey}/{childIndex}", previousTree);
             childIndex++;
         }
 
         if (panel is TextInput inputValue)
         {
-            if (previousTree is not null && previousTree.TryGetValue(key, out var previous) && previous is TextInput preserved)
+            if (previousTree is not null && previousTree.TryGetValue(effectiveKey, out var previous) && previous is TextInput preserved)
             {
                 inputValue.SetValue(preserved.Value, preserved.CaretIndex);
                 inputValue.CopyInteractionStateFrom(preserved);
@@ -237,12 +298,50 @@ internal static class HtmlPanelParser
             else inputValue.SetValue(declaredValue ?? string.Empty);
         }
 
-        if (panel is Button button && click is not null)
-            button.Clicked += e => RazorEventInvoker.Invoke(runtime, click, e);
+        // Event handlers: @onclick / @onkeydown / @onmousemove / @onwheel / ...
+        // are wired onto the panel's events (the @on* source attributes were
+        // rewritten to data-codex-on* at compile time).
+        if (click is not null)
+            panel.Clicked += e => RazorEventInvoker.Invoke(runtime, click, e);
+        if (handlers.TryGetValue("keydown", out var keyDown))
+            panel.KeyDown += (_, e) => RazorEventInvoker.Invoke(runtime, keyDown, e);
+        if (handlers.TryGetValue("keyup", out var keyUp))
+            panel.KeyUp += (_, e) => RazorEventInvoker.Invoke(runtime, keyUp, e);
+        if (handlers.TryGetValue("mousemove", out var mouseMove))
+            panel.PointerMove += (_, e) => RazorEventInvoker.Invoke(runtime, mouseMove, e);
+        if (handlers.TryGetValue("mousedown", out var mouseDown))
+            panel.PointerDown += (_, e) => RazorEventInvoker.Invoke(runtime, mouseDown, e);
+        if (handlers.TryGetValue("mouseup", out var mouseUp))
+            panel.PointerUp += (_, e) => RazorEventInvoker.Invoke(runtime, mouseUp, e);
+        if (handlers.TryGetValue("mouseenter", out var mouseEnter))
+            panel.PointerEnter += _ => RazorEventInvoker.Invoke(runtime, mouseEnter, null);
+        if (handlers.TryGetValue("mouseleave", out var mouseLeave))
+            panel.PointerExit += _ => RazorEventInvoker.Invoke(runtime, mouseLeave, null);
+        if (handlers.TryGetValue("wheel", out var wheel))
+            panel.PointerWheel += (_, e) => RazorEventInvoker.Invoke(runtime, wheel, e);
+        if (handlers.TryGetValue("dblclick", out var doubleClick))
+            panel.DoubleClicked += (_, e) => RazorEventInvoker.Invoke(runtime, doubleClick, e);
+        if (handlers.TryGetValue("focus", out var focus))
+            panel.Focused += _ => RazorEventInvoker.Invoke(runtime, focus, null);
+        if (handlers.TryGetValue("blur", out var blur))
+            panel.Blurred += _ => RazorEventInvoker.Invoke(runtime, blur, null);
+        if (handlers.TryGetValue("scroll", out var scroll))
+            panel.Scrolled += _ => RazorEventInvoker.Invoke(runtime, scroll, null);
         if (panel is TextInput textInput)
         {
             if (change is not null) textInput.ValueChanged += value => RazorEventInvoker.Invoke(runtime, change, value);
             if (bind is not null) textInput.ValueChanged += value => RazorEventInvoker.SetValue(runtime, bind, value);
+        }
+        if (panel is ToggleInput toggleInput && handlers.TryGetValue("change", out var changeHandler))
+            toggleInput.CheckedChanged += value => RazorEventInvoker.Invoke(runtime, changeHandler, value);
+
+        // <a href="/..."> navigates through the router unless the author wired
+        // an @onclick (which takes precedence). External URLs are left alone.
+        if (panel.TagName.Equals("a", StringComparison.OrdinalIgnoreCase) && click is null &&
+            panel.Attributes.TryGetValue("href", out var href) && href.StartsWith('/'))
+        {
+            var target = href;
+            panel.Clicked += _ => runtime.NavigationRequested?.Invoke(target);
         }
 
         parent.AddChild(panel);
@@ -301,6 +400,43 @@ internal static class HtmlPanelParser
             AddSpliceText(parent, content[position..], runtime, ref insertIndex);
     }
 
+    /// <summary>Applies one attribute value to a panel (used by @attributes splatting).</summary>
+    private static void ApplySplattedAttribute(Panel panel, string name, string value)
+    {
+        if (name.Equals("class", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var c in value.Split(' ', StringSplitOptions.RemoveEmptyEntries)) panel.AddClass(c);
+        }
+        else if (name.Equals("id", StringComparison.OrdinalIgnoreCase)) panel.Id = value;
+        else if (name.Equals("style", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var declaration in value.Split(';'))
+            {
+                var p = declaration.Split(':', 2);
+                if (p.Length == 2) panel.SetInlineStyle(p[0].Trim(), p[1].Trim());
+            }
+        }
+        else if (name.Equals("disabled", StringComparison.OrdinalIgnoreCase)) panel.IsEnabled = false;
+        else if (name.Equals("checked", StringComparison.OrdinalIgnoreCase) && panel is ToggleInput) panel.IsChecked = IsTruthyAttribute(value);
+        else if (name.Equals("src", StringComparison.OrdinalIgnoreCase) && panel is Image image)
+        {
+            image.Source = value;
+            panel.Attributes["src"] = value;
+        }
+        else panel.Attributes[name] = value;
+    }
+
+    /// <summary>Booleans render as "True"/"False" or "true"/"false" from a @bind expression.</summary>
+    private static bool IsTruthyAttribute(string value) =>
+        !value.Equals("false", StringComparison.OrdinalIgnoreCase) && value != "0";
+
+    /// <summary>Normalizes a @ref expression to a plain member name.</summary>
+    private static string CleanRefName(string expression)
+    {
+        var name = RazorComponentFactory.CleanRazorExpression(expression);
+        return name.StartsWith("this.", StringComparison.Ordinal) ? name[5..] : name;
+    }
+
     private static void AddSpliceText(Panel parent, string text, RazorPanel runtime, ref int insertIndex)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
@@ -311,7 +447,7 @@ internal static class HtmlPanelParser
     }
 
     private static List<Panel>? BuildFragmentPanels(List<XNode> nodes, string key, string name, RazorPanel runtime,
-        IReadOnlyDictionary<string, Func<RazorPanel>>? components)
+        IReadOnlyDictionary<string, RazorComponentSource>? components)
     {
         if (nodes.Count == 0) return null;
         var container = new Panel();

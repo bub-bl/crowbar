@@ -306,6 +306,62 @@ public abstract class RazorPanel : PanelComponent, IComponent
             .FirstOrDefault();
     }
 
+    // Panels/components captured by @ref during parsing, assigned to the
+    // component's fields once the tree is built (see ApplyRefs).
+    private readonly List<(string Field, object Target)> _pendingRefs = [];
+
+    internal void AddRef(string field, object target) => _pendingRefs.Add((field, target));
+
+    /// <summary>
+    /// Assigns the panels/components captured by <c>@ref</c> to the matching
+    /// fields/properties after the tree is built. Element refs receive the
+    /// freshly built panel (panels are rebuilt each render); component refs
+    /// receive the persistent child component instance.
+    /// </summary>
+    internal void ApplyRefs()
+    {
+        foreach (var (field, target) in _pendingRefs)
+        {
+            var type = GetType();
+            var property = type.GetProperty(field, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (property?.CanWrite == true) property.SetValue(this, target);
+            else
+            {
+                var fieldInfo = type.GetField(field, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+                fieldInfo?.SetValue(this, target);
+            }
+        }
+        _pendingRefs.Clear();
+    }
+
+    /// <summary>
+    /// Resolves the dictionary referenced by <c>@attributes="expr"</c> (a
+    /// field or property of the component) into key/value pairs, or null when
+    /// the member is missing or not a dictionary.
+    /// </summary>
+    internal IReadOnlyList<KeyValuePair<string, object?>>? ResolveAttributes(string expression)
+    {
+        var name = RazorComponentFactory.CleanRazorExpression(expression);
+        if (name.StartsWith("this.", StringComparison.Ordinal)) name = name[5..];
+        var value = GetType().GetProperty(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(this)
+                    ?? GetType().GetField(name, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)?.GetValue(this);
+        return value switch
+        {
+            null => null,
+            IReadOnlyDictionary<string, object> readOnlyObject =>
+                readOnlyObject.Select(kv => new KeyValuePair<string, object?>(kv.Key, kv.Value)).ToArray(),
+            IDictionary<string, object> objectDict =>
+                objectDict.Select(kv => new KeyValuePair<string, object?>(kv.Key, kv.Value)).ToArray(),
+            IDictionary<string, string> stringDict =>
+                stringDict.Select(kv => new KeyValuePair<string, object?>(kv.Key, kv.Value)).ToArray(),
+            IEnumerable<KeyValuePair<string, object>> objectPairs =>
+                objectPairs.Select(kv => new KeyValuePair<string, object?>(kv.Key, kv.Value)).ToArray(),
+            IEnumerable<KeyValuePair<string, string>> stringPairs =>
+                stringPairs.Select(kv => new KeyValuePair<string, object?>(kv.Key, kv.Value)).ToArray(),
+            _ => null
+        };
+    }
+
     internal Action<string>? NavigationRequested { get; set; }
 
     protected void NavigateTo(string url)

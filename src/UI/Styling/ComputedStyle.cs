@@ -137,6 +137,20 @@ public sealed class ComputedStyle
     /// </summary>
     public bool AspectRatioAuto { get; set; }
     public UiColor Color { get; set; } = UiColor.White;
+    /// <summary>The CSS <c>font-family</c> (first supported family wins at paint time).</summary>
+    public string FontFamily { get; set; } = "sans-serif";
+    /// <summary>The CSS <c>font-weight</c> (100-900; <c>bold</c> is 700).</summary>
+    public int FontWeight { get; set; } = 400;
+    /// <summary>The CSS <c>letter-spacing</c> in px (tracking between glyphs).</summary>
+    public float LetterSpacing { get; set; }
+    /// <summary>The CSS <c>text-transform</c> (none, uppercase, lowercase, capitalize).</summary>
+    public string TextTransform { get; set; } = "none";
+    /// <summary>The CSS <c>text-decoration</c> (none, underline, line-through, overline, space-separated).</summary>
+    public string TextDecoration { get; set; } = "none";
+    /// <summary>The CSS <c>white-space</c> (normal, nowrap, pre, pre-wrap, pre-line).</summary>
+    public string WhiteSpace { get; set; } = "normal";
+    /// <summary>The CSS <c>text-overflow</c> (clip or ellipsis).</summary>
+    public string TextOverflow { get; set; } = "clip";
 
     public ComputedStyle Clone() => (ComputedStyle)MemberwiseClone();
 
