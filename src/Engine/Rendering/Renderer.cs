@@ -153,6 +153,11 @@ public sealed class Renderer : IDisposable
     private IBuffer _gridUniformBuffer = null!;
     private IBindGroup _gridBindGroup = null!;
 
+    // Viewport gizmos: the translation widget around the selection plus the
+    // billboard sprites (lights, selection ring). Pure overlay, drawn after
+    // the grid, never part of the world.
+    public GizmoRenderer Gizmos { get; private set; } = null!;
+
     // Offscreen 3D scene: the cube renders here instead of directly on the
     // surface, then the scene is blitted to the surface. backdrop-filter
     // panels are composited on the GPU by Backdrop.wgsl sampling this texture
@@ -205,6 +210,7 @@ public sealed class Renderer : IDisposable
 
         CreateMeshResources();
         CreateGridResources();
+        Gizmos = new GizmoRenderer(_device, _sceneBuffer, (ulong)sizeof(SceneUniforms));
         CreateBackdropResources();
         CreateDecorationResources();
         CreateFillResources();
@@ -252,6 +258,7 @@ public sealed class Renderer : IDisposable
             {
                 DrawMeshRenderers(scenePass, world, time);
                 DrawGrid(scenePass);
+                Gizmos.Draw(scenePass, world, camera, _width, _height);
             }
 
             // Rasterize and upload the UI before reading any GPU-composited regions.
@@ -1408,6 +1415,7 @@ public sealed class Renderer : IDisposable
         _gridUniformBuffer?.Dispose();
         _gridVertexBuffer?.Dispose();
         _gridPipeline?.Dispose();
+        Gizmos?.Dispose();
         _depthTexture?.Dispose();
     }
 }

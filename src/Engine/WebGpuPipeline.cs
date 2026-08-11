@@ -138,7 +138,7 @@ public sealed unsafe class WebGpuPipeline : IPipeline
                 Vertex = vertex,
                 Primitive = new PrimitiveState
                 {
-                    Topology = PrimitiveTopology.TriangleList,
+                    Topology = WebGpuNative.ToNative(description.Topology),
                     FrontFace = FrontFace.Ccw,
                     CullMode = CullMode.None
                 },

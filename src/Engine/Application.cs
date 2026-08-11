@@ -49,6 +49,9 @@ public abstract class Application : IDisposable
     protected Camera Camera => _camera;
     protected IInputSource InputSource => _window.Input;
 
+    /// <summary>The viewport renderer (null until the window is loaded, or headless).</summary>
+    protected Renderer? Renderer => _renderer;
+
     /// <summary>The world owned by the application. Subclasses spawn entities and call Start/Stop on it.</summary>
     protected World World => _world;
 

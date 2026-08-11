@@ -47,9 +47,18 @@ public enum CompareFunction
     LessEqual
 }
 
+/// <summary>Backend-neutral primitive topology.</summary>
+public enum PrimitiveTopology
+{
+    TriangleList,
+    LineList,
+    LineStrip
+}
+
 /// <summary>Backend-neutral per-vertex attribute format.</summary>
 public enum VertexFormat
 {
+    Float32,
     Float32x2,
     Float32x3,
     Float32x4
@@ -167,6 +176,9 @@ public sealed class PipelineDescription
 
     public TextureFormat ColorFormat { get; init; }
     public TextureFormat DepthFormat { get; init; } = TextureFormat.Depth24Plus;
+
+    /// <summary>Primitive topology; defaults to triangles.</summary>
+    public PrimitiveTopology Topology { get; init; } = PrimitiveTopology.TriangleList;
 }
 
 /// <summary>One resource actually bound to a bind-group slot.</summary>

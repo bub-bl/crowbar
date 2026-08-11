@@ -7,11 +7,13 @@ using SilkBufferUsage = Silk.NET.WebGPU.BufferUsage;
 using SilkShaderStage = Silk.NET.WebGPU.ShaderStage;
 using SilkCompareFunction = Silk.NET.WebGPU.CompareFunction;
 using SilkVertexFormat = Silk.NET.WebGPU.VertexFormat;
+using SilkPrimitiveTopology = Silk.NET.WebGPU.PrimitiveTopology;
 using EngineTextureFormat = Crowbar.Engine.Rendering.TextureFormat;
 using EngineBufferUsage = Crowbar.Engine.Rendering.BufferUsage;
 using EngineShaderStage = Crowbar.Engine.Rendering.ShaderStage;
 using EngineCompareFunction = Crowbar.Engine.Rendering.CompareFunction;
 using EngineVertexFormat = Crowbar.Engine.Rendering.VertexFormat;
+using EnginePrimitiveTopology = Crowbar.Engine.Rendering.PrimitiveTopology;
 
 namespace Crowbar.Engine;
 
@@ -173,10 +175,19 @@ internal static unsafe class WebGpuNative
 
     internal static SilkVertexFormat ToNative(EngineVertexFormat format) => format switch
     {
+        EngineVertexFormat.Float32 => SilkVertexFormat.Float32,
         EngineVertexFormat.Float32x2 => SilkVertexFormat.Float32x2,
         EngineVertexFormat.Float32x3 => SilkVertexFormat.Float32x3,
         EngineVertexFormat.Float32x4 => SilkVertexFormat.Float32x4,
         _ => throw new ArgumentOutOfRangeException(nameof(format))
+    };
+
+    internal static SilkPrimitiveTopology ToNative(EnginePrimitiveTopology topology) => topology switch
+    {
+        EnginePrimitiveTopology.TriangleList => SilkPrimitiveTopology.TriangleList,
+        EnginePrimitiveTopology.LineList => SilkPrimitiveTopology.LineList,
+        EnginePrimitiveTopology.LineStrip => SilkPrimitiveTopology.LineStrip,
+        _ => throw new ArgumentOutOfRangeException(nameof(topology))
     };
 
     private static LoadOp ToNative(RenderAttachmentLoadOp op) => op switch

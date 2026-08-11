@@ -1,5 +1,6 @@
 using System.Numerics;
 using Crowbar.Engine;
+using Crowbar.Engine.InputSystem;
 
 namespace Crowbar.Editor;
 
@@ -17,6 +18,10 @@ internal sealed class DemoApplication : Application
 {
     protected override void OnInitialize()
     {
+        // Le snapping du gizmo de translation suit la taille de cellule de la grille.
+        if (Renderer is { } renderer)
+            renderer.Gizmos.SnapSize = renderer.Grid.CellSize;
+
         // Scène de démonstration : un level avec une lumière directionnelle
         // (key), une lumière ponctuelle (fill) et deux cubes rendus par des
         // MeshRenderer via le système de monde (World).
@@ -80,6 +85,9 @@ internal sealed class DemoApplication : Application
         World.Start();
         Console.WriteLine($"World: {level.Entities.Count} entité(s) dans le level '{level.Name}'.");
 
+        // Sélection initiale : le cube principal, pour montrer le widget.
+        Renderer?.Gizmos.Selection = cube;
+
         // Enregistrement automatique de tout le dossier Ui/ : les fichiers avec
         // @page deviennent des pages routables, les autres des composants.
         var uiDirectory = ResolveUiDirectory("");
@@ -90,6 +98,38 @@ internal sealed class DemoApplication : Application
         Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl}");
         Ui.WatchDirectory(uiDirectory);
     }
+
+    /// <summary>
+    /// Pilote les gizmos du viewport : le clic gauche sélectionne l'entité sous
+    /// le curseur (rayon CPU contre les AABB des mesh renderers), puis le drag
+    /// sur un axe du widget déplace l'entité le long de cet axe, avec snapping
+    /// à la grille. Le clic droit garde son rôle d'orbite caméra.
+    /// </summary>
+    protected override void OnUpdate(float deltaTime)
+    {
+        base.OnUpdate(deltaTime);
+
+        var renderer = Renderer;
+        if (renderer is null)
+            return;
+
+        var width = ViewportWidth;
+        var height = ViewportHeight;
+        var mouse = Mouse.Position;
+
+        renderer.Gizmos.UpdateInteraction(Camera, mouse, Mouse.IsDown(MouseButton.Left), width, height);
+
+        // Sélectionne au clic gauche uniquement si le clic n'a pas commencé un
+        // drag de gizmo (sinon déplacer l'entité re-sélectionnerait la scène).
+        if (Mouse.WasPressed(MouseButton.Left) && !renderer.Gizmos.Gizmo.IsDragging)
+            renderer.Gizmos.Selection = renderer.Gizmos.Pick(World, Camera, mouse, width, height);
+    }
+
+    private int ViewportWidth =>
+        Math.Max(1, Window.FramebufferWidth > 0 ? Window.FramebufferWidth : Window.Width);
+
+    private int ViewportHeight =>
+        Math.Max(1, Window.FramebufferHeight > 0 ? Window.FramebufferHeight : Window.Height);
 
     private static string ResolveUiDirectory(string directory) =>
         ResolveUiPath(Path.Combine("Ui", directory), Directory.Exists);

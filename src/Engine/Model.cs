@@ -39,10 +39,14 @@ public sealed class Model
     public string Name { get; }
     public IReadOnlyList<Mesh> Meshes { get; }
 
+    /// <summary>Model-space bounding box of all meshes, used by editor picking.</summary>
+    public Bounds Bounds { get; }
+
     private Model(string name, IReadOnlyList<Mesh> meshes)
     {
         Name = name;
         Meshes = meshes;
+        Bounds = Bounds.FromPoints(meshes.SelectMany(mesh => mesh.Vertices).Select(v => v.Position));
     }
 
     /// <summary>A unit cube (1×1×1, centered on the origin) with per-face normals.</summary>

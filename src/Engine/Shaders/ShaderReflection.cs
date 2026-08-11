@@ -107,7 +107,9 @@ internal static partial class ShaderReflection
     private static ShaderBindingKind? Classify(string access, string type)
     {
         if (access == "uniform") return ShaderBindingKind.UniformBuffer;
-        if (access == "read" || access == "read_write") return ShaderBindingKind.ReadOnlyStorageBuffer;
+        // var<storage, read> and var<storage, read_write> are both storage buffers
+        // (the engine only binds read-only ones today).
+        if (access.Contains("storage", StringComparison.Ordinal)) return ShaderBindingKind.ReadOnlyStorageBuffer;
         if (type == "sampler") return ShaderBindingKind.Sampler;
         if (type.StartsWith("texture_", StringComparison.Ordinal)) return ShaderBindingKind.Texture;
         return null;
