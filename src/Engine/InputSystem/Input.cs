@@ -1,5 +1,3 @@
-using System.Numerics;
-
 namespace Crowbar.Engine.InputSystem;
 
 /// <summary>
@@ -71,19 +69,11 @@ public static class Input
     public static bool WasReleased(string action) =>
         Actions.TryGetValue(action, out var keys) && Array.Exists(keys, static key => WasReleased(key));
 
-    public static bool IsMouseDown(MouseButton button) => _currentMouse.IsDown(button);
-
-    public static bool MouseWasPressed(MouseButton button) =>
-        _currentMouse.IsDown(button) && !_previousMouse.IsDown(button);
-
-    public static bool MouseWasReleased(MouseButton button) =>
-        !_currentMouse.IsDown(button) && _previousMouse.IsDown(button);
+    /// <summary>The current and previous mouse snapshots backing the <see cref="Mouse"/> facade.</summary>
+    internal static MouseSnapshot CurrentMouse => _currentMouse;
+    internal static MouseSnapshot PreviousMouse => _previousMouse;
 
     internal static IInputSource? CurrentSource => _source;
 
-    public static Vector2 MousePosition => _currentMouse.Position;
-    public static Vector2 MouseDelta => _currentMouse.Delta;
-    public static float WheelX => _currentMouse.WheelX;
-    public static float WheelY => _currentMouse.WheelY;
     public static bool IsWindowFocused => _source?.IsWindowFocused ?? false;
 }

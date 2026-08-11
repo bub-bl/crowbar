@@ -46,6 +46,9 @@ public interface IInputSource
     /// <summary>True when the application window owns the OS input focus.</summary>
     bool IsWindowFocused { get; }
 
+    /// <summary>Resolves the physical key producing <paramref name="character"/> in the active layout.</summary>
+    Key KeyForChar(char character);
+
     /// <summary>Warps the OS cursor to the given window position (logical pixels).</summary>
     void SetCursorPosition(float x, float y);
 

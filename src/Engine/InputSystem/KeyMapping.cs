@@ -1,13 +1,38 @@
 namespace Crowbar.Engine.InputSystem;
 
 /// <summary>
-/// Maps the cross-platform <see cref="Key"/> enum to the Windows virtual-key
-/// codes consumed by the UI layer (TextInput navigation, scroll keys, Ctrl
-/// shortcuts). Keys with no VK equivalent fall back to their scancode value,
+/// Maps keys to the Windows virtual-key codes consumed by the UI layer
+/// (TextInput navigation, scroll keys, Ctrl shortcuts). Two entry points:
+/// scancode-based <see cref="Key"/> values (physical position, used by the
+/// action bindings) and SDL keycodes (logical, layout-aware, used for the UI
+/// key events). Keys with no VK equivalent fall back to their scancode value,
 /// which the UI simply ignores.
 /// </summary>
 public static class KeyMapping
 {
+    /// <summary>
+    /// Maps an SDL keycode (SDL_Keycode, layout-dependent: letters carry their
+    /// ASCII value) to the equivalent Windows VK code. This is what the UI
+    /// expects: Ctrl+A is always VK_A regardless of the physical key producing
+    /// 'a' on the active layout.
+    /// </summary>
+    public static int ToWindowsVk(int sdlKeycode) => sdlKeycode switch
+    {
+        // Digits and letters: the ASCII value already matches the VK code.
+        >= '0' and <= '9' => sdlKeycode,
+        >= 'A' and <= 'Z' => sdlKeycode,
+        >= 'a' and <= 'z' => sdlKeycode - 32,
+        8 => 0x08, // Backspace
+        9 => 0x09, // Tab
+        13 => 0x0D, // Enter
+        27 => 0x1B, // Escape
+        32 => 0x20, // Space
+        127 => 0x2E, // Delete
+        // Named keys (arrows, F-keys, modifiers, numpad) are SDLK_SCANCODE_MASK
+        // | scancode: recover the scancode and reuse the scancode mapping.
+        _ => ToWindowsVk((Key)(sdlKeycode & 0xFF))
+    };
+
     public static int ToWindowsVk(Key key) => key switch
     {
         Key.A => 0x41,

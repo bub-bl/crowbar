@@ -43,6 +43,10 @@ internal sealed unsafe class SdlInputSource : IInputSource
 
     public void SetFocused(bool focused) => IsWindowFocused = focused;
 
+    /// <summary>Resolves the physical key producing a character in the active layout.</summary>
+    public Key KeyForChar(char character) =>
+        (Key)(int)_sdl.GetScancodeFromKey(character);
+
     public KeyboardSnapshot QueryKeyboard()
     {
         var count = 0;
@@ -79,11 +83,28 @@ internal sealed unsafe class SdlInputSource : IInputSource
             Delta = new Vector2(dx * _scaleX, dy * _scaleY),
             WheelX = _wheelX,
             WheelY = _wheelY,
-            Buttons = mask
+            Buttons = RemapButtons(mask)
         };
         _wheelX = 0f;
         _wheelY = 0f;
         return snapshot;
+    }
+
+    /// <summary>
+    /// SDL reports pressed buttons as SDL_BUTTON_*MASK bits (left=bit0,
+    /// middle=bit1, right=bit2, X1=bit3, X2=bit4), which differ from the
+    /// <see cref="MouseButton"/> order (Left, Right, Middle, X1, X2). Remap so
+    /// that IsDown(Right) tests the correct bit.
+    /// </summary>
+    internal static uint RemapButtons(uint sdlMask)
+    {
+        uint result = 0;
+        if ((sdlMask & (1u << 0)) != 0) result |= 1u << (int)MouseButton.Left;
+        if ((sdlMask & (1u << 2)) != 0) result |= 1u << (int)MouseButton.Right;
+        if ((sdlMask & (1u << 1)) != 0) result |= 1u << (int)MouseButton.Middle;
+        if ((sdlMask & (1u << 3)) != 0) result |= 1u << (int)MouseButton.X1;
+        if ((sdlMask & (1u << 4)) != 0) result |= 1u << (int)MouseButton.X2;
+        return result;
     }
 
     /// <summary>Accumulates wheel deltas delivered by the window's SDL events.</summary>

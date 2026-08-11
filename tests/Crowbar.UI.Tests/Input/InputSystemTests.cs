@@ -1,5 +1,6 @@
 using Crowbar.Engine;
 using Crowbar.Engine.InputSystem;
+using Crowbar.Engine.Platform;
 using Crowbar.UI;
 using System.Numerics;
 using Xunit;
@@ -19,6 +20,8 @@ internal sealed class FakeInputSource : IInputSource
     public int ReleaseCount { get; private set; }
 
     public void SetKey(Key key, bool down) => _keys[(int)key] = down;
+
+    public Key KeyForChar(char character) => Key.Unknown;
 
     public KeyboardSnapshot QueryKeyboard() => new((bool[])_keys.Clone());
 
@@ -135,12 +138,11 @@ public class InputSystemTests
         Assert.Equal(1.5f, Mouse.WheelY);
         Assert.True(Mouse.IsDown(MouseButton.Left));
         Assert.False(Mouse.IsDown(MouseButton.Right));
-        Assert.True(Input.IsMouseDown(MouseButton.Left));
-        Assert.True(Input.MouseWasPressed(MouseButton.Left));
+        Assert.True(Mouse.WasPressed(MouseButton.Left));
 
         _source.Mouse = _source.Mouse with { Buttons = 0 };
         Input.Poll();
-        Assert.True(Input.MouseWasReleased(MouseButton.Left));
+        Assert.True(Mouse.WasReleased(MouseButton.Left));
         Assert.False(Mouse.IsDown(MouseButton.Left));
     }
 
@@ -196,6 +198,54 @@ public class InputSystemTests
         Assert.Equal(0x5A, KeyMapping.ToWindowsVk(Key.Z));
         Assert.Equal(0x30, KeyMapping.ToWindowsVk(Key.D0));
         Assert.Equal(0x39, KeyMapping.ToWindowsVk(Key.D9));
+    }
+
+    [Fact]
+    public void KeycodeMapping_IsLayoutAwareForLetters()
+    {
+        // The UI Ctrl shortcuts key on the produced character: 'a' and 'A'
+        // keycodes (SDL sends the ASCII value) must both map to VK_A, on any
+        // physical key/layout.
+        Assert.Equal(0x41, KeyMapping.ToWindowsVk('a'));
+        Assert.Equal(0x41, KeyMapping.ToWindowsVk('A'));
+        Assert.Equal(0x5A, KeyMapping.ToWindowsVk('z'));
+        Assert.Equal(0x51, KeyMapping.ToWindowsVk('q'));
+        Assert.Equal(0x30, KeyMapping.ToWindowsVk('0'));
+        Assert.Equal(0x39, KeyMapping.ToWindowsVk('9'));
+    }
+
+    [Fact]
+    public void KeycodeMapping_CoversNamedKeys()
+    {
+        // SDLK_* named keys are SDLK_SCANCODE_MASK | scancode (0x40000000).
+        Assert.Equal(0x25, KeyMapping.ToWindowsVk(0x40000000 | 80)); // Left
+        Assert.Equal(0x26, KeyMapping.ToWindowsVk(0x40000000 | 82)); // Up
+        Assert.Equal(0x27, KeyMapping.ToWindowsVk(0x40000000 | 79)); // Right
+        Assert.Equal(0x28, KeyMapping.ToWindowsVk(0x40000000 | 81)); // Down
+        Assert.Equal(0x21, KeyMapping.ToWindowsVk(0x40000000 | 75)); // PageUp
+        Assert.Equal(0x22, KeyMapping.ToWindowsVk(0x40000000 | 78)); // PageDown
+        Assert.Equal(0xA2, KeyMapping.ToWindowsVk(0x40000000 | 224)); // LeftCtrl
+        Assert.Equal(0xA3, KeyMapping.ToWindowsVk(0x40000000 | 228)); // RightCtrl
+        Assert.Equal(0x08, KeyMapping.ToWindowsVk(8)); // Backspace
+        Assert.Equal(0x09, KeyMapping.ToWindowsVk(9)); // Tab
+        Assert.Equal(0x0D, KeyMapping.ToWindowsVk(13)); // Enter
+        Assert.Equal(0x1B, KeyMapping.ToWindowsVk(27)); // Escape
+        Assert.Equal(0x20, KeyMapping.ToWindowsVk(32)); // Space
+        Assert.Equal(0x2E, KeyMapping.ToWindowsVk(127)); // Delete
+    }
+
+    [Fact]
+    public void SdlMouseMask_IsRemappedToMouseButtonOrder()
+    {
+        // SDL masks: left=bit0, middle=bit1, right=bit2, X1=bit3, X2=bit4.
+        // Our MouseButton order: Left=0, Right=1, Middle=2, X1=3, X2=4.
+        var remapped = SdlInputSource.RemapButtons(
+            (1u << 0) | (1u << 2) | (1u << 4));
+        Assert.True((remapped & (1u << (int)MouseButton.Left)) != 0);
+        Assert.True((remapped & (1u << (int)MouseButton.Right)) != 0);
+        Assert.True((remapped & (1u << (int)MouseButton.X2)) != 0);
+        Assert.False((remapped & (1u << (int)MouseButton.Middle)) != 0);
+        Assert.False((remapped & (1u << (int)MouseButton.X1)) != 0);
     }
 
     [Fact]

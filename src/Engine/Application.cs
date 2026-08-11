@@ -157,7 +157,7 @@ public abstract class Application : IDisposable
     /// </summary>
     protected virtual void LookWithMouse()
     {
-        if (!Input.IsMouseDown(MouseButton.Right))
+        if (!Mouse.IsDown(MouseButton.Right))
         {
             _looking = false;
             return;
@@ -180,15 +180,20 @@ public abstract class Application : IDisposable
         Camera.Pitch = Math.Clamp(Camera.Pitch - deltaY * 0.003f, -1.45f, 1.45f);
     }
 
-    /// <summary>Binds the default movement actions (ZQSD layout + space/E).</summary>
+    /// <summary>
+    /// Binds the default movement actions to the keys producing Z, Q, S, D
+    /// (AZERTY) / W, A, S, D (QWERTY) in the active layout, plus space/E. The
+    /// layout is resolved through the platform, so the bindings follow the
+    /// labels the user sees instead of fixed physical positions.
+    /// </summary>
     protected virtual void BindDefaultActions()
     {
-        Input.BindAction("forward", Key.Z);
-        Input.BindAction("backward", Key.S);
-        Input.BindAction("right", Key.D);
-        Input.BindAction("left", Key.Q);
+        Input.BindAction("forward", InputSource.KeyForChar('z'));
+        Input.BindAction("backward", InputSource.KeyForChar('s'));
+        Input.BindAction("right", InputSource.KeyForChar('d'));
+        Input.BindAction("left", InputSource.KeyForChar('q'));
         Input.BindAction("up", Key.Space);
-        Input.BindAction("down", Key.E);
+        Input.BindAction("down", InputSource.KeyForChar('e'));
     }
 
     protected virtual void OnInitialize() { }

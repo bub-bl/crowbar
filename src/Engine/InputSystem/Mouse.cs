@@ -11,14 +11,26 @@ public static class Mouse
 {
     private static IInputSource? Source => Input.CurrentSource;
 
-    public static Vector2 Position => Input.MousePosition;
-    public static Vector2 Delta => Input.MouseDelta;
-    public static float WheelX => Input.WheelX;
-    public static float WheelY => Input.WheelY;
+    /// <summary>Cursor position in window (logical) pixels.</summary>
+    public static Vector2 Position => Input.CurrentMouse.Position;
 
-    public static bool IsDown(MouseButton button) => Input.IsMouseDown(button);
-    public static bool WasPressed(MouseButton button) => Input.MouseWasPressed(button);
-    public static bool WasReleased(MouseButton button) => Input.MouseWasReleased(button);
+    /// <summary>Cursor movement since the previous frame, in logical pixels.</summary>
+    public static Vector2 Delta => Input.CurrentMouse.Delta;
+
+    /// <summary>Accumulated wheel delta since the previous frame (notches).</summary>
+    public static float WheelX => Input.CurrentMouse.WheelX;
+    public static float WheelY => Input.CurrentMouse.WheelY;
+
+    /// <summary>True while the button is physically held down.</summary>
+    public static bool IsDown(MouseButton button) => Input.CurrentMouse.IsDown(button);
+
+    /// <summary>True if the button transitioned to down this frame.</summary>
+    public static bool WasPressed(MouseButton button) =>
+        Input.CurrentMouse.IsDown(button) && !Input.PreviousMouse.IsDown(button);
+
+    /// <summary>True if the button transitioned to up this frame.</summary>
+    public static bool WasReleased(MouseButton button) =>
+        !Input.CurrentMouse.IsDown(button) && Input.PreviousMouse.IsDown(button);
 
     /// <summary>Warps the OS cursor to the given window position (logical pixels).</summary>
     public static void SetCursorAt(float x, float y) => Source?.SetCursorPosition(x, y);

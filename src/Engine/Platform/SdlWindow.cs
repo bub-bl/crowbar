@@ -153,9 +153,13 @@ internal sealed unsafe class SdlWindow : IWindow
                 case EventType.Keydown:
                     // The next TextInput event (if any) carries the composed text
                     // for this keypress; the event fires once, with the text attached.
+                    // The VK code comes from the SDL keycode (logical, layout-aware),
+                    // not the scancode: the UI's Ctrl shortcuts and text handling
+                    // work on the character a key produces, so Ctrl+A is VK_A on
+                    // every layout.
                     FlushPendingKey();
                     _pendingKeyDown = new KeyEvent(
-                        KeyMapping.ToWindowsVk((Key)e.Key.Keysym.Scancode),
+                        ToWindowsVk(e.Key.Keysym),
                         IsDown: true,
                         IsRepeat: e.Key.Repeat != 0,
                         Text: null);
@@ -168,7 +172,7 @@ internal sealed unsafe class SdlWindow : IWindow
                 case EventType.Keyup:
                     FlushPendingKey();
                     _input.RaiseKeyChanged(new KeyEvent(
-                        KeyMapping.ToWindowsVk((Key)e.Key.Keysym.Scancode),
+                        ToWindowsVk(e.Key.Keysym),
                         IsDown: false,
                         IsRepeat: false,
                         Text: null));
@@ -253,7 +257,10 @@ internal sealed unsafe class SdlWindow : IWindow
         }
     }
 
-    /// <summary>
+    /// <summary>SDL keycode (layout-aware) → Windows VK for the UI key contract.</summary>
+    private int ToWindowsVk(Keysym sym) =>
+        KeyMapping.ToWindowsVk(_sdl.GetKeyFromScancode(sym.Scancode));
+
     /// Fires a pending KeyDown that never got a TextInput companion (navigation
     /// keys, modifiers, Enter, ...) with no text, so the UI still sees it.
     /// </summary>
