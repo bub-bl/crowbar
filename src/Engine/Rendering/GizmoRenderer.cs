@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 
 namespace Crowbar.Engine.Rendering;
@@ -257,18 +258,13 @@ public sealed class GizmoRenderer : IDisposable
                 if (!light.Enabled)
                     continue;
 
-                var icon = light switch
-                {
-                    DirectionalLight => GizmoIcon.DirectionalLight,
-                    PointLight => GizmoIcon.PointLight,
-                    _ => (GizmoIcon?)null
-                };
-                if (icon is not { } lightIcon)
+                var lightIcon = ResolveIcon(light);
+                if (lightIcon is null)
                     continue;
 
                 var position = light.World.Position;
                 AddIconSprite(ref spriteCount, position, new Vector4(light.Color, 0.95f),
-                    screenHalfSize(position, SpritePixelSize * 0.5f), lightIcon);
+                    screenHalfSize(position, SpritePixelSize * 0.5f), lightIcon.Value);
             }
         }
 
@@ -279,9 +275,13 @@ public sealed class GizmoRenderer : IDisposable
                 if (!meshRenderer.IsValid || meshRenderer.Model is null || meshRenderer.Entity == Selection)
                     continue;
 
+                var meshIcon = ResolveIcon(meshRenderer);
+                if (meshIcon is null)
+                    continue;
+
                 var position = meshRenderer.World.Position;
                 AddIconSprite(ref spriteCount, position, new Vector4(1f, 1f, 1f, 0.85f),
-                    screenHalfSize(position, SpritePixelSize * 0.5f), GizmoIcon.Mesh);
+                    screenHalfSize(position, SpritePixelSize * 0.5f), meshIcon.Value);
             }
         }
 
@@ -406,6 +406,20 @@ public sealed class GizmoRenderer : IDisposable
             ScaleKind = new Vector4(halfSize, (float)kind, 0f, 0f),
             UvRect = Vector4.Zero
         };
+    }
+
+    /// <summary>
+    /// Resolves the gizmo icon a component declares through
+    /// <see cref="GizmoIconAttribute"/>. Null when the component has no
+    /// attribute or the icon is not in the atlas.
+    /// </summary>
+    private GizmoIcon? ResolveIcon(Component component)
+    {
+        var attribute = component.GetType().GetCustomAttribute<GizmoIconAttribute>();
+        if (attribute is null || !_iconAtlas.Contains(new GizmoIcon(attribute.Name)))
+            return null;
+
+        return new GizmoIcon(attribute.Name);
     }
 
     private void AddIconSprite(ref int count, Vector3 position, Vector4 color, float halfSize, GizmoIcon icon)

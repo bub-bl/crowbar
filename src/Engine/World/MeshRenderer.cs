@@ -8,6 +8,7 @@ namespace Crowbar.Engine;
 /// this instance. A mesh renderer with a null <see cref="Model"/> draws
 /// nothing.
 /// </summary>
+[GizmoIcon("mesh")]
 public sealed class MeshRenderer : TransformComponent
 {
     /// <summary>The geometry to draw, or null to draw nothing.</summary>

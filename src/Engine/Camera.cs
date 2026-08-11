@@ -8,6 +8,7 @@ namespace Crowbar.Engine;
 /// device derives view/projection matrices from it when rendering. Keeping it
 /// out of the renderer lets any input scheme drive the scene.
 /// </summary>
+[GizmoIcon("camera")]
 public sealed class Camera
 {
     public Vector3 Position { get; set; } = new(4.24f, 3f, 4.24f);

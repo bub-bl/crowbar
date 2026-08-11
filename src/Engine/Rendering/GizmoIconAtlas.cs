@@ -8,57 +8,101 @@ using Svg.Skia;
 namespace Crowbar.Engine.Rendering;
 
 /// <summary>
+/// The icon displayed for a component's viewport gizmo. The <see cref="Name"/>
+/// matches an SVG file in <c>Assets/Gizmos/&lt;name&gt;.svg</c>; components
+/// declare theirs with <see cref="GizmoIconAttribute"/>.
+/// </summary>
+public readonly record struct GizmoIcon(string Name)
+{
+    public static GizmoIcon DirectionalLight { get; } = new("directional-light");
+    public static GizmoIcon PointLight { get; } = new("point-light");
+    public static GizmoIcon Mesh { get; } = new("mesh");
+    public static GizmoIcon Camera { get; } = new("camera");
+}
+
+/// <summary>
 /// GPU atlas containing the editor-only SVG gizmo icons. SVG remains the source
-/// asset; this class rasterizes it once when the renderer is created and exposes
-/// one texture/sampler pair plus normalized UV rectangles for the sprite shader.
+/// asset; this class discovers every <c>*.svg</c> in the <c>Assets/Gizmos</c>
+/// directory, rasterizes them once when the renderer is created and exposes one
+/// texture/sampler pair plus normalized UV rectangles for the sprite shader.
 /// </summary>
 public sealed class GizmoIconAtlas : IDisposable
 {
     public const int IconSize = 32;
 
-    private static readonly (GizmoIcon Icon, string FileName)[] Definitions =
-    [
-        (GizmoIcon.DirectionalLight, "directional-light.svg"),
-        (GizmoIcon.PointLight, "point-light.svg"),
-        (GizmoIcon.Mesh, "mesh.svg"),
-        (GizmoIcon.Camera, "camera.svg")
-    ];
-
     private readonly ITexture _texture;
     private readonly ISampler _sampler;
+    private readonly Dictionary<string, Vector4> _uvByName;
     private bool _disposed;
 
-    private GizmoIconAtlas(ITexture texture, ISampler sampler)
+    private GizmoIconAtlas(
+        ITexture texture,
+        ISampler sampler,
+        Dictionary<string, Vector4> uvByName)
     {
         _texture = texture;
         _sampler = sampler;
+        _uvByName = uvByName;
     }
 
     public ITexture Texture => _texture;
 
     public ISampler Sampler => _sampler;
 
+    /// <summary>Whether the atlas contains an icon with the given name.</summary>
+    public bool Contains(GizmoIcon icon) => _uvByName.ContainsKey(icon.Name);
+
+    /// <summary>The normalized atlas rectangle (u0, v0, u1, v1) of an icon.</summary>
+    public Vector4 GetUv(GizmoIcon icon)
+    {
+        if (_uvByName.TryGetValue(icon.Name, out var uv))
+            return uv;
+
+        throw new KeyNotFoundException(
+            $"Gizmo icon '{icon.Name}' is not in the atlas. Add Assets/Gizmos/{icon.Name}.svg to the editor assets.");
+    }
+
+    /// <summary>
+    /// Loads every SVG icon from <c>Assets/Gizmos</c>. The icon name is the file
+    /// name without its extension, so decorating a component with
+    /// <c>[GizmoIcon("name")]</c> needs nothing else.
+    /// </summary>
     public static GizmoIconAtlas Load(IGraphicsDevice device)
     {
         ArgumentNullException.ThrowIfNull(device);
 
-        var width = IconSize * Definitions.Length;
-        var pixels = new byte[width * IconSize * 4];
         var assetsDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "Gizmos");
+        if (!Directory.Exists(assetsDirectory))
+            throw new DirectoryNotFoundException(
+                $"The gizmo icon directory '{assetsDirectory}' was not found.");
 
-        for (var index = 0; index < Definitions.Length; index++)
+        var files = Directory.EnumerateFiles(assetsDirectory, "*.svg")
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToList();
+        if (files.Count == 0)
+            throw new InvalidOperationException(
+                $"No SVG gizmo icons were found in '{assetsDirectory}'.");
+
+        var width = IconSize * files.Count;
+        var pixels = new byte[width * IconSize * 4];
+        var uvByName = new Dictionary<string, Vector4>(StringComparer.Ordinal);
+
+        for (var index = 0; index < files.Count; index++)
         {
-            var path = Path.Combine(assetsDirectory, Definitions[index].FileName);
-            if (!File.Exists(path))
-                throw new FileNotFoundException($"Gizmo icon '{Definitions[index].FileName}' was not found.", path);
-
-            var iconPixels = RasterizeSvg(path, IconSize);
+            var fileName = Path.GetFileNameWithoutExtension(files[index]);
+            var iconPixels = RasterizeSvg(files[index], IconSize);
             for (var row = 0; row < IconSize; row++)
             {
                 var sourceOffset = row * IconSize * 4;
                 var destinationOffset = (row * width + index * IconSize) * 4;
                 Array.Copy(iconPixels, sourceOffset, pixels, destinationOffset, IconSize * 4);
             }
+
+            uvByName[fileName] = new Vector4(
+                index / (float)files.Count,
+                0f,
+                (index + 1) / (float)files.Count,
+                1f);
         }
 
         var texture = device.CreateTexture(new TextureDescription
@@ -82,20 +126,7 @@ public sealed class GizmoIconAtlas : IDisposable
             MipmapFilter = SamplerFilter.Nearest
         });
 
-        return new GizmoIconAtlas(texture, sampler);
-    }
-
-    public Vector4 GetUv(GizmoIcon icon)
-    {
-        var index = Array.FindIndex(Definitions, definition => definition.Icon == icon);
-        if (index < 0)
-            throw new ArgumentOutOfRangeException(nameof(icon), icon, "The gizmo icon is not part of the atlas.");
-
-        return new Vector4(
-            index / (float)Definitions.Length,
-            0f,
-            (index + 1) / (float)Definitions.Length,
-            1f);
+        return new GizmoIconAtlas(texture, sampler, uvByName);
     }
 
     private static byte[] RasterizeSvg(string path, int size)
@@ -145,12 +176,4 @@ public sealed class GizmoIconAtlas : IDisposable
         _sampler.Dispose();
         _texture.Dispose();
     }
-}
-
-public enum GizmoIcon
-{
-    DirectionalLight,
-    PointLight,
-    Mesh,
-    Camera
 }

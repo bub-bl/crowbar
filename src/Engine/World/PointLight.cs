@@ -5,6 +5,7 @@ namespace Crowbar.Engine;
 /// Beyond <see cref="Range"/> the light contributes nothing (the attenuation
 /// falls off quadratically to zero at the range edge).
 /// </summary>
+[GizmoIcon("point-light")]
 public sealed class PointLight : Light
 {
     /// <summary>Distance beyond which the light has no effect.</summary>
