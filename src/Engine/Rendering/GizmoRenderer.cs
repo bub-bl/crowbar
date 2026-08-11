@@ -37,8 +37,8 @@ public sealed class GizmoRenderer : IDisposable
         public Vector4 Start;    // xyz = world start (widget origin)
         public Vector4 End;      // xyz = world end (shaft tip / head apex)
         public Vector4 Color;
-        public Vector4 Sizes;    // x = kind (0 shaft, 1 head), y = shaft half-width (px),
-                                 // z = head length (px), w = head half-width (px)
+        public Vector4 Sizes;    // shaft: x = kind (0), y = half-width (px);
+                                 // cone: x = kind (1), z = length (world), w = radius (world)
         public Vector4 Viewport; // x = width, y = height in pixels (vec4 keeps the
                                  // element stride a multiple of 16)
     }
@@ -55,10 +55,11 @@ public sealed class GizmoRenderer : IDisposable
     private static readonly Vector4 HoveredAxisColor = new(1f, 1f, 1f, 1f);
 
     // WebGPU has no wide lines, so the shafts are quads expanded to a constant
-    // on-screen thickness, and the tips are arrowhead triangles.
+    // on-screen thickness, and the tips are true 3D cones.
     private const float ShaftHalfWidthPx = 3f;    // 6px thick shafts
-    private const float HeadLengthPx = 26f;       // arrowhead length
-    private const float HeadHalfWidthPx = 10f;    // arrowhead half-width (20px)
+    private const float HeadLengthPx = 26f;       // cone length in pixels
+    private const float HeadHalfWidthPx = 10f;    // cone radius (20px diameter)
+    private const int ConeVertexCount = 16 * 3;  // 16-sided cone, one triangle per side
 
     private readonly IGraphicsDevice _device;
     private readonly IBuffer _sceneBuffer;
@@ -68,11 +69,13 @@ public sealed class GizmoRenderer : IDisposable
     private IPipeline _widgetPipeline = null!;
     private IPipeline _spritePipeline = null!;
     private IBuffer _shaftVertexBuffer = null!;
-    private IBuffer _headVertexBuffer = null!;
+    private IBuffer _coneVertexBuffer = null!;
     private IBuffer _spriteVertexBuffer = null!;
-    private IBuffer _widgetElementsBuffer = null!;
+    private IBuffer _shaftElementsBuffer = null!;
+    private IBuffer _coneElementsBuffer = null!;
     private IBuffer _spriteParamsBuffer = null!;
-    private IBindGroup _widgetBindGroup = null!;
+    private IBindGroup _shaftBindGroup = null!;
+    private IBindGroup _coneBindGroup = null!;
     private IBindGroup _spriteBindGroup = null!;
     private bool _wasMouseDown;
     private bool _disposed;
@@ -175,6 +178,9 @@ public sealed class GizmoRenderer : IDisposable
             return pixels * 2f * Math.Max(1e-4f, depth) * tanHalfFov / Math.Max(1, height);
         }
 
+        float screenWorldSize(float pixels, float depth) =>
+            pixels * 2f * Math.Max(1e-4f, depth) * tanHalfFov / Math.Max(1, height);
+
         var spriteCount = 0;
 
         if (target is not null)
@@ -189,52 +195,53 @@ public sealed class GizmoRenderer : IDisposable
             // Selection ring around the widget origin.
             AddSprite(ref spriteCount, origin, SelectionColor, screenHalfSize(origin, 28f), SpriteKind.Ring);
 
-            // Thick shafts (quad per axis) then arrowheads (triangle per axis),
-            // colored by axis state — the shader does no state coloring itself.
-            var elementCount = 0;
+            // Thick shafts (screen-space quads) and true 3D cone heads, colored
+            // by axis state. The first three elements are shafts; the last three
+            // are cones and are uploaded to separate storage buffers below.
             for (var axis = TranslationGizmo.Axis.X; axis <= TranslationGizmo.Axis.Z; axis++)
             {
-                var tip = origin + Gizmo.AxisDirection(axis) * widgetScale;
-                _widgetElements[elementCount++] = new GizmoWidgetElement
+                var direction = Gizmo.AxisDirection(axis);
+                var tip = origin + direction * widgetScale;
+                var tipDepth = Math.Max(1e-4f, Vector3.Dot(camera.Forward, tip - camera.Position));
+                var coneLength = screenWorldSize(HeadLengthPx, tipDepth);
+                var shaftTip = tip - direction * coneLength;
+                _widgetElements[(int)axis] = new GizmoWidgetElement
                 {
                     Start = new Vector4(origin, 1f),
-                    End = new Vector4(tip, 1f),
+                    End = new Vector4(shaftTip, 1f),
                     Color = AxisStateColor(axis, hovered, active),
-                    Sizes = new Vector4(0f, ShaftHalfWidthPx, HeadLengthPx, HeadHalfWidthPx),
+                    Sizes = new Vector4(0f, ShaftHalfWidthPx, 0f, 0f),
                     Viewport = new Vector4(width, height, 0f, 0f)
                 };
             }
             for (var axis = TranslationGizmo.Axis.X; axis <= TranslationGizmo.Axis.Z; axis++)
             {
                 var tip = origin + Gizmo.AxisDirection(axis) * widgetScale;
-                _widgetElements[elementCount++] = new GizmoWidgetElement
+                var tipDepth = Math.Max(1e-4f, Vector3.Dot(camera.Forward, tip - camera.Position));
+                var coneLength = screenWorldSize(HeadLengthPx, tipDepth);
+                var coneRadius = screenWorldSize(HeadHalfWidthPx, tipDepth);
+                _widgetElements[(int)axis + 3] = new GizmoWidgetElement
                 {
                     Start = new Vector4(origin, 1f),
                     End = new Vector4(tip, 1f),
                     Color = AxisStateColor(axis, hovered, active),
-                    Sizes = new Vector4(1f, ShaftHalfWidthPx, HeadLengthPx, HeadHalfWidthPx),
+                    Sizes = new Vector4(1f, 0f, coneLength, coneRadius),
                     Viewport = new Vector4(width, height, 0f, 0f)
                 };
             }
 
-            var bytes = new byte[elementCount * sizeof(GizmoWidgetElement)];
-            unsafe
-            {
-                fixed (byte* destination = bytes)
-                {
-                    var elements = (GizmoWidgetElement*)destination;
-                    for (var i = 0; i < elementCount; i++)
-                        elements[i] = _widgetElements[i];
-                }
-            }
-            _widgetElementsBuffer.Write(bytes);
+            // Queue writes happen before command execution, so separate buffers
+            // ensure the shaft draw cannot observe the cone upload.
+            WriteWidgetElements(_shaftElementsBuffer, 0, 3);
+            WriteWidgetElements(_coneElementsBuffer, 3, 3);
 
             pass.SetPipeline(_widgetPipeline);
-            pass.SetBindGroup(_widgetBindGroup, 0);
+            pass.SetBindGroup(_shaftBindGroup, 0);
             pass.SetVertexBuffer(_shaftVertexBuffer, _shaftVertexBuffer.Size);
             pass.DrawInstanced(6, 3);
-            pass.SetVertexBuffer(_headVertexBuffer, _headVertexBuffer.Size);
-            pass.DrawInstanced(3, 3);
+            pass.SetBindGroup(_coneBindGroup, 0);
+            pass.SetVertexBuffer(_coneVertexBuffer, _coneVertexBuffer.Size);
+            pass.DrawInstanced((uint)ConeVertexCount, 3);
         }
 
         if (world is not null && ShowLightSprites)
@@ -299,6 +306,21 @@ public sealed class GizmoRenderer : IDisposable
         return best;
     }
 
+    private void WriteWidgetElements(IBuffer buffer, int start, int count)
+    {
+        var bytes = new byte[count * sizeof(GizmoWidgetElement)];
+        unsafe
+        {
+            fixed (byte* destination = bytes)
+            {
+                var elements = (GizmoWidgetElement*)destination;
+                for (var i = 0; i < count; i++)
+                    elements[i] = _widgetElements[start + i];
+            }
+        }
+        buffer.Write(bytes);
+    }
+
     private void AddSprite(ref int count, Vector3 position, Vector4 color, float halfSize, SpriteKind kind)
     {
         if (count >= MaxSprites)
@@ -334,8 +356,8 @@ public sealed class GizmoRenderer : IDisposable
         // across. The vertex shader expands it to a thick screen-space quad.
         float[] shaftVertices =
         [
-            0f, -1f,  1f, -1f,  0f, 1f,
-            1f, -1f,  1f, 1f,   0f, 1f
+            0f, -1f, 0f, 0f,  1f, -1f, 0f, 0f,  0f, 1f, 0f, 0f,
+            1f, -1f, 0f, 0f,  1f, 1f, 0f, 0f,   0f, 1f, 0f, 0f
         ];
         _shaftVertexBuffer = CreateBuffer((ulong)(shaftVertices.Length * sizeof(float)), BufferUsage.Vertex | BufferUsage.CopyDst);
         unsafe
@@ -344,13 +366,32 @@ public sealed class GizmoRenderer : IDisposable
                 _shaftVertexBuffer.Write(new ReadOnlySpan<byte>(data, shaftVertices.Length * sizeof(float)));
         }
 
-        // Arrowhead triangle: apex (0, 0) + two base corners (1, ±1).
-        float[] headVertices = [0f, 0f,  1f, -1f,  1f, 1f];
-        _headVertexBuffer = CreateBuffer((ulong)(headVertices.Length * sizeof(float)), BufferUsage.Vertex | BufferUsage.CopyDst);
+        // Cone surface: each segment is one triangle (two base-ring vertices
+        // plus the apex). The shader transforms this unit cone onto the gizmo
+        // axis and applies its world-space length/radius.
+        const int coneSegments = 16;
+        const int coneVertexCount = coneSegments * 3;
+        var coneVertices = new float[coneVertexCount * 4];
+        for (var segment = 0; segment < coneSegments; segment++)
+        {
+            var angle0 = segment * MathF.Tau / coneSegments;
+            var angle1 = (segment + 1) * MathF.Tau / coneSegments;
+            var offset = segment * 3 * 4;
+            coneVertices[offset] = MathF.Cos(angle0);
+            coneVertices[offset + 1] = MathF.Sin(angle0);
+            coneVertices[offset + 2] = 0f;
+            coneVertices[offset + 4] = MathF.Cos(angle1);
+            coneVertices[offset + 5] = MathF.Sin(angle1);
+            coneVertices[offset + 6] = 0f;
+            coneVertices[offset + 8] = 0f;
+            coneVertices[offset + 9] = 0f;
+            coneVertices[offset + 10] = 1f;
+        }
+        _coneVertexBuffer = CreateBuffer((ulong)(coneVertices.Length * sizeof(float)), BufferUsage.Vertex | BufferUsage.CopyDst);
         unsafe
         {
-            fixed (float* data = headVertices)
-                _headVertexBuffer.Write(new ReadOnlySpan<byte>(data, headVertices.Length * sizeof(float)));
+            fixed (float* data = coneVertices)
+                _coneVertexBuffer.Write(new ReadOnlySpan<byte>(data, coneVertices.Length * sizeof(float)));
         }
 
         // Billboard quad: six corner vertices in -1..1.
@@ -362,8 +403,10 @@ public sealed class GizmoRenderer : IDisposable
                 _spriteVertexBuffer.Write(new ReadOnlySpan<byte>(data, quad.Length * sizeof(float)));
         }
 
-        // 3 shafts + 3 arrowheads, written every frame from the gizmo state.
-        _widgetElementsBuffer = CreateBuffer((ulong)(6 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
+        // Three shaft elements and three cone elements are written every frame
+        // from the gizmo state into separate buffers.
+        _shaftElementsBuffer = CreateBuffer((ulong)(3 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
+        _coneElementsBuffer = CreateBuffer((ulong)(3 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
         _spriteParamsBuffer = CreateBuffer((ulong)(MaxSprites * sizeof(GizmoSpriteParams)), BufferUsage.Storage | BufferUsage.CopyDst);
 
         // Both gizmo shaders #include Common/Transform.wgsl: load through
@@ -381,10 +424,10 @@ public sealed class GizmoRenderer : IDisposable
             DepthWriteEnabled = false,
             VertexLayout = new VertexBufferLayoutDescription
             {
-                Stride = 2 * sizeof(float),
+                Stride = 4 * sizeof(float),
                 Attributes =
                 [
-                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 }
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x4, Offset = 0, ShaderLocation = 0 }
                 ]
             },
             BindGroups =
@@ -395,10 +438,15 @@ public sealed class GizmoRenderer : IDisposable
                 ]
             ]
         });
-        _widgetBindGroup = _widgetPipeline.CreateBindGroup(
+        _shaftBindGroup = _widgetPipeline.CreateBindGroup(
         [
             new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
-            new BindGroupBinding { Slot = 1, Buffer = _widgetElementsBuffer, BufferSize = (ulong)(6 * sizeof(GizmoWidgetElement)) }
+            new BindGroupBinding { Slot = 1, Buffer = _shaftElementsBuffer, BufferSize = (ulong)(3 * sizeof(GizmoWidgetElement)) }
+        ]);
+        _coneBindGroup = _widgetPipeline.CreateBindGroup(
+        [
+            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
+            new BindGroupBinding { Slot = 1, Buffer = _coneElementsBuffer, BufferSize = (ulong)(3 * sizeof(GizmoWidgetElement)) }
         ]);
 
         _spritePipeline = _device.CreatePipeline(new PipelineDescription
@@ -446,12 +494,14 @@ public sealed class GizmoRenderer : IDisposable
             return;
         _disposed = true;
 
-        _widgetBindGroup?.Dispose();
+        _shaftBindGroup?.Dispose();
+        _coneBindGroup?.Dispose();
         _spriteBindGroup?.Dispose();
-        _widgetElementsBuffer?.Dispose();
+        _shaftElementsBuffer?.Dispose();
+        _coneElementsBuffer?.Dispose();
         _spriteParamsBuffer?.Dispose();
         _shaftVertexBuffer?.Dispose();
-        _headVertexBuffer?.Dispose();
+        _coneVertexBuffer?.Dispose();
         _spriteVertexBuffer?.Dispose();
         _widgetPipeline?.Dispose();
         _spritePipeline?.Dispose();

@@ -1,25 +1,22 @@
 #include "Common/Transform.wgsl"
 
-// One instanced widget element: a thick shaft (screen-space quad between the
-// origin and the tip) or an arrowhead (triangle at the tip). All sizes are in
-// screen pixels and the expansion happens in NDC space, so the widget keeps a
-// constant on-screen size at any distance and any viewport aspect.
+// One widget element. Shafts use pixel sizes; cones use world sizes computed
+// for the element depth by GizmoRenderer.
 struct GizmoWidgetElement {
     start: vec4<f32>,        // xyz = world start (widget origin)
-    end: vec4<f32>,          // xyz = world end (shaft tip / head apex)
+    end: vec4<f32>,          // xyz = world end (shaft tip / cone apex)
     color: vec4<f32>,
-    sizes: vec4<f32>,        // x = kind (0 shaft, 1 head), y = shaft half-width (px),
-                             // z = head length (px), w = head half-width (px)
-    viewport: vec4<f32>,     // x = width, y = height in pixels (vec4 keeps the
-                             // element stride a multiple of 16)
+    sizes: vec4<f32>,        // shaft: x = kind (0), y = half-width px;
+                             // cone:  x = kind (1), z = length world, w = radius world
+    viewport: vec4<f32>,     // x = width, y = height in pixels
 };
 
 @group(0) @binding(1) var<storage, read> elements: array<GizmoWidgetElement>;
 
 struct LineInput {
-    @location(0) uv: vec2<f32>,
-    // Shaft: x = 0 at the origin, 1 at the tip; y = -1/+1 across.
-    // Head:  (0, 0) = apex, (1, -1) / (1, 1) = base corners.
+    // Shaft vertices: xy = (along, across), z/w unused.
+    // Cone vertices: xy = unit-circle position, z = 0 on the base / 1 at apex.
+    @location(0) shape: vec4<f32>,
 };
 
 struct LineOutput {
@@ -30,48 +27,44 @@ struct LineOutput {
 @vertex
 fn vs_main(input: LineInput, @builtin(instance_index) instance: u32) -> LineOutput {
     let element = elements[instance];
-
-    let clipStart = scene.proj * scene.view * element.start;
-    let clipEnd = scene.proj * scene.view * element.end;
-    let ndcStart = clipStart.xy / clipStart.w;
-    let ndcEnd = clipEnd.xy / clipEnd.w;
-
-    // Perpendicular direction, computed in pixels so the thickness is exact
-    // regardless of the viewport aspect ratio.
-    let pixelsPerNdc = vec2<f32>(0.5 * element.viewport.x, 0.5 * element.viewport.y);
-    let dirPx = (ndcEnd - ndcStart) * pixelsPerNdc;
-    // Normalize before converting back to NDC. Without this normalization the
-    // perpendicular carried the full axis length, turning a 3px half-width
-    // into a giant wedge hundreds of pixels wide.
-    let perpPx = normalize(vec2<f32>(-dirPx.y, dirPx.x));
-    let perpNdc = perpPx / pixelsPerNdc;
-
-    var ndcPos = ndcStart;
-    var depth = clipStart.z;
-    var w = clipStart.w;
+    var out: LineOutput;
 
     if (element.sizes.x < 0.5) {
-        // Shaft: quad from the origin to the tip, expanded perpendicular by
-        // the half-width in pixels.
-        ndcPos = mix(ndcStart, ndcEnd, input.uv.x) + perpNdc * (input.uv.y * element.sizes.y);
-        depth = mix(clipStart.z, clipEnd.z, input.uv.x);
-        w = mix(clipStart.w, clipEnd.w, input.uv.x);
+        // The shaft is a screen-space quad. Normalize the perpendicular before
+        // converting it to NDC; otherwise the axis length becomes the apparent
+        // line thickness.
+        let clipStart = scene.proj * scene.view * element.start;
+        let clipEnd = scene.proj * scene.view * element.end;
+        let ndcStart = clipStart.xy / clipStart.w;
+        let ndcEnd = clipEnd.xy / clipEnd.w;
+        let pixelsPerNdc = vec2<f32>(0.5 * element.viewport.x, 0.5 * element.viewport.y);
+        let dirPx = (ndcEnd - ndcStart) * pixelsPerNdc;
+        let perpPx = normalize(vec2<f32>(-dirPx.y, dirPx.x));
+        let perpNdc = perpPx / pixelsPerNdc;
+        let ndcPos = mix(ndcStart, ndcEnd, input.shape.x)
+                   + perpNdc * (input.shape.y * element.sizes.y);
+        let depth = mix(clipStart.z, clipEnd.z, input.shape.x);
+        let w = mix(clipStart.w, clipEnd.w, input.shape.x);
+        out.clip_position = vec4<f32>(ndcPos * w, depth, w);
     } else {
-        // Arrowhead: apex at the tip, base pulled back along the projected
-        // axis, corners expanded perpendicular by the head half-width.
-        let axisNdc = normalize(ndcEnd - ndcStart);
-        let base = ndcEnd - axisNdc * (2.0 * element.sizes.z / element.viewport.y);
-        if (input.uv.x < 0.5) {
-            ndcPos = ndcEnd;
-        } else {
-            ndcPos = base + perpNdc * (input.uv.y * element.sizes.w);
+        // The arrowhead is a real cone aligned with the world-space gizmo axis.
+        // Its base is at `end - axis * length`; the radial basis makes the cone
+        // visible from every camera angle instead of looking like a billboard.
+        let axis = normalize(element.end.xyz - element.start.xyz);
+        var reference = vec3<f32>(0.0, 1.0, 0.0);
+        if (abs(axis.y) > 0.99) {
+            reference = vec3<f32>(1.0, 0.0, 0.0);
         }
-        depth = clipEnd.z;
-        w = clipEnd.w;
+        let side = normalize(cross(axis, reference));
+        let up = normalize(cross(axis, side));
+        let base = element.end.xyz - axis * element.sizes.z;
+        let worldPosition = base
+                           + side * (input.shape.x * element.sizes.w)
+                           + up * (input.shape.y * element.sizes.w)
+                           + axis * (input.shape.z * element.sizes.z);
+        out.clip_position = scene.proj * scene.view * vec4<f32>(worldPosition, 1.0);
     }
 
-    var out: LineOutput;
-    out.clip_position = vec4<f32>(ndcPos * w, depth, w);
     out.color = element.color;
     return out;
 }
