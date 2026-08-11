@@ -390,7 +390,15 @@ public sealed class Renderer : IDisposable
             },
             Bindings =
             [
-                new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                // MeshUniforms is read by both stages (vs_main transforms,
+                // fs_main samples color/lightDir/isSelected), so the binding
+                // must be visible to Vertex | Fragment.
+                new BindGroupLayoutBinding
+                {
+                    Slot = 0,
+                    Type = BindingType.UniformBuffer,
+                    Stages = ShaderStage.Vertex | ShaderStage.Fragment
+                }
             ]
         });
         _defaultMaterial = Material.CreateDefault(Shader.Load(Path.Combine("Shaders", "Mesh.wgsl")));
@@ -419,7 +427,6 @@ public sealed class Renderer : IDisposable
             }
         }
 
-        var defaultMaterial = _defaultMaterial;
         var lightDir = Vector3.Normalize(new Vector3(0.5f, 1f, 0.7f));
 
         foreach (var renderer in renderers)
@@ -428,7 +435,7 @@ public sealed class Renderer : IDisposable
                 continue;
 
             var renderable = GetRenderableResources(renderer);
-            var material = renderer.Material ?? defaultMaterial;
+            var material = renderer.Material ?? _defaultMaterial!;
             var modelMatrix = ToWorldMatrix(renderer.World);
 
             foreach (var mesh in renderer.Model.Meshes)
