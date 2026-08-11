@@ -36,9 +36,13 @@ public class GizmoShaderTests
         Assert.Equal("Main", technique.Name);
 
         var bindings = shader.Bindings;
-        Assert.Equal(2, bindings.Count);
+        Assert.Equal(4, bindings.Count);
         Assert.Equal((0, 1u, ShaderBindingKind.ReadOnlyStorageBuffer, "sprites", "array<GizmoSpriteParams>"),
             (bindings[1].Group, bindings[1].Slot, bindings[1].Kind, bindings[1].VariableName, bindings[1].TypeName));
+        Assert.Equal((0, 2u, ShaderBindingKind.Texture, "iconAtlas", "texture_2d<f32>"),
+            (bindings[2].Group, bindings[2].Slot, bindings[2].Kind, bindings[2].VariableName, bindings[2].TypeName));
+        Assert.Equal((0, 3u, ShaderBindingKind.Sampler, "iconSampler", "sampler"),
+            (bindings[3].Group, bindings[3].Slot, bindings[3].Kind, bindings[3].VariableName, bindings[3].TypeName));
 
         Assert.Empty(shader.MaterialFields);
     }

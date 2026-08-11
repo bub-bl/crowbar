@@ -13,6 +13,8 @@
 
   <ItemGroup>
     <None Include="..\..\Shaders\**\*.wgsl" Link="Shaders\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\Assets\Gizmos\**\*.svg" Link="Assets\Gizmos\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <PackageReference Include="Svg.Skia" Version="5.2.0" />
     <PackageReference Include="Silk.NET.SDL" Version="2.23.0" />
     <PackageReference Include="Silk.NET.WebGPU" Version="2.23.0" />
     <PackageReference Include="Silk.NET.WebGPU.Extensions.WGPU" Version="2.23.0" />

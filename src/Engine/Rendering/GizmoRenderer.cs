@@ -18,7 +18,8 @@ public sealed class GizmoRenderer : IDisposable
     {
         Circle = 0,
         Diamond = 1,
-        Ring = 2
+        Ring = 2,
+        Icon = 3
     }
 
     // Mirrors GizmoSpriteParams in Shaders/GizmoSprite.wgsl.
@@ -28,6 +29,7 @@ public sealed class GizmoRenderer : IDisposable
         public Vector4 Center;
         public Vector4 Color;
         public Vector4 ScaleKind; // x = half-size (world), y = kind
+        public Vector4 UvRect;    // icon atlas rectangle (u0, v0, u1, v1)
     }
 
     // Mirrors GizmoWidgetElement in Shaders/GizmoLine.wgsl.
@@ -64,6 +66,7 @@ public sealed class GizmoRenderer : IDisposable
     private readonly IGraphicsDevice _device;
     private readonly IBuffer _sceneBuffer;
     private readonly ulong _sceneBufferSize;
+    private GizmoIconAtlas _iconAtlas = null!;
     private readonly GizmoSpriteParams[] _spriteParams = new GizmoSpriteParams[MaxSprites];
     private readonly GizmoWidgetElement[] _widgetElements = new GizmoWidgetElement[6];
     private IPipeline _widgetPipeline = null!;
@@ -99,6 +102,9 @@ public sealed class GizmoRenderer : IDisposable
 
     /// <summary>Whether lights in the world get billboard icons.</summary>
     public bool ShowLightSprites { get; set; } = true;
+
+    /// <summary>Whether non-selected mesh entities get billboard icons.</summary>
+    public bool ShowEntitySprites { get; set; } = true;
 
     /// <summary>Snap size for dragged movement in world units, or null to move freely.</summary>
     public float? SnapSize
@@ -250,9 +256,32 @@ public sealed class GizmoRenderer : IDisposable
             {
                 if (!light.Enabled)
                     continue;
+
+                var icon = light switch
+                {
+                    DirectionalLight => GizmoIcon.DirectionalLight,
+                    PointLight => GizmoIcon.PointLight,
+                    _ => (GizmoIcon?)null
+                };
+                if (icon is not { } lightIcon)
+                    continue;
+
                 var position = light.World.Position;
-                AddSprite(ref spriteCount, position, new Vector4(light.Color, 0.95f),
-                    screenHalfSize(position, SpritePixelSize * 0.5f), SpriteKind.Circle);
+                AddIconSprite(ref spriteCount, position, new Vector4(light.Color, 0.95f),
+                    screenHalfSize(position, SpritePixelSize * 0.5f), lightIcon);
+            }
+        }
+
+        if (world is not null && ShowEntitySprites)
+        {
+            foreach (var meshRenderer in world.Query<MeshRenderer>())
+            {
+                if (!meshRenderer.IsValid || meshRenderer.Model is null || meshRenderer.Entity == Selection)
+                    continue;
+
+                var position = meshRenderer.World.Position;
+                AddIconSprite(ref spriteCount, position, new Vector4(1f, 1f, 1f, 0.85f),
+                    screenHalfSize(position, SpritePixelSize * 0.5f), GizmoIcon.Mesh);
             }
         }
 
@@ -278,16 +307,42 @@ public sealed class GizmoRenderer : IDisposable
     }
 
     /// <summary>
-    /// Picks the nearest mesh renderer under the mouse through its world AABB
-    /// (CPU ray cast, like the grid's unproject but in reverse).
+    /// Picks a visible light icon by its screen-space billboard first, then
+    /// falls back to mesh AABB picking. Light icons are an overlay, so they
+    /// must win over a mesh that happens to be behind the icon.
     /// </summary>
     public Entity? Pick(World? world, Camera camera, Vector2 mousePixels, int width, int height)
     {
         if (world is null)
             return null;
 
-        var ray = Ray.FromScreen(mousePixels, width, height, camera);
-        Entity? best = null;
+        var view = camera.ViewMatrix;
+        var projection = camera.ProjectionMatrix(Math.Max(1, width) / (float)Math.Max(1, height));
+        Entity? bestLight = null;
+        var bestLightDepth = float.MaxValue;
+        var iconRadius = SpritePixelSize * 0.75f;
+
+        if (ShowLightSprites)
+        {
+            foreach (var light in world.Query<Light>())
+            {
+                if (!light.Enabled || !TryProjectToScreen(light.World.Position, view, projection, width, height,
+                        out var screenPosition, out var depth))
+                    continue;
+
+                if (Vector2.Distance(mousePixels, screenPosition) <= iconRadius && depth < bestLightDepth)
+                {
+                    bestLight = light.Entity;
+                    bestLightDepth = depth;
+                }
+            }
+        }
+
+        if (bestLight is not null)
+            return bestLight;
+
+        var ray = Ray.FromScreen(mousePixels, width, height, view, projection);
+        Entity? bestMesh = null;
         var bestDistance = float.MaxValue;
 
         foreach (var renderer in world.Query<MeshRenderer>())
@@ -299,11 +354,30 @@ public sealed class GizmoRenderer : IDisposable
             if (ray.Intersects(in worldBounds, out var distance) && distance < bestDistance)
             {
                 bestDistance = distance;
-                best = renderer.Entity;
+                bestMesh = renderer.Entity;
             }
         }
 
-        return best;
+        return bestMesh;
+    }
+
+    private static bool TryProjectToScreen(Vector3 worldPosition, Matrix4x4 view, Matrix4x4 projection,
+        int width, int height, out Vector2 screenPosition, out float depth)
+    {
+        var clip = Vector4.Transform(new Vector4(worldPosition, 1f), view * projection);
+        if (clip.W <= 1e-6f)
+        {
+            screenPosition = default;
+            depth = float.MaxValue;
+            return false;
+        }
+
+        var ndc = new Vector2(clip.X / clip.W, clip.Y / clip.W);
+        screenPosition = new Vector2(
+            (ndc.X * 0.5f + 0.5f) * width,
+            (1f - (ndc.Y * 0.5f + 0.5f)) * height);
+        depth = clip.W;
+        return true;
     }
 
     private void WriteWidgetElements(IBuffer buffer, int start, int count)
@@ -329,7 +403,22 @@ public sealed class GizmoRenderer : IDisposable
         {
             Center = new Vector4(position, 1f),
             Color = color,
-            ScaleKind = new Vector4(halfSize, (float)kind, 0f, 0f)
+            ScaleKind = new Vector4(halfSize, (float)kind, 0f, 0f),
+            UvRect = Vector4.Zero
+        };
+    }
+
+    private void AddIconSprite(ref int count, Vector3 position, Vector4 color, float halfSize, GizmoIcon icon)
+    {
+        if (count >= MaxSprites)
+            return;
+
+        _spriteParams[count++] = new GizmoSpriteParams
+        {
+            Center = new Vector4(position, 1f),
+            Color = color,
+            ScaleKind = new Vector4(halfSize, (float)SpriteKind.Icon, 0f, 0f),
+            UvRect = _iconAtlas.GetUv(icon)
         };
     }
 
@@ -408,6 +497,7 @@ public sealed class GizmoRenderer : IDisposable
         _shaftElementsBuffer = CreateBuffer((ulong)(3 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
         _coneElementsBuffer = CreateBuffer((ulong)(3 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
         _spriteParamsBuffer = CreateBuffer((ulong)(MaxSprites * sizeof(GizmoSpriteParams)), BufferUsage.Storage | BufferUsage.CopyDst);
+        _iconAtlas = GizmoIconAtlas.Load(_device);
 
         // Both gizmo shaders #include Common/Transform.wgsl: load through
         // Shader.Load so the preprocessor flattens the includes.
@@ -471,14 +561,18 @@ public sealed class GizmoRenderer : IDisposable
             [
                 [
                     new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment }
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 2, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 3, Type = BindingType.Sampler, Stages = ShaderStage.Fragment }
                 ]
             ]
         });
         _spriteBindGroup = _spritePipeline.CreateBindGroup(
         [
             new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
-            new BindGroupBinding { Slot = 1, Buffer = _spriteParamsBuffer, BufferSize = (ulong)(MaxSprites * sizeof(GizmoSpriteParams)) }
+            new BindGroupBinding { Slot = 1, Buffer = _spriteParamsBuffer, BufferSize = (ulong)(MaxSprites * sizeof(GizmoSpriteParams)) },
+            new BindGroupBinding { Slot = 2, Texture = _iconAtlas.Texture },
+            new BindGroupBinding { Slot = 3, Sampler = _iconAtlas.Sampler }
         ]);
     }
 
@@ -503,6 +597,7 @@ public sealed class GizmoRenderer : IDisposable
         _shaftVertexBuffer?.Dispose();
         _coneVertexBuffer?.Dispose();
         _spriteVertexBuffer?.Dispose();
+        _iconAtlas?.Dispose();
         _widgetPipeline?.Dispose();
         _spritePipeline?.Dispose();
     }
