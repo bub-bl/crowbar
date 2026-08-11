@@ -5,8 +5,8 @@ using AssimpMesh = Silk.NET.Assimp.Mesh;
 
 namespace Crowbar.Engine;
 
-/// <summary>A single CPU-side vertex: position, normal and texture coordinate.</summary>
-public readonly record struct MeshVertex(Vector3 Position, Vector3 Normal, Vector2 TexCoord);
+/// <summary>A single CPU-side vertex: position, normal, tangent and texture coordinate.</summary>
+public readonly record struct MeshVertex(Vector3 Position, Vector3 Normal, Vector4 Tangent, Vector2 TexCoord);
 
 /// <summary>
 /// One drawable geometry unit: vertices plus triangle indices. Meshes are
@@ -66,14 +66,16 @@ public sealed class Model
         {
             // The face is offset by half a unit along its normal, so its square
             // sits at ±0.5 instead of passing through the origin (which would
-            // collapse the cube into three coplanar square pairs).
+            // collapse the cube into three coplanar square pairs). The tangent
+            // is the face's in-plane u axis with a positive handedness.
             var center = face.Normal * 0.5f;
             var corner = face.U * 0.5f + face.V * 0.5f;
+            var tangent = new Vector4(face.U, 1f);
             var baseIndex = (uint)vertices.Count;
-            vertices.Add(new MeshVertex(center - corner, face.Normal, new Vector2(0, 1)));
-            vertices.Add(new MeshVertex(center - face.U * 0.5f + face.V * 0.5f, face.Normal, new Vector2(1, 1)));
-            vertices.Add(new MeshVertex(center + corner, face.Normal, new Vector2(1, 0)));
-            vertices.Add(new MeshVertex(center + face.U * 0.5f - face.V * 0.5f, face.Normal, new Vector2(0, 0)));
+            vertices.Add(new MeshVertex(center - corner, face.Normal, tangent, new Vector2(0, 1)));
+            vertices.Add(new MeshVertex(center - face.U * 0.5f + face.V * 0.5f, face.Normal, tangent, new Vector2(1, 1)));
+            vertices.Add(new MeshVertex(center + corner, face.Normal, tangent, new Vector2(1, 0)));
+            vertices.Add(new MeshVertex(center + face.U * 0.5f - face.V * 0.5f, face.Normal, tangent, new Vector2(0, 0)));
             indices.AddRange([baseIndex, baseIndex + 1, baseIndex + 2, baseIndex, baseIndex + 2, baseIndex + 3]);
         }
 
@@ -132,6 +134,7 @@ public sealed class Model
         var vertices = new MeshVertex[vertexCount];
         var hasNormals = source->MNormals != null;
         var hasUvs = source->MTextureCoords.Element0 != null;
+        var hasTangents = source->MTangents != null && source->MBitangents != null;
 
         for (var i = 0; i < vertexCount; i++)
         {
@@ -141,9 +144,22 @@ public sealed class Model
                 ? new Vector2(source->MTextureCoords.Element0[i].X, source->MTextureCoords.Element0[i].Y)
                 : Vector2.Zero;
 
+            var tangent = new Vector4(1f, 0f, 0f, 1f);
+            if (hasTangents)
+            {
+                var t = source->MTangents[i];
+                var b = source->MBitangents[i];
+                var tangent3 = new Vector3(t.X, t.Y, t.Z);
+                var normal3 = new Vector3(normal.X, normal.Y, normal.Z);
+                var bitangent3 = new Vector3(b.X, b.Y, b.Z);
+                var sign = Vector3.Dot(Vector3.Cross(normal3, tangent3), bitangent3);
+                tangent = new Vector4(tangent3, sign >= 0f ? 1f : -1f);
+            }
+
             vertices[i] = new MeshVertex(
                 new Vector3(position.X, position.Y, position.Z),
                 new Vector3(normal.X, normal.Y, normal.Z),
+                tangent,
                 uv);
         }
 

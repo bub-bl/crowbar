@@ -50,7 +50,8 @@ public enum CompareFunction
 public enum VertexFormat
 {
     Float32x2,
-    Float32x3
+    Float32x3,
+    Float32x4
 }
 
 /// <summary>Kind of a resource bound to a bind-group slot.</summary>
@@ -86,13 +87,31 @@ public sealed class BufferDescription
     public BufferUsage Usage { get; init; }
 }
 
+/// <summary>Texture filter mode.</summary>
+public enum SamplerFilter
+{
+    Nearest,
+    Linear
+}
+
+/// <summary>Texture address (wrap) mode.</summary>
+public enum SamplerAddressMode
+{
+    ClampToEdge,
+    Repeat,
+    MirrorRepeat
+}
+
 /// <summary>
-/// Sampler configuration. Currently only the linear/clamp sampler used by the
-/// UI compositor is supported; the description is an empty placeholder so the
-/// device API stays stable when more modes arrive.
+/// Sampler configuration. Defaults reproduce the historic UI sampler
+/// (linear filtering, clamp-to-edge, nearest mip selection); material
+/// samplers typically switch the address mode to <see cref="SamplerAddressMode.Repeat"/>.
 /// </summary>
 public sealed class SamplerDescription
 {
+    public SamplerFilter Filter { get; init; } = SamplerFilter.Linear;
+    public SamplerAddressMode AddressMode { get; init; } = SamplerAddressMode.ClampToEdge;
+    public SamplerFilter MipmapFilter { get; init; } = SamplerFilter.Nearest;
 }
 
 /// <summary>One vertex attribute inside a vertex-buffer layout.</summary>
@@ -110,7 +129,7 @@ public sealed class VertexBufferLayoutDescription
     public required VertexAttributeDescription[] Attributes { get; init; }
 }
 
-/// <summary>One resource slot of bind group 0 declared by a pipeline.</summary>
+/// <summary>One resource slot of a bind group declared by a pipeline.</summary>
 public sealed class BindGroupLayoutBinding
 {
     public uint Slot { get; init; }
@@ -132,8 +151,12 @@ public sealed class PipelineDescription
     /// <summary>Single interleaved vertex buffer layout (stride + attributes).</summary>
     public required VertexBufferLayoutDescription VertexLayout { get; init; }
 
-    /// <summary>Bindings of bind group 0 (the only group used today).</summary>
-    public required IReadOnlyList<BindGroupLayoutBinding> Bindings { get; init; }
+    /// <summary>
+    /// Bind groups declared by the pipeline, one layout per group. The mesh
+    /// scene uses group 0 for per-frame state (scene + lights) and group 1
+    /// for per-renderable state (model, material, textures).
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<BindGroupLayoutBinding>> BindGroups { get; init; } = [];
 
     /// <summary>Straight-alpha src-over blending (UI compositor).</summary>
     public bool AlphaBlend { get; init; }

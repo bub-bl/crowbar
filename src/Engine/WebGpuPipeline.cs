@@ -17,8 +17,10 @@ public sealed unsafe class WebGpuPipeline : IPipeline
 
     internal RenderPipeline* Pipeline { get; private set; }
     internal ShaderModule* ShaderModule { get; private set; }
-    internal BindGroupLayout* BindGroupLayout { get; private set; }
     internal PipelineLayout* PipelineLayout { get; private set; }
+
+    /// <summary>One native bind-group layout per declared group.</summary>
+    internal BindGroupLayout*[] BindGroupLayouts { get; private set; } = [];
 
     internal WebGpuPipeline(WebGpuRuntime runtime, WebGpuDevice device, PipelineDescription description)
     {
@@ -37,12 +39,19 @@ public sealed unsafe class WebGpuPipeline : IPipeline
             if (ShaderModule == null)
                 throw new InvalidOperationException("WebGPU could not create the shader module.");
 
-            BindGroupLayout = CreateBindGroupLayout(description.Bindings);
-            BindGroupLayout* layout = BindGroupLayout;
+            var groupCount = description.BindGroups.Count;
+            BindGroupLayouts = new BindGroupLayout*[groupCount];
+            BindGroupLayout** groupLayouts = stackalloc BindGroupLayout*[Math.Max(1, groupCount)];
+            for (var g = 0; g < groupCount; g++)
+            {
+                var layout = CreateBindGroupLayout(description.BindGroups[g]);
+                BindGroupLayouts[g] = layout;
+                groupLayouts[g] = layout;
+            }
             var pipelineLayoutDescriptor = new PipelineLayoutDescriptor
             {
-                BindGroupLayoutCount = 1,
-                BindGroupLayouts = &layout
+                BindGroupLayoutCount = (uint)groupCount,
+                BindGroupLayouts = groupLayouts
             };
             PipelineLayout = _runtime.Api.DeviceCreatePipelineLayout(
                 _device.UnsafeHandle, in pipelineLayoutDescriptor);
@@ -194,7 +203,16 @@ public sealed unsafe class WebGpuPipeline : IPipeline
     }
 
     public IBindGroup CreateBindGroup(IReadOnlyList<BindGroupBinding> bindings) =>
-        new WebGpuBindGroup(_runtime, _device, BindGroupLayout, bindings);
+        CreateBindGroup(0, bindings);
+
+    /// <summary>Creates a bind group for <paramref name="groupIndex"/> compatible with this pipeline's layout.</summary>
+    public IBindGroup CreateBindGroup(int groupIndex, IReadOnlyList<BindGroupBinding> bindings)
+    {
+        if (groupIndex < 0 || groupIndex >= BindGroupLayouts.Length)
+            throw new ArgumentOutOfRangeException(nameof(groupIndex),
+                $"Pipeline declares {BindGroupLayouts.Length} bind group(s), not {groupIndex}.");
+        return new WebGpuBindGroup(_runtime, _device, BindGroupLayouts[groupIndex], bindings);
+    }
 
     public void Dispose()
     {
@@ -212,11 +230,12 @@ public sealed unsafe class WebGpuPipeline : IPipeline
             _runtime.Api.PipelineLayoutRelease(PipelineLayout);
             PipelineLayout = null;
         }
-        if (BindGroupLayout != null)
+        foreach (var layout in BindGroupLayouts)
         {
-            _runtime.Api.BindGroupLayoutRelease(BindGroupLayout);
-            BindGroupLayout = null;
+            if (layout != null)
+                _runtime.Api.BindGroupLayoutRelease(layout);
         }
+        BindGroupLayouts = [];
         if (ShaderModule != null)
         {
             _runtime.Api.ShaderModuleRelease(ShaderModule);

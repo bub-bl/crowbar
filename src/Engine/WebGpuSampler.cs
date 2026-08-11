@@ -4,8 +4,9 @@ using Silk.NET.WebGPU;
 namespace Crowbar.Engine;
 
 /// <summary>
-/// WebGPU-backed <see cref="ISampler"/>: linear filtering with clamp-to-edge
-/// addressing, the sampler used by the UI compositor.
+/// WebGPU-backed <see cref="ISampler"/>: maps the engine-neutral
+/// <see cref="SamplerDescription"/> (filter, address mode, mip filter) to the
+/// native sampler descriptor.
 /// </summary>
 public sealed unsafe class WebGpuSampler : ISampler
 {
@@ -20,17 +21,21 @@ public sealed unsafe class WebGpuSampler : ISampler
         Sampler = sampler;
     }
 
-    internal static WebGpuSampler Create(WebGpuRuntime runtime, WebGpuDevice device)
+    internal static WebGpuSampler Create(WebGpuRuntime runtime, WebGpuDevice device, SamplerDescription description)
     {
+        description ??= new SamplerDescription();
         var descriptor = new SamplerDescriptor
         {
-            AddressModeU = AddressMode.ClampToEdge,
-            AddressModeV = AddressMode.ClampToEdge,
-            AddressModeW = AddressMode.ClampToEdge,
-            MagFilter = FilterMode.Linear,
-            MinFilter = FilterMode.Linear,
-            MipmapFilter = MipmapFilterMode.Nearest,
-            LodMaxClamp = 1,
+            AddressModeU = ToNative(description.AddressMode),
+            AddressModeV = ToNative(description.AddressMode),
+            AddressModeW = ToNative(description.AddressMode),
+            MagFilter = ToNative(description.Filter),
+            MinFilter = ToNative(description.Filter),
+            MipmapFilter = description.MipmapFilter == SamplerFilter.Nearest
+                ? MipmapFilterMode.Nearest
+                : MipmapFilterMode.Linear,
+            LodMinClamp = 0,
+            LodMaxClamp = 32,
             MaxAnisotropy = 1
         };
         var sampler = runtime.Api.DeviceCreateSampler(device.UnsafeHandle, in descriptor);
@@ -39,6 +44,21 @@ public sealed unsafe class WebGpuSampler : ISampler
 
         return new WebGpuSampler(runtime, sampler);
     }
+
+    private static AddressMode ToNative(SamplerAddressMode mode) => mode switch
+    {
+        SamplerAddressMode.ClampToEdge => AddressMode.ClampToEdge,
+        SamplerAddressMode.Repeat => AddressMode.Repeat,
+        SamplerAddressMode.MirrorRepeat => AddressMode.MirrorRepeat,
+        _ => throw new ArgumentOutOfRangeException(nameof(mode))
+    };
+
+    private static FilterMode ToNative(SamplerFilter filter) => filter switch
+    {
+        SamplerFilter.Nearest => FilterMode.Nearest,
+        SamplerFilter.Linear => FilterMode.Linear,
+        _ => throw new ArgumentOutOfRangeException(nameof(filter))
+    };
 
     public void Dispose()
     {

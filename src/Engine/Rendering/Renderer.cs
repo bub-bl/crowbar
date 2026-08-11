@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Crowbar.Engine;
@@ -20,25 +21,30 @@ namespace Crowbar.Engine.Rendering;
 /// </summary>
 public sealed class Renderer : IDisposable
 {
+    // Mirrors SceneUniforms in Shaders/Common/Transform.wgsl: view, projection,
+    // camera position and the clock. Written once per frame, shared by every
+    // mesh pipeline through bind group 0.
     [StructLayout(LayoutKind.Sequential)]
-    private struct CameraUniforms
+    private struct SceneUniforms
     {
         public Matrix4x4 View;
         public Matrix4x4 Projection;
+        public Vector4 CameraPosition;
+        public Vector4 Time;
     }
 
-    // Mirrors MeshUniforms in Shaders/Mesh.wgsl (model/view/proj, color,
-    // lightDir, isSelected). 224 bytes, no padding between fields.
+    // Mirrors LightData in Shaders/Common/Lighting.wgsl.
     [StructLayout(LayoutKind.Sequential)]
-    private struct MeshUniforms
+    private struct LightGpuData
     {
-        public Matrix4x4 Model;
-        public Matrix4x4 View;
-        public Matrix4x4 Projection;
-        public Vector4 Color;
-        public Vector3 LightDir;
-        public uint IsSelected;
+        public Vector4 PositionType;     // xyz = position, w = 0 directional / 1 point
+        public Vector4 ColorIntensity;   // rgb = color, w = intensity
+        public Vector4 DirectionRange;   // xyz = direction, w = range (point lights)
     }
+
+    // Mirrors LightsUniform in Shaders/Common/Lighting.wgsl: a u32 count
+    // padded to 16 bytes, then array<LightData, 8> (48 bytes per element).
+    private const int LightsBufferSize = 16 + MaxLights * 48;
 
     /// <summary>GPU geometry of one <see cref="Mesh"/>, shared by every renderable using it.</summary>
     private sealed class MeshBuffers
@@ -47,10 +53,19 @@ public sealed class Renderer : IDisposable
         public required IBuffer IndexBuffer { get; init; }
     }
 
-    /// <summary>Per-renderable GPU state: one uniform (model + camera + material) and its bind group.</summary>
+    /// <summary>
+    /// Per-renderable GPU state: the model matrix buffer, the material
+    /// parameters buffer (packed from the shader's material struct) and the
+    /// group-1 bind group referencing them plus the material's textures. The
+    /// shader/technique it was built for is remembered so a material change
+    /// rebuilds the resources instead of reusing a stale bind group.
+    /// </summary>
     private sealed class RenderableResources
     {
-        public required IBuffer UniformBuffer { get; init; }
+        public required Shader Shader { get; init; }
+        public required string Technique { get; init; }
+        public required IBuffer ModelBuffer { get; init; }
+        public IBuffer? MaterialBuffer { get; init; }
         public required IBindGroup BindGroup { get; init; }
     }
 
@@ -89,15 +104,44 @@ public sealed class Renderer : IDisposable
     private int _height;
     private bool _disposed;
 
-    // Camera: the per-frame view/projection, copied into every renderable's uniform.
-    private CameraUniforms _camera;
+    // Camera: the per-frame view/projection/position, written into the shared
+    // scene buffer each frame.
+    private SceneUniforms _scene;
 
-    // Mesh scene pass: one pipeline (Mesh.wgsl), GPU buffers cached per Mesh,
-    // uniforms + bind groups cached per component. Caches are rebuilt and
-    // pruned each frame from the world's MeshRenderers.
-    private IPipeline _meshPipeline = null!;
+    // Mesh scene pass. Group 0 holds the per-frame scene + lights buffers;
+    // group 1 is per-renderable (model, material, textures) and its layout is
+    // derived from the shader's own bindings, so adding a binding to a WGSL
+    // file requires no C# change. Pipelines are cached per (shader, technique),
+    // GPU geometry per Mesh, renderable state per component.
+    private const int MaxLights = 8;
+    private static readonly BindGroupLayoutBinding[] SceneGroupBindings =
+    [
+        new() { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
+        new() { Slot = 1, Type = BindingType.UniformBuffer, Stages = ShaderStage.Fragment }
+    ];
+    private static readonly VertexBufferLayoutDescription MeshVertexLayout = new()
+    {
+        // position (3) + normal (3) + tangent (4) + uv (2).
+        Stride = 12 * sizeof(float),
+        Attributes =
+        [
+            new VertexAttributeDescription { Format = VertexFormat.Float32x3, Offset = 0, ShaderLocation = 0 },
+            new VertexAttributeDescription { Format = VertexFormat.Float32x3, Offset = 3 * sizeof(float), ShaderLocation = 1 },
+            new VertexAttributeDescription { Format = VertexFormat.Float32x4, Offset = 6 * sizeof(float), ShaderLocation = 2 },
+            new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 10 * sizeof(float), ShaderLocation = 3 }
+        ]
+    };
+    private IBuffer _sceneBuffer = null!;
+    private IBuffer _lightsBuffer = null!;
+    private ISampler _materialSampler = null!;
+    private ITexture _defaultWhiteTexture = null!;
+    private ITexture _defaultBlackTexture = null!;
+    private ITexture _defaultNormalTexture = null!;
+    private readonly Dictionary<(Shader Shader, string Technique), IPipeline> _meshPipelines = [];
+    private readonly Dictionary<IPipeline, IBindGroup> _sceneBindGroups = [];
     private readonly Dictionary<Mesh, MeshBuffers> _meshBuffers = [];
     private readonly Dictionary<MeshRenderer, RenderableResources> _renderables = [];
+    private readonly Dictionary<Texture2D, ITexture> _materialTextures = [];
     private Material? _defaultMaterial;
 
     // Offscreen 3D scene: the cube renders here instead of directly on the
@@ -160,7 +204,7 @@ public sealed class Renderer : IDisposable
         UpdateCamera(new Camera());
     }
 
-    public void Render(World? world, Camera camera, double _, UiSystem ui)
+    public void Render(World? world, Camera camera, double time, UiSystem ui)
     {
         if (_disposed)
             return;
@@ -196,7 +240,7 @@ public sealed class Renderer : IDisposable
             };
             using (IRenderPass scenePass = commandBuffer.BeginRenderPass(scenePassDescription))
             {
-                DrawMeshRenderers(scenePass, world);
+                DrawMeshRenderers(scenePass, world, time);
             }
 
             // Rasterize and upload the UI before reading any GPU-composited regions.
@@ -358,54 +402,63 @@ public sealed class Renderer : IDisposable
     private void UpdateCamera(Camera camera)
     {
         float aspect = Math.Max(1, _width) / (float)Math.Max(1, _height);
-        _camera = new CameraUniforms
+        _scene = new SceneUniforms
         {
             View = camera.ViewMatrix,
-            Projection = camera.ProjectionMatrix(aspect)
+            Projection = camera.ProjectionMatrix(aspect),
+            CameraPosition = new Vector4(camera.Position, 1f),
+            Time = new Vector4(0f, 0f, 0f, 0f)
         };
     }
 
     private void CreateMeshResources()
     {
-        string shaderSource = File.ReadAllText(Path.Combine(
-            AppContext.BaseDirectory, "Shaders", "Mesh.wgsl"));
-
-        _meshPipeline = _device.CreatePipeline(new PipelineDescription
+        _sceneBuffer = _device.CreateBuffer(new BufferDescription
         {
-            ShaderSource = shaderSource,
-            VertexEntryPoint = "vs_main",
-            FragmentEntryPoint = "fs_main",
-            ColorFormat = _device.Swapchain.Format,
-            DepthFormat = TextureFormat.Depth24Plus,
-            DepthWriteEnabled = true,
-            DepthCompare = CompareFunction.Less,
-            VertexLayout = new VertexBufferLayoutDescription
-            {
-                Stride = 6 * sizeof(float),
-                Attributes =
-                [
-                    new VertexAttributeDescription { Format = VertexFormat.Float32x3, Offset = 0, ShaderLocation = 0 },
-                    new VertexAttributeDescription { Format = VertexFormat.Float32x3, Offset = 3 * sizeof(float), ShaderLocation = 1 }
-                ]
-            },
-            Bindings =
-            [
-                // MeshUniforms is read by both stages (vs_main transforms,
-                // fs_main samples color/lightDir/isSelected), so the binding
-                // must be visible to Vertex | Fragment.
-                new BindGroupLayoutBinding
-                {
-                    Slot = 0,
-                    Type = BindingType.UniformBuffer,
-                    Stages = ShaderStage.Vertex | ShaderStage.Fragment
-                }
-            ]
+            Size = (ulong)sizeof(SceneUniforms),
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
         });
+        _lightsBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)LightsBufferSize,
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+        _materialSampler = _device.CreateSampler(new SamplerDescription
+        {
+            AddressMode = SamplerAddressMode.Repeat
+        });
+
+        // 1x1 fallbacks for texture slots the material does not bind. Flat
+        // blue normals and black emissive keep PBR correct with no textures.
+        _defaultWhiteTexture = CreateSolidTexture(255, 255, 255, 255, srgb: false);
+        _defaultBlackTexture = CreateSolidTexture(0, 0, 0, 255, srgb: true);
+        _defaultNormalTexture = CreateSolidTexture(128, 128, 255, 255, srgb: false);
+
         _defaultMaterial = Material.CreateDefault(Shader.Load(Path.Combine("Shaders", "Mesh.wgsl")));
     }
 
+    /// <summary>Creates a 1x1 texture with a single RGBA pixel.</summary>
+    private ITexture CreateSolidTexture(byte r, byte g, byte b, byte a, bool srgb)
+    {
+        var texture = _device.CreateTexture(new TextureDescription
+        {
+            Width = 1,
+            Height = 1,
+            Format = srgb ? TextureFormat.Rgba8UnormSrgb : TextureFormat.Rgba8Unorm,
+            Sampled = true,
+            CopyDestination = true
+        });
+        byte[] pixel = [r, g, b, a];
+        unsafe
+        {
+            fixed (byte* data = pixel)
+                texture.Write((nint)data, 4, 0, 0, 1, 1);
+        }
+        return texture;
+    }
+
     /// <summary>Draws every living <see cref="MeshRenderer"/> in the world at its world transform.</summary>
-    private void DrawMeshRenderers(IRenderPass pass, World? world)
+    private void DrawMeshRenderers(IRenderPass pass, World? world, double time)
     {
         if (world is null)
             return;
@@ -415,49 +468,171 @@ public sealed class Renderer : IDisposable
         if (renderers.Count == 0)
             return;
 
-        pass.SetPipeline(_meshPipeline);
+        UpdateSceneUniforms(world, time);
 
         // Release GPU state for renderables whose component was destroyed.
         foreach (var stale in _renderables.Keys.Except(renderers).ToArray())
-        {
-            if (_renderables.Remove(stale, out var resources))
-            {
-                resources.BindGroup.Dispose();
-                resources.UniformBuffer.Dispose();
-            }
-        }
+            DisposeRenderable(stale);
 
-        var lightDir = Vector3.Normalize(new Vector3(0.5f, 1f, 0.7f));
-
+        IPipeline? currentPipeline = null;
         foreach (var renderer in renderers)
         {
             if (!renderer.IsValid || renderer.Model is null)
                 continue;
 
-            var renderable = GetRenderableResources(renderer);
             var material = renderer.Material ?? _defaultMaterial!;
+            var pipeline = GetMeshPipeline(material.Shader, material.Technique);
+            var renderable = GetRenderableResources(renderer, material, pipeline);
+
+            if (currentPipeline != pipeline)
+            {
+                pass.SetPipeline(pipeline);
+                pass.SetBindGroup(GetSceneBindGroup(pipeline), 0);
+                currentPipeline = pipeline;
+            }
+            pass.SetBindGroup(renderable.BindGroup, 1);
+
             var modelMatrix = ToWorldMatrix(renderer.World);
+            renderable.ModelBuffer.Write(in modelMatrix);
+            if (renderable.MaterialBuffer is not null)
+            {
+                var packed = UniformPacker.Pack(material.Shader.MaterialFields, material.Values);
+                renderable.MaterialBuffer.Write(packed);
+            }
 
             foreach (var mesh in renderer.Model.Meshes)
             {
                 var buffers = GetMeshBuffers(mesh);
-                var uniforms = new MeshUniforms
-                {
-                    Model = modelMatrix,
-                    View = _camera.View,
-                    Projection = _camera.Projection,
-                    Color = material.Get<Vector4>("color", new Vector4(1f)),
-                    LightDir = material.Get<Vector3>("lightDir", lightDir),
-                    IsSelected = 0
-                };
-                renderable.UniformBuffer.Write(in uniforms);
-
-                pass.SetBindGroup(renderable.BindGroup, 0);
                 pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
                 pass.SetIndexBuffer(buffers.IndexBuffer, buffers.IndexBuffer.Size);
                 pass.DrawIndexed((uint)mesh.Indices.Length);
             }
         }
+    }
+
+    /// <summary>
+    /// Writes the shared scene uniforms (view/projection/camera/clock) and
+    /// packs the world's lights (directional + point, capped at
+    /// <see cref="MaxLights"/>) into the light buffer.
+    /// </summary>
+    private void UpdateSceneUniforms(World? world, double time)
+    {
+        _scene.Time = new Vector4((float)time, 0f, 0f, 0f);
+        _sceneBuffer.Write(in _scene);
+
+        // Collect the world's lights (directional + point, capped at
+        // MaxLights), then lay them out exactly as Lighting.wgsl expects:
+        // count at offset 0, array<LightData, 8> at offset 16.
+        var collected = new LightGpuData[MaxLights];
+        var count = 0;
+        if (world is not null)
+        {
+            foreach (var light in world.Query<Light>())
+            {
+                if (!light.Enabled || count >= MaxLights)
+                    continue;
+
+                switch (light)
+                {
+                    case PointLight point:
+                        collected[count] = new LightGpuData
+                        {
+                            PositionType = new Vector4(point.World.Position, 1f),
+                            ColorIntensity = new Vector4(point.Color, point.Intensity),
+                            DirectionRange = new Vector4(0f, 0f, 0f, point.Range)
+                        };
+                        break;
+                    case DirectionalLight directional:
+                        collected[count] = new LightGpuData
+                        {
+                            PositionType = new Vector4(0f, 0f, 0f, 0f),
+                            ColorIntensity = new Vector4(directional.Color, directional.Intensity),
+                            DirectionRange = new Vector4(directional.Direction, 0f)
+                        };
+                        break;
+                    default:
+                        continue;
+                }
+
+                count++;
+            }
+        }
+
+        var bytes = new byte[LightsBufferSize];
+        BinaryPrimitives.WriteUInt32LittleEndian(bytes, (uint)count);
+        unsafe
+        {
+            fixed (byte* destination = bytes)
+            {
+                var lightPtr = (LightGpuData*)(destination + 16);
+                for (var i = 0; i < count; i++)
+                    lightPtr[i] = collected[i];
+            }
+        }
+        _lightsBuffer.Write(bytes);
+    }
+
+    /// <summary>
+    /// Returns (creating on first use) the pipeline for a shader and technique.
+    /// The group-1 layout is derived from the shader's own bindings, so the
+    /// WGSL source is the single source of truth for the pipeline layout.
+    /// </summary>
+    private IPipeline GetMeshPipeline(Shader shader, string techniqueName)
+    {
+        var key = (shader, techniqueName);
+        if (_meshPipelines.TryGetValue(key, out var existing))
+            return existing;
+
+        var technique = shader.GetTechnique(techniqueName);
+        var group1 = shader.Bindings
+            .Where(binding => binding.Group == 1)
+            .OrderBy(binding => binding.Slot)
+            .Select(binding => new BindGroupLayoutBinding
+            {
+                Slot = binding.Slot,
+                Type = binding.Kind switch
+                {
+                    ShaderBindingKind.UniformBuffer => BindingType.UniformBuffer,
+                    ShaderBindingKind.ReadOnlyStorageBuffer => BindingType.ReadOnlyStorageBuffer,
+                    ShaderBindingKind.Texture => BindingType.Texture,
+                    ShaderBindingKind.Sampler => BindingType.Sampler,
+                    _ => throw new ArgumentOutOfRangeException()
+                },
+                Stages = binding.Kind == ShaderBindingKind.UniformBuffer
+                    ? ShaderStage.Vertex | ShaderStage.Fragment
+                    : ShaderStage.Fragment
+            })
+            .ToList();
+
+        var pipeline = _device.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = shader.Source,
+            VertexEntryPoint = technique.VertexEntryPoint,
+            FragmentEntryPoint = technique.FragmentEntryPoint,
+            ColorFormat = _device.Swapchain.Format,
+            DepthFormat = TextureFormat.Depth24Plus,
+            DepthWriteEnabled = true,
+            DepthCompare = CompareFunction.Less,
+            VertexLayout = MeshVertexLayout,
+            BindGroups = [SceneGroupBindings, group1]
+        });
+        _meshPipelines.Add(key, pipeline);
+        return pipeline;
+    }
+
+    /// <summary>Creates (or returns) the per-frame bind group 0 for a mesh pipeline.</summary>
+    private IBindGroup GetSceneBindGroup(IPipeline pipeline)
+    {
+        if (_sceneBindGroups.TryGetValue(pipeline, out var existing))
+            return existing;
+
+        var bindGroup = pipeline.CreateBindGroup(0,
+        [
+            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = (ulong)sizeof(SceneUniforms) },
+            new BindGroupBinding { Slot = 1, Buffer = _lightsBuffer, BufferSize = (ulong)LightsBufferSize }
+        ]);
+        _sceneBindGroups.Add(pipeline, bindGroup);
+        return bindGroup;
     }
 
     /// <summary>Uploads one mesh's geometry once; shared by every renderable using the same mesh.</summary>
@@ -466,18 +641,25 @@ public sealed class Renderer : IDisposable
         if (_meshBuffers.TryGetValue(mesh, out var existing))
             return existing;
 
-        // Mesh.wgsl consumes interleaved position + normal floats (stride 24).
-        var floats = new float[mesh.Vertices.Length * 6];
+        // Mesh shaders consume interleaved position + normal + tangent + uv
+        // floats (stride 48), matching MeshVertexLayout.
+        var floats = new float[mesh.Vertices.Length * 12];
         for (var i = 0; i < mesh.Vertices.Length; i++)
         {
             var vertex = mesh.Vertices[i];
-            var offset = i * 6;
+            var offset = i * 12;
             floats[offset] = vertex.Position.X;
             floats[offset + 1] = vertex.Position.Y;
             floats[offset + 2] = vertex.Position.Z;
             floats[offset + 3] = vertex.Normal.X;
             floats[offset + 4] = vertex.Normal.Y;
             floats[offset + 5] = vertex.Normal.Z;
+            floats[offset + 6] = vertex.Tangent.X;
+            floats[offset + 7] = vertex.Tangent.Y;
+            floats[offset + 8] = vertex.Tangent.Z;
+            floats[offset + 9] = vertex.Tangent.W;
+            floats[offset + 10] = vertex.TexCoord.X;
+            floats[offset + 11] = vertex.TexCoord.Y;
         }
 
         var vertexBuffer = _device.CreateBuffer(new BufferDescription
@@ -507,25 +689,138 @@ public sealed class Renderer : IDisposable
         return buffers;
     }
 
-    /// <summary>Creates (or returns) the per-component uniform buffer and bind group.</summary>
-    private RenderableResources GetRenderableResources(MeshRenderer renderer)
+    /// <summary>
+    /// Creates (or returns) the per-component group-1 bind group: the model
+    /// buffer, the material parameters buffer and the material's textures.
+    /// Rebuilt when the component switches shader or technique.
+    /// </summary>
+    private RenderableResources GetRenderableResources(MeshRenderer renderer, Material material, IPipeline pipeline)
     {
-        if (_renderables.TryGetValue(renderer, out var existing))
+        if (_renderables.TryGetValue(renderer, out var existing) &&
+            existing.Shader == material.Shader &&
+            existing.Technique == material.Technique)
             return existing;
 
-        var uniformBuffer = _device.CreateBuffer(new BufferDescription
+        if (existing is not null)
+            DisposeRenderable(renderer);
+
+        var shader = material.Shader;
+        var fields = shader.MaterialFields;
+        var materialBuffer = fields.Count == 0
+            ? null
+            : _device.CreateBuffer(new BufferDescription
+            {
+                Size = (ulong)UniformPacker.ComputeStructSize(fields),
+                Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+            });
+        var modelBuffer = _device.CreateBuffer(new BufferDescription
         {
-            Size = (ulong)sizeof(MeshUniforms),
+            Size = 64,
             Usage = BufferUsage.Uniform | BufferUsage.CopyDst
         });
-        var bindGroup = _meshPipeline.CreateBindGroup(
-        [
-            new BindGroupBinding { Slot = 0, Buffer = uniformBuffer, BufferSize = (ulong)sizeof(MeshUniforms) }
-        ]);
 
-        var resources = new RenderableResources { UniformBuffer = uniformBuffer, BindGroup = bindGroup };
+        var bindings = new List<BindGroupBinding>();
+        foreach (var binding in shader.Bindings.Where(b => b.Group == 1).OrderBy(b => b.Slot))
+        {
+            switch (binding.Kind)
+            {
+                case ShaderBindingKind.UniformBuffer when binding.TypeName is "mat4x4<f32>" or "mat4f":
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Buffer = modelBuffer, BufferSize = 64 });
+                    break;
+                case ShaderBindingKind.UniformBuffer:
+                    if (materialBuffer is null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Shader '{shader.Name}' binds uniform '{binding.VariableName}' ({binding.TypeName}) but declares no material struct.");
+                    }
+                    bindings.Add(new BindGroupBinding
+                    {
+                        Slot = binding.Slot,
+                        Buffer = materialBuffer,
+                        BufferSize = (ulong)materialBuffer.Size
+                    });
+                    break;
+                case ShaderBindingKind.Sampler:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Sampler = _materialSampler });
+                    break;
+                case ShaderBindingKind.Texture:
+                    bindings.Add(new BindGroupBinding
+                    {
+                        Slot = binding.Slot,
+                        Texture = GetMaterialTexture(material, binding.VariableName)
+                    });
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"Shader '{shader.Name}' declares unsupported material binding '{binding.VariableName}'.");
+            }
+        }
+
+        var resources = new RenderableResources
+        {
+            Shader = shader,
+            Technique = material.Technique,
+            ModelBuffer = modelBuffer,
+            MaterialBuffer = materialBuffer,
+            BindGroup = pipeline.CreateBindGroup(1, bindings)
+        };
         _renderables.Add(renderer, resources);
         return resources;
+    }
+
+    /// <summary>
+    /// Resolves a material texture slot: the material's own texture (uploaded
+    /// and cached once) or a sensible 1x1 default. Color textures (albedo,
+    /// emissive) are created in sRGB so the hardware decodes them to linear;
+    /// data maps (normal, metallic/roughness, occlusion) stay plain unorm.
+    /// </summary>
+    private ITexture GetMaterialTexture(Material material, string slotName)
+    {
+        if (material.Textures.TryGetValue(slotName, out var cpuTexture))
+        {
+            if (_materialTextures.TryGetValue(cpuTexture, out var existing))
+                return existing;
+
+            var srgb = IsColorTextureSlot(slotName);
+            var gpu = _device.CreateTexture(new TextureDescription
+            {
+                Width = cpuTexture.Width,
+                Height = cpuTexture.Height,
+                Format = srgb ? TextureFormat.Rgba8UnormSrgb : TextureFormat.Rgba8Unorm,
+                Sampled = true,
+                CopyDestination = true
+            });
+            unsafe
+            {
+                fixed (byte* pixels = cpuTexture.Pixels)
+                    gpu.Write((nint)pixels, cpuTexture.Width * 4, 0, 0, cpuTexture.Width, cpuTexture.Height);
+            }
+            _materialTextures.Add(cpuTexture, gpu);
+            return gpu;
+        }
+
+        // Unbound slots get a flat blue normal map, a black emissive map, and
+        // white for albedo/metallic-roughness/occlusion (neutral factors).
+        if (slotName.Contains("normal", StringComparison.OrdinalIgnoreCase))
+            return _defaultNormalTexture;
+        if (slotName.Contains("emissive", StringComparison.OrdinalIgnoreCase))
+            return _defaultBlackTexture;
+        return _defaultWhiteTexture;
+    }
+
+    private static bool IsColorTextureSlot(string slotName) =>
+        slotName.Contains("albedo", StringComparison.OrdinalIgnoreCase) ||
+        slotName.Contains("emissive", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Disposes the GPU state of one renderable and drops its cache entry.</summary>
+    private void DisposeRenderable(MeshRenderer renderer)
+    {
+        if (!_renderables.Remove(renderer, out var resources))
+            return;
+
+        resources.BindGroup.Dispose();
+        resources.ModelBuffer.Dispose();
+        resources.MaterialBuffer?.Dispose();
     }
 
     private static Matrix4x4 ToWorldMatrix(Transform transform) =>
@@ -575,10 +870,12 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
                 ]
             },
-            Bindings =
+            BindGroups =
             [
-                new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
-                new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment }
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment }
+                ]
             ]
         });
 
@@ -631,11 +928,13 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
                 ]
             },
-            Bindings =
+            BindGroups =
             [
-                new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
-                new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment },
-                new BindGroupLayoutBinding { Slot = 2, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Fragment }
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 2, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Fragment }
+                ]
             ]
         });
     }
@@ -672,10 +971,12 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
                 ]
             },
-            Bindings =
+            BindGroups =
             [
-                new BindGroupLayoutBinding { Slot = 0, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
-                new BindGroupLayoutBinding { Slot = 1, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                ]
             ]
         });
         _decoBindGroup = _decoPipeline.CreateBindGroup(
@@ -717,10 +1018,12 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
                 ]
             },
-            Bindings =
+            BindGroups =
             [
-                new BindGroupLayoutBinding { Slot = 0, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
-                new BindGroupLayoutBinding { Slot = 1, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                ]
             ]
         });
         _fillBindGroup = _fillPipeline.CreateBindGroup(
@@ -979,7 +1282,8 @@ public sealed class Renderer : IDisposable
         foreach (var resources in _renderables.Values)
         {
             resources.BindGroup.Dispose();
-            resources.UniformBuffer.Dispose();
+            resources.ModelBuffer.Dispose();
+            resources.MaterialBuffer?.Dispose();
         }
         _renderables.Clear();
         foreach (var buffers in _meshBuffers.Values)
@@ -988,7 +1292,21 @@ public sealed class Renderer : IDisposable
             buffers.IndexBuffer.Dispose();
         }
         _meshBuffers.Clear();
-        _meshPipeline?.Dispose();
+        foreach (var bindGroup in _sceneBindGroups.Values)
+            bindGroup.Dispose();
+        _sceneBindGroups.Clear();
+        foreach (var pipeline in _meshPipelines.Values)
+            pipeline.Dispose();
+        _meshPipelines.Clear();
+        foreach (var texture in _materialTextures.Values)
+            texture.Dispose();
+        _materialTextures.Clear();
+        _defaultWhiteTexture?.Dispose();
+        _defaultBlackTexture?.Dispose();
+        _defaultNormalTexture?.Dispose();
+        _materialSampler?.Dispose();
+        _lightsBuffer?.Dispose();
+        _sceneBuffer?.Dispose();
         _depthTexture?.Dispose();
     }
 }

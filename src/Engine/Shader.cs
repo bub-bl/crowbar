@@ -1,5 +1,4 @@
 using System.Numerics;
-using System.Text.RegularExpressions;
 
 namespace Crowbar.Engine;
 
@@ -48,8 +47,15 @@ public sealed record ShaderParameterDefinition(string Name, Type Type);
 
 /// <summary>
 /// A shader source loaded from a file shipped with the application.
+/// <c>#include</c> directives are resolved at load time
+/// (<see cref="ShaderPreprocessor"/>), and the flattened source is reflected
+/// (<see cref="ShaderReflection"/>) into entry points, bind-group
+/// declarations, struct definitions and named techniques — so the WGSL is the
+/// single source of truth for the pipeline layout and the material
+/// parameters, and the <see cref="UniformPacker"/> derives the uniform layout
+/// from it.
 /// </summary>
-public sealed partial class Shader
+public sealed class Shader
 {
     public string Path { get; }
 
@@ -57,10 +63,29 @@ public sealed partial class Shader
 
     public string Name { get; }
 
+    /// <summary>The flattened source (includes resolved), ready for compilation.</summary>
     public string Source { get; }
 
     public IReadOnlyList<ShaderEntryPoint> EntryPoints { get; }
 
+    /// <summary>Every resource binding declared by the shader, sorted by group then slot.</summary>
+    public IReadOnlyList<ShaderBinding> Bindings { get; }
+
+    /// <summary>Every struct definition in the flattened source.</summary>
+    public IReadOnlyList<ShaderStruct> Structs { get; }
+
+    /// <summary>Render passes (vertex/fragment pairs) the shader exposes.</summary>
+    public IReadOnlyList<ShaderTechnique> Techniques { get; }
+
+    /// <summary>
+    /// Fields of the material uniform struct (the struct referenced by a
+    /// group &gt;= 1 uniform binding whose name contains "Material"). These are
+    /// the parameters a <see cref="Material"/> can set, packed by
+    /// <see cref="UniformPacker"/> into the struct's exact layout.
+    /// </summary>
+    public IReadOnlyList<ShaderStructField> MaterialFields { get; }
+
+    /// <summary>The material fields mapped to CLR types, for parameter validation.</summary>
     public IReadOnlyList<ShaderParameterDefinition> Parameters { get; }
 
     private Shader(string requestedPath, string filePath, string source)
@@ -69,8 +94,18 @@ public sealed partial class Shader
         FilePath = filePath;
         Source = source;
         Name = System.IO.Path.GetFileNameWithoutExtension(filePath);
-        EntryPoints = DetectEntryPoints(source);
-        Parameters = DetectParameters(source);
+        EntryPoints = ShaderReflection.DetectEntryPoints(source);
+        Bindings = ShaderReflection.DetectBindings(source);
+        Structs = ShaderReflection.DetectStructs(source);
+        Techniques = ShaderReflection.DetectTechniques(EntryPoints);
+        MaterialFields = FindMaterialFields();
+        Parameters =
+        [
+            .. MaterialFields
+                .Select(field => ShaderParameter.TryParseParameter(field.Name, field.Type))
+                .Where(parameter => parameter != null)
+                .Select(parameter => parameter!)
+        ];
     }
 
     public ShaderEntryPoint GetEntryPoint(string name)
@@ -78,6 +113,16 @@ public sealed partial class Shader
         return EntryPoints.FirstOrDefault(entry => entry.Name == name)
                ?? throw new InvalidOperationException(
                    $"Shader '{Name}' does not contain an entry point named '{name}'.");
+    }
+
+    public ShaderTechnique GetTechnique(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            name = "Main";
+
+        return Techniques.FirstOrDefault(technique => technique.Name == name)
+               ?? throw new InvalidOperationException(
+                   $"Shader '{Name}' has no technique named '{name}'. Available: {string.Join(", ", Techniques.Select(t => t.Name))}");
     }
 
     public static Shader Load(string path)
@@ -96,7 +141,8 @@ public sealed partial class Shader
         {
             if (File.Exists(candidate))
             {
-                return new Shader(path, candidate, File.ReadAllText(candidate));
+                var source = ShaderPreprocessor.Preprocess(candidate);
+                return new Shader(path, candidate, source);
             }
         }
 
@@ -105,41 +151,13 @@ public sealed partial class Shader
             path);
     }
 
-    private static IReadOnlyList<ShaderEntryPoint> DetectEntryPoints(string source)
+    private IReadOnlyList<ShaderStructField> FindMaterialFields()
     {
-        return
-        [
-            .. EntryPointPattern.Matches(source)
-                .Select(match => new ShaderEntryPoint(
-                    match.Groups["name"].Value,
-                    Enum.Parse<ShaderStageKind>(match.Groups["stage"].Value, ignoreCase: true)))
-        ];
+        var materialStruct = Bindings
+            .Where(binding => binding.Kind == ShaderBindingKind.UniformBuffer && binding.Group >= 1)
+            .Select(binding => Structs.FirstOrDefault(struct_ => struct_.Name == binding.TypeName))
+            .FirstOrDefault(struct_ => struct_?.Name.Contains("Material", StringComparison.Ordinal) == true);
+
+        return materialStruct?.Fields ?? [];
     }
-
-    private static IReadOnlyList<ShaderParameterDefinition> DetectParameters(string source)
-    {
-        var uniform = UniformPattern.Match(source);
-        if (!uniform.Success) return [];
-
-        return
-        [
-            .. FieldPattern.Matches(uniform.Groups["body"].Value)
-                .Select(match =>
-                    ShaderParameter.TryParseParameter(match.Groups["name"].Value, match.Groups["type"].Value))
-                .Where(parameter => parameter != null)
-                .Select(parameter => parameter!)
-        ];
-    }
-
-    [GeneratedRegex(@"(?m)^\s*@(?<stage>vertex|fragment|compute)\s+fn\s+(?<name>[A-Za-z_]\w*)\s*\(",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant)]
-    private static partial Regex EntryPointPattern { get; }
-
-    [GeneratedRegex(@"(?s)struct\s+\w*Uniforms\s*\{(?<body>.*?)\}",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant)]
-    private static partial Regex UniformPattern { get; }
-
-    [GeneratedRegex(@"(?m)^\s*(?<name>[A-Za-z_]\w*)\s*:\s*(?<type>[A-Za-z0-9_<>]+)\s*,",
-        RegexOptions.Compiled | RegexOptions.CultureInvariant)]
-    private static partial Regex FieldPattern { get; }
 }

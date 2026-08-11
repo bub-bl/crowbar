@@ -80,7 +80,7 @@ public sealed unsafe class WebGpuContext : IGraphicsDevice
         WebGpuBuffer.Create(Runtime, Device, Queue, description);
 
     public ISampler CreateSampler(SamplerDescription description) =>
-        WebGpuSampler.Create(Runtime, Device);
+        WebGpuSampler.Create(Runtime, Device, description);
 
     public IPipeline CreatePipeline(PipelineDescription description) =>
         new WebGpuPipeline(Runtime, Device, description);

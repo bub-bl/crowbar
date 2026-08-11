@@ -174,6 +174,7 @@ internal static unsafe class WebGpuNative
     {
         EngineVertexFormat.Float32x2 => SilkVertexFormat.Float32x2,
         EngineVertexFormat.Float32x3 => SilkVertexFormat.Float32x3,
+        EngineVertexFormat.Float32x4 => SilkVertexFormat.Float32x4,
         _ => throw new ArgumentOutOfRangeException(nameof(format))
     };
 

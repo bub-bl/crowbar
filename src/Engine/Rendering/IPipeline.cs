@@ -7,6 +7,9 @@ namespace Crowbar.Engine.Rendering;
 /// </summary>
 public interface IPipeline : IDisposable
 {
-    /// <summary>Creates a bind group compatible with this pipeline's layout.</summary>
+    /// <summary>Creates a bind group compatible with this pipeline's group-0 layout.</summary>
     IBindGroup CreateBindGroup(IReadOnlyList<BindGroupBinding> bindings);
+
+    /// <summary>Creates a bind group for <paramref name="groupIndex"/>, compatible with that group's layout.</summary>
+    IBindGroup CreateBindGroup(int groupIndex, IReadOnlyList<BindGroupBinding> bindings);
 }
