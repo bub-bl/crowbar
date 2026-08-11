@@ -7,10 +7,13 @@ using Crowbar.UI;
 namespace Crowbar.Engine;
 
 /// <summary>
-/// Owns the first usable WebGPU device for the runtime.
-/// Owns the window surface and keeps its configuration synchronized with the framebuffer size.
+/// Concrete <see cref="IGraphicsDevice"/> on WebGPU (wgpu-native): owns the
+/// device, the window surface, the offscreen scene pass and the Skia-UI
+/// compositing (texture upload + fills/backdrops/decorations quads). Camera
+/// state and input live outside this class; the runtime hands a
+/// <see cref="Camera"/> to <see cref="Render"/> each frame.
 /// </summary>
-public sealed unsafe class WebGpuContext : IDisposable
+public sealed unsafe class WebGpuContext : IGraphicsDevice
 {
     private struct CameraUniforms
     {
@@ -38,15 +41,12 @@ public sealed unsafe class WebGpuContext : IDisposable
     private readonly nint _windowHandle;
     private int _width;
     private int _height;
-    private Vector3 _cameraPosition = new(4.24f, 3f, 4.24f);
-    private float _cameraYaw = -MathF.PI / 4f;
-    private float _cameraPitch = -0.42f;
-    private bool _mouseLookActive;
-    private int _lastMouseX;
-    private int _lastMouseY;
     private bool _hasPresentedFrame;
     private bool _disposed;
     public UiSystem? Ui { get; set; }
+    public string BackendName => "WebGPU (wgpu-native)";
+    public int Width => _width;
+    public int Height => _height;
     private Texture* _uiTexture;
     private TextureView* _uiTextureView;
     private Sampler* _uiSampler;
@@ -179,7 +179,7 @@ public sealed unsafe class WebGpuContext : IDisposable
             CreateDecorationResources();
             CreateFillResources();
             CreateSceneResources(_width, _height);
-            UpdateCamera(0);
+            UpdateCamera(new Camera());
             Console.WriteLine("WebGPU device initialized.");
         }
         catch
@@ -189,10 +189,12 @@ public sealed unsafe class WebGpuContext : IDisposable
         }
     }
 
-    public void Render(double _)
+    public void Render(Camera camera, double _)
     {
         if (_disposed || _surface == null)
             return;
+
+        UpdateCamera(camera);
 
         SurfaceTexture surfaceTexture = default;
         Runtime.Api.SurfaceGetCurrentTexture(_surface, ref surfaceTexture);
@@ -383,41 +385,6 @@ public sealed unsafe class WebGpuContext : IDisposable
         }
     }
 
-    public void Update(double deltaTime)
-    {
-        if (_disposed)
-            return;
-
-        // GetAsyncKeyState is process-independent, so explicitly reject input
-        // while another window is in the foreground.
-        if (!IsWindowFocused())
-        {
-            _mouseLookActive = false;
-            return;
-        }
-
-        float delta = Math.Clamp((float)deltaTime, 0f, 0.1f);
-        UpdateMouseLook();
-
-        Vector3 forward = new(
-            MathF.Sin(_cameraYaw) * MathF.Cos(_cameraPitch),
-            MathF.Sin(_cameraPitch),
-            -MathF.Cos(_cameraYaw) * MathF.Cos(_cameraPitch));
-        Vector3 right = new(MathF.Cos(_cameraYaw), 0f, MathF.Sin(_cameraYaw));
-        Vector3 movement = Vector3.Zero;
-        if (IsKeyDown(0x5A)) movement += forward; // Z
-        if (IsKeyDown(0x53)) movement -= forward; // S
-        if (IsKeyDown(0x44)) movement += right;   // D
-        if (IsKeyDown(0x51)) movement -= right;   // Q
-        if (IsKeyDown(0x20)) movement += Vector3.UnitY; // Espace
-        if (IsKeyDown(0x45)) movement -= Vector3.UnitY; // E
-
-        if (movement.LengthSquared() > 0f)
-            _cameraPosition += Vector3.Normalize(movement) * (2.5f * delta);
-
-        UpdateCamera(delta);
-    }
-
     public void Resize(int width, int height)
     {
         if (_disposed || _surface == null || width <= 0 || height <= 0)
@@ -426,7 +393,6 @@ public sealed unsafe class WebGpuContext : IDisposable
         _width = width;
         _height = height;
         ConfigureSurface(width, height);
-        UpdateCamera(0);
         CreateUiResources(width, height);
         CreateSceneResources(width, height);
     }
@@ -1036,20 +1002,13 @@ public sealed unsafe class WebGpuContext : IDisposable
             throw new InvalidOperationException("WebGPU could not create the depth texture view.");
     }
 
-    private void UpdateCamera(double _)
+    private void UpdateCamera(Camera camera)
     {
         float aspect = Math.Max(1, _width) / (float)Math.Max(1, _height);
-        Vector3 target = _cameraPosition + new Vector3(
-            MathF.Sin(_cameraYaw) * MathF.Cos(_cameraPitch),
-            MathF.Sin(_cameraPitch),
-            -MathF.Cos(_cameraYaw) * MathF.Cos(_cameraPitch));
-        Matrix4x4 view = Matrix4x4.CreateLookAt(_cameraPosition, target, Vector3.UnitY);
-        Matrix4x4 projection = Matrix4x4.CreatePerspectiveFieldOfView(
-            MathF.PI / 3f, aspect, 0.1f, 100f);
         CameraUniforms uniforms = new()
         {
-            View = view,
-            Projection = projection
+            View = camera.ViewMatrix,
+            Projection = camera.ProjectionMatrix(aspect)
         };
         Runtime.Api.QueueWriteBuffer(
             (Queue*)Queue.NativeHandle,
@@ -1058,55 +1017,6 @@ public sealed unsafe class WebGpuContext : IDisposable
             in uniforms,
             (nuint)sizeof(CameraUniforms));
     }
-
-    /// <summary>
-    /// Updates the camera from the real cursor movement while the right button
-    /// is held. The cursor remains visible and follows the user's movement;
-    /// unlike an FPS-style mouse-look implementation, it is never warped back
-    /// to the center of the window.
-    /// </summary>
-    private void UpdateMouseLook()
-    {
-        if (!IsKeyDown(0x02)) // VK_RBUTTON
-        {
-            _mouseLookActive = false;
-            return;
-        }
-
-        if (!GetCursorPos(out Point cursor))
-            return;
-
-        if (!_mouseLookActive)
-        {
-            _lastMouseX = cursor.X;
-            _lastMouseY = cursor.Y;
-            _mouseLookActive = true;
-            return;
-        }
-
-        float deltaX = cursor.X - _lastMouseX;
-        float deltaY = cursor.Y - _lastMouseY;
-        _lastMouseX = cursor.X;
-        _lastMouseY = cursor.Y;
-        _cameraYaw += deltaX * 0.003f;
-        _cameraPitch = Math.Clamp(_cameraPitch - deltaY * 0.003f, -1.45f, 1.45f);
-    }
-
-    private static bool IsKeyDown(int key) => (GetAsyncKeyState(key) & 0x8000) != 0;
-
-    private bool IsWindowFocused() => GetForegroundWindow() == _windowHandle;
-
-    [DllImport("user32.dll")]
-    private static extern short GetAsyncKeyState(int key);
-
-    [DllImport("user32.dll")]
-    private static extern nint GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern bool GetCursorPos(out Point point);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct Point { public int X, Y; public Point(int x, int y) => (X, Y) = (x, y); }
 
     private void CreateCameraResources()
     {

@@ -15,12 +15,3 @@ public readonly record struct PointerWheelEvent(float X, float Y, float DeltaX, 
 public readonly record struct KeyEvent(int KeyCode, bool IsDown, bool IsRepeat, string? Text = null);
 /// <summary>Wheel delta delivered to a <see cref="Panel"/>'s PointerWheel handler.</summary>
 public readonly record struct WheelEvent(float DeltaX, float DeltaY);
-
-public interface IWindowInputSource : IDisposable
-{
-    event Action<PointerMoveEvent>? PointerMoved;
-    event Action<PointerButtonEvent>? PointerButtonChanged;
-    event Action<PointerWheelEvent>? PointerWheelChanged;
-    event Action<KeyEvent>? KeyChanged;
-    void Update();
-}

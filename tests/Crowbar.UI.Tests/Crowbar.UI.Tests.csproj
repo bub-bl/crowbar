@@ -19,5 +19,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\UI\Crowbar.UI.csproj" />
+    <ProjectReference Include="..\..\src\Engine\Engine.csproj" />
   </ItemGroup>
 </Project>

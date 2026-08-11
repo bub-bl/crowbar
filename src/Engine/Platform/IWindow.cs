@@ -1,4 +1,4 @@
-using Crowbar.UI;
+using Crowbar.Engine.InputSystem;
 
 namespace Crowbar.Engine.Platform;
 
@@ -13,15 +13,14 @@ public interface IWindow : IDisposable
     bool IsClosing { get; }
     nint NativeHandle { get; }
 
+    /// <summary>Raw input source: UI pointer/keyboard events and state polling.</summary>
+    IInputSource Input { get; }
+
     event Action? Loaded;
     event Action? Closing;
     event Action<double>? Updating;
     event Action<double>? Rendering;
     event Action<int, int>? Resized;
-    event Action<PointerMoveEvent>? PointerMoved;
-    event Action<PointerButtonEvent>? PointerButtonChanged;
-    event Action<PointerWheelEvent>? PointerWheelChanged;
-    event Action<KeyEvent>? KeyChanged;
 
     void Run();
     void Close();

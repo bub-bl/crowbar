@@ -1,67 +1,34 @@
-using Crowbar.Engine.Platform;
 using Crowbar.Engine;
-using Crowbar.UI;
 
 namespace Crowbar.Editor;
 
 internal static class Program
 {
-    public static void Main()
-    {
-        using IPlatform platform = new SdlPlatform();
-        using var window = platform.CreateWindow(new WindowOptions(
-            Title: "Crowbar",
-            Width: 1280,
-            Height: 720));
+    public static void Main() => new DemoApplication().Run();
+}
 
-        WebGpuContext? webGpu = null;
-        using var ui = new UiSystem();
+/// <summary>
+/// Demo application: loads the Razor + Yoga + Skia + WebGPU showcase page and
+/// runs it on the engine's input → update → render loop. The platform, input,
+/// UI runtime and graphics device are all owned by <see cref="Application"/>.
+/// </summary>
+internal sealed class DemoApplication : Application
+{
+    protected override void OnInitialize()
+    {
         // Enregistrement automatique de tout le dossier Ui/ : les fichiers avec
         // @page deviennent des pages routables, les autres des composants.
         var uiDirectory = ResolveUiDirectory("");
-        var registeredCount = ui.RegisterRazorComponentsFromDirectory(uiDirectory);
+        var registeredCount = Ui.RegisterRazorComponentsFromDirectory(uiDirectory);
         Console.WriteLine($"Razor UI: registered {registeredCount} file(s) from {uiDirectory}");
-        ui.NavigationChanged += url => window.SetTitle($"Crowbar — {url}");
-        ui.Navigate("/");
-        Console.WriteLine($"Razor UI: current page is {ui.CurrentUrl}");
-        ui.WatchDirectory(uiDirectory);
-        window.PointerMoved += e => ui.ProcessPointerMove(e.X, e.Y);
-        window.PointerButtonChanged += e =>
-        {
-            if (e.IsDown) ui.ProcessPointerDown(e.X, e.Y, (int)e.Button);
-            else ui.ProcessPointerUp(e.X, e.Y, (int)e.Button);
-        };
-        window.PointerWheelChanged += e => ui.ProcessPointerWheel(e.X, e.Y, e.DeltaX, e.DeltaY);
-        window.KeyChanged += ui.ProcessKey;
-
-        window.Loaded += () =>
-        {
-            Console.WriteLine("Crowbar platform initialized.");
-            var framebufferWidth = window.FramebufferWidth > 0 ? window.FramebufferWidth : window.Width;
-            var framebufferHeight = window.FramebufferHeight > 0 ? window.FramebufferHeight : window.Height;
-            webGpu = new WebGpuContext(window.NativeHandle, framebufferWidth, framebufferHeight) { Ui = ui };
-            // With a GPU compositor present, outer box-shadows, uniform
-            // borders and solid backgrounds leave the Skia raster and are
-            // drawn by Decorations.wgsl (above the texture) and Fills.wgsl
-            // (below it). The renderer only delegates the paints that are safe
-            // to composite around the flat UI texture.
-            ui.Renderer.GpuDecorations = true;
-            ui.Renderer.GpuFills = true;
-            ui.SetViewport(framebufferWidth, framebufferHeight);
-            ui.Render();
-        };
-        window.Updating += delta => { ui.Update((float)delta); webGpu?.Update(delta); };
-        window.Rendering += delta => webGpu?.Render(delta);
-        window.Resized += (width, height) => { webGpu?.Resize(width, height); ui.SetViewport(width, height); ui.Render(); };
-        window.Closing += () =>
-        {
-            webGpu?.Dispose();
-            Console.WriteLine("Crowbar shutting down.");
-        };
-        window.Run();
+        Ui.NavigationChanged += url => Window.SetTitle($"Crowbar — {url}");
+        Ui.Navigate("/");
+        Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl}");
+        Ui.WatchDirectory(uiDirectory);
     }
 
-    private static string ResolveUiDirectory(string directory) => ResolveUiPath(Path.Combine("Ui", directory), Directory.Exists);
+    private static string ResolveUiDirectory(string directory) =>
+        ResolveUiPath(Path.Combine("Ui", directory), Directory.Exists);
 
     private static string ResolveUiPath(string relativePath, Func<string, bool> sourceExists)
     {
