@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World;
+namespace Crowbar.Engine;
 
 /// <summary>
 /// A collection of entities inside a <see cref="World"/> (the analog of

@@ -49,8 +49,14 @@ public sealed class WebGpuRuntime : IDisposable
     internal void SetVertexBuffer(WebGpuRenderPassEncoder pass, WebGpuBuffer buffer, ulong size) =>
         WebGpuNative.SetVertexBuffer(Api, pass, buffer.Buffer, size);
 
+    internal void SetIndexBuffer(WebGpuRenderPassEncoder pass, WebGpuBuffer buffer, ulong size) =>
+        WebGpuNative.SetIndexBuffer(Api, pass, buffer.Buffer, size);
+
     internal void Draw(WebGpuRenderPassEncoder pass, uint vertexCount) =>
         WebGpuNative.Draw(Api, pass, vertexCount);
+
+    internal void DrawIndexed(WebGpuRenderPassEncoder pass, uint indexCount) =>
+        WebGpuNative.DrawIndexed(Api, pass, indexCount);
 
     internal void DrawInstanced(WebGpuRenderPassEncoder pass, uint vertexCount, uint instanceCount) =>
         WebGpuNative.DrawInstanced(Api, pass, vertexCount, instanceCount);

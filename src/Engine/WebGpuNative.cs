@@ -40,8 +40,15 @@ internal static unsafe class WebGpuNative
         api.RenderPassEncoderSetVertexBuffer((RenderPassEncoder*)pass.NativeHandle, 0,
             buffer, 0, size);
 
+    internal static void SetIndexBuffer(WebGPU api, WebGpuRenderPassEncoder pass, SilkBuffer* buffer, ulong size) =>
+        api.RenderPassEncoderSetIndexBuffer((RenderPassEncoder*)pass.NativeHandle, buffer,
+            IndexFormat.Uint32, 0, size);
+
     internal static void Draw(WebGPU api, WebGpuRenderPassEncoder pass, uint vertexCount) =>
         api.RenderPassEncoderDraw((RenderPassEncoder*)pass.NativeHandle, vertexCount, 1, 0, 0);
+
+    internal static void DrawIndexed(WebGPU api, WebGpuRenderPassEncoder pass, uint indexCount) =>
+        api.RenderPassEncoderDrawIndexed((RenderPassEncoder*)pass.NativeHandle, indexCount, 1, 0, 0, 0);
 
     internal static void DrawInstanced(WebGPU api, WebGpuRenderPassEncoder pass, uint vertexCount, uint instanceCount) =>
         api.RenderPassEncoderDraw((RenderPassEncoder*)pass.NativeHandle, vertexCount, instanceCount, 0, 0);

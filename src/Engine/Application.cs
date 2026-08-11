@@ -19,6 +19,7 @@ public abstract class Application : IDisposable
     private readonly IWindow _window;
     private readonly UiSystem _ui = new();
     private readonly Camera _camera = new();
+    private readonly World _world = new();
     private IGraphicsDevice? _graphics;
     private Renderer? _renderer;
     private bool _looking;
@@ -47,6 +48,9 @@ public abstract class Application : IDisposable
     protected IGraphicsDevice? Graphics => _graphics;
     protected Camera Camera => _camera;
     protected IInputSource InputSource => _window.Input;
+
+    /// <summary>The world owned by the application. Subclasses spawn entities and call Start/Stop on it.</summary>
+    protected World World => _world;
 
     public void Run()
     {
@@ -98,19 +102,20 @@ public abstract class Application : IDisposable
         input.KeyChanged += Ui.ProcessKey;
     }
 
-    /// <summary>Frame phase order: poll input first, then update simulation/UI.</summary>
+    /// <summary>Frame phase order: poll input first, then update simulation, then the world, then UI.</summary>
     private void OnFrame(double delta)
     {
         Input.Poll();
         var clamped = Math.Clamp((float)delta, 0f, 0.1f);
         OnUpdate(clamped);
+        World.Update(clamped);
         Ui.Update(clamped);
     }
 
     private void RenderFrame(double delta)
     {
         OnRender((float)delta);
-        _renderer?.Render(_camera, delta, _ui);
+        _renderer?.Render(World, _camera, delta, _ui);
     }
 
     private void OnResized(int width, int height)
@@ -124,6 +129,7 @@ public abstract class Application : IDisposable
     private void OnWindowClosing()
     {
         OnClosing();
+        World.Dispose();
         _renderer?.Dispose();
         _renderer = null;
         Graphics?.Dispose();
@@ -221,6 +227,7 @@ public abstract class Application : IDisposable
             return;
         _disposed = true;
         Ui.Dispose();
+        World.Dispose();
         _renderer?.Dispose();
         _renderer = null;
         Graphics?.Dispose();

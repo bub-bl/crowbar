@@ -1,3 +1,4 @@
+using System.Numerics;
 using Crowbar.Engine;
 
 namespace Crowbar.Editor;
@@ -16,6 +17,21 @@ internal sealed class DemoApplication : Application
 {
     protected override void OnInitialize()
     {
+        // Scène de démonstration : une entité cube dans un level, rendue par un
+        // MeshRenderer au travers du système de monde (World).
+        var level = World.CreateLevel("Demo");
+        var cube = level.SpawnEntity("Cube");
+        var mesh = cube.AddComponent<MeshRenderer>();
+        mesh.Model = Model.CreateCube();
+        mesh.Material = Material.FromShader("Mesh")
+            .Set("color", new Vector4(0.2f, 0.6f, 1.0f, 1.0f));
+        mesh.Local = new Transform(
+            Vector3.Zero,
+            Rotation.FromYaw(30f) * Rotation.FromPitch(15f),
+            Vector3.One);
+        World.Start();
+        Console.WriteLine($"World: {level.Entities.Count} entité(s) dans le level '{level.Name}'.");
+
         // Enregistrement automatique de tout le dossier Ui/ : les fichiers avec
         // @page deviennent des pages routables, les autres des composants.
         var uiDirectory = ResolveUiDirectory("");

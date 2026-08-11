@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World;
+namespace Crowbar.Engine;
 
 /// <summary>
 /// The runtime container that owns every <see cref="Entity"/>,

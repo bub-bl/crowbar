@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World;
+namespace Crowbar.Engine;
 
 public sealed record LevelFileMetadata(string Name, string Version);
 

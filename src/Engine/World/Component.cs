@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World;
+namespace Crowbar.Engine;
 
 /// <summary>
 /// Tick order inside a single <see cref="World.Update"/> call, the analog of

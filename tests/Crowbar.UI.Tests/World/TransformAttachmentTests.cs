@@ -1,6 +1,6 @@
 using System.Numerics;
 
-namespace Crowbar.Engine.World.Tests;
+namespace Crowbar.Engine.Tests;
 
 internal sealed class TestTransform : TransformComponent
 {

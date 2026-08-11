@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World.Tests;
+namespace Crowbar.Engine.Tests;
 
 internal sealed class HealthComponent : Component
 {

@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World;
+namespace Crowbar.Engine;
 
 /// <summary>
 /// Base class for every spatial component (the analog of Unreal's

@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World.Tests;
+namespace Crowbar.Engine.Tests;
 
 /// <summary>Counts every lifecycle hook it receives.</summary>
 internal sealed class LifecycleComponent : Component

@@ -9,8 +9,10 @@ public interface IRenderPass : IDisposable
     void SetPipeline(IPipeline pipeline);
     void SetBindGroup(IBindGroup bindGroup, uint groupIndex = 0);
     void SetVertexBuffer(IBuffer buffer, ulong size);
+    void SetIndexBuffer(IBuffer buffer, ulong size);
 
     void Draw(uint vertexCount);
+    void DrawIndexed(uint indexCount);
     void DrawInstanced(uint vertexCount, uint instanceCount);
 
     void End();

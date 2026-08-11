@@ -1,0 +1,40 @@
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+
+namespace Crowbar.Engine;
+
+/// <summary>
+/// A CPU-side 2D texture: decoded RGBA8 pixels, ready to be uploaded to the
+/// GPU by the renderer. Textures are plain data — nothing here touches a
+/// graphics device, so they can be loaded and cached before any backend
+/// exists (or for tests). Named Texture2D to avoid clashing with the backend's
+/// native texture type (Silk.NET.WebGPU.Texture).
+/// </summary>
+public sealed class Texture2D
+{
+    public string Name { get; }
+    public int Width { get; }
+    public int Height { get; }
+    public byte[] Pixels { get; }
+
+    private Texture2D(string name, int width, int height, byte[] pixels)
+    {
+        Name = name;
+        Width = width;
+        Height = height;
+        Pixels = pixels;
+    }
+
+    /// <summary>Decodes an image file (PNG, JPEG, WebP, …) into RGBA8 pixels.</summary>
+    public static Texture2D Load(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        using var image = Image.Load<Rgba32>(path);
+        var width = image.Width;
+        var height = image.Height;
+        var pixels = new byte[checked(width * height * 4)];
+        image.CopyPixelDataTo(pixels);
+        return new Texture2D(Path.GetFileNameWithoutExtension(path), width, height, pixels);
+    }
+}

@@ -40,10 +40,22 @@ public sealed unsafe class WebGpuRenderPass : IRenderPass
         _runtime.SetVertexBuffer(_handle, (WebGpuBuffer)buffer, size);
     }
 
+    public void SetIndexBuffer(IBuffer buffer, ulong size)
+    {
+        EnsureActive();
+        _runtime.SetIndexBuffer(_handle, (WebGpuBuffer)buffer, size);
+    }
+
     public void Draw(uint vertexCount)
     {
         EnsureActive();
         _runtime.Draw(_handle, vertexCount);
+    }
+
+    public void DrawIndexed(uint indexCount)
+    {
+        EnsureActive();
+        _runtime.DrawIndexed(_handle, indexCount);
     }
 
     public void DrawInstanced(uint vertexCount, uint instanceCount)

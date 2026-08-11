@@ -6,10 +6,14 @@ using Crowbar.UI;
 namespace Crowbar.Engine.Rendering;
 
 /// <summary>
-/// Runtime renderer. Owns the 3D scene pass (cube), the offscreen scene
-/// texture and the Skia-UI compositing (texture upload + fills/backdrops/
-/// decorations quads), and records every frame through the backend-neutral
-/// <see cref="IGraphicsDevice"/> resources. Camera state and input live
+/// Runtime renderer. Owns the 3D scene pass (the world's
+/// <see cref="MeshRenderer"/> components), the offscreen scene texture and
+/// the Skia-UI compositing (texture upload + fills/backdrops/decorations
+/// quads), and records every frame through the backend-neutral
+/// <see cref="IGraphicsDevice"/> resources. The world hands its mesh
+/// renderers to <see cref="Render"/> each frame; this class keeps its own
+/// GPU representation (buffers cached per <see cref="Mesh"/>, uniforms per
+/// component) like Unreal's FPrimitiveSceneProxy. Camera state and input live
 /// outside this class; the runtime hands a <see cref="Camera"/> and the
 /// <see cref="UiSystem"/> to <see cref="Render"/> each frame. Nothing here
 /// references WebGPU (or any other graphics API).
@@ -21,6 +25,33 @@ public sealed class Renderer : IDisposable
     {
         public Matrix4x4 View;
         public Matrix4x4 Projection;
+    }
+
+    // Mirrors MeshUniforms in Shaders/Mesh.wgsl (model/view/proj, color,
+    // lightDir, isSelected). 224 bytes, no padding between fields.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MeshUniforms
+    {
+        public Matrix4x4 Model;
+        public Matrix4x4 View;
+        public Matrix4x4 Projection;
+        public Vector4 Color;
+        public Vector3 LightDir;
+        public uint IsSelected;
+    }
+
+    /// <summary>GPU geometry of one <see cref="Mesh"/>, shared by every renderable using it.</summary>
+    private sealed class MeshBuffers
+    {
+        public required IBuffer VertexBuffer { get; init; }
+        public required IBuffer IndexBuffer { get; init; }
+    }
+
+    /// <summary>Per-renderable GPU state: one uniform (model + camera + material) and its bind group.</summary>
+    private sealed class RenderableResources
+    {
+        public required IBuffer UniformBuffer { get; init; }
+        public required IBindGroup BindGroup { get; init; }
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -58,13 +89,16 @@ public sealed class Renderer : IDisposable
     private int _height;
     private bool _disposed;
 
-    private const uint CubeVertexCount = 36;
+    // Camera: the per-frame view/projection, copied into every renderable's uniform.
+    private CameraUniforms _camera;
 
-    // Camera + cube (scene pass).
-    private IBuffer _cameraUniformBuffer = null!;
-    private IPipeline _cubePipeline = null!;
-    private IBuffer _cubeVertexBuffer = null!;
-    private IBindGroup _cameraBindGroup = null!;
+    // Mesh scene pass: one pipeline (Mesh.wgsl), GPU buffers cached per Mesh,
+    // uniforms + bind groups cached per component. Caches are rebuilt and
+    // pruned each frame from the world's MeshRenderers.
+    private IPipeline _meshPipeline = null!;
+    private readonly Dictionary<Mesh, MeshBuffers> _meshBuffers = [];
+    private readonly Dictionary<MeshRenderer, RenderableResources> _renderables = [];
+    private Material? _defaultMaterial;
 
     // Offscreen 3D scene: the cube renders here instead of directly on the
     // surface, then the scene is blitted to the surface. backdrop-filter
@@ -116,8 +150,7 @@ public sealed class Renderer : IDisposable
         _width = device.Width;
         _height = device.Height;
 
-        CreateCameraResources();
-        CreateCubeResources();
+        CreateMeshResources();
         CreateBackdropResources();
         CreateDecorationResources();
         CreateFillResources();
@@ -127,7 +160,7 @@ public sealed class Renderer : IDisposable
         UpdateCamera(new Camera());
     }
 
-    public void Render(Camera camera, double _, UiSystem ui)
+    public void Render(World? world, Camera camera, double _, UiSystem ui)
     {
         if (_disposed)
             return;
@@ -163,10 +196,7 @@ public sealed class Renderer : IDisposable
             };
             using (IRenderPass scenePass = commandBuffer.BeginRenderPass(scenePassDescription))
             {
-                scenePass.SetPipeline(_cubePipeline);
-                scenePass.SetBindGroup(_cameraBindGroup, 0);
-                scenePass.SetVertexBuffer(_cubeVertexBuffer, CubeVertexCount * 6 * sizeof(float));
-                scenePass.Draw(CubeVertexCount);
+                DrawMeshRenderers(scenePass, world);
             }
 
             // Rasterize and upload the UI before reading any GPU-composited regions.
@@ -328,62 +358,19 @@ public sealed class Renderer : IDisposable
     private void UpdateCamera(Camera camera)
     {
         float aspect = Math.Max(1, _width) / (float)Math.Max(1, _height);
-        var uniforms = new CameraUniforms
+        _camera = new CameraUniforms
         {
             View = camera.ViewMatrix,
             Projection = camera.ProjectionMatrix(aspect)
         };
-        _cameraUniformBuffer.Write(in uniforms);
     }
 
-    private void CreateCameraResources()
-    {
-        _cameraUniformBuffer = _device.CreateBuffer(new BufferDescription
-        {
-            Size = (ulong)sizeof(CameraUniforms),
-            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
-        });
-    }
-
-    private void CreateCubeResources()
+    private void CreateMeshResources()
     {
         string shaderSource = File.ReadAllText(Path.Combine(
-            AppContext.BaseDirectory, "Shaders", "Cube.wgsl"));
+            AppContext.BaseDirectory, "Shaders", "Mesh.wgsl"));
 
-        float[] vertices =
-        [
-            // Back
-            -0.5f, -0.5f, -0.35f, 0.8f, 0.2f, 0.2f,  0.5f, -0.5f, -0.35f, 0.8f, 0.2f, 0.2f,  0.5f, 0.5f, -0.35f, 0.8f, 0.2f, 0.2f,
-             0.5f, 0.5f, -0.35f, 0.8f, 0.2f, 0.2f, -0.5f, 0.5f, -0.35f, 0.8f, 0.2f, 0.2f, -0.5f, -0.5f, -0.35f, 0.8f, 0.2f, 0.2f,
-            // Front
-            -0.5f, -0.5f,  0.35f, 0.2f, 0.8f, 1.0f,  0.5f, 0.5f,  0.35f, 0.2f, 0.8f, 1.0f,  0.5f, -0.5f,  0.35f, 0.2f, 0.8f, 1.0f,
-            -0.5f, -0.5f,  0.35f, 0.2f, 0.8f, 1.0f, -0.5f, 0.5f,  0.35f, 0.2f, 0.8f, 1.0f,  0.5f, 0.5f,  0.35f, 0.2f, 0.8f, 1.0f,
-            // Left
-            -0.5f, -0.5f, -0.35f, 0.2f, 0.4f, 1.0f, -0.5f, 0.5f,  0.35f, 0.2f, 0.4f, 1.0f, -0.5f, -0.5f,  0.35f, 0.2f, 0.4f, 1.0f,
-            -0.5f, -0.5f, -0.35f, 0.2f, 0.4f, 1.0f, -0.5f, 0.5f, -0.35f, 0.2f, 0.4f, 1.0f, -0.5f, 0.5f,  0.35f, 0.2f, 0.4f, 1.0f,
-            // Right
-             0.5f, -0.5f, -0.35f, 1.0f, 0.5f, 0.2f,  0.5f, -0.5f,  0.35f, 1.0f, 0.5f, 0.2f,  0.5f, 0.5f,  0.35f, 1.0f, 0.5f, 0.2f,
-             0.5f, -0.5f, -0.35f, 1.0f, 0.5f, 0.2f,  0.5f, 0.5f,  0.35f, 1.0f, 0.5f, 0.2f,  0.5f, 0.5f, -0.35f, 1.0f, 0.5f, 0.2f,
-            // Top
-            -0.5f,  0.5f, -0.35f, 0.9f, 0.8f, 0.2f,  0.5f, 0.5f, -0.35f, 0.9f, 0.8f, 0.2f,  0.5f, 0.5f,  0.35f, 0.9f, 0.8f, 0.2f,
-            -0.5f,  0.5f, -0.35f, 0.9f, 0.8f, 0.2f,  0.5f, 0.5f,  0.35f, 0.9f, 0.8f, 0.2f, -0.5f, 0.5f,  0.35f, 0.9f, 0.8f, 0.2f,
-            // Bottom
-            -0.5f, -0.5f, -0.35f, 0.2f, 0.9f, 0.4f, -0.5f, -0.5f,  0.35f, 0.2f, 0.9f, 0.4f,  0.5f, -0.5f,  0.35f, 0.2f, 0.9f, 0.4f,
-            -0.5f, -0.5f, -0.35f, 0.2f, 0.9f, 0.4f,  0.5f, -0.5f,  0.35f, 0.2f, 0.9f, 0.4f,  0.5f, -0.5f, -0.35f, 0.2f, 0.9f, 0.4f
-        ];
-
-        _cubeVertexBuffer = _device.CreateBuffer(new BufferDescription
-        {
-            Size = (ulong)(vertices.Length * sizeof(float)),
-            Usage = BufferUsage.Vertex | BufferUsage.CopyDst
-        });
-        unsafe
-        {
-            fixed (float* data = vertices)
-                _cubeVertexBuffer.Write(new ReadOnlySpan<byte>(data, vertices.Length * sizeof(float)));
-        }
-
-        _cubePipeline = _device.CreatePipeline(new PipelineDescription
+        _meshPipeline = _device.CreatePipeline(new PipelineDescription
         {
             ShaderSource = shaderSource,
             VertexEntryPoint = "vs_main",
@@ -406,11 +393,138 @@ public sealed class Renderer : IDisposable
                 new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
             ]
         });
-        _cameraBindGroup = _cubePipeline.CreateBindGroup(
-        [
-            new BindGroupBinding { Slot = 0, Buffer = _cameraUniformBuffer, BufferSize = (ulong)sizeof(CameraUniforms) }
-        ]);
+        _defaultMaterial = Material.CreateDefault(Shader.Load(Path.Combine("Shaders", "Mesh.wgsl")));
     }
+
+    /// <summary>Draws every living <see cref="MeshRenderer"/> in the world at its world transform.</summary>
+    private void DrawMeshRenderers(IRenderPass pass, World? world)
+    {
+        if (world is null)
+            return;
+
+        // Materialize once: components may be destroyed while we draw.
+        var renderers = world.Query<MeshRenderer>().ToList();
+        if (renderers.Count == 0)
+            return;
+
+        pass.SetPipeline(_meshPipeline);
+
+        // Release GPU state for renderables whose component was destroyed.
+        foreach (var stale in _renderables.Keys.Except(renderers).ToArray())
+        {
+            if (_renderables.Remove(stale, out var resources))
+            {
+                resources.BindGroup.Dispose();
+                resources.UniformBuffer.Dispose();
+            }
+        }
+
+        var defaultMaterial = _defaultMaterial;
+        var lightDir = Vector3.Normalize(new Vector3(0.5f, 1f, 0.7f));
+
+        foreach (var renderer in renderers)
+        {
+            if (!renderer.IsValid || renderer.Model is null)
+                continue;
+
+            var renderable = GetRenderableResources(renderer);
+            var material = renderer.Material ?? defaultMaterial;
+            var modelMatrix = ToWorldMatrix(renderer.World);
+
+            foreach (var mesh in renderer.Model.Meshes)
+            {
+                var buffers = GetMeshBuffers(mesh);
+                var uniforms = new MeshUniforms
+                {
+                    Model = modelMatrix,
+                    View = _camera.View,
+                    Projection = _camera.Projection,
+                    Color = material.Get<Vector4>("color", new Vector4(1f)),
+                    LightDir = material.Get<Vector3>("lightDir", lightDir),
+                    IsSelected = 0
+                };
+                renderable.UniformBuffer.Write(in uniforms);
+
+                pass.SetBindGroup(renderable.BindGroup, 0);
+                pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
+                pass.SetIndexBuffer(buffers.IndexBuffer, buffers.IndexBuffer.Size);
+                pass.DrawIndexed((uint)mesh.Indices.Length);
+            }
+        }
+    }
+
+    /// <summary>Uploads one mesh's geometry once; shared by every renderable using the same mesh.</summary>
+    private MeshBuffers GetMeshBuffers(Mesh mesh)
+    {
+        if (_meshBuffers.TryGetValue(mesh, out var existing))
+            return existing;
+
+        // Mesh.wgsl consumes interleaved position + normal floats (stride 24).
+        var floats = new float[mesh.Vertices.Length * 6];
+        for (var i = 0; i < mesh.Vertices.Length; i++)
+        {
+            var vertex = mesh.Vertices[i];
+            var offset = i * 6;
+            floats[offset] = vertex.Position.X;
+            floats[offset + 1] = vertex.Position.Y;
+            floats[offset + 2] = vertex.Position.Z;
+            floats[offset + 3] = vertex.Normal.X;
+            floats[offset + 4] = vertex.Normal.Y;
+            floats[offset + 5] = vertex.Normal.Z;
+        }
+
+        var vertexBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)(floats.Length * sizeof(float)),
+            Usage = BufferUsage.Vertex | BufferUsage.CopyDst
+        });
+        unsafe
+        {
+            fixed (float* data = floats)
+                vertexBuffer.Write(new ReadOnlySpan<byte>(data, floats.Length * sizeof(float)));
+        }
+
+        var indexBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)(mesh.Indices.Length * sizeof(uint)),
+            Usage = BufferUsage.Index | BufferUsage.CopyDst
+        });
+        unsafe
+        {
+            fixed (uint* data = mesh.Indices)
+                indexBuffer.Write(new ReadOnlySpan<byte>(data, mesh.Indices.Length * sizeof(uint)));
+        }
+
+        var buffers = new MeshBuffers { VertexBuffer = vertexBuffer, IndexBuffer = indexBuffer };
+        _meshBuffers.Add(mesh, buffers);
+        return buffers;
+    }
+
+    /// <summary>Creates (or returns) the per-component uniform buffer and bind group.</summary>
+    private RenderableResources GetRenderableResources(MeshRenderer renderer)
+    {
+        if (_renderables.TryGetValue(renderer, out var existing))
+            return existing;
+
+        var uniformBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)sizeof(MeshUniforms),
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+        var bindGroup = _meshPipeline.CreateBindGroup(
+        [
+            new BindGroupBinding { Slot = 0, Buffer = uniformBuffer, BufferSize = (ulong)sizeof(MeshUniforms) }
+        ]);
+
+        var resources = new RenderableResources { UniformBuffer = uniformBuffer, BindGroup = bindGroup };
+        _renderables.Add(renderer, resources);
+        return resources;
+    }
+
+    private static Matrix4x4 ToWorldMatrix(Transform transform) =>
+        Matrix4x4.CreateScale(transform.Scale)
+        * Matrix4x4.CreateFromQuaternion(transform.Rotation.Quaternion)
+        * Matrix4x4.CreateTranslation(transform.Position);
 
     private void CreateUiResources(int width, int height)
     {
@@ -855,10 +969,19 @@ public sealed class Renderer : IDisposable
         _uiTexture?.Dispose();
         _uiPipeline?.Dispose();
         _uiSampler?.Dispose();
-        _cubeVertexBuffer?.Dispose();
-        _cameraBindGroup?.Dispose();
-        _cubePipeline?.Dispose();
-        _cameraUniformBuffer?.Dispose();
+        foreach (var resources in _renderables.Values)
+        {
+            resources.BindGroup.Dispose();
+            resources.UniformBuffer.Dispose();
+        }
+        _renderables.Clear();
+        foreach (var buffers in _meshBuffers.Values)
+        {
+            buffers.VertexBuffer.Dispose();
+            buffers.IndexBuffer.Dispose();
+        }
+        _meshBuffers.Clear();
+        _meshPipeline?.Dispose();
         _depthTexture?.Dispose();
     }
 }

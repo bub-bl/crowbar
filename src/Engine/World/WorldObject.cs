@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World;
+namespace Crowbar.Engine;
 
 /// <summary>
 /// Base of every object owned by a <see cref="World"/>: components

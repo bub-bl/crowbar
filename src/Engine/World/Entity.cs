@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World;
+namespace Crowbar.Engine;
 
 /// <summary>
 /// The core object of a <see cref="World"/> (the analog of Unreal's AActor).

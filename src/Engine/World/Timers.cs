@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World;
+namespace Crowbar.Engine;
 
 /// <summary>
 /// A pending delayed or repeating callback owned by a <see cref="World"/>.

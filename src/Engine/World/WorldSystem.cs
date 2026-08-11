@@ -1,4 +1,4 @@
-namespace Crowbar.Engine.World;
+namespace Crowbar.Engine;
 
 /// <summary>
 /// World-scoped service (the analog of Unreal's UWorldSubsystem): physics,
