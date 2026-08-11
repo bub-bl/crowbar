@@ -3,15 +3,15 @@ namespace Crowbar.Engine.Tests;
 public class ShaderReflectionTests
 {
     [Fact]
-    public void MeshShader_ExposesMainAndOutlineTechniques()
+    public void MeshShader_ExposesTheMainTechnique()
     {
         var shader = Shader.Load("Shaders/Mesh.wgsl");
 
-        Assert.Equal(new[] { "Main", "Outline" }, shader.Techniques.Select(t => t.Name).ToArray());
+        // The old inverted-hull "Outline" technique was removed: selection
+        // contours are a real post-process (SelectionMask/SelectionOutline).
+        Assert.Equal(new[] { "Main" }, shader.Techniques.Select(t => t.Name).ToArray());
         var main = shader.GetTechnique("Main");
         Assert.Equal(("vs_main", "fs_main"), (main.VertexEntryPoint, main.FragmentEntryPoint));
-        var outline = shader.GetTechnique("Outline");
-        Assert.Equal(("vs_outline", "fs_outline"), (outline.VertexEntryPoint, outline.FragmentEntryPoint));
     }
 
     [Fact]

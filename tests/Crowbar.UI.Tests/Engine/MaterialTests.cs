@@ -18,9 +18,9 @@ public class MaterialTests
     [Fact]
     public void FromShader_AcceptsANamedTechnique()
     {
-        var material = Material.FromShader("Mesh", "Outline");
+        var material = Material.FromShader("Mesh", "Main");
 
-        Assert.Equal("Outline", material.Technique);
+        Assert.Equal("Main", material.Technique);
     }
 
     [Fact]

@@ -37,18 +37,6 @@ fn vs_main(input: VertexInput) -> VertexOutput {
     return output;
 }
 
-@vertex
-fn vs_outline(input: VertexInput) -> VertexOutput {
-    var output: VertexOutput;
-    let world_position = model * vec4<f32>(input.position * 1.06, 1.0);
-    output.world_position = world_position.xyz;
-
-    let normal_matrix = mat3x3<f32>(model[0].xyz, model[1].xyz, model[2].xyz);
-    output.normal = normalize(normal_matrix * input.normal);
-    output.clip_position = scene.proj * scene.view * world_position;
-    return output;
-}
-
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(input.normal);
@@ -62,9 +50,4 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     color += material.emissive * material.color.rgb;
 
     return vec4<f32>(tonemap(color), material.color.a);
-}
-
-@fragment
-fn fs_outline(input: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(1.0, 0.72, 0.08, 1.0);
 }

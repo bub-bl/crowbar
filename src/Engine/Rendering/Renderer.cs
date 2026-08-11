@@ -99,6 +99,16 @@ public sealed class Renderer : IDisposable
         public Vector4 OpCount;    // x = active op count
     }
 
+    // Mirrors OutlineParams in Shaders/SelectionOutline.wgsl.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SelectionOutlineParams
+    {
+        public Vector4 Color;      // rgb = outline color, a = opacity
+        public Vector2 TexelSize;  // 1/width, 1/height
+        public float Thickness;    // outline radius in pixels
+        public float Padding;
+    }
+
     private readonly IGraphicsDevice _device;
     private int _width;
     private int _height;
@@ -157,6 +167,20 @@ public sealed class Renderer : IDisposable
     // billboard sprites (lights, selection ring). Pure overlay, drawn after
     // the grid, never part of the world.
     public GizmoRenderer Gizmos { get; private set; } = null!;
+
+    // Selection outline: a real post-process contour around the selected
+    // entity. The selected mesh renders into a mask texture (depth-tested
+    // against the scene), then a fullscreen pass dilates that mask and tints
+    // the silhouette's edge in the surface composite.
+    public SelectionOutline Outline { get; } = new();
+    private ITexture _selectionTexture = null!;
+    private IPipeline _selectionMaskPipeline = null!;
+    private IBindGroup _selectionMaskSceneBindGroup = null!;
+    private IBindGroup _selectionMaskModelBindGroup = null!;
+    private IBuffer _selectionMaskModelBuffer = null!;
+    private IPipeline _outlinePipeline = null!;
+    private IBindGroup _outlineBindGroup = null!;
+    private IBuffer _outlineParamsBuffer = null!;
 
     // Offscreen 3D scene: the cube renders here instead of directly on the
     // surface, then the scene is blitted to the surface. backdrop-filter
@@ -217,6 +241,7 @@ public sealed class Renderer : IDisposable
         CreateUiResources(_width, _height);
         CreateDepthTexture(_width, _height);
         CreateSceneResources(_width, _height);
+        CreateSelectionOutlineResources(_width, _height);
         UpdateCamera(new Camera());
     }
 
@@ -259,6 +284,34 @@ public sealed class Renderer : IDisposable
                 DrawMeshRenderers(scenePass, world, time);
                 DrawGrid(scenePass);
                 Gizmos.Draw(scenePass, world, camera, _width, _height);
+            }
+
+            // Pass 1b: render the selected entity into the selection mask
+            // (flat white, depth-tested against the scene depth, so the
+            // outline hugs the visible silhouette). Skipped entirely when
+            // nothing mesh-shaped is selected.
+            var outlineActive = IsSelectionOutlineActive();
+            if (outlineActive)
+            {
+                using (IRenderPass maskPass = commandBuffer.BeginRenderPass(new RenderPassDescription
+                {
+                    Color = new ColorAttachment
+                    {
+                        Texture = _selectionTexture,
+                        LoadOp = RenderAttachmentLoadOp.Clear,
+                        StoreOp = RenderAttachmentStoreOp.Store,
+                        ClearColor = Vector4.Zero
+                    },
+                    Depth = new DepthAttachment
+                    {
+                        Texture = _depthTexture,
+                        LoadOp = RenderAttachmentLoadOp.Load,
+                        StoreOp = RenderAttachmentStoreOp.Store
+                    }
+                }))
+                {
+                    DrawSelectionMask(maskPass);
+                }
             }
 
             // Rasterize and upload the UI before reading any GPU-composited regions.
@@ -319,10 +372,23 @@ public sealed class Renderer : IDisposable
                 // avoided: the command stream keeps the last bound pipeline until
                 // it changes.
                 IPipeline currentPipeline = _uiPipeline;
-                surfacePass.SetPipeline(_uiPipeline);
-                surfacePass.SetBindGroup(_sceneBindGroup, 0);
-                surfacePass.SetVertexBuffer(_uiVertexBuffer, 6 * 4 * sizeof(float));
-                surfacePass.Draw(6);
+                if (outlineActive)
+                {
+                    // The selection outline pass replaces the plain scene blit.
+                    UpdateOutlineParams();
+                    surfacePass.SetPipeline(_outlinePipeline);
+                    currentPipeline = _outlinePipeline;
+                    surfacePass.SetBindGroup(_outlineBindGroup, 0);
+                    surfacePass.SetVertexBuffer(_uiVertexBuffer, 6 * 4 * sizeof(float));
+                    surfacePass.Draw(6);
+                }
+                else
+                {
+                    surfacePass.SetPipeline(_uiPipeline);
+                    surfacePass.SetBindGroup(_sceneBindGroup, 0);
+                    surfacePass.SetVertexBuffer(_uiVertexBuffer, 6 * 4 * sizeof(float));
+                    surfacePass.Draw(6);
+                }
 
                 // GPU fills: the solid panel backgrounds the Skia raster skipped (see
                 // SkiaUiRenderer.CollectFills) are composited as one instanced quad per
@@ -415,6 +481,7 @@ public sealed class Renderer : IDisposable
         CreateUiResources(_width, _height);
         CreateDepthTexture(_width, _height);
         CreateSceneResources(_width, _height);
+        CreateSelectionOutlineResources(_width, _height);
     }
 
     private void UpdateCamera(Camera camera)
@@ -1187,6 +1254,161 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>
+    /// Creates the selection-outline resources: the mask render target and the
+    /// two passes (mask render + dilated composite). Rebuilt on resize like the
+    /// other viewport-sized resources; pipelines and buffers are created once.
+    /// </summary>
+    private void CreateSelectionOutlineResources(int width, int height)
+    {
+        _outlineBindGroup?.Dispose();
+        _selectionMaskSceneBindGroup?.Dispose();
+        _selectionMaskModelBindGroup?.Dispose();
+        _selectionTexture?.Dispose();
+
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+
+        _selectionTexture = _device.CreateTexture(new TextureDescription
+        {
+            Width = width,
+            Height = height,
+            // Plain unorm: the mask is a binary silhouette in the red channel;
+            // sampling it bilinear slightly softens the edge, smoothing the
+            // outline band.
+            Format = TextureFormat.Rgba8Unorm,
+            RenderTarget = true,
+            Sampled = true
+        });
+
+        _selectionMaskModelBuffer ??= _device.CreateBuffer(new BufferDescription
+        {
+            Size = 64,
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+        _outlineParamsBuffer ??= _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)sizeof(SelectionOutlineParams),
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+
+        // The mask pipeline reuses the mesh vertex buffers (48-byte stride,
+        // position at location 0) and the shared scene buffer; only the model
+        // uniform is per-renderable.
+        _selectionMaskPipeline ??= _device.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = Shader.Load(Path.Combine("Shaders", "SelectionMask.wgsl")).Source,
+            VertexEntryPoint = "vs_main",
+            FragmentEntryPoint = "fs_main",
+            ColorFormat = TextureFormat.Rgba8Unorm,
+            DepthFormat = TextureFormat.Depth24Plus,
+            // Test against the scene depth (loaded, not cleared) so the mask
+            // covers exactly the visible part of the selection.
+            DepthWriteEnabled = false,
+            DepthCompare = CompareFunction.LessEqual,
+            VertexLayout = new VertexBufferLayoutDescription
+            {
+                Stride = 12 * sizeof(float),
+                Attributes =
+                [
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x3, Offset = 0, ShaderLocation = 0 }
+                ]
+            },
+            BindGroups =
+            [
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                ],
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                ]
+            ]
+        });
+
+        _outlinePipeline ??= _device.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = Shader.Load(Path.Combine("Shaders", "SelectionOutline.wgsl")).Source,
+            VertexEntryPoint = "vs_main",
+            FragmentEntryPoint = "fs_main",
+            ColorFormat = _device.Swapchain.Format,
+            DepthFormat = TextureFormat.Depth24Plus,
+            AlphaBlend = true,
+            VertexLayout = new VertexBufferLayoutDescription
+            {
+                Stride = 4 * sizeof(float),
+                Attributes =
+                [
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 },
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
+                ]
+            },
+            BindGroups =
+            [
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 2, Type = BindingType.Sampler, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 3, Type = BindingType.UniformBuffer, Stages = ShaderStage.Fragment }
+                ]
+            ]
+        });
+
+        _selectionMaskSceneBindGroup = _selectionMaskPipeline.CreateBindGroup(0,
+        [
+            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = (ulong)sizeof(SceneUniforms) }
+        ]);
+        _selectionMaskModelBindGroup = _selectionMaskPipeline.CreateBindGroup(1,
+        [
+            new BindGroupBinding { Slot = 0, Buffer = _selectionMaskModelBuffer, BufferSize = 64 }
+        ]);
+        _outlineBindGroup = _outlinePipeline.CreateBindGroup(
+        [
+            new BindGroupBinding { Slot = 0, Texture = _sceneTexture },
+            new BindGroupBinding { Slot = 1, Texture = _selectionTexture },
+            new BindGroupBinding { Slot = 2, Sampler = _uiSampler },
+            new BindGroupBinding { Slot = 3, Buffer = _outlineParamsBuffer, BufferSize = (ulong)sizeof(SelectionOutlineParams) }
+        ]);
+    }
+
+    /// <summary>True while the outline should draw: enabled and a mesh-shaped selection exists.</summary>
+    private bool IsSelectionOutlineActive() =>
+        Outline.Enabled && Gizmos.Selection?.GetComponent<MeshRenderer>() is { IsValid: true, Model: not null };
+
+    /// <summary>Draws the selected mesh into the selection mask texture.</summary>
+    private void DrawSelectionMask(IRenderPass pass)
+    {
+        var renderer = Gizmos.Selection?.GetComponent<MeshRenderer>();
+        if (renderer is null || !renderer.IsValid || renderer.Model is null)
+            return;
+
+        pass.SetPipeline(_selectionMaskPipeline);
+        pass.SetBindGroup(_selectionMaskSceneBindGroup, 0);
+        pass.SetBindGroup(_selectionMaskModelBindGroup, 1);
+
+        var modelMatrix = ToWorldMatrix(renderer.World);
+        _selectionMaskModelBuffer.Write(in modelMatrix);
+
+        foreach (var mesh in renderer.Model.Meshes)
+        {
+            var buffers = GetMeshBuffers(mesh);
+            pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
+            pass.SetIndexBuffer(buffers.IndexBuffer, buffers.IndexBuffer.Size);
+            pass.DrawIndexed((uint)mesh.Indices.Length);
+        }
+    }
+
+    /// <summary>Writes the outline color/size into the composite pass uniform.</summary>
+    private void UpdateOutlineParams()
+    {
+        var parameters = new SelectionOutlineParams
+        {
+            Color = new Vector4(Outline.Color, Outline.Opacity),
+            TexelSize = new Vector2(1f / _width, 1f / _height),
+            Thickness = Outline.Thickness
+        };
+        _outlineParamsBuffer.Write(in parameters);
+    }
+
+    /// <summary>
     /// Uploads the UI texture from the Skia bitmap's native premultiplied sRGB
     /// pixels. Only the damaged sub-rects are written: each copy uses the
     /// bitmap's row stride as the source layout and the rect origin as the
@@ -1416,6 +1638,14 @@ public sealed class Renderer : IDisposable
         _gridVertexBuffer?.Dispose();
         _gridPipeline?.Dispose();
         Gizmos?.Dispose();
+        _outlineBindGroup?.Dispose();
+        _outlineParamsBuffer?.Dispose();
+        _outlinePipeline?.Dispose();
+        _selectionMaskSceneBindGroup?.Dispose();
+        _selectionMaskModelBindGroup?.Dispose();
+        _selectionMaskModelBuffer?.Dispose();
+        _selectionMaskPipeline?.Dispose();
+        _selectionTexture?.Dispose();
         _depthTexture?.Dispose();
     }
 }
