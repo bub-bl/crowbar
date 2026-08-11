@@ -236,6 +236,12 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var fullRedraw = needsLayout || _forceFull;
         if (!fullRedraw)
         {
+            // Subtree paint bounds (box + shadows/blur/outline margins, unioned
+            // with every descendant) are needed both by the damage walk (a
+            // dirty container's rect must cover children's overflow — an
+            // outline or shadow hanging past the container box) and by the
+            // draw-time cull, so compute them before collecting the damage.
+            ComputeSubtreePaintBounds(root, inTransform: false);
             fullRedraw = CollectDamage(root, inTransform: false, opacity: root.Opacity);
             if (!fullRedraw && _damage.Count == 0)
             {
@@ -248,7 +254,25 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 return _pixels;
             }
             fullRedraw |= DamageTooLarge();
-            if (!fullRedraw) ComputeSubtreePaintBounds(root, inTransform: false);
+            if (!fullRedraw)
+            {
+                // The partial repaint draws the tree once per damaged rect, so
+                // two overlapping rects would paint their shared pixels twice
+                // within one frame. Opaque content survives that, but
+                // semi-transparent paint (antialiased edges, alpha outlines,
+                // dashed borders) double-composites into a visibly wrong
+                // pixel — the ghost seen when hovering the border chips, whose
+                // outline-inflated damage rects overlap their neighbors'. Union
+                // overlapping rects so every pixel is painted at most once.
+                MergeDamageRects();
+                fullRedraw = DamageTooLarge();
+            }
+            // The clip must not cut any antialiased paint that the repaint
+            // draws (Skia rasterizes cut shapes differently: dashed strokes
+            // shift their phase, corner arcs lose coverage), so expand the
+            // damage over every crossing paint; escalate to a full redraw when
+            // the region grows too large.
+            if (!fullRedraw) fullRedraw = ExpandDamageOverVisiblePaints(root);
         }
         if (fullRedraw)
         {
@@ -1328,13 +1352,28 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
 
         if (panel.PaintDirty || panel.StyleDirty)
         {
-            if (inTransform || hasDynamicPaint)
+            // A blur/drop-shadow filter paints beyond the panel's box. The
+            // damage rect is inflated to cover that extent, but the partial
+            // repaint still clips the filter's taps at the damage-rect
+            // boundary (Skia clamps them to the layer edge), leaving a subtly
+            // different fade than a full render — visible as ghosted edges
+            // when a smaller rect (e.g. a text child's) cuts the blur. Like
+            // animated/transformed panels, prefer a coherent full redraw.
+            if (inTransform || hasDynamicPaint || FilterExtentMargin(style.Filter) > 0)
             {
                 full = true;
             }
             else
             {
-                var rect = new SKRect(panel.Layout.X, panel.Layout.Y, panel.Layout.Right, panel.Layout.Bottom);
+                // The damage covers the panel's whole-subtree paint bounds (own
+                // box + shadows/blur/outline margins, unioned with every
+                // descendant): a dirty container must also repaint children
+                // whose outlines or shadows hang past its box, and the partial
+                // repaint clips at the damage boundary — a clip that cuts a
+                // painted shape shifts dashed-stroke rasterization (Skia), so
+                // the boundary must stay clear of every painted pixel.
+                var sb = panel.SubtreePaintBounds;
+                var rect = new SKRect(sb.X, sb.Y, sb.Right, sb.Bottom);
                 // A panel whose every paint is delegated to the GPU (fill,
                 // uniform border, outer shadows) and that paints no text, inset
                 // shadow, outline or scrollbar leaves the texture untouched
@@ -1349,12 +1388,6 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                         gpuFill: true, gpuBorder: GpuDecorations && (flags & (byte)PanelDecorationFlags.Border) != 0);
                 if (!allGpu)
                 {
-                    // GPU-composited shadows are not painted into the bitmap, so
-                    // their extent does not need to be repainted here.
-                    var margin = GpuDecorations && (panel.GpuDecorationFlags & (byte)PanelDecorationFlags.OuterShadow) != 0
-                        ? PaintExtentMarginWithoutOuterShadows(style)
-                        : PaintExtentMargin(style);
-                    rect.Inflate(margin, margin);
                     if (transformed) rect = TransformBounds(rect, style);
                     // Scrolled containers: the content is painted shifted by the
                     // scroll offset, so the damage must cover the content extents.
@@ -1757,6 +1790,13 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
 
     private void AddDamage(SKRect rect)
     {
+        // Safety margin: antialiasing paints ~1px beyond a shape's geometry
+        // (and a stroked outline extends half its width past the computed
+        // margin), so a damage rect that ends exactly at a painted edge lets
+        // the clip cut the AA fringe — and if a later repaint's rect shifts,
+        // the cut fringe stays behind as stale ghost pixels. A small slack on
+        // every side keeps the clip away from painted content.
+        rect.Inflate(2f, 2f);
         rect.Intersect(new SKRect(0, 0, Size.Width, Size.Height));
         if (rect.IsEmpty) return;
         var left = (int)MathF.Floor(rect.Left);
@@ -1764,6 +1804,142 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var right = (int)MathF.Ceiling(rect.Right);
         var bottom = (int)MathF.Ceiling(rect.Bottom);
         _damage.Add(new UiRectInt(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top)));
+    }
+
+    /// <summary>
+    /// Unions every pair of overlapping damaged rects into their bounding box,
+    /// repeatedly until none overlap. The partial repaint redraws the tree once
+    /// per rect (clipped), so overlapping rects would paint the shared pixels
+    /// twice in one frame; opaque paint is unaffected but semi-transparent
+    /// paint (antialiased edges, alpha outlines, dashed border seams) would
+    /// double-composite. Merging keeps the repaint single-pass per pixel. The
+    /// merged rects are also what the GPU compositor uploads, so the texture
+    /// stays consistent with the raster. Touching (edge-adjacent) rects do not
+    /// overlap any pixel and are left alone.
+    /// </summary>
+    private void MergeDamageRects()
+    {
+        if (_damage.Count < 2) return;
+        var merged = true;
+        while (merged)
+        {
+            merged = false;
+            for (var i = 0; i < _damage.Count && !merged; i++)
+            {
+                var a = _damage[i];
+                var ra = new SKRect(a.X, a.Y, a.X + a.Width, a.Y + a.Height);
+                for (var j = i + 1; j < _damage.Count; j++)
+                {
+                    var b = _damage[j];
+                    if (!ra.IntersectsWith(new SKRect(b.X, b.Y, b.X + b.Width, b.Y + b.Height))) continue;
+                    var u = Union(ra, new SKRect(b.X, b.Y, b.X + b.Width, b.Y + b.Height));
+                    _damage[i] = new UiRectInt(
+                        (int)MathF.Floor(u.Left), (int)MathF.Floor(u.Top),
+                        Math.Max(1, (int)MathF.Ceiling(u.Right - u.Left)),
+                        Math.Max(1, (int)MathF.Ceiling(u.Bottom - u.Top)));
+                    _damage.RemoveAt(j);
+                    merged = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Expands the damaged rects to cover the own-paint extent of every panel
+    /// that the partial repaint will draw (its subtree intersects the damage)
+    /// whose antialiased paint (borders, outlines, shadows, text, rounded
+    /// fills, filters) crosses a damage boundary. Skia rasterizes shapes cut by
+    /// the clip boundary differently — dashed strokes shift their dash phase,
+    /// corner arcs lose coverage — so a cut would leave boundary pixels that
+    /// differ from a full render, the ghost seen when hovering near a chip
+    /// whose border or outline hangs past the damaged region. Plain solid fills
+    /// (no rounded corners) are safe to cut and excluded. Iterates to a fixed
+    /// point (an expansion can pull in further crossing paints) and returns
+    /// true when the accumulated region is too large for a partial repaint.
+    /// </summary>
+    private bool ExpandDamageOverVisiblePaints(Panel root)
+    {
+        var grew = true;
+        while (grew)
+        {
+            grew = false;
+            for (var i = 0; i < _damage.Count; i++)
+            {
+                var d = _damage[i];
+                var dr = new SKRect(d.X, d.Y, d.X + d.Width, d.Y + d.Height);
+                var union = dr;
+                CollectCrossingPaints(root, dr, ref union, 0, 0);
+                if (union.Equals(dr)) continue;
+                _damage[i] = new UiRectInt(
+                    (int)MathF.Floor(union.Left), (int)MathF.Floor(union.Top),
+                    Math.Max(1, (int)MathF.Ceiling(union.Right - union.Left)),
+                    Math.Max(1, (int)MathF.Ceiling(union.Bottom - union.Top)));
+                grew = true;
+            }
+
+            if (grew) MergeDamageRects();
+            if (DamageTooLarge()) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Walks the tree exactly like the draw-time cull (same scroll offsets) and
+    /// unions the own-paint extent of every panel that will be drawn and whose
+    /// antialiased paint crosses <paramref name="damage"/>. The damage rects
+    /// already carry a 2px AA slack, so only paints extending beyond that are
+    /// expanded.
+    /// </summary>
+    private void CollectCrossingPaints(Panel panel, SKRect damage, ref SKRect union, float ox, float oy)
+    {
+        if (!SubtreeRect(panel, ox, oy).IntersectsWith(damage)) return; // culled during draw
+        var style = panel.ComputedStyle;
+        if (HasAntialiasedPaint(panel, style))
+        {
+            var own = new SKRect(panel.Layout.X + ox, panel.Layout.Y + oy,
+                panel.Layout.Right + ox, panel.Layout.Bottom + oy);
+            var margin = PaintExtentMargin(style);
+            if (margin > 0) own.Inflate(margin, margin);
+            // Any crossing means the clip would cut the paint; add the AA
+            // slack to the unioned extent so the clip stays clear of it.
+            if (own.Left < damage.Left - 0.01f || own.Top < damage.Top - 0.01f ||
+                own.Right > damage.Right + 0.01f || own.Bottom > damage.Bottom + 0.01f)
+            {
+                own.Inflate(2f, 2f);
+                union = Union(union, own);
+            }
+        }
+
+        foreach (var child in panel.Children)
+            CollectCrossingPaints(child, damage, ref union, ox - panel.ScrollX, oy - panel.ScrollY);
+    }
+
+    /// <summary>
+    /// True when the panel paints anything whose antialiased edge would raster
+    /// differently if the partial-repaint clip cut it: AA strokes (borders,
+    /// outlines), shadows, text glyphs, sampled images, filters, and rounded
+    /// fills. A plain solid fill (no rounded corners) has hard edges and is
+    /// safe to cut.
+    /// </summary>
+    private static bool HasAntialiasedPaint(Panel panel, ComputedStyle style)
+    {
+        var lb = panel.LayoutBorder;
+        if ((lb.Top > 0 && IsVisibleBorderStyle(style.BorderTopStyle))
+            || (lb.Right > 0 && IsVisibleBorderStyle(style.BorderRightStyle))
+            || (lb.Bottom > 0 && IsVisibleBorderStyle(style.BorderBottomStyle))
+            || (lb.Left > 0 && IsVisibleBorderStyle(style.BorderLeftStyle)))
+            return true;
+        if (style.OutlineWidth > 0 && style.OutlineStyle is not ("none" or "hidden")) return true;
+        if (style.BoxShadows.Length > 0 || style.TextShadows.Length > 0) return true;
+        var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
+        if (!string.IsNullOrEmpty(text) || panel is ToggleInput) return true;
+        if (panel.PseudoBefore is not null || panel.PseudoAfter is not null) return true;
+        if (!string.IsNullOrEmpty(style.BackgroundImage)) return true;
+        if (panel is Image { Source: not null and not "" }) return true;
+        if (!style.Filter.IsNone) return true;
+        return style.BackgroundColor.A > 0 && style.BorderRadius > 0;
     }
 
     /// <summary>True when the accumulated damage covers so much of the screen that a full clear + redraw is cheaper.</summary>
@@ -1778,10 +1954,6 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
 
     /// <summary>How far a panel's paint can extend beyond its border box (shadows, blurs, outline).</summary>
     private static float PaintExtentMargin(ComputedStyle style) => PaintExtentMargin(style, includeOuterShadows: true);
-
-    /// <summary>Same margin, excluding outer box-shadows (used when the GPU composites them).</summary>
-    private static float PaintExtentMarginWithoutOuterShadows(ComputedStyle style) =>
-        PaintExtentMargin(style, includeOuterShadows: false);
 
     private static float PaintExtentMargin(ComputedStyle style, bool includeOuterShadows)
     {
