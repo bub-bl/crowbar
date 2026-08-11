@@ -233,7 +233,7 @@ internal sealed unsafe class SdlWindow : IWindow
             deltaY = -deltaY;
         }
 
-        _input.AccumulateWheel(deltaX, deltaY);
+        _input.AccumulateWheel(new System.Numerics.Vector2(deltaX, deltaY));
         _input.RaisePointerWheelChanged(new PointerWheelEvent(
             wheel.MouseX * ScaleX, wheel.MouseY * ScaleY, deltaX, deltaY));
     }

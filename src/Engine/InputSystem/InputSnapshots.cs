@@ -24,8 +24,7 @@ public readonly struct MouseSnapshot
 {
     public Vector2 Position { get; init; }
     public Vector2 Delta { get; init; }
-    public float WheelX { get; init; }
-    public float WheelY { get; init; }
+    public Vector2 Wheel { get; init; }
     public uint Buttons { get; init; }
 
     public bool IsDown(MouseButton button) => (Buttons & (1u << (int)button)) != 0;

@@ -22,8 +22,7 @@ internal sealed unsafe class SdlInputSource : IInputSource
     private int _lastX;
     private int _lastY;
     private bool _hasLastPosition;
-    private float _wheelX;
-    private float _wheelY;
+    private Vector2 _wheel;
     private bool _mouseCaptured;
 
     public SdlInputSource(Sdl sdl, Window* window)
@@ -81,12 +80,10 @@ internal sealed unsafe class SdlInputSource : IInputSource
         {
             Position = new Vector2(x * _scaleX, y * _scaleY),
             Delta = new Vector2(dx * _scaleX, dy * _scaleY),
-            WheelX = _wheelX,
-            WheelY = _wheelY,
+            Wheel = _wheel,
             Buttons = RemapButtons(mask)
         };
-        _wheelX = 0f;
-        _wheelY = 0f;
+        _wheel = Vector2.Zero;
         return snapshot;
     }
 
@@ -107,12 +104,8 @@ internal sealed unsafe class SdlInputSource : IInputSource
         return result;
     }
 
-    /// <summary>Accumulates wheel deltas delivered by the window's SDL events.</summary>
-    public void AccumulateWheel(float x, float y)
-    {
-        _wheelX += x;
-        _wheelY += y;
-    }
+    /// <summary>Accumulates wheel movement delivered by the window's SDL events.</summary>
+    public void AccumulateWheel(Vector2 delta) => _wheel += delta;
 
     public void SetCursorPosition(float x, float y) =>
         _sdl.WarpMouseInWindow(_window, (int)(x / _scaleX), (int)(y / _scaleY));

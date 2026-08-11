@@ -128,14 +128,14 @@ public class InputSystemTests
         {
             Position = new Vector2(10, 20),
             Delta = new Vector2(4, -2),
-            WheelY = 1.5f,
+            Wheel = new Vector2(0.5f, 1.5f),
             Buttons = 1u << (int)MouseButton.Left
         };
         Input.Poll();
 
         Assert.Equal(new Vector2(10, 20), Mouse.Position);
         Assert.Equal(new Vector2(4, -2), Mouse.Delta);
-        Assert.Equal(1.5f, Mouse.WheelY);
+        Assert.Equal(new Vector2(0.5f, 1.5f), Mouse.Wheel);
         Assert.True(Mouse.IsDown(MouseButton.Left));
         Assert.False(Mouse.IsDown(MouseButton.Right));
         Assert.True(Mouse.WasPressed(MouseButton.Left));

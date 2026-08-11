@@ -17,9 +17,8 @@ public static class Mouse
     /// <summary>Cursor movement since the previous frame, in logical pixels.</summary>
     public static Vector2 Delta => Input.CurrentMouse.Delta;
 
-    /// <summary>Accumulated wheel delta since the previous frame (notches).</summary>
-    public static float WheelX => Input.CurrentMouse.WheelX;
-    public static float WheelY => Input.CurrentMouse.WheelY;
+    /// <summary>Accumulated wheel movement since the previous frame (notches, X = horizontal).</summary>
+    public static Vector2 Wheel => Input.CurrentMouse.Wheel;
 
     /// <summary>True while the button is physically held down.</summary>
     public static bool IsDown(MouseButton button) => Input.CurrentMouse.IsDown(button);
