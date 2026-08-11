@@ -20,6 +20,12 @@ internal sealed class TestSystem : WorldSystem
     protected internal override void OnDestroy() => Destroys++;
 }
 
+/// <summary>Disposes itself from the world while the world is ticking it.</summary>
+internal sealed class SelfRemovingSystem : WorldSystem
+{
+    protected internal override void OnUpdate(float deltaTime) => Dispose();
+}
+
 public class WorldTests
 {
     [Fact]
@@ -84,12 +90,27 @@ public class WorldTests
     }
 
     [Fact]
-    public void Subsystem_LifecycleFollowsWorld()
+    public void FindEntity_ReturnsLivingEntityById()
     {
         using var world = new World();
-        var system = world.GetOrAddSubsystem<TestSystem>();
+        var entity = world.SpawnEntity("Joueur");
 
-        Assert.Same(system, world.GetSubsystem<TestSystem>());
+        Assert.Same(entity, world.FindEntity(entity.Id));
+        Assert.Null(world.FindEntity(Guid.NewGuid()));
+
+        world.DestroyEntity(entity);
+        Assert.Null(world.FindEntity(entity.Id));
+    }
+
+    [Fact]
+    public void System_LifecycleFollowsWorld()
+    {
+        using var world = new World();
+        var system = world.GetOrAddSystem<TestSystem>();
+
+        Assert.Same(system, world.GetSystem<TestSystem>());
+        Assert.Same(world, system.World);
+        Assert.Contains(system, world.Systems);
         Assert.Equal(1, system.Initializes);
 
         world.Start();
@@ -105,10 +126,10 @@ public class WorldTests
     }
 
     [Fact]
-    public void Subsystem_Disabled_DoesNotUpdate()
+    public void System_Disabled_DoesNotUpdate()
     {
         using var world = new World();
-        var system = world.GetOrAddSubsystem<TestSystem>();
+        var system = world.GetOrAddSystem<TestSystem>();
         system.Enabled = false;
 
         world.Start();
@@ -118,10 +139,27 @@ public class WorldTests
     }
 
     [Fact]
-    public void Subsystem_RemovedWhilePlaying_StopsAndDestroys()
+    public void RemoveSystem_WhilePlaying_StopsAndDestroys()
     {
         using var world = new World();
-        var system = world.GetOrAddSubsystem<TestSystem>();
+        var system = world.GetOrAddSystem<TestSystem>();
+        world.Start();
+
+        world.RemoveSystem(system);
+        world.RemoveSystem(system); // idempotent
+
+        Assert.Equal(1, system.Stops);
+        Assert.Equal(1, system.Destroys);
+        Assert.False(system.IsValid);
+        Assert.Null(system.World);
+        Assert.Null(world.GetSystem<TestSystem>());
+    }
+
+    [Fact]
+    public void System_DisposeWhilePlaying_StopsAndDestroys()
+    {
+        using var world = new World();
+        var system = world.GetOrAddSystem<TestSystem>();
         world.Start();
 
         system.Dispose();
@@ -129,7 +167,33 @@ public class WorldTests
         Assert.Equal(1, system.Stops);
         Assert.Equal(1, system.Destroys);
         Assert.False(system.IsValid);
-        Assert.Null(world.GetSubsystem<TestSystem>());
+        Assert.Null(system.World);
+        Assert.Null(world.GetSystem<TestSystem>());
+    }
+
+    [Fact]
+    public void System_RemovingItselfDuringUpdate_DoesNotThrow()
+    {
+        using var world = new World();
+        var system = world.GetOrAddSystem<SelfRemovingSystem>();
+
+        world.Start();
+        world.Update(1f); // must not throw while the world iterates its systems
+
+        Assert.Null(world.GetSystem<SelfRemovingSystem>());
+    }
+
+    [Fact]
+    public void WorldDispose_DisposesSystems()
+    {
+        var world = new World();
+        var system = world.GetOrAddSystem<TestSystem>();
+        world.Start();
+
+        world.Dispose();
+        Assert.Equal(1, system.Stops);
+        Assert.Equal(1, system.Destroys);
+        Assert.False(system.IsValid);
     }
 
     [Fact]

@@ -36,7 +36,7 @@ public sealed class Entity : IDisposable, IValid
 
     public IReadOnlyCollection<Component> Components => _components.Values;
 
-    /// <summary>Raised when the entity is destroyed (before components are gone).</summary>
+    /// <summary>Raised when the entity is destroyed; its components have already been stopped and destroyed.</summary>
     public event Action<Entity>? Destroyed;
 
     public event Action<Entity, Component>? ComponentAdded;
@@ -49,9 +49,9 @@ public sealed class Entity : IDisposable, IValid
     /// Returns the first component whose type is <paramref name="type"/> or
     /// derives from it (Unreal's FindComponentByClass semantics), so asking
     /// for a base type like <see cref="TransformComponent"/> finds concrete
-    /// spatial components. When several derived components match, the first
-    /// one is returned. The exact-type hit is O(1); the assignable scan is
-    /// O(component count).
+    /// spatial components. The exact-type hit is O(1); the assignable scan is
+    /// O(component count). Use <see cref="GetComponents{T}"/> to enumerate
+    /// every match.
     /// </summary>
     public Component? GetComponent(Type type)
     {
@@ -63,6 +63,16 @@ public sealed class Entity : IDisposable, IValid
                 return component;
         }
         return null;
+    }
+
+    /// <summary>Returns every component whose type is <typeparamref name="T"/> or derives from it.</summary>
+    public IEnumerable<T> GetComponents<T>() where T : Component
+    {
+        foreach (var component in _components.Values)
+        {
+            if (component is T match)
+                yield return match;
+        }
     }
 
     public T GetOrAddComponent<T>() where T : Component, new() => GetComponent<T>() ?? AddComponent<T>();
@@ -78,8 +88,8 @@ public sealed class Entity : IDisposable, IValid
     /// <summary>
     /// Attaches an existing component. The component must be free (not
     /// attached to another entity) and the entity must not already have one of
-    /// that type. Runs <see cref="Component.OnInitialize"/> immediately and
-    /// <see cref="Component.OnStart"/> when the world is already playing.
+    /// that type. Runs <see cref="WorldObject.OnInitialize"/> immediately and
+    /// <see cref="WorldObject.OnStart"/> when the world is already playing.
     /// </summary>
     public void AddComponent(Component component)
     {
@@ -97,25 +107,25 @@ public sealed class Entity : IDisposable, IValid
         component.IsValid = true;
         component.OnInitialize();
         if (World.IsPlaying)
-            World.StartComponent(component);
+            World.StartObject(component);
         ComponentAdded?.Invoke(this, component);
     }
 
-    /// <summary>Removes the component of type <typeparamref name="T"/> (or a type deriving from it).</summary>
+    /// <summary>Removes the first component of type <typeparamref name="T"/> (or a type deriving from it).</summary>
     public void RemoveComponent<T>() where T : Component => RemoveComponent(typeof(T));
 
     public void RemoveComponent(Type type)
     {
         ArgumentNullException.ThrowIfNull(type);
-        if (_components.TryGetValue(type, out var component))
+        if (GetComponent(type) is { } component)
             RemoveComponent(component);
     }
 
     /// <summary>
-    /// Removes and destroys the component: runs <see cref="Component.OnStop"/>
-    /// if it was started, then <see cref="Component.OnDestroy"/>. The
+    /// Removes and destroys the component: runs <see cref="WorldObject.OnStop"/>
+    /// if it was started, then <see cref="WorldObject.OnDestroy"/>. The
     /// component becomes invalid and its <see cref="Component.Entity"/> is
-    /// cleared.
+    /// cleared. Safe to call more than once.
     /// </summary>
     public void RemoveComponent(Component component)
     {
@@ -164,7 +174,6 @@ public sealed class Entity : IDisposable, IValid
         _destroyed = true;
         foreach (var component in _components.Values.ToArray())
             RemoveComponent(component);
-        _components.Clear();
         World.DetachEntity(this);
         Destroyed?.Invoke(this);
     }

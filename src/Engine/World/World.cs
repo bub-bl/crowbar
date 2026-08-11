@@ -10,8 +10,8 @@ namespace Crowbar.Engine.World;
 ///
 /// Frame order in <see cref="Update"/>: world systems first, then the tick
 /// groups <see cref="TickGroup.PreUpdate"/> → <see cref="TickGroup.Update"/>
-/// → <see cref="TickGroup.PostUpdate"/>, then <see cref="Timers"/>. Entities
-/// or components added while playing are started immediately.
+/// → <see cref="TickGroup.PostUpdate"/>, then <see cref="Timers"/>. World
+/// objects added while playing are started immediately.
 /// </summary>
 public sealed class World : IDisposable
 {
@@ -33,6 +33,9 @@ public sealed class World : IDisposable
     public IReadOnlyList<Entity> Entities => _entities;
 
     public IReadOnlyList<Level> Levels => _levels;
+
+    /// <summary>All world systems, keyed by type.</summary>
+    public IReadOnlyCollection<WorldSystem> Systems => _systems.Values;
 
     public int EntityCount => _entities.Count;
 
@@ -58,6 +61,17 @@ public sealed class World : IDisposable
         if (entity is null || entity.World != this)
             return;
         entity.Destroy();
+    }
+
+    /// <summary>Finds a living entity by its stable <see cref="Entity.Id"/>, or null.</summary>
+    public Entity? FindEntity(Guid id)
+    {
+        foreach (var entity in _entities)
+        {
+            if (entity.Id == id)
+                return entity;
+        }
+        return null;
     }
 
     internal void DetachEntity(Entity entity)
@@ -88,13 +102,19 @@ public sealed class World : IDisposable
 
     // ---- Systems ----
 
-    public T? GetSubsystem<T>() where T : WorldSystem
+    public T? GetSystem<T>() where T : WorldSystem
         => _systems.GetValueOrDefault(typeof(T)) as T;
 
-    public T GetOrAddSubsystem<T>() where T : WorldSystem, new()
-        => GetSubsystem<T>() ?? AddSubsystem(new T());
+    public T GetOrAddSystem<T>() where T : WorldSystem, new()
+        => GetSystem<T>() ?? AddSystem(new T());
 
-    public T AddSubsystem<T>(T system) where T : WorldSystem
+    /// <summary>
+    /// Adds an existing system. The system must be free (not added to another
+    /// world) and the world must not already have one of that type. Runs
+    /// <see cref="WorldObject.OnInitialize"/> immediately and
+    /// <see cref="WorldObject.OnStart"/> when the world is already playing.
+    /// </summary>
+    public T AddSystem<T>(T system) where T : WorldSystem
     {
         ArgumentNullException.ThrowIfNull(system);
         if (system.World is not null)
@@ -107,36 +127,50 @@ public sealed class World : IDisposable
         _systems.Add(typeof(T), system);
         system.OnInitialize();
         if (IsPlaying)
-            StartSystem(system);
+            StartObject(system);
         return system;
     }
 
-    internal void RemoveSubsystemInternal(WorldSystem system)
+    /// <summary>
+    /// Removes and destroys the system: runs <see cref="WorldObject.OnStop"/>
+    /// if it was started, then <see cref="WorldObject.OnDestroy"/>. The
+    /// system becomes invalid and its <see cref="WorldSystem.World"/> is
+    /// cleared. Safe to call more than once.
+    /// </summary>
+    public void RemoveSystem(WorldSystem system)
     {
-        if (!_systems.Remove(system.GetType()))
+        if (system is null || system.World != this)
             return;
+
+        if (system.Started)
+        {
+            system.Started = false;
+            system.OnStop();
+        }
+        system.OnDestroy();
+        _systems.Remove(system.GetType());
+        system.World = null;
         system.IsValid = false;
-        system.Started = false;
     }
 
     // ---- Lifecycle ----
 
-    /// <summary>Enters play mode: runs <see cref="Component.OnStart"/> on every component and system.</summary>
+    /// <summary>Enters play mode: runs <see cref="WorldObject.OnStart"/> on every world object.</summary>
     public void Start()
     {
         if (_disposed || IsPlaying)
             return;
         IsPlaying = true;
-        foreach (var system in _systems.Values)
-            StartSystem(system);
+        foreach (var system in _systems.Values.ToArray())
+            StartObject(system);
         foreach (var entity in _entities.ToArray())
         {
             foreach (var component in entity.Components.ToArray())
-                StartComponent(component);
+                StartObject(component);
         }
     }
 
-    /// <summary>Leaves play mode: runs <see cref="Component.OnStop"/> on every component and system.</summary>
+    /// <summary>Leaves play mode: runs <see cref="WorldObject.OnStop"/> on every world object.</summary>
     public void Stop()
     {
         if (_disposed || !IsPlaying)
@@ -145,10 +179,10 @@ public sealed class World : IDisposable
         foreach (var entity in _entities.ToArray())
         {
             foreach (var component in entity.Components.ToArray())
-                StopComponent(component);
+                StopObject(component);
         }
-        foreach (var system in _systems.Values)
-            StopSystem(system);
+        foreach (var system in _systems.Values.ToArray())
+            StopObject(system);
     }
 
     /// <summary>
@@ -160,7 +194,7 @@ public sealed class World : IDisposable
         if (_disposed || !IsPlaying)
             return;
 
-        foreach (var system in _systems.Values)
+        foreach (var system in _systems.Values.ToArray())
         {
             if (system.Enabled)
                 system.OnUpdate(deltaTime);
@@ -185,6 +219,22 @@ public sealed class World : IDisposable
         }
     }
 
+    internal static void StartObject(WorldObject obj)
+    {
+        if (obj.Started)
+            return;
+        obj.Started = true;
+        obj.OnStart();
+    }
+
+    internal static void StopObject(WorldObject obj)
+    {
+        if (!obj.Started)
+            return;
+        obj.Started = false;
+        obj.OnStop();
+    }
+
     private void TickGroupUpdate(TickGroup group, float deltaTime)
     {
         foreach (var entity in _entities.ToArray())
@@ -199,50 +249,18 @@ public sealed class World : IDisposable
         }
     }
 
-    internal void StartComponent(Component component)
-    {
-        if (component.Started || !component.IsValid)
-            return;
-        component.Started = true;
-        component.OnStart();
-    }
-
-    internal void StopComponent(Component component)
-    {
-        if (!component.Started)
-            return;
-        component.Started = false;
-        component.OnStop();
-    }
-
-    private void StartSystem(WorldSystem system)
-    {
-        if (system.Started)
-            return;
-        system.Started = true;
-        system.OnStart();
-    }
-
-    private void StopSystem(WorldSystem system)
-    {
-        if (!system.Started)
-            return;
-        system.Started = false;
-        system.OnStop();
-    }
-
     // ---- Teardown ----
 
     /// <summary>
     /// Stops the world, destroys every entity and disposes every system. All
-    /// components receive their teardown hooks before the world is gone.
+    /// world objects receive their teardown hooks before the world is gone.
     /// </summary>
     public void Dispose()
     {
         if (_disposed)
             return;
-        // Stop first: the guard must still let components run their teardown
-        // hooks while the world is being torn down.
+        // Stop first: the guard must still let world objects run their
+        // teardown hooks while the world is being torn down.
         Stop();
         _disposed = true;
         foreach (var entity in _entities.ToArray())

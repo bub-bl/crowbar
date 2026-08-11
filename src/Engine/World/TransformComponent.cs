@@ -15,7 +15,6 @@ namespace Crowbar.Engine.World;
 public abstract class TransformComponent : Component
 {
     private Transform _local = Transform.Zero;
-    private TransformComponent? _parent;
     private readonly List<TransformComponent> _children = [];
 
     /// <summary>Transform relative to <see cref="Parent"/>, or absolute when the component is a root.</summary>
@@ -38,15 +37,15 @@ public abstract class TransformComponent : Component
     /// </summary>
     public Transform World
     {
-        get => _parent is null ? _local : _parent.World.ToWorld(_local);
-        set => Local = _parent is null ? value : _parent.World.ToLocal(value);
+        get => Parent is null ? _local : Parent.World.ToWorld(_local);
+        set => Local = Parent is null ? value : Parent.World.ToLocal(value);
     }
 
-    public TransformComponent? Parent => _parent;
+    public TransformComponent? Parent { get; private set; }
 
     public IReadOnlyList<TransformComponent> Children => _children;
 
-    public bool HasParent => _parent is not null;
+    public bool HasParent => Parent is not null;
 
     /// <summary>Raised whenever <see cref="Local"/> changes (including through <see cref="World"/> and attachment).</summary>
     public event Action<TransformComponent>? LocalChanged;
@@ -68,7 +67,7 @@ public abstract class TransformComponent : Component
 
         var world = World;
         Detach(keepWorldTransform: false);
-        _parent = parent;
+        Parent = parent;
         parent._children.Add(this);
         if (keepWorldTransform)
             Local = parent.World.ToLocal(world);
@@ -81,11 +80,11 @@ public abstract class TransformComponent : Component
     /// </summary>
     public void Detach(bool keepWorldTransform = true)
     {
-        if (_parent is null)
+        if (Parent is null)
             return;
         var world = World;
-        _parent._children.Remove(this);
-        _parent = null;
+        Parent._children.Remove(this);
+        Parent = null;
         if (keepWorldTransform)
             Local = world;
     }
@@ -93,7 +92,7 @@ public abstract class TransformComponent : Component
     /// <summary>True when this component sits somewhere below <paramref name="ancestor"/> in the hierarchy.</summary>
     public bool IsDescendantOf(TransformComponent ancestor)
     {
-        for (var current = _parent; current is not null; current = current._parent)
+        for (var current = Parent; current is not null; current = current.Parent)
         {
             if (current == ancestor)
                 return true;

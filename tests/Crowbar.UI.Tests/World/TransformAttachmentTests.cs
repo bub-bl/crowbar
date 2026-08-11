@@ -6,6 +6,10 @@ internal sealed class TestTransform : TransformComponent
 {
 }
 
+internal sealed class TestLight : TransformComponent
+{
+}
+
 public class TransformAttachmentTests
 {
     private static Transform At(float x, float y = 0f, float z = 0f) => new(new Vector3(x, y, z));
@@ -154,6 +158,17 @@ public class TransformAttachmentTests
         Assert.Same(
             parent.GetComponent<TestTransform>(),
             child.GetComponent<TestTransform>()!.Parent);
+    }
+
+    [Fact]
+    public void GetComponents_ReturnsEveryAssignableComponent()
+    {
+        using var world = new World();
+        var entity = world.SpawnEntity();
+        var mesh = entity.AddComponent<TestTransform>();
+        var light = entity.AddComponent<TestLight>();
+
+        Assert.Equal([mesh, light], entity.GetComponents<TransformComponent>().ToArray());
     }
 
     [Fact]
