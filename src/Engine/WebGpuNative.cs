@@ -1,6 +1,17 @@
+using System.Runtime.InteropServices;
 using Silk.NET.WebGPU;
 using Crowbar.Engine.Rendering;
-using Buffer = Silk.NET.WebGPU.Buffer;
+using SilkBuffer = Silk.NET.WebGPU.Buffer;
+using SilkTextureFormat = Silk.NET.WebGPU.TextureFormat;
+using SilkBufferUsage = Silk.NET.WebGPU.BufferUsage;
+using SilkShaderStage = Silk.NET.WebGPU.ShaderStage;
+using SilkCompareFunction = Silk.NET.WebGPU.CompareFunction;
+using SilkVertexFormat = Silk.NET.WebGPU.VertexFormat;
+using EngineTextureFormat = Crowbar.Engine.Rendering.TextureFormat;
+using EngineBufferUsage = Crowbar.Engine.Rendering.BufferUsage;
+using EngineShaderStage = Crowbar.Engine.Rendering.ShaderStage;
+using EngineCompareFunction = Crowbar.Engine.Rendering.CompareFunction;
+using EngineVertexFormat = Crowbar.Engine.Rendering.VertexFormat;
 
 namespace Crowbar.Engine;
 
@@ -18,42 +29,16 @@ internal static unsafe class WebGpuNative
     internal static void ReleaseDevice(WebGPU api, nint handle) =>
         api.DeviceRelease((Device*)handle);
 
-    internal static void SetPipeline(WebGPU api, WebGpuRenderPassEncoder pass, WebGpuRenderPipeline pipeline) =>
-        api.RenderPassEncoderSetPipeline((RenderPassEncoder*)pass.NativeHandle, (RenderPipeline*)pipeline.NativeHandle);
+    internal static void SetPipeline(WebGPU api, WebGpuRenderPassEncoder pass, Silk.NET.WebGPU.RenderPipeline* pipeline) =>
+        api.RenderPassEncoderSetPipeline((RenderPassEncoder*)pass.NativeHandle, pipeline);
 
-    internal static unsafe void WriteBuffer<T>(
-        WebGPU api,
-        WebGpuQueue queue,
-        WebGpuBuffer buffer,
-        in T data) where T : unmanaged
-    {
-        T copy = data;
-        api.QueueWriteBuffer((Queue*)queue.NativeHandle, (Buffer*)buffer.NativeHandle, 0, &copy,
-            (nuint)sizeof(T));
-    }
-
-    internal static void SetBindGroup(WebGPU api, WebGpuRenderPassEncoder pass, WebGpuBindGroup bindGroup, uint groupIndex) =>
+    internal static void SetBindGroup(WebGPU api, WebGpuRenderPassEncoder pass, BindGroup* bindGroup, uint groupIndex) =>
         api.RenderPassEncoderSetBindGroup((RenderPassEncoder*)pass.NativeHandle, groupIndex,
-            (BindGroup*)bindGroup.NativeHandle, 0, null);
+            bindGroup, 0, null);
 
-    internal static void SetVertexBuffer(WebGPU api, WebGpuRenderPassEncoder pass, WebGpuBuffer buffer, ulong size) =>
+    internal static void SetVertexBuffer(WebGPU api, WebGpuRenderPassEncoder pass, SilkBuffer* buffer, ulong size) =>
         api.RenderPassEncoderSetVertexBuffer((RenderPassEncoder*)pass.NativeHandle, 0,
-            (Buffer*)buffer.NativeHandle, 0, size);
-
-    internal static void SetIndexBuffer(
-        WebGPU api,
-        WebGpuRenderPassEncoder pass,
-        WebGpuBuffer buffer,
-        WebGpuIndexFormat format,
-        ulong size) =>
-        api.RenderPassEncoderSetIndexBuffer((RenderPassEncoder*)pass.NativeHandle,
-            (Buffer*)buffer.NativeHandle,
-            format == WebGpuIndexFormat.Uint16 ? IndexFormat.Uint16 : IndexFormat.Uint32,
-            0,
-            size);
-
-    internal static void DrawIndexed(WebGPU api, WebGpuRenderPassEncoder pass, uint indexCount) =>
-        api.RenderPassEncoderDrawIndexed((RenderPassEncoder*)pass.NativeHandle, indexCount, 1, 0, 0, 0);
+            buffer, 0, size);
 
     internal static void Draw(WebGPU api, WebGpuRenderPassEncoder pass, uint vertexCount) =>
         api.RenderPassEncoderDraw((RenderPassEncoder*)pass.NativeHandle, vertexCount, 1, 0, 0);
@@ -61,17 +46,17 @@ internal static unsafe class WebGpuNative
     internal static void DrawInstanced(WebGPU api, WebGpuRenderPassEncoder pass, uint vertexCount, uint instanceCount) =>
         api.RenderPassEncoderDraw((RenderPassEncoder*)pass.NativeHandle, vertexCount, instanceCount, 0, 0);
 
-    internal static WebGpuCommandEncoder CreateCommandEncoder(WebGPU api, WebGpuDevice device) =>
+    internal static WebGpuNativeCommandEncoder CreateCommandEncoder(WebGPU api, WebGpuDevice device) =>
         new((nint)api.DeviceCreateCommandEncoder(device.UnsafeHandle, null));
 
     internal static WebGpuRenderPassEncoder BeginRenderPass(
         WebGPU api,
-        WebGpuCommandEncoder encoder,
+        WebGpuNativeCommandEncoder encoder,
         RenderPassDescription description)
     {
         var colorAttachment = new RenderPassColorAttachment
         {
-            View = (TextureView*)description.Color.View.NativeHandle,
+            View = ((WebGpuTexture)description.Color.Texture).View,
             LoadOp = ToNative(description.Color.LoadOp),
             StoreOp = ToNative(description.Color.StoreOp),
             ClearValue = new Color
@@ -89,7 +74,7 @@ internal static unsafe class WebGpuNative
         {
             depthAttachment = new RenderPassDepthStencilAttachment
             {
-                View = (TextureView*)description.Depth.View.NativeHandle,
+                View = ((WebGpuTexture)description.Depth.Texture).View,
                 DepthLoadOp = ToNative(description.Depth.LoadOp),
                 DepthStoreOp = ToNative(description.Depth.StoreOp),
                 DepthClearValue = description.Depth.ClearValue
@@ -108,6 +93,83 @@ internal static unsafe class WebGpuNative
             (CommandEncoder*)encoder.NativeHandle, in descriptor));
     }
 
+    internal static void EndRenderPass(WebGPU api, WebGpuRenderPassEncoder pass) =>
+        api.RenderPassEncoderEnd((RenderPassEncoder*)pass.NativeHandle);
+
+    internal static WebGpuNativeCommandBuffer FinishCommandEncoder(WebGPU api, WebGpuNativeCommandEncoder encoder) =>
+        new((nint)api.CommandEncoderFinish((CommandEncoder*)encoder.NativeHandle, null));
+
+    internal static void Submit(WebGPU api, WebGpuQueue queue, WebGpuNativeCommandBuffer commandBuffer)
+    {
+        Silk.NET.WebGPU.CommandBuffer* buffer = (Silk.NET.WebGPU.CommandBuffer*)commandBuffer.NativeHandle;
+        api.QueueSubmit((Queue*)queue.NativeHandle, 1, &buffer);
+    }
+
+    internal static void ReleaseCommandEncoder(WebGPU api, WebGpuNativeCommandEncoder encoder) =>
+        api.CommandEncoderRelease((CommandEncoder*)encoder.NativeHandle);
+
+    internal static void ReleaseCommandBuffer(WebGPU api, WebGpuNativeCommandBuffer commandBuffer) =>
+        api.CommandBufferRelease((Silk.NET.WebGPU.CommandBuffer*)commandBuffer.NativeHandle);
+
+    internal static SilkTextureFormat ToNative(EngineTextureFormat format) => format switch
+    {
+        EngineTextureFormat.Rgba8Unorm => SilkTextureFormat.Rgba8Unorm,
+        EngineTextureFormat.Bgra8Unorm => SilkTextureFormat.Bgra8Unorm,
+        EngineTextureFormat.Rgba8UnormSrgb => SilkTextureFormat.Rgba8UnormSrgb,
+        EngineTextureFormat.Bgra8UnormSrgb => SilkTextureFormat.Bgra8UnormSrgb,
+        EngineTextureFormat.Depth24Plus => SilkTextureFormat.Depth24Plus,
+        _ => throw new ArgumentOutOfRangeException(nameof(format))
+    };
+
+    /// <summary>
+    /// Maps the surface's preferred format to the engine's supported set.
+    /// Returns null for formats the engine does not handle yet (e.g.
+    /// Rgba16Float); the caller falls back to
+    /// <see cref="EngineTextureFormat.Bgra8Unorm"/>.
+    /// </summary>
+    internal static EngineTextureFormat? ToEngine(SilkTextureFormat format) => format switch
+    {
+        SilkTextureFormat.Rgba8Unorm => EngineTextureFormat.Rgba8Unorm,
+        SilkTextureFormat.Bgra8Unorm => EngineTextureFormat.Bgra8Unorm,
+        SilkTextureFormat.Rgba8UnormSrgb => EngineTextureFormat.Rgba8UnormSrgb,
+        SilkTextureFormat.Bgra8UnormSrgb => EngineTextureFormat.Bgra8UnormSrgb,
+        SilkTextureFormat.Depth24Plus => EngineTextureFormat.Depth24Plus,
+        _ => null
+    };
+
+    internal static SilkBufferUsage ToNative(EngineBufferUsage usage)
+    {
+        var result = SilkBufferUsage.None;
+        if (usage.HasFlag(EngineBufferUsage.Vertex)) result |= SilkBufferUsage.Vertex;
+        if (usage.HasFlag(EngineBufferUsage.Index)) result |= SilkBufferUsage.Index;
+        if (usage.HasFlag(EngineBufferUsage.Uniform)) result |= SilkBufferUsage.Uniform;
+        if (usage.HasFlag(EngineBufferUsage.Storage)) result |= SilkBufferUsage.Storage;
+        if (usage.HasFlag(EngineBufferUsage.CopyDst)) result |= SilkBufferUsage.CopyDst;
+        return result;
+    }
+
+    internal static SilkShaderStage ToNative(EngineShaderStage stage)
+    {
+        var result = SilkShaderStage.None;
+        if (stage.HasFlag(EngineShaderStage.Vertex)) result |= SilkShaderStage.Vertex;
+        if (stage.HasFlag(EngineShaderStage.Fragment)) result |= SilkShaderStage.Fragment;
+        return result;
+    }
+
+    internal static SilkCompareFunction ToNative(EngineCompareFunction function) => function switch
+    {
+        EngineCompareFunction.Always => SilkCompareFunction.Always,
+        EngineCompareFunction.Less => SilkCompareFunction.Less,
+        _ => throw new ArgumentOutOfRangeException(nameof(function))
+    };
+
+    internal static SilkVertexFormat ToNative(EngineVertexFormat format) => format switch
+    {
+        EngineVertexFormat.Float32x2 => SilkVertexFormat.Float32x2,
+        EngineVertexFormat.Float32x3 => SilkVertexFormat.Float32x3,
+        _ => throw new ArgumentOutOfRangeException(nameof(format))
+    };
+
     private static LoadOp ToNative(RenderAttachmentLoadOp op) => op switch
     {
         RenderAttachmentLoadOp.Load => LoadOp.Load,
@@ -122,21 +184,18 @@ internal static unsafe class WebGpuNative
         _ => throw new ArgumentOutOfRangeException(nameof(op))
     };
 
-    internal static void EndRenderPass(WebGPU api, WebGpuRenderPassEncoder pass) =>
-        api.RenderPassEncoderEnd((RenderPassEncoder*)pass.NativeHandle);
-
-    internal static WebGpuCommandBuffer FinishCommandEncoder(WebGPU api, WebGpuCommandEncoder encoder) =>
-        new((nint)api.CommandEncoderFinish((CommandEncoder*)encoder.NativeHandle, null));
-
-    internal static void Submit(WebGPU api, WebGpuQueue queue, WebGpuCommandBuffer commandBuffer)
+    /// <summary>
+    /// Copies a string into a null-terminated UTF-8 buffer allocated with
+    /// Marshal.AllocHGlobal (freed by Marshal.FreeHGlobal). wgpu reads shader
+    /// sources as UTF-8, so passing the ANSI conversion would mangle any
+    /// non-ASCII byte and make wgpu reject the module.
+    /// </summary>
+    internal static nint ToUtf8HGlobal(string text)
     {
-        CommandBuffer* buffer = (CommandBuffer*)commandBuffer.NativeHandle;
-        api.QueueSubmit((Queue*)queue.NativeHandle, 1, &buffer);
+        var bytes = System.Text.Encoding.UTF8.GetBytes(text);
+        nint pointer = Marshal.AllocHGlobal(bytes.Length + 1);
+        Marshal.Copy(bytes, 0, pointer, bytes.Length);
+        Marshal.WriteByte(pointer, bytes.Length, 0);
+        return pointer;
     }
-
-    internal static void ReleaseCommandEncoder(WebGPU api, WebGpuCommandEncoder encoder) =>
-        api.CommandEncoderRelease((CommandEncoder*)encoder.NativeHandle);
-
-    internal static void ReleaseCommandBuffer(WebGPU api, WebGpuCommandBuffer commandBuffer) =>
-        api.CommandBufferRelease((CommandBuffer*)commandBuffer.NativeHandle);
 }

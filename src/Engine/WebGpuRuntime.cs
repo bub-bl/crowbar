@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Numerics;
 using Crowbar.Engine.Rendering;
 using Silk.NET.WebGPU;
 
@@ -41,23 +40,14 @@ public sealed class WebGpuRuntime : IDisposable
         Console.WriteLine("Disposed WebGPU runtime.");
     }
 
-    internal void SetPipeline(WebGpuRenderPassEncoder pass, WebGpuRenderPipeline pipeline) =>
-        WebGpuNative.SetPipeline(Api, pass, pipeline);
-
-    internal void WriteBuffer<T>(WebGpuQueue queue, WebGpuBuffer buffer, in T data) where T : unmanaged =>
-        WebGpuNative.WriteBuffer(Api, queue, buffer, in data);
+    internal void SetPipeline(WebGpuRenderPassEncoder pass, WebGpuPipeline pipeline) =>
+        WebGpuNative.SetPipeline(Api, pass, pipeline.Pipeline);
 
     internal void SetBindGroup(WebGpuRenderPassEncoder pass, WebGpuBindGroup bindGroup, uint groupIndex) =>
-        WebGpuNative.SetBindGroup(Api, pass, bindGroup, groupIndex);
+        WebGpuNative.SetBindGroup(Api, pass, bindGroup.BindGroup, groupIndex);
 
     internal void SetVertexBuffer(WebGpuRenderPassEncoder pass, WebGpuBuffer buffer, ulong size) =>
-        WebGpuNative.SetVertexBuffer(Api, pass, buffer, size);
-
-    internal void SetIndexBuffer(WebGpuRenderPassEncoder pass, WebGpuBuffer buffer, WebGpuIndexFormat format, ulong size) =>
-        WebGpuNative.SetIndexBuffer(Api, pass, buffer, format, size);
-
-    internal void DrawIndexed(WebGpuRenderPassEncoder pass, uint indexCount) =>
-        WebGpuNative.DrawIndexed(Api, pass, indexCount);
+        WebGpuNative.SetVertexBuffer(Api, pass, buffer.Buffer, size);
 
     internal void Draw(WebGpuRenderPassEncoder pass, uint vertexCount) =>
         WebGpuNative.Draw(Api, pass, vertexCount);
@@ -66,25 +56,25 @@ public sealed class WebGpuRuntime : IDisposable
         WebGpuNative.DrawInstanced(Api, pass, vertexCount, instanceCount);
 
     internal WebGpuRenderPassEncoder BeginRenderPass(
-        WebGpuCommandEncoder encoder,
+        WebGpuNativeCommandEncoder encoder,
         RenderPassDescription description) =>
         WebGpuNative.BeginRenderPass(Api, encoder, description);
 
     internal void EndRenderPass(WebGpuRenderPassEncoder pass) =>
         WebGpuNative.EndRenderPass(Api, pass);
 
-    internal WebGpuCommandBuffer FinishCommandEncoder(WebGpuCommandEncoder encoder) =>
+    internal WebGpuNativeCommandBuffer FinishCommandEncoder(WebGpuNativeCommandEncoder encoder) =>
         WebGpuNative.FinishCommandEncoder(Api, encoder);
 
-    internal void Submit(WebGpuQueue queue, WebGpuCommandBuffer commandBuffer) =>
+    internal void Submit(WebGpuQueue queue, WebGpuNativeCommandBuffer commandBuffer) =>
         WebGpuNative.Submit(Api, queue, commandBuffer);
 
-    internal void ReleaseCommandEncoder(WebGpuCommandEncoder encoder) =>
+    internal void ReleaseCommandEncoder(WebGpuNativeCommandEncoder encoder) =>
         WebGpuNative.ReleaseCommandEncoder(Api, encoder);
 
-    internal void ReleaseCommandBuffer(WebGpuCommandBuffer commandBuffer) =>
+    internal void ReleaseCommandBuffer(WebGpuNativeCommandBuffer commandBuffer) =>
         WebGpuNative.ReleaseCommandBuffer(Api, commandBuffer);
 
-    internal WebGpuCommandEncoder CreateCommandEncoder(WebGpuDevice device) =>
+    internal WebGpuNativeCommandEncoder CreateCommandEncoder(WebGpuDevice device) =>
         WebGpuNative.CreateCommandEncoder(Api, device);
 }

@@ -20,6 +20,7 @@ public abstract class Application : IDisposable
     private readonly UiSystem _ui = new();
     private readonly Camera _camera = new();
     private IGraphicsDevice? _graphics;
+    private Renderer? _renderer;
     private bool _looking;
     private float _lastLookX;
     private float _lastLookY;
@@ -64,7 +65,7 @@ public abstract class Application : IDisposable
         _graphics = CreateGraphicsDevice(_window);
         if (_graphics is not null)
         {
-            _graphics.Ui = _ui;
+            _renderer = new Renderer(_graphics);
             _ui.Renderer.GpuDecorations = EnableUiCompositing;
             _ui.Renderer.GpuFills = EnableUiCompositing;
             var width = FramebufferWidth;
@@ -109,12 +110,12 @@ public abstract class Application : IDisposable
     private void RenderFrame(double delta)
     {
         OnRender((float)delta);
-        Graphics?.Render(_camera, delta);
+        _renderer?.Render(_camera, delta, _ui);
     }
 
     private void OnResized(int width, int height)
     {
-        Graphics?.Resize(width, height);
+        _renderer?.Resize(width, height);
         Ui.SetViewport(width, height);
         Ui.Render();
         OnResize(width, height);
@@ -123,6 +124,8 @@ public abstract class Application : IDisposable
     private void OnWindowClosing()
     {
         OnClosing();
+        _renderer?.Dispose();
+        _renderer = null;
         Graphics?.Dispose();
         _graphics = null;
     }
@@ -218,6 +221,8 @@ public abstract class Application : IDisposable
             return;
         _disposed = true;
         Ui.Dispose();
+        _renderer?.Dispose();
+        _renderer = null;
         Graphics?.Dispose();
         _graphics = null;
         _window.Dispose();

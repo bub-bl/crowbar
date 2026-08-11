@@ -48,9 +48,6 @@ public sealed class WebGpuDevice : IDisposable
 
     internal unsafe Queue* GetUnsafeQueue() => (Queue*)GetQueue().NativeHandle;
 
-    public CommandList CreateCommandList() =>
-        new(_runtime, _runtime.CreateCommandEncoder(this), GetQueue());
-
     public void Dispose()
     {
         if (_nativeHandle != 0)

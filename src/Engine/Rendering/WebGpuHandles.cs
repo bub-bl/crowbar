@@ -42,70 +42,14 @@ public readonly struct WebGpuRenderPassEncoder
         : handle;
 }
 
-/// <summary>Opaque safe handle for a WebGPU buffer.</summary>
-public readonly struct WebGpuBuffer
+internal readonly struct WebGpuNativeCommandEncoder
 {
     internal nint NativeHandle { get; }
-
-    internal WebGpuBuffer(nint nativeHandle) => NativeHandle = Require(nativeHandle);
-
-    internal static WebGpuBuffer FromNative(nint nativeHandle) => new(nativeHandle);
-
-    private static nint Require(nint handle) => handle == 0
-        ? throw new ArgumentException("A valid WebGPU buffer handle is required.", nameof(handle))
-        : handle;
+    internal WebGpuNativeCommandEncoder(nint nativeHandle) => NativeHandle = nativeHandle;
 }
 
-/// <summary>Opaque safe handle for a WebGPU bind group.</summary>
-public readonly struct WebGpuBindGroup
+internal readonly struct WebGpuNativeCommandBuffer
 {
     internal nint NativeHandle { get; }
-
-    internal WebGpuBindGroup(nint nativeHandle) => NativeHandle = Require(nativeHandle);
-
-    internal static WebGpuBindGroup FromNative(nint nativeHandle) => new(nativeHandle);
-
-    private static nint Require(nint handle) => handle == 0
-        ? throw new ArgumentException("A valid WebGPU bind group handle is required.", nameof(handle))
-        : handle;
-}
-
-/// <summary>Opaque safe handle for a WebGPU render pipeline.</summary>
-public readonly struct WebGpuRenderPipeline
-{
-    internal nint NativeHandle { get; }
-
-    internal WebGpuRenderPipeline(nint nativeHandle) => NativeHandle = Require(nativeHandle);
-
-    internal static WebGpuRenderPipeline FromNative(nint nativeHandle) => new(nativeHandle);
-
-    private static nint Require(nint handle) => handle == 0
-        ? throw new ArgumentException("A valid WebGPU render pipeline handle is required.", nameof(handle))
-        : handle;
-}
-
-/// <summary>Opaque safe handle for a WebGPU texture view.</summary>
-public readonly struct WebGpuTextureView
-{
-    internal nint NativeHandle { get; }
-
-    internal WebGpuTextureView(nint nativeHandle) => NativeHandle = Require(nativeHandle);
-
-    internal static WebGpuTextureView FromNative(nint nativeHandle) => new(nativeHandle);
-
-    private static nint Require(nint handle) => handle == 0
-        ? throw new ArgumentException("A valid WebGPU texture view handle is required.", nameof(handle))
-        : handle;
-}
-
-internal readonly struct WebGpuCommandEncoder
-{
-    internal nint NativeHandle { get; }
-    internal WebGpuCommandEncoder(nint nativeHandle) => NativeHandle = nativeHandle;
-}
-
-internal readonly struct WebGpuCommandBuffer
-{
-    internal nint NativeHandle { get; }
-    internal WebGpuCommandBuffer(nint nativeHandle) => NativeHandle = nativeHandle;
+    internal WebGpuNativeCommandBuffer(nint nativeHandle) => NativeHandle = nativeHandle;
 }

@@ -152,6 +152,13 @@ Le runtime manipule uniquement :
 
 Jamais des types spécifiques à WebGPU ou Vulkan.
 
+**État actuel :** les abstractions existent dans `Crowbar.Engine.Rendering`
+(`IGraphicsDevice`, `ITexture`, `IBuffer`, `IPipeline`, `IBindGroup`,
+`ICommandBuffer`, `IRenderPass`, `ISwapchain`). Le moteur de rendu du runtime
+(`Renderer`) ne manipule que ces types ; `WebGpuContext` est un backend concret
+qui les implémente. Un backend Vulkan, un renderer de test ou headless peuvent
+être ajoutés sans toucher au runtime.
+
 # Priorités
 
 1.  Runtime
