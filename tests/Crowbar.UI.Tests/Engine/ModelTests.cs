@@ -15,7 +15,20 @@ public class ModelTests
         Assert.Equal(36, mesh.Indices.Length);
 
         foreach (var vertex in mesh.Vertices)
+        {
+            // Every corner of a closed 1×1×1 cube sits at ±0.5 on each axis
+            // (a regression would collapse the faces onto the origin planes).
+            Assert.Contains(vertex.Position.X, new[] { -0.5f, 0.5f });
+            Assert.Contains(vertex.Position.Y, new[] { -0.5f, 0.5f });
+            Assert.Contains(vertex.Position.Z, new[] { -0.5f, 0.5f });
             Assert.True(vertex.Normal.LengthSquared() > 0.99f);
+        }
+
+        // All 8 corners are present, and no face is coplanar with another:
+        // each of the six normals appears exactly four times.
+        Assert.Equal(8, mesh.Vertices.Select(v => v.Position).Distinct().Count());
+        Assert.Equal(6, mesh.Vertices.GroupBy(v => v.Normal).Count());
+        Assert.All(mesh.Vertices.GroupBy(v => v.Normal), group => Assert.Equal(4, group.Count()));
 
         foreach (var index in mesh.Indices)
             Assert.InRange(index, 0u, (uint)mesh.Vertices.Length - 1);

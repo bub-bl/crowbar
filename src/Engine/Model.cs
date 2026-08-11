@@ -64,12 +64,16 @@ public sealed class Model
 
         foreach (var face in faces)
         {
+            // The face is offset by half a unit along its normal, so its square
+            // sits at ±0.5 instead of passing through the origin (which would
+            // collapse the cube into three coplanar square pairs).
+            var center = face.Normal * 0.5f;
             var corner = face.U * 0.5f + face.V * 0.5f;
             var baseIndex = (uint)vertices.Count;
-            vertices.Add(new MeshVertex(-corner, face.Normal, new Vector2(0, 1)));
-            vertices.Add(new MeshVertex(-face.U * 0.5f + face.V * 0.5f, face.Normal, new Vector2(1, 1)));
-            vertices.Add(new MeshVertex(corner, face.Normal, new Vector2(1, 0)));
-            vertices.Add(new MeshVertex(face.U * 0.5f - face.V * 0.5f, face.Normal, new Vector2(0, 0)));
+            vertices.Add(new MeshVertex(center - corner, face.Normal, new Vector2(0, 1)));
+            vertices.Add(new MeshVertex(center - face.U * 0.5f + face.V * 0.5f, face.Normal, new Vector2(1, 1)));
+            vertices.Add(new MeshVertex(center + corner, face.Normal, new Vector2(1, 0)));
+            vertices.Add(new MeshVertex(center + face.U * 0.5f - face.V * 0.5f, face.Normal, new Vector2(0, 0)));
             indices.AddRange([baseIndex, baseIndex + 1, baseIndex + 2, baseIndex, baseIndex + 2, baseIndex + 3]);
         }
 
