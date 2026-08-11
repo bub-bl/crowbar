@@ -43,7 +43,8 @@ public enum ShaderStage
 public enum CompareFunction
 {
     Always,
-    Less
+    Less,
+    LessEqual
 }
 
 /// <summary>Backend-neutral per-vertex attribute format.</summary>

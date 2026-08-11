@@ -167,6 +167,7 @@ internal static unsafe class WebGpuNative
     {
         EngineCompareFunction.Always => SilkCompareFunction.Always,
         EngineCompareFunction.Less => SilkCompareFunction.Less,
+        EngineCompareFunction.LessEqual => SilkCompareFunction.LessEqual,
         _ => throw new ArgumentOutOfRangeException(nameof(function))
     };
 

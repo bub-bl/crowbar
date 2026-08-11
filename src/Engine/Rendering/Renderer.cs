@@ -144,6 +144,15 @@ public sealed class Renderer : IDisposable
     private readonly Dictionary<Texture2D, ITexture> _materialTextures = [];
     private Material? _defaultMaterial;
 
+    // Editor ground grid: a fullscreen pass drawn after the meshes inside the
+    // scene pass (tests mesh depth without writing it), configurable through
+    // the Grid property.
+    public Grid Grid { get; } = new();
+    private IPipeline _gridPipeline = null!;
+    private IBuffer _gridVertexBuffer = null!;
+    private IBuffer _gridUniformBuffer = null!;
+    private IBindGroup _gridBindGroup = null!;
+
     // Offscreen 3D scene: the cube renders here instead of directly on the
     // surface, then the scene is blitted to the surface. backdrop-filter
     // panels are composited on the GPU by Backdrop.wgsl sampling this texture
@@ -195,6 +204,7 @@ public sealed class Renderer : IDisposable
         _height = device.Height;
 
         CreateMeshResources();
+        CreateGridResources();
         CreateBackdropResources();
         CreateDecorationResources();
         CreateFillResources();
@@ -241,6 +251,7 @@ public sealed class Renderer : IDisposable
             using (IRenderPass scenePass = commandBuffer.BeginRenderPass(scenePassDescription))
             {
                 DrawMeshRenderers(scenePass, world, time);
+                DrawGrid(scenePass);
             }
 
             // Rasterize and upload the UI before reading any GPU-composited regions.
@@ -455,6 +466,92 @@ public sealed class Renderer : IDisposable
                 texture.Write((nint)data, 4, 0, 0, 1, 1);
         }
         return texture;
+    }
+
+    private void CreateGridResources()
+    {
+        // Fullscreen quad (position only) drawn as a triangle list; the vertex
+        // shader unprojects the near/far planes and the fragment shader
+        // intersects the view ray with the ground plane.
+        float[] vertices =
+        [
+             1f,  1f, 0f,
+            -1f, -1f, 0f,
+            -1f,  1f, 0f,
+             1f,  1f, 0f,
+             1f, -1f, 0f,
+            -1f, -1f, 0f
+        ];
+        _gridVertexBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)(vertices.Length * sizeof(float)),
+            Usage = BufferUsage.Vertex | BufferUsage.CopyDst
+        });
+        unsafe
+        {
+            fixed (float* data = vertices)
+                _gridVertexBuffer.Write(new ReadOnlySpan<byte>(data, vertices.Length * sizeof(float)));
+        }
+
+        _gridUniformBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)sizeof(GridUniforms),
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+
+        string shaderSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Grid.wgsl"));
+        _gridPipeline = _device.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = shaderSource,
+            VertexEntryPoint = "vs_main",
+            FragmentEntryPoint = "fs_main",
+            ColorFormat = _device.Swapchain.Format,
+            DepthFormat = TextureFormat.Depth24Plus,
+            // Drawn after the meshes: it tests their depth but must not write
+            // depth, and the lines blend over the scene.
+            AlphaBlend = true,
+            DepthWriteEnabled = false,
+            DepthCompare = CompareFunction.LessEqual,
+            VertexLayout = new VertexBufferLayoutDescription
+            {
+                Stride = 3 * sizeof(float),
+                Attributes =
+                [
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x3, Offset = 0, ShaderLocation = 0 }
+                ]
+            },
+            BindGroups =
+            [
+                [
+                    new BindGroupLayoutBinding
+                    {
+                        Slot = 0,
+                        Type = BindingType.UniformBuffer,
+                        Stages = ShaderStage.Vertex | ShaderStage.Fragment
+                    }
+                ]
+            ]
+        });
+        _gridBindGroup = _gridPipeline.CreateBindGroup(
+        [
+            new BindGroupBinding { Slot = 0, Buffer = _gridUniformBuffer, BufferSize = (ulong)sizeof(GridUniforms) }
+        ]);
+    }
+
+    /// <summary>
+    /// Draws the ground grid after the world's meshes. It shares the scene
+    /// camera and is composited into the same offscreen scene texture, so
+    /// backdrop-filter panels and the surface blit see it like any 3D content.
+    /// </summary>
+    private void DrawGrid(IRenderPass pass)
+    {
+        var uniforms = Grid.CreateUniforms(_scene.View, _scene.Projection);
+        _gridUniformBuffer.Write(in uniforms);
+
+        pass.SetPipeline(_gridPipeline);
+        pass.SetBindGroup(_gridBindGroup, 0);
+        pass.SetVertexBuffer(_gridVertexBuffer, _gridVertexBuffer.Size);
+        pass.Draw(6);
     }
 
     /// <summary>Draws every living <see cref="MeshRenderer"/> in the world at its world transform.</summary>
@@ -1307,6 +1404,10 @@ public sealed class Renderer : IDisposable
         _materialSampler?.Dispose();
         _lightsBuffer?.Dispose();
         _sceneBuffer?.Dispose();
+        _gridBindGroup?.Dispose();
+        _gridUniformBuffer?.Dispose();
+        _gridVertexBuffer?.Dispose();
+        _gridPipeline?.Dispose();
         _depthTexture?.Dispose();
     }
 }
