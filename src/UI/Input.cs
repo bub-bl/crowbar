@@ -24,6 +24,9 @@ public sealed partial class UiSystem
         var hit = Screen.HitTest(x / Math.Max(0.01f, Screen.Scale), y / Math.Max(0.01f, Screen.Scale));
         UpdateHoverPath(hit);
         _hovered = hit;
+        // Hover tooltip: the deepest hovered panel with a `tooltip` attribute
+        // (its own or inherited from an ancestor) is shown at the cursor.
+        UpdateTooltip(hit, x, y);
         if (_captured is TextInput textInput) textInput.UpdatePointerSelection(x / Math.Max(0.01f, Screen.Scale));
         if (hit is not null)
         {
@@ -120,6 +123,26 @@ public sealed partial class UiSystem
         var newPath = PathToRoot(hit).ToHashSet();
         foreach (var panel in oldPath.Except(newPath)) panel.SetHovered(false);
         foreach (var panel in newPath.Except(oldPath)) panel.SetHovered(true);
+    }
+
+    /// <summary>
+    /// Shows the hover tooltip of the hit panel (deepest hovered panel carrying
+    /// a <c>tooltip</c> attribute wins), or hides it when nothing is hovered.
+    /// The tooltip is drawn by the renderer on top of everything, so hiding is
+    /// just a null text push.
+    /// </summary>
+    private void UpdateTooltip(Panel? hit, float x, float y)
+    {
+        string? tooltip = null;
+        for (var current = hit; current is not null; current = current.Parent)
+        {
+            if (!string.IsNullOrEmpty(current.Tooltip))
+            {
+                tooltip = current.Tooltip;
+                break;
+            }
+        }
+        Renderer.SetTooltip(tooltip, x, y);
     }
 
     private void UpdatePressedPath(Panel? hit, bool pressed)

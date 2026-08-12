@@ -140,6 +140,8 @@ internal static class HtmlPanelParser
                     continue; // Skip synthetic event attributes – they are handled only on HTML elements
                 else if (typeParams.Contains(attribute.Name.LocalName, StringComparer.OrdinalIgnoreCase))
                     continue; // Type argument, not a parameter.
+                else if (attribute.Name.LocalName.Equals("tooltip", StringComparison.OrdinalIgnoreCase))
+                    child.Tooltip = attribute.Value; // Hover overlay, not a [Parameter].
                 else child.SetParameter(attribute.Name.LocalName, attribute.Value);
             }
 
@@ -265,6 +267,8 @@ internal static class HtmlPanelParser
                 panel.IsEnabled = false;
             else if (attribute.Name.LocalName.Equals("checked", StringComparison.OrdinalIgnoreCase) && panel is ToggleInput)
                 panel.IsChecked = IsTruthyAttribute(attribute.Value);
+            else if (attribute.Name.LocalName.Equals("tooltip", StringComparison.OrdinalIgnoreCase))
+                panel.Tooltip = attribute.Value; // Hover overlay; kept out of the generic attribute map.
             else if (attribute.Name.LocalName.StartsWith("data-codex-on", StringComparison.OrdinalIgnoreCase))
                 handlers[attribute.Name.LocalName["data-codex-on".Length..]] = attribute.Value;
             else if (attribute.Name.LocalName.Equals("data-codex-bind-value", StringComparison.OrdinalIgnoreCase))
@@ -418,6 +422,7 @@ internal static class HtmlPanelParser
         }
         else if (name.Equals("disabled", StringComparison.OrdinalIgnoreCase)) panel.IsEnabled = false;
         else if (name.Equals("checked", StringComparison.OrdinalIgnoreCase) && panel is ToggleInput) panel.IsChecked = IsTruthyAttribute(value);
+        else if (name.Equals("tooltip", StringComparison.OrdinalIgnoreCase)) panel.Tooltip = value;
         else if (name.Equals("src", StringComparison.OrdinalIgnoreCase) && panel is Image image)
         {
             image.Source = value;

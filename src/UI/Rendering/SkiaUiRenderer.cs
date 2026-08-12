@@ -96,6 +96,17 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     private readonly List<FillRegion> _fills = [];
     private readonly List<UiRectInt> _damage = [];
 
+    // Tooltip overlay: the `tooltip` attribute of the hovered panel, drawn as
+    // a small dark box next to the cursor on top of everything. Tracked
+    // separately from the panel tree: changing it invalidates only the old +
+    // new tooltip rects, so the hover overlay does not reflow the layout.
+    private string? _tooltipText;
+    private float _tooltipX;
+    private float _tooltipY;
+    private bool _tooltipDirty;
+    private UiRect? _tooltipRect;
+    private UiRect? _lastTooltipRect;
+
     public StyleSheet? StyleSheet { get; set; }
 
     /// <summary>
@@ -137,6 +148,8 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     /// </summary>
     public IReadOnlyList<FillRegion> Fills => _fills;
     public UiSize Size { get; private set; }
+    /// <summary>The tooltip text currently shown (the hovered panel's <c>tooltip</c> attribute), or null.</summary>
+    public string? TooltipText => _tooltipText;
     public bool IsDirty => _dirty;
     public int LayoutPasses => _layout.LayoutPasses;
     public nint PixelBuffer => _bitmap is null ? 0 : _bitmap.GetPixels();
@@ -150,6 +163,21 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     /// region between the 3D scene and the UI overlay.
     /// </summary>
     public IReadOnlyList<BackdropRegion> Backdrops => _backdrops;
+
+    /// <summary>
+    /// Sets the hover tooltip. A null text hides it; otherwise it is drawn next
+    /// to the cursor at (x, y) in screen pixels. Only actual changes (text or
+    /// position) invalidate a repaint.
+    /// </summary>
+    public void SetTooltip(string? text, float x, float y)
+    {
+        if (_tooltipText == text && Math.Abs(_tooltipX - x) < 0.5f && Math.Abs(_tooltipY - y) < 0.5f) return;
+        _tooltipText = text;
+        _tooltipX = x;
+        _tooltipY = y;
+        _tooltipDirty = true;
+        _dirty = true;
+    }
 
     public void Resize(int width, int height)
     {
@@ -227,6 +255,10 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // Collect the damaged regions and the backdrop-filter regions (mirroring
         // DrawPanel's recursion) when we are not doing a full redraw anyway.
         _damage.Clear();
+        // The hover tooltip is not part of the panel tree: fold its old and new
+        // paint rects into the damage so the partial repaint erases the
+        // previous frame's tooltip and repaints the current one.
+        if (_tooltipDirty) InjectTooltipDamage();
         _backdrops.Clear();
         // GPU decorations and fills are decided from the current computed
         // styles and the paint order, before the raster (the Skia walk reads
@@ -313,6 +345,13 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 }
             }
             finally { _partialCull = false; }
+        }
+
+        // The hover tooltip draws last, on top of the tree, in both the full
+        // and partial paths (its damage rects were already injected above).
+        if (_tooltipRect is { } tooltipRect)
+        {
+            DrawTooltip(canvas, tooltipRect);
         }
 
         _bitmap!.PeekPixels().GetPixelSpan().CopyTo(_pixels);
@@ -1804,6 +1843,64 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var right = (int)MathF.Ceiling(rect.Right);
         var bottom = (int)MathF.Ceiling(rect.Bottom);
         _damage.Add(new UiRectInt(left, top, Math.Max(1, right - left), Math.Max(1, bottom - top)));
+    }
+
+    /// <summary>
+    /// Damages the old and new hover-tooltip rects when the tooltip changed
+    /// (text or position) since the last render. The tooltip lives outside the
+    /// panel tree, so its rects are folded into the damage before the partial
+    /// repaint decides what to redraw.
+    /// </summary>
+    private void InjectTooltipDamage()
+    {
+        var oldRect = _lastTooltipRect;
+        _tooltipRect = ComputeTooltipRect();
+        _lastTooltipRect = _tooltipRect;
+        if (oldRect is { } old)
+            AddDamage(new SKRect(old.X, old.Y, old.X + old.Width, old.Y + old.Height));
+        if (_tooltipRect is { } current)
+            AddDamage(new SKRect(current.X, current.Y, current.X + current.Width, current.Y + current.Height));
+        _tooltipDirty = false;
+    }
+
+    /// <summary>
+    /// Places the tooltip box next to the cursor at (_tooltipX, _tooltipY):
+    /// 14px right / 18px below, flipping to the other side when it would
+    /// overflow the viewport. Returns null when there is no tooltip text.
+    /// </summary>
+    private UiRect? ComputeTooltipRect()
+    {
+        var text = _tooltipText;
+        if (string.IsNullOrEmpty(text)) return null;
+        using var font = new SKFont { Size = 12f, Typeface = SKTypeface.Default };
+        var textWidth = TextLayout.Measure(font, text, 0);
+        const float padX = 8f;
+        const float padY = 5f;
+        var width = textWidth + padX * 2;
+        var height = 12f + padY * 2;
+        var x = _tooltipX + 14;
+        var y = _tooltipY + 18;
+        if (x + width > Size.Width) x = Math.Max(0, _tooltipX - width - 14);
+        if (y + height > Size.Height) y = Math.Max(0, _tooltipY - height - 18);
+        return new UiRect(x, y, width, height);
+    }
+
+    /// <summary>
+    /// Paints the hover tooltip: a dark rounded box with a subtle border and
+    /// the tooltip text in near-white, sized to the text (see
+    /// <see cref="ComputeTooltipRect"/>).
+    /// </summary>
+    private void DrawTooltip(SKCanvas canvas, UiRect rect)
+    {
+        var r = new SKRect(rect.X, rect.Y, rect.X + rect.Width, rect.Y + rect.Height);
+        using var bg = new SKPaint { Color = new SKColor(24, 26, 30, 245), IsAntialias = true };
+        canvas.DrawRoundRect(r, 4, 4, bg);
+        using var border = new SKPaint { Color = new SKColor(70, 76, 88, 255), IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 1 };
+        canvas.DrawRoundRect(r, 4, 4, border);
+        using var font = new SKFont { Size = 12f, Typeface = SKTypeface.Default };
+        using var paint = new SKPaint { Color = new SKColor(232, 235, 242, 255), IsAntialias = true };
+        var baseline = rect.Y + rect.Height / 2f - (font.Metrics.Ascent + font.Metrics.Descent) / 2f;
+        TextLayout.Draw(canvas, _tooltipText!, rect.X + 8f, baseline, font, paint, 0);
     }
 
     /// <summary>

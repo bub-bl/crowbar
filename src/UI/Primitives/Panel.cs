@@ -48,6 +48,8 @@ public class Panel
     public Dictionary<string, string> Attributes { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, string> InlineStyle { get; } = new(StringComparer.OrdinalIgnoreCase);
     public string Text { get; set; } = string.Empty;
+    /// <summary>Tooltip text shown near the cursor while the panel is hovered (the <c>tooltip</c> attribute).</summary>
+    public string? Tooltip { get; set; }
 
     public void AddScope(string scopeId)
     {
