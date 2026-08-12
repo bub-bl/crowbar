@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -15,12 +16,29 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
 {
     private CompiledSelector? _compiled;
 
+    private CompiledSelector Compiled => _compiled ??= CompiledSelector.Parse(Selector);
+
+    internal bool UsesComplexMatching => Compiled.IsComplex;
+
+    internal bool TryGetMatchIndex(out SelectorIndexKind kind, out string value)
+    {
+        var parts = Compiled.Parts;
+        if (parts.Length == 0 || PseudoElement.Length > 0)
+        {
+            kind = SelectorIndexKind.Universal;
+            value = string.Empty;
+            return parts.Length > 0;
+        }
+
+        return parts[^1].TryGetIndex(out kind, out value);
+    }
+
     /// <summary>The pseudo-element the selector targets (<c>before</c>, <c>after</c>) or empty.</summary>
     public string PseudoElement
     {
         get
         {
-            var parts = (_compiled ??= CompiledSelector.Parse(Selector)).Parts;
+            var parts = Compiled.Parts;
             return parts.Length > 0 ? parts[^1].PseudoElement : string.Empty;
         }
     }
@@ -116,8 +134,13 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
     private sealed class CompiledSelector
     {
         public readonly Part[] Parts;
+        public bool IsComplex { get; }
 
-        private CompiledSelector(Part[] parts) => Parts = parts;
+        private CompiledSelector(Part[] parts)
+        {
+            Parts = parts;
+            IsComplex = parts.Length > 1 || parts.Any(part => part.HasComplexSelectors);
+        }
 
         public static CompiledSelector Parse(string selector)
         {
@@ -168,8 +191,8 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
         public static readonly Part AdjacentCombinator = new(isCombinator: true, SelectorCombinator.Adjacent);
         public static readonly Part GeneralSiblingCombinator = new(isCombinator: true, SelectorCombinator.GeneralSibling);
 
-        private readonly bool _isCombinator;
-        private readonly SelectorCombinator _combinatorKind;
+        public readonly bool IsCombinator;
+        public readonly SelectorCombinator CombinatorKind;
         private readonly string _type = string.Empty;
         private readonly PseudoClass[] _pseudoClasses = [];
         private readonly string _pseudoElement = string.Empty;
@@ -177,8 +200,35 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
         private readonly string _id = string.Empty;
         private readonly (string Name, string? Value)[] _attributes = [];
 
-        public bool IsCombinator => _isCombinator;
-        public SelectorCombinator CombinatorKind => _combinatorKind;
+        public bool HasComplexSelectors => _attributes.Length > 0 || _pseudoClasses.Length > 0 || _pseudoElement.Length > 0;
+
+        public bool TryGetIndex(out SelectorIndexKind kind, out string value)
+        {
+            if (_id.Length > 0)
+            {
+                kind = SelectorIndexKind.Id;
+                value = _id;
+                return true;
+            }
+
+            if (_classes.Length > 0)
+            {
+                kind = SelectorIndexKind.Class;
+                value = _classes[0];
+                return true;
+            }
+
+            if (_type.Length > 0)
+            {
+                kind = SelectorIndexKind.Type;
+                value = _type;
+                return true;
+            }
+
+            kind = SelectorIndexKind.Universal;
+            value = string.Empty;
+            return false;
+        }
         /// <summary>The pseudo-element name (<c>before</c>, <c>after</c>) or empty for ordinary compounds.</summary>
         public string PseudoElement => _pseudoElement;
 
@@ -196,8 +246,8 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
 
         private Part(bool isCombinator, SelectorCombinator kind)
         {
-            _isCombinator = isCombinator;
-            _combinatorKind = kind;
+            IsCombinator = isCombinator;
+            CombinatorKind = kind;
         }
 
         public static Part ParseCompound(string compound)
@@ -406,6 +456,14 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
     }
 }
 
+internal enum SelectorIndexKind
+{
+    Universal,
+    Id,
+    Class,
+    Type
+}
+
 /// <summary>The media feature of a <c>@media</c> condition.</summary>
 public enum MediaFeature
 {
@@ -523,6 +581,20 @@ public sealed class StyleSheet
     // order values overlap. Sort that merged list once, not once per panel on
     // every cascade.
     private StyleRule[]? _orderedRules;
+    private Dictionary<string, List<int>>? _idIndex;
+    private Dictionary<string, List<int>>? _classIndex;
+    private Dictionary<string, List<int>>? _typeIndex;
+    private List<int>? _universalIndex;
+    private int[]? _candidateStamps;
+    private int _candidateStamp;
+    private readonly ConditionalWeakTable<Panel, MatchCache> _matchCache = new();
+
+    private sealed class MatchCache
+    {
+        public int Signature = int.MinValue;
+        public readonly Dictionary<int, bool> Results = new();
+    }
+
     // Pre-filtered pseudo-element rule lists: the cascade synthesizes
     // ::before/::after content per panel, so iterating only the rules that
     // actually target the pseudo element (instead of re-matching every rule)
@@ -542,7 +614,7 @@ public sealed class StyleSheet
     private void AddRule(StyleRule rule)
     {
         _rules.Add(rule);
-        _orderedRules = null;
+        InvalidateIndexes();
         var pseudo = rule.PseudoElement;
         if (pseudo.Length == 0) return;
         if (pseudo.Equals("before", StringComparison.OrdinalIgnoreCase)) _beforeRules.Add(rule);
@@ -552,9 +624,96 @@ public sealed class StyleSheet
     public void Clear()
     {
         _rules.Clear();
-        _orderedRules = null;
+        InvalidateIndexes();
         _beforeRules.Clear();
         _afterRules.Clear();
+    }
+
+    private void InvalidateIndexes()
+    {
+        _orderedRules = null;
+        _idIndex = null;
+        _classIndex = null;
+        _typeIndex = null;
+        _universalIndex = null;
+        _candidateStamps = null;
+        _candidateStamp = 0;
+    }
+
+    private void EnsureIndexes()
+    {
+        if (_orderedRules is not null && _candidateStamps is not null) return;
+        _orderedRules = _rules.OrderBy(rule => rule.Order).ToArray();
+        _idIndex = new(StringComparer.OrdinalIgnoreCase);
+        _classIndex = new(StringComparer.OrdinalIgnoreCase);
+        _typeIndex = new(StringComparer.OrdinalIgnoreCase);
+        _universalIndex = [];
+        _candidateStamps = new int[_orderedRules.Length];
+
+        for (var index = 0; index < _orderedRules.Length; index++)
+        {
+            var rule = _orderedRules[index];
+            if (rule.PseudoElement.Length > 0) continue;
+            if (!rule.TryGetMatchIndex(out var kind, out var key))
+            {
+                _universalIndex.Add(index);
+                continue;
+            }
+
+            var target = kind switch
+            {
+                SelectorIndexKind.Id => _idIndex,
+                SelectorIndexKind.Class => _classIndex,
+                SelectorIndexKind.Type => _typeIndex,
+                _ => null
+            };
+            if (target is null) _universalIndex.Add(index);
+            else
+            {
+                if (!target.TryGetValue(key, out var bucket)) target[key] = bucket = [];
+                bucket.Add(index);
+            }
+        }
+    }
+
+    private int NextCandidateStamp()
+    {
+        if (++_candidateStamp == int.MaxValue)
+        {
+            Array.Clear(_candidateStamps!);
+            _candidateStamp = 1;
+        }
+
+        return _candidateStamp;
+    }
+
+    private static int SelectorSignature(Panel panel)
+    {
+        unchecked
+        {
+            var signature = 17;
+            for (var current = panel; current is not null; current = current.Parent)
+            {
+                signature = signature * 31 + RuntimeHelpers.GetHashCode(current);
+                signature = signature * 31 + current.SelectorVersion;
+            }
+            return signature;
+        }
+    }
+
+    private void MarkCandidates(Panel panel, int stamp)
+    {
+        void Mark(List<int>? bucket)
+        {
+            if (bucket is null) return;
+            foreach (var index in bucket) _candidateStamps![index] = stamp;
+        }
+
+        Mark(_universalIndex);
+        if (!string.IsNullOrEmpty(panel.Id) && _idIndex!.TryGetValue(panel.Id, out var idRules)) Mark(idRules);
+        foreach (var className in panel.ClassesInternal)
+            if (_classIndex!.TryGetValue(className, out var classRules)) Mark(classRules);
+        if (_typeIndex!.TryGetValue(panel.TagName, out var typeRules)) Mark(typeRules);
     }
 
     /// <summary>True when the sheet carries at least one rule targeting the pseudo element.</summary>
@@ -859,14 +1018,36 @@ public sealed class StyleSheet
     /// </summary>
     internal void ComputeInto(Panel panel, ComputedStyle style)
     {
+        EnsureIndexes();
         var mediaEnabled = !_viewportSet;
-        var orderedRules = _orderedRules ??= _rules.OrderBy(rule => rule.Order).ToArray();
+        var orderedRules = _orderedRules!;
+        var stamp = NextCandidateStamp();
+        MarkCandidates(panel, stamp);
+        var signature = SelectorSignature(panel);
+        var cache = _matchCache.GetValue(panel, static _ => new MatchCache());
+        if (cache.Signature != signature)
+        {
+            cache.Signature = signature;
+            cache.Results.Clear();
+        }
+
         for (var i = 0; i < orderedRules.Length; i++)
         {
+            if (_candidateStamps![i] != stamp) continue;
             var rule = orderedRules[i];
-            if (!rule.Matches(panel)) continue;
             if (!mediaEnabled && rule.Media?.Matches(_viewportWidth, _viewportHeight) == false) continue;
-            Apply(style, rule.Properties);
+
+            bool matches;
+            if (rule.UsesComplexMatching)
+            {
+                if (!cache.Results.TryGetValue(i, out matches))
+                {
+                    matches = rule.Matches(panel);
+                    cache.Results[i] = matches;
+                }
+            }
+            else matches = rule.Matches(panel);
+            if (matches) Apply(style, rule.Properties);
         }
         Apply(style, panel.InlineStyle);
     }

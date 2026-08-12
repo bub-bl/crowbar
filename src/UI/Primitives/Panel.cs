@@ -58,8 +58,31 @@ public class Panel
     /// on every walk, the second-largest allocation type in the profiler.
     /// </summary>
     internal List<Panel> ChildrenInternal => _children;
-    public string TagName { get; set; } = "div";
-    public string? Id { get; set; }
+    internal HashSet<string> ClassesInternal => _classes;
+    /// <summary>Version of selector-visible state, incremented on this panel and its ancestors when it changes.</summary>
+    internal int SelectorVersion { get; private set; }
+    private string _tagName = "div";
+    public string TagName
+    {
+        get => _tagName;
+        set
+        {
+            if (string.Equals(_tagName, value, StringComparison.Ordinal)) return;
+            _tagName = value;
+            MarkStyleDirty();
+        }
+    }
+    private string? _id;
+    public string? Id
+    {
+        get => _id;
+        set
+        {
+            if (string.Equals(_id, value, StringComparison.Ordinal)) return;
+            _id = value;
+            MarkStyleDirty();
+        }
+    }
     public IReadOnlySet<string> Classes => _classes;
     public Dictionary<string, string> Attributes { get; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, string> InlineStyle { get; } = new(StringComparer.OrdinalIgnoreCase);
@@ -195,6 +218,7 @@ public class Panel
     {
         LayoutDirty = true;
         MarkDecorationDirty();
+        for (var current = this; current is not null; current = current.Parent) current.SelectorVersion++;
         Parent?.Invalidate();
     }
     /// <summary>
@@ -221,6 +245,7 @@ public class Panel
     {
         StyleDirty = true;
         MarkDecorationDirty();
+        for (var current = this; current is not null; current = current.Parent) current.SelectorVersion++;
         PaintDirty = true;
         for (var p = Parent; p is not null; p = p.Parent)
             if (p is ScreenPanel screen)

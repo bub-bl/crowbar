@@ -341,6 +341,24 @@ public class StyleSheetTests
     }
 
     [Fact]
+    public void IndexedCandidatesPreserveCascadeOrderAndInvalidateMatchingCache()
+    {
+        var sheet = StyleSheet.Parse("div { width: 10px; } .box { width: 20px; } #main { width: 30px; }");
+        var panel = PanelWithClass("box");
+        panel.TagName = "div";
+        panel.Id = "main";
+
+        // The rules come from different indexes (type, class and id), but CSS
+        // declaration order must still decide the winning value.
+        Assert.Equal(CssLength.Points(30), sheet.Compute(panel).Width);
+
+        // A selector-visible mutation must invalidate the memoized match result.
+        panel.Id = null;
+        panel.RemoveClass("box");
+        Assert.Equal(CssLength.Points(10), sheet.Compute(panel).Width);
+    }
+
+    [Fact]
     public void ParseHandlesCommentsFreeCssAndMultipleRules()
     {
         var sheet = StyleSheet.Parse(".a { width: 1px; } .b { width: 2px; }");
