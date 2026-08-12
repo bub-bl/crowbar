@@ -17,6 +17,11 @@
     <!-- SCSS → CSS à la compilation (DartSassBuilder). Lisible en Debug, minifié en Release. -->
     <DartSassOutputStyle>compressed</DartSassOutputStyle>
     <DartSassOutputStyle Condition="'$(Configuration)' == 'Debug'">expanded</DartSassOutputStyle>
+
+    <!-- The script hot reload IL fast path patches JIT code in place; tiered
+         compilation would later replace it with a promoted body, so Crowbar
+         ships with tiering disabled (predictable performance too). -->
+    <TieredCompilation>false</TieredCompilation>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,6 +30,9 @@
     <!-- Images referenced by the SCSS/CSS url() resolve against the app base
          directory, so they must land next to the compiled .razor files. -->
     <Content Include="Ui\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The demo gamemode script watched by the editor's ScriptHost (dev builds
+         resolve the repo copy; this covers published builds). -->
+    <None Include="..\..\Game\**\*.cs" Link="Game\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- Compile SCSS to CSS with dart-sass on build. DartSassBuilder scans

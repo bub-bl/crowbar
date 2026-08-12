@@ -5,6 +5,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- The IL fast path patches JIT code in place; tiered compilation would
+         replace it with a promoted body, so tests disable tiering (same
+         runtimeconfig as the editor). -->
+    <TieredCompilation>false</TieredCompilation>
   </PropertyGroup>
 
   <ItemGroup>

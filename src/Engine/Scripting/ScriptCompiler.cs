@@ -63,6 +63,20 @@ public sealed class ScriptCompiler
         return LoadAssembly(assemblyName, il, files);
     }
 
+    /// <summary>
+    /// Returns the syntax trees of the last compilation for an assembly name,
+    /// or false when the assembly has never been compiled. Used by the hot
+    /// reload to classify a change (body-only vs structural) against the
+    /// previous generation.
+    /// </summary>
+    public bool TryGetLastSyntaxTrees(string assemblyName, out IReadOnlyDictionary<string, SyntaxTree> trees)
+    {
+        if (_projects.TryGetValue(assemblyName, out var project))
+            return project.TryGetTrees(out trees);
+        trees = new Dictionary<string, SyntaxTree>(StringComparer.OrdinalIgnoreCase);
+        return false;
+    }
+
     private static ScriptAssembly LoadAssembly(string assemblyName, byte[] il, IReadOnlyList<string> files)
     {
         var loadContext = new AssemblyLoadContext($"Crowbar.Script.{assemblyName}.{Guid.NewGuid():N}", isCollectible: true);
@@ -104,6 +118,21 @@ public sealed class ScriptCompiler
         {
             _assemblyName = assemblyName;
             _references = references;
+        }
+
+        public bool TryGetTrees(out IReadOnlyDictionary<string, SyntaxTree> trees)
+        {
+            lock (_gate)
+            {
+                if (_trees.Count == 0)
+                {
+                    trees = new Dictionary<string, SyntaxTree>(StringComparer.OrdinalIgnoreCase);
+                    return false;
+                }
+
+                trees = _trees.ToDictionary(kv => kv.Key, kv => kv.Value.Tree, StringComparer.OrdinalIgnoreCase);
+                return true;
+            }
         }
 
         public byte[] Emit(IReadOnlyList<string> files)

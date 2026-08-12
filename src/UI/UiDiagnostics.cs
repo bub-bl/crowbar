@@ -20,4 +20,7 @@ public static class UiDiagnostics
 
     /// <summary>Network latency estimate in milliseconds (demo value today).</summary>
     public static float PingMs;
+
+    /// <summary>Live status line from the hosted game script (gamemode demo), or empty when none.</summary>
+    public static string ScriptStatus = string.Empty;
 }

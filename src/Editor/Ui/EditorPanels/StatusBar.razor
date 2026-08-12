@@ -9,6 +9,11 @@
 <div class="status-item">Mémoire:&#160;@UsedMemoryGb&#160;GB&#160;/&#160;@TotalMemoryGb&#160;GB</div>
 <div class="status-sep"></div>
 <div class="status-item">Ping:&#160;@((int)UiDiagnostics.PingMs)&#160;ms</div>
+@if (UiDiagnostics.ScriptStatus.Length > 0)
+{
+    <div class="status-sep"></div>
+    <div class="status-item">Script:&#160;@UiDiagnostics.ScriptStatus</div>
+}
 
 @code {
     // Time-bucketed like the page: the parent re-renders a few times per

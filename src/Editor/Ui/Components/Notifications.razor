@@ -1,0 +1,19 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+
+<div class="notifications">
+    @foreach (var n in UiNotifications.Notifications)
+    {
+        <div class="notification @(n.Kind)">
+            <div class="title">@n.Title</div>
+            <div class="message">@n.Message</div>
+        </div>
+    }
+</div>
+
+@code {
+    // Re-renders when a notification is added or pruned (the editor page also
+    // re-renders on a throttle, so toasts stay fresh either way).
+    protected override int BuildHash() => UiNotifications.Version;
+}

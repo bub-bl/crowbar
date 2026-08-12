@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.Numerics;
+using System.Reflection;
 using Crowbar.Engine;
 using Crowbar.Engine.InputSystem;
+using Crowbar.Engine.Scripting;
 using Crowbar.UI;
 
 namespace Crowbar.Editor;
@@ -18,6 +20,10 @@ internal static class Program
 /// </summary>
 internal sealed class DemoApplication : Application
 {
+    private ScriptHost? _scriptHost;
+    private readonly object? _gamemodeHolder = new GamemodeHolder();
+    private MethodInfo? _describe;
+
     protected override void OnInitialize()
     {
         // Le snapping du gizmo de translation suit la taille de cellule de la grille.
@@ -105,6 +111,27 @@ internal sealed class DemoApplication : Application
         Ui.Navigate("/editor");
         Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
         Ui.WatchDirectory(uiDirectory);
+
+        // Gamemode de démo : le dossier Game/ est compilé par un ScriptHost et
+        // rechargé à chaud à chaque édition (fast path IL si seuls les corps de
+        // méthodes changent, sinon full reload avec migration d'état).
+        _scriptHost = new ScriptHost();
+        _scriptHost.Reloaded += OnScriptReloaded;
+        _scriptHost.ReloadFailed += OnScriptReloadFailed;
+        try
+        {
+            var gameDirectory = ResolveGameDirectory();
+            _scriptHost.WatchDirectory(gameDirectory, "DemoGamemode");
+            ((GamemodeHolder)_gamemodeHolder!).Current = _scriptHost.Current!.CreateInstance("Game.DemoGamemode");
+            _scriptHost.WatchInstance(_gamemodeHolder!);
+            ResolveDescribe();
+            Console.WriteLine($"[Scripting] Gamemode chargé : {_scriptHost.Current!.TypesByFullName.Count} type(s) depuis {gameDirectory}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Scripting] Initial script load failed: {ex.Message}");
+            UiNotifications.Show("Script", "Échec du chargement initial du gamemode", "error");
+        }
     }
 
     /// <summary>
@@ -124,6 +151,11 @@ internal sealed class DemoApplication : Application
         UiDiagnostics.TotalMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
         UiDiagnostics.PingMs = 15f; // démo : pas encore de réseau
 
+        // Script host : applique les hot reloads détectés et nettoie les toasts.
+        _scriptHost?.Update();
+        UiNotifications.PruneExpired();
+        UiDiagnostics.ScriptStatus = DescribeGamemode();
+
         var renderer = Renderer;
         if (renderer is null)
             return;
@@ -140,11 +172,59 @@ internal sealed class DemoApplication : Application
             renderer.Gizmos.Selection = renderer.Gizmos.Pick(World, Camera, mouse, width, height);
     }
 
+    private string DescribeGamemode()
+    {
+        var holder = _gamemodeHolder as GamemodeHolder;
+        if (holder?.Current is not { } gamemode || _describe is null)
+            return string.Empty;
+        try
+        {
+            return _describe.Invoke(gamemode, null)?.ToString() ?? string.Empty;
+        }
+        catch (Exception)
+        {
+            return "(erreur de script)";
+        }
+    }
+
+    private void ResolveDescribe()
+    {
+        var holder = _gamemodeHolder as GamemodeHolder;
+        _describe = holder?.Current?.GetType().GetMethod("Describe");
+    }
+
+    private void OnScriptReloaded(ScriptReloadedEventArgs e)
+    {
+        var detail = e.Mode switch
+        {
+            ScriptReloadMode.FastPath => $"IL fast path : {e.PatchedMethods} méthode(s) patchée(s) en {e.Duration.TotalMilliseconds:0} ms",
+            ScriptReloadMode.FullReload => $"Full reload : {e.UpgradedInstances} instance(s) migrée(s) en {e.Duration.TotalMilliseconds:0} ms",
+            _ => $"Chargé en {e.Duration.TotalMilliseconds:0} ms"
+        };
+        Console.WriteLine($"[Scripting] Hot reload OK ({e.Mode}): {detail}");
+        UiNotifications.Show("Hot reload", detail, "success");
+        ResolveDescribe();
+    }
+
+    private static void OnScriptReloadFailed(ScriptReloadFailedEventArgs e)
+    {
+        Console.WriteLine($"[Scripting] Hot reload FAILED: {e.Error.Message}");
+        UiNotifications.Show("Hot reload", $"Échec : {e.Error.Message}", "error");
+    }
+
     private int ViewportWidth =>
         Math.Max(1, Window.FramebufferWidth > 0 ? Window.FramebufferWidth : Window.Width);
 
     private int ViewportHeight =>
         Math.Max(1, Window.FramebufferHeight > 0 ? Window.FramebufferHeight : Window.Height);
+
+    private static string ResolveGameDirectory()
+    {
+        // src/Editor/bin/Debug/net11.0 + 5× .. = racine du repo (dossier Game/).
+        var outputPath = Path.Combine(AppContext.BaseDirectory, "Game");
+        var sourcePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Game"));
+        return Directory.Exists(sourcePath) ? sourcePath : outputPath;
+    }
 
     private static string ResolveUiDirectory(string directory) =>
         ResolveUiPath(Path.Combine("Ui", directory), Directory.Exists);
@@ -155,4 +235,14 @@ internal sealed class DemoApplication : Application
         var sourcePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Editor", relativePath));
         return sourceExists(sourcePath) ? sourcePath : outputPath;
     }
+}
+
+/// <summary>
+/// Maintient la référence au gamemode de démo côté éditeur : le ScriptHost
+/// migre le champ Current à chaque full reload (comme un objet moteur), donc
+/// l'éditeur observe toujours la dernière génération sans se ré-attacher.
+/// </summary>
+internal sealed class GamemodeHolder
+{
+    public object? Current;
 }

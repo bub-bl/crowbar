@@ -97,6 +97,34 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void NotificationsRenderAsToastsAndPrune()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        UiNotifications.Show("Hot reload", "Full reload : 3 instance(s) migrée(s)", "success");
+
+        // The page's BuildHash is time-bucketed (Environment.TickCount / 400):
+        // wait for the next bucket so ui.Update() rebuilds the tree.
+        var deadline = ((Environment.TickCount / 400) + 1) * 400 + 50;
+        while (Environment.TickCount < deadline)
+            Thread.Sleep(5);
+        ui.Update();
+        ui.Render();
+
+        // The toast is rendered with its title and message text.
+        var toast = TestUi.Find(content, p => p.Classes.Contains("notification") && p.Classes.Contains("success"));
+        Assert.NotNull(toast);
+        Assert.Contains(TestUi.Texts(toast!), t => t.Contains("Hot reload", StringComparison.Ordinal));
+        Assert.Contains(TestUi.Texts(toast!), t => t.Contains("3 instance(s)", StringComparison.Ordinal));
+
+        // Version bumps so the component re-renders.
+        var versionBefore = UiNotifications.Version;
+        UiNotifications.Show("Hot reload", "IL fast path : 2 méthode(s) patchée(s)", "success");
+        Assert.True(UiNotifications.Version > versionBefore);
+    }
+
+    [Fact]
     public void CheckboxRowsKeepTheirOwnStateAcrossReRenders()
     {
         using var ui = CreateEditorUi();

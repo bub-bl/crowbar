@@ -45,6 +45,9 @@ internal sealed class HotReloadUpgrader : IUpgradeContext
 
     public void RegisterUpgraded(object old, object upgraded) => _upgraded[old] = upgraded;
 
+    /// <summary>Number of old-assembly objects replaced during the walk (identity map size).</summary>
+    public int UpgradedCount => _upgraded.Count;
+
     public object? Upgrade(object? value)
     {
         if (value is null)
