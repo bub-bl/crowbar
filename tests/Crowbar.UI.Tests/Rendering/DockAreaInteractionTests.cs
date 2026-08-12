@@ -10,6 +10,26 @@ namespace Crowbar.UI.Tests.Rendering;
 public class DockAreaInteractionTests
 {
     [Fact]
+    public void DockAreaSurvivesUpdateBeforeItsFirstRender()
+    {
+        var uiDir = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "src", "Editor", "Ui"));
+        using var ui = new UiSystem();
+        ui.SetViewport(1280, 720);
+        ui.RegisterRazorComponentsFromDirectory(uiDir);
+        ui.Navigate("/editor");
+
+        // This is the production startup order: the first update happens
+        // before the first render has assigned component layout rectangles.
+        // Render must defer the geometry-dependent DockArea rebuild until after
+        // that first layout pass; no second manual frame is required.
+        ui.Update();
+        ui.Render();
+
+        Assert.NotNull(FindDockTab(ui.Content!, "EXPLORATEUR"));
+        Assert.NotNull(FindDockTab(ui.Content!, "VIEWPORT"));
+    }
+
+    [Fact]
     public void DraggingTabToCenterOfAnotherGroupDocksItAsTab()
     {
         using var ui = EditorPageCompositionTests.CreateEditorUi();
@@ -121,6 +141,22 @@ public class DockAreaInteractionTests
         Assert.NotNull(FindDockTab(ui.Content!, "VIEWPORT"));
         Assert.Equal(6, tabs.Count);
         Assert.Empty(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-ghost")));
+    }
+
+    [Fact]
+    public void MovingPointerWithoutDraggingDoesNotRebuildTheDockTree()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var before = ui.Renderer.LayoutPasses;
+
+        // DockArea receives high-frequency mouse-move events even when no drag
+        // is active. The handler must not schedule a Razor rebuild or Yoga pass
+        // in that case.
+        ui.ProcessPointerMove(200, 100);
+        ui.Update();
+        ui.Render();
+
+        Assert.Equal(before, ui.Renderer.LayoutPasses);
     }
 
     [Fact]

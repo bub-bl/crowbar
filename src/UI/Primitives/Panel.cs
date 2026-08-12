@@ -45,6 +45,7 @@ public class Panel
     internal bool PaintDirty { get; private set; }
     /// <summary>Set when the cascade may produce a different style (classes, inline style, pseudo-state).</summary>
     internal bool StyleDirty { get; private set; }
+    internal bool StyleMayAffectLayout { get; private set; }
 
     private readonly HashSet<string> _scopeIds = new(StringComparer.OrdinalIgnoreCase);
     public IReadOnlySet<string> ScopeIds => _scopeIds;
@@ -210,6 +211,16 @@ public class Panel
         _children.Add(child);
         Invalidate();
     }
+    internal void ReplaceChild(Panel previous, Panel replacement)
+    {
+        var index = _children.IndexOf(previous);
+        if (index < 0) return;
+        previous.Parent = null;
+        replacement.Parent?._children.Remove(replacement);
+        replacement.Parent = this;
+        _children[index] = replacement;
+        Invalidate();
+    }
     public void RemoveChild(Panel child) { if (_children.Remove(child)) { child.Parent = null; Invalidate(); } }
     public void ClearChildren() { foreach (var child in _children) child.Parent = null; _children.Clear(); Invalidate(); }
     public void SetInlineStyle(string key, string value) { InlineStyle[key] = value; MarkStyleDirty(); }
@@ -241,9 +252,10 @@ public class Panel
             if (p is ScreenPanel screen) screen.AnyDecorationDirty = true;
     }
     /// <summary>Marks the panel's cascade inputs as changed (classes, inline style, pseudo-state).</summary>
-    internal void MarkStyleDirty()
+    internal void MarkStyleDirty(bool mayAffectLayout = true)
     {
         StyleDirty = true;
+        StyleMayAffectLayout |= mayAffectLayout;
         MarkDecorationDirty();
         for (var current = this; current is not null; current = current.Parent) current.SelectorVersion++;
         PaintDirty = true;
@@ -626,10 +638,10 @@ public class Panel
         if (value) PointerEnter?.Invoke(this); else PointerExit?.Invoke(this);
         // Pseudo-state feeds the cascade; the renderer re-runs it and only
         // reflows when a layout-affecting property actually changed.
-        MarkStyleDirty();
+        MarkStyleDirty(mayAffectLayout: false);
     }
-    internal void SetPressed(bool value) { if (IsPressed != value) { IsPressed = value; MarkStyleDirty(); } }
-    internal void SetFocused(bool value) { if (IsFocused != value) { IsFocused = value; MarkStyleDirty(); } }
+    internal void SetPressed(bool value) { if (IsPressed != value) { IsPressed = value; MarkStyleDirty(mayAffectLayout: false); } }
+    internal void SetFocused(bool value) { if (IsFocused != value) { IsFocused = value; MarkStyleDirty(mayAffectLayout: false); } }
     internal void RaisePointerMove(UiPointerEvent e) => PointerMove?.Invoke(this, e);
     internal void RaisePointerDown(UiPointerEvent e) => PointerDown?.Invoke(this, e);
     internal void RaisePointerUp(UiPointerEvent e) => PointerUp?.Invoke(this, e);
@@ -651,6 +663,7 @@ public class Panel
         LayoutDirty = false;
         PaintDirty = false;
         StyleDirty = false;
+        StyleMayAffectLayout = false;
         foreach (var child in _children) child.ClearDirty();
     }
 }

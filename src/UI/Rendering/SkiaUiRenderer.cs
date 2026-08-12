@@ -400,8 +400,9 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
 
     private void DrawPanel(SKCanvas canvas, SKSurface surface, Panel panel, float ox, float oy, float opacity, bool inTransform = false)
     {
-        var rect = new SKRect(panel.Layout.X + ox, panel.Layout.Y + oy, panel.Layout.Right + ox, panel.Layout.Bottom + oy);
         var style = panel.ComputedStyle;
+        if (!panel.IsVisible || style.Display.Equals("none", StringComparison.OrdinalIgnoreCase)) return;
+        var rect = new SKRect(panel.Layout.X + ox, panel.Layout.Y + oy, panel.Layout.Right + ox, panel.Layout.Bottom + oy);
         var transformed = style.HasTransform;
         // On the partial path, skip subtrees that cannot touch the damage: their
         // pixels are unchanged and stay in the backing bitmap. The cull uses the

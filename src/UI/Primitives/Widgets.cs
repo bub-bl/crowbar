@@ -261,7 +261,7 @@ public static class PanelExtensions
     /// </summary>
     public static Panel? HitTest(this Panel panel, float x, float y)
     {
-        if (!panel.IsVisible) return null;
+        if (!panel.IsVisible || panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
         var inside = x >= panel.Layout.X && x <= panel.Layout.Right && y >= panel.Layout.Y && y <= panel.Layout.Bottom;
 
         // A visible scrollbar owns its zone: report the container so the input

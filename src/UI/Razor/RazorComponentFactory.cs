@@ -393,6 +393,10 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         var firstRender = template.MarkBuilt(null);
         template.MarkChildContentBuilt();
         template.NotifyRendered(firstRender);
+        // Nested components retain the panel subtree currently attached to the
+        // screen. Replace it in place so a descendant render does not require
+        // rebuilding and re-laying out the entire page.
+        template.ReplaceRenderedTree(root);
         return root;
     }
 

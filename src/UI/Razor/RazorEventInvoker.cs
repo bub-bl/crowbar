@@ -46,7 +46,12 @@ internal static class RazorEventInvoker
         object?[] args = parameters.Length == 0 ? [] : [ConvertArgument(argument!, parameters[0].ParameterType)];
         var result = method.Invoke(target, args);
         if (result is Task task) task.GetAwaiter().GetResult();
-        if (target is PanelComponent component) component.StateHasChanged();
+        // Event handlers normally trigger a component render. A handler may
+        // return false to explicitly opt out for high-frequency events such as
+        // pointer move when no visible state changed.
+        var shouldRender = result is not bool render || render;
+        if (target is PanelComponent component && shouldRender)
+            component.StateHasChanged();
     }
 
     /// <summary>Reads a numeric member (field or property) of the target.</summary>

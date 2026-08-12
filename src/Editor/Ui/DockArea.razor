@@ -97,6 +97,7 @@
     private DragState? _drag;
     private PreviewState? _preview;
     private SplitterDragState? _splitDrag;
+    private bool _initialLayoutRefreshRequested;
 
     private sealed class DragState
     {
@@ -134,15 +135,11 @@
         public float StartY { get; }
     }
 
-    /// <summary>
-    /// Au tout premier rendu, le Layout du composant (la taille de la zone de
-    /// docking) n'a pas encore été calculé par le pass de layout : on demande
-    /// un rendu supplémentaire pour que les groupes obtiennent de vrais rects.
-    /// Une fois la zone mesurée, plus rien ne force de re-rendu ici.
-    /// </summary>
     protected override void OnTreeBuilt()
     {
-        if (Layout.Width <= 0 && Layout.Height <= 0) StateHasChanged();
+        if (_initialLayoutRefreshRequested) return;
+        _initialLayoutRefreshRequested = true;
+        StateHasChanged();
     }
 
     /// <summary>Disposition initiale : outils / explorateur / (viewport + bas) / inspecteur.</summary>
@@ -209,44 +206,43 @@
 
     // ---- Drag d'un onglet -------------------------------------------------
 
-    private void BeginTabDrag(UiPointerEvent e)
+    private bool BeginTabDrag(UiPointerEvent e)
     {
-        if (e.Button != 0) return;
+        if (e.Button != 0) return false;
         var item = HitTestTab(e.X, e.Y);
-        if (item is null) return;
+        if (item is null) return false;
         var group = _tree.GroupOf(item);
         if (group is not null) group.Active = group.Tabs.IndexOf(item);
         ComputeLayout();
         _drag = new DragState(item, e.X, e.Y);
         _preview = null;
-        StateHasChanged();
+        return true;
     }
 
-    private void OnPointerMove(UiPointerEvent e)
+    private bool OnPointerMove(UiPointerEvent e)
     {
         if (_splitDrag is not null)
         {
             UpdateSplitterDrag(e);
-            return;
+            return true;
         }
 
-        if (_drag is null) return;
+        if (_drag is null) return false;
         _drag.X = e.X;
         _drag.Y = e.Y;
         _preview = ComputeTarget(e.X, e.Y);
-        StateHasChanged();
+        return true;
     }
 
-    private void OnPointerUp(UiPointerEvent e)
+    private bool OnPointerUp(UiPointerEvent e)
     {
         if (_splitDrag is not null)
         {
             _splitDrag = null;
-            StateHasChanged();
-            return;
+            return true;
         }
 
-        if (_drag is null) return;
+        if (_drag is null) return false;
         var dx = e.X - _drag.StartX;
         var dy = e.Y - _drag.StartY;
         var moved = MathF.Sqrt(dx * dx + dy * dy);
@@ -259,7 +255,7 @@
             ApplyDock(_drag.ItemId, preview.GroupId, preview.Zone);
         _drag = null;
         _preview = null;
-        StateHasChanged();
+        return true;
     }
 
     private PreviewState? ComputeTarget(float x, float y)
@@ -320,13 +316,13 @@
 
     // ---- Redimensionnement des groupes -----------------------------------
 
-    private void BeginSplitterDrag(UiPointerEvent e)
+    private bool BeginSplitterDrag(UiPointerEvent e)
     {
-        if (e.Button != 0) return;
+        if (e.Button != 0) return false;
         var splitter = HitTestSplitter(e.X, e.Y);
-        if (splitter is null) return;
+        if (splitter is null) return false;
         _splitDrag = new SplitterDragState(splitter.Value.SplitId, splitter.Value.Index, e.X, e.Y);
-        StateHasChanged();
+        return true;
     }
 
     private void UpdateSplitterDrag(UiPointerEvent e)

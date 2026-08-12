@@ -135,6 +135,10 @@ internal static class HtmlPanelParser
                 () => componentSource.Create(typeArguments));
             if (element.Attribute("data-codex-ref") is { } refAttribute)
                 runtime.AddRef(CleanRefName(refAttribute.Value), child);
+            // Child state changes must invalidate the owning render scope so
+            // parent content and keyed siblings are reconciled correctly. The
+            // high-frequency DockArea pointer handler opts out explicitly by
+            // returning false from its event method.
             child.StateChanged = runtime.StateHasChanged;
             child.NavigationRequested = runtime.NavigationRequested;
             foreach (var attribute in element.Attributes())
@@ -205,6 +209,7 @@ internal static class HtmlPanelParser
             // to the child's root would leak parent scoped CSS (e.g. the page's
             // `root { height: ... }` rule) into every nested component root.
             parent.AddChild(childTree);
+            child.ReplaceRenderedTree(childTree);
             return;
         }
 

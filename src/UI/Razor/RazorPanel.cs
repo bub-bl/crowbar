@@ -88,6 +88,17 @@ public abstract class RazorPanel : PanelComponent, IComponent
     private readonly Dictionary<string, string> _childComponentTags = new(StringComparer.Ordinal);
     private readonly HashSet<string> _activeChildren = new(StringComparer.Ordinal);
     private bool _initialized;
+    // The rendered panel of a nested component is kept so a child-only render
+    // can replace its visual subtree without rebuilding the whole Razor page.
+    private Panel? _renderedTree;
+
+    internal void ReplaceRenderedTree(Panel fresh)
+    {
+        if (ReferenceEquals(_renderedTree, fresh)) return;
+        if (_renderedTree?.Parent is { } parent)
+            parent.ReplaceChild(_renderedTree, fresh);
+        _renderedTree = fresh;
+    }
 
     protected void WriteLiteral(string value) => _output.Append(value);
 

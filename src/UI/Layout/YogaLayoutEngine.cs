@@ -49,13 +49,17 @@ public sealed class YogaLayoutEngine
         var layoutChanged = false;
         if (root is ScreenPanel screen && screen.StyleDirtyRoots.Count > 0)
         {
+            var mayAffectLayout = screen.StyleDirtyRoots.Any(panel => panel.StyleMayAffectLayout);
             foreach (var dirty in screen.StyleDirtyRoots)
             {
                 var subtree = dirty.Parent ?? root;
                 ApplyStylesCore(subtree, sheet, subtree.Parent?.ComputedStyle, ref layoutChanged);
             }
 
-            return layoutChanged;
+            // Pseudo-state changes (hover/pressed/focus) normally affect only
+            // paint. Avoid escalating their cascade to Yoga when no mutation
+            // that can change geometry was recorded.
+            return mayAffectLayout && layoutChanged;
         }
 
         ApplyStylesCore(root, sheet, null, ref layoutChanged);
@@ -142,6 +146,11 @@ public sealed class YogaLayoutEngine
             panel.PseudoAfter = null;
         }
         if (!previous.LayoutPropsEqual(panel.ComputedStyle)) layoutChanged = true;
+        // display:none subtrees contribute neither layout nor paint. Do not
+        // cascade every descendant of an inactive dock tab on every layout
+        // pass; when the tab becomes visible, its parent is style-dirty and
+        // this branch is traversed again with the fresh inherited style.
+        if (panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase)) return;
         foreach (var child in panel.ChildrenInternal) ApplyStylesCore(child, sheet, panel.ComputedStyle, ref layoutChanged);
     }
 
@@ -220,11 +229,14 @@ public sealed class YogaLayoutEngine
         else if (style.AspectRatio > 0) node.Style.AspectRatio = new FloatOptional(style.AspectRatio);
         ApplyTextMeasure(node, panel, style, cache, intrinsicRatio, iconCache);
 
-        for (var i = 0; i < panel.Children.Count; i++)
+        if (!style.Display.Equals("none", StringComparison.OrdinalIgnoreCase))
         {
-            var child = BuildYogaTree(panel.Children[i], cache, iconCache);
-            node.InsertChild(child, (nuint)i);
-            child.SetOwner(node);
+            for (var i = 0; i < panel.Children.Count; i++)
+            {
+                var child = BuildYogaTree(panel.Children[i], cache, iconCache);
+                node.InsertChild(child, (nuint)i);
+                child.SetOwner(node);
+            }
         }
         return node;
     }
@@ -399,7 +411,7 @@ public sealed class YogaLayoutEngine
     {
         panel.MaxScrollX = 0;
         panel.MaxScrollY = 0;
-        if (panel.Children.Count == 0) return;
+        if (panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase) || panel.Children.Count == 0) return;
         var contentRight = 0f;
         var contentBottom = 0f;
         foreach (var child in panel.ChildrenInternal)

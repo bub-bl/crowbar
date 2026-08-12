@@ -245,7 +245,23 @@ public sealed partial class UiSystem : IDisposable
         return Path.ChangeExtension(razorPath, ".razor.css");
     }
 
-    public ReadOnlyMemory<byte> Render() => Renderer.Render(Screen);
+    public ReadOnlyMemory<byte> Render()
+    {
+        var pixels = Renderer.Render(Screen);
+
+        // A component can request its first geometry-dependent render while the
+        // tree is being built, before the renderer has assigned layout rects.
+        // Process that deferred request after the first layout pass, then paint
+        // the resulting tree. This keeps the normal Update -> Render frame order
+        // from displaying an empty DockArea on startup.
+        if (_razorRenderPending && Screen.Layout.Width > 0 && Screen.Layout.Height > 0)
+        {
+            RenderRazorIfNeeded();
+            pixels = Renderer.Render(Screen);
+        }
+
+        return pixels;
+    }
 
     /// <summary>
     /// Rebuilds the Razor tree when the root, or any component nested under it,
@@ -258,31 +274,52 @@ public sealed partial class UiSystem : IDisposable
     internal void RenderRazorIfNeeded()
     {
         if (_razorRoot is null) return;
+
         // A rebuild is due when the root was explicitly asked to re-render, or
         // when any component in the tree wants one (the status bar's
-        // time-bucketed BuildHash is the usual requestor). When only a
-        // descendant asks, the root build is forced: BuildTree then re-checks
-        // every component's own hash, so hash-stable siblings are untouched.
-        var force = _razorRenderPending || AnyComponentNeedsBuild(_razorRoot);
-        if (!force) return;
+        // time-bucketed BuildHash is the usual requestor). A hash-only update on
+        // a descendant can be rendered in place: rebuilding the page root would
+        // tear down and lay out the entire editor several times per second.
+        var dirtyComponents = _razorRoot.EnumerateComponents()
+            .Where(component => component.NeedsBuild() || component.NeedsContentRebuild())
+            .ToArray();
+        var rootNeedsBuild = dirtyComponents.Contains(_razorRoot);
+        if (!_razorRenderPending && dirtyComponents.Length == 0) return;
+        if (!rootNeedsBuild && dirtyComponents.Length > 0)
+        {
+            // On startup the engine updates before its first render. A nested
+            // component can still have a zero layout at that point; rebuilding
+            // it now would replace the initial DockArea output with a tree whose
+            // geometry-dependent groups have not been emitted yet. Let the
+            // renderer perform the first layout, then retry on the next update.
+            if (Screen.LayoutDirty ||
+                Screen.Layout.Width > 0 && Screen.Layout.Height > 0 &&
+                dirtyComponents.Any(component => component.Layout.Width <= 0 || component.Layout.Height <= 0))
+                return;
+
+            // A descendant can request a render without invalidating the page
+            // root. Rebuild only the dirty component; rebuilding the editor page
+            // here would recreate every dock wrapper and force a full layout.
+            var descendantFactory = _razorFactory ?? new RazorComponentFactory(_razorComponents);
+            foreach (var component in dirtyComponents)
+            {
+                if (component.NeedsBuild() || component.NeedsContentRebuild())
+                    descendantFactory.BuildTree(component, force: true);
+            }
+
+            _razorRenderPending = false;
+            return;
+        }
+        var factory = _razorFactory ?? new RazorComponentFactory(_razorComponents);
         if (!_razorRoot.CanRender())
         {
             _razorRoot.MarkRenderSkipped();
             _razorRenderPending = false;
             return;
         }
+
         _razorRenderPending = false;
-        SetContent((_razorFactory ?? new RazorComponentFactory(_razorComponents)).BuildTree(_razorRoot, force: true));
-    }
-
-    private static bool AnyComponentNeedsBuild(RazorPanel root)
-    {
-        foreach (var component in root.EnumerateComponents())
-        {
-            if (component.NeedsBuild() || component.NeedsContentRebuild()) return true;
-        }
-
-        return false;
+        SetContent(factory.BuildTree(_razorRoot, force: true));
     }
 
     /// <summary>Navigates to the page whose <c>@page</c> route matches <paramref name="url"/>.</summary>
