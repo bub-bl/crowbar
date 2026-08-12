@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.Diagnostics;
+
 namespace Crowbar.UI;
 
 public sealed partial class UiSystem
@@ -13,6 +16,7 @@ public sealed partial class UiSystem
     private DateTime _lastRazorWriteUtc;
     private DateTime _lastStyleWriteUtc;
     private DateTime _lastPollUtc = DateTime.MinValue;
+    private Task? _scssCompileTask;
 
     private bool _styleIsScoped;
 
@@ -48,8 +52,8 @@ public sealed partial class UiSystem
 
     /// <summary>Watches every .razor / .razor.css / .razor.scss file under <paramref name="directory"/>.
     /// On change the components are re-registered and the current page is reloaded.
-    /// Style sources are .razor.scss files compiled to .razor.css by DartSassBuilder
-    /// at build time, so a style edit takes effect once the project is rebuilt.</summary>
+    /// SCSS sources are compiled to their adjacent CSS files before the reload, so
+    /// edits to a .razor.scss file are visible without rebuilding the project.</summary>
     public void WatchDirectory(string directory)
     {
         StopWatching();
@@ -122,6 +126,18 @@ public sealed partial class UiSystem
         {
             if (_watchDirectory is not null)
             {
+                // Sass startup is expensive and must never run on the render
+                // thread. Compile all entry points in one tool invocation, then
+                // apply the resulting CSS on the next UI update.
+                if (_scssCompileTask is null)
+                {
+                    var directory = _watchDirectory;
+                    _scssCompileTask = Task.Run(() => CompileScssFiles(directory));
+                    return;
+                }
+                if (!_scssCompileTask.IsCompleted) return;
+                _scssCompileTask.GetAwaiter().GetResult();
+                _scssCompileTask = null;
                 RegisterRazorComponentsFromDirectory(_watchDirectory);
                 if (_currentRoute is not null && _pages.Contains(_currentRoute)) Navigate(CurrentUrl);
                 else if (_currentRoute is not null) { _currentRoute = null; ShowNotFound(CurrentUrl); }
@@ -203,6 +219,143 @@ public sealed partial class UiSystem
     }
 
     private static DateTime GetWriteTime(string path) => File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+
+    /// <summary>
+    /// Rebuilds the non-partial SCSS entry points before the directory reload.
+    /// DartSassBuilder is already a project dependency; its command-line tool is
+    /// used here so runtime compilation has exactly the same Sass semantics as a
+    /// normal build (including @use imports and nesting).
+    /// </summary>
+    private static void CompileScssFiles(string directory)
+    {
+        var scssPaths = Directory.EnumerateFiles(directory, "*.scss", SearchOption.AllDirectories)
+            .Where(path => !Path.GetFileName(path).StartsWith('_', StringComparison.Ordinal))
+            .ToArray();
+        if (scssPaths.Length == 0) return;
+        if (!TryCompileScss(scssPaths))
+            Console.WriteLine($"[UI] SCSS hot reload skipped: compiler unavailable for {scssPaths.Length} file(s).");
+    }
+
+    private static bool TryCompileScss(IReadOnlyList<string> scssPaths)
+    {
+        var compiler = FindSassCompiler();
+        if (compiler is null) return false;
+
+        if (!compiler.IsDartSassBuilder && scssPaths.Count > 1)
+        {
+            // The standalone Sass CLI only accepts one input/output pair; keep
+            // the fallback correct while the bundled builder remains batched.
+            foreach (var scssPath in scssPaths)
+                if (!TryCompileScss([scssPath])) return false;
+            return true;
+        }
+
+        var outputPaths = scssPaths.Select(path => Path.ChangeExtension(path, ".css")).ToArray();
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = compiler.FileName,
+            WorkingDirectory = Path.GetDirectoryName(scssPaths[0]) ?? AppContext.BaseDirectory,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+        foreach (var argument in compiler.PrefixArguments)
+            startInfo.ArgumentList.Add(argument);
+        if (compiler.IsDartSassBuilder)
+        {
+            startInfo.ArgumentList.Add("files");
+            foreach (var scssPath in scssPaths)
+                startInfo.ArgumentList.Add(scssPath);
+            startInfo.ArgumentList.Add("--outputstyle");
+            startInfo.ArgumentList.Add("expanded");
+        }
+        else
+        {
+            // The standalone Sass CLI accepts one input/output pair. The
+            // bundled DartSassBuilder path above is preferred because it can
+            // compile every entry point in one process.
+            foreach (var pair in scssPaths.Zip(outputPaths))
+            {
+                startInfo.ArgumentList.Add(pair.First);
+                startInfo.ArgumentList.Add(pair.Second);
+            }
+        }
+
+        try
+        {
+            using var process = Process.Start(startInfo);
+            if (process is null) return false;
+            var outputTask = process.StandardOutput.ReadToEndAsync();
+            var errorTask = process.StandardError.ReadToEndAsync();
+            process.WaitForExit(10_000);
+            if (!process.HasExited)
+            {
+                try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
+                Console.WriteLine($"[UI] SCSS compiler timed out for {Path.GetFileName(scssPaths[0])}.");
+                return false;
+            }
+
+            if (process.ExitCode != 0)
+            {
+                _ = outputTask.GetAwaiter().GetResult();
+                var error = errorTask.GetAwaiter().GetResult().Trim();
+                Console.WriteLine($"[UI] SCSS compile failed for {Path.GetFileName(scssPaths[0])}: {error}");
+                return false;
+            }
+            _ = outputTask.GetAwaiter().GetResult();
+            _ = errorTask.GetAwaiter().GetResult();
+            return outputPaths.All(File.Exists);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception)
+        {
+            Console.WriteLine($"[UI] SCSS compiler failed for {Path.GetFileName(scssPaths[0])}: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static SassCompilerCommand? FindSassCompiler()
+    {
+        var packageRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
+        var toolDirectory = Path.Combine(packageRoot, "dartsassbuilder", "1.1.0", "tool");
+        var executable = OperatingSystem.IsWindows() ? "DartSassBuilder.exe" : "DartSassBuilder";
+        var toolPath = Path.Combine(toolDirectory, executable);
+        if (File.Exists(toolPath)) return new SassCompilerCommand(toolPath, [], true);
+
+        var toolDll = Path.Combine(toolDirectory, "DartSassBuilder.dll");
+        if (File.Exists(toolDll)) return new SassCompilerCommand("dotnet", [toolDll], true);
+
+        // A globally installed Dart Sass CLI remains a useful fallback for
+        // published builds where the NuGet package cache is not available.
+        var sass = OperatingSystem.IsWindows() ? "sass.cmd" : "sass";
+        return CanStartCompiler(sass) ? new SassCompilerCommand(sass, [], false) : null;
+    }
+
+    private static bool CanStartCompiler(string fileName)
+    {
+        try
+        {
+            using var process = Process.Start(new ProcessStartInfo
+            {
+                FileName = fileName,
+                ArgumentList = { "--version" },
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            });
+            if (process is null) return false;
+            process.WaitForExit(2_000);
+            return process.HasExited && process.ExitCode == 0;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception)
+        {
+            return false;
+        }
+    }
+
+    private sealed record SassCompilerCommand(string FileName, IReadOnlyList<string> PrefixArguments, bool IsDartSassBuilder);
 
     private static void AdvanceCarets(Panel panel, float deltaTime)
     {
