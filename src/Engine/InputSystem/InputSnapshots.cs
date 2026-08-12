@@ -54,6 +54,13 @@ public interface IInputSource
     /// <summary>Shows or hides the OS cursor while it is over the window.</summary>
     void SetCursorVisible(bool visible);
 
+    /// <summary>
+    /// Shows a system cursor shape (the CSS <c>cursor</c> keywords: <c>pointer</c>,
+    /// <c>text</c>, <c>move</c>, resize arrows, ...). Unknown values keep the
+    /// current cursor; the platform maps the keyword to its system cursor.
+    /// </summary>
+    void SetCursorShape(string cursor);
+
     /// <summary>Enables or disables SDL's relative mouse mode (unbounded deltas).</summary>
     void SetRelativeMouseMode(bool enabled);
 

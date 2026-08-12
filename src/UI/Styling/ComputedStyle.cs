@@ -24,6 +24,8 @@ public sealed class ComputedStyle
     public string TextAlign { get; set; } = "left";
     public string VerticalAlign { get; set; } = "top";
     public string BoxSizing { get; set; } = "border-box";
+    /// <summary>Mouse cursor shown while the panel is hovered (<c>cursor</c> property).</summary>
+    public string Cursor { get; set; } = "auto";
 
     public CssLength Width { get; set; }
     public CssLength Height { get; set; }

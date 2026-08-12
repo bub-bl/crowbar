@@ -17,6 +17,10 @@ internal sealed unsafe class SdlInputSource : IInputSource
     private readonly Sdl _sdl;
     private readonly Window* _window;
     private readonly bool[] _keyboard = new bool[(int)Key.KeyCount];
+    // System cursor handles, keyed by kind. Stored as nint: Cursor* cannot be
+    // a generic type argument, and the handles live for the app lifetime.
+    private readonly Dictionary<SystemCursor, nint> _systemCursors = new();
+    private string _currentCursor = "auto";
     private float _scaleX = 1f;
     private float _scaleY = 1f;
     private int _lastX;
@@ -112,6 +116,46 @@ internal sealed unsafe class SdlInputSource : IInputSource
 
     public void SetCursorVisible(bool visible) =>
         _sdl.ShowCursor(visible ? 1 : 0);
+
+    public void SetCursorShape(string cursor)
+    {
+        // Skip the SDL call when the shape did not change: the UI re-asserts
+        // the cursor on every pointer move and every frame.
+        if (cursor == _currentCursor) return;
+        _currentCursor = cursor;
+        if (MapCursor(cursor) is not { } kind) return; // Unknown -> keep the OS cursor.
+        if (!_systemCursors.TryGetValue(kind, out var handle))
+        {
+            var created = _sdl.CreateSystemCursor(kind);
+            if (created is null) return;
+            handle = (nint)created;
+            _systemCursors[kind] = handle;
+        }
+        _sdl.SetCursor((Cursor*)handle);
+    }
+
+    /// <summary>
+    /// Maps a CSS <c>cursor</c> keyword to an SDL system cursor, or null for
+    /// unknown keywords. SDL has no zoom cursors: zoom-in/out fall back to
+    /// the hand. The SystemCursor handles are cached per kind and live for
+    /// the app lifetime (SDL frees them with the video subsystem).
+    /// </summary>
+    internal static SystemCursor? MapCursor(string cursor) => cursor.ToLowerInvariant() switch
+    {
+        "auto" or "default" or "help" => SystemCursor.SystemCursorArrow,
+        "pointer" or "grab" or "grabbing" or "zoom-in" or "zoom-out" => SystemCursor.SystemCursorHand,
+        "text" => SystemCursor.SystemCursorIbeam,
+        "crosshair" => SystemCursor.SystemCursorCrosshair,
+        "wait" => SystemCursor.SystemCursorWait,
+        "progress" => SystemCursor.SystemCursorWaitarrow,
+        "move" or "all-scroll" => SystemCursor.SystemCursorSizeall,
+        "ew-resize" or "col-resize" => SystemCursor.SystemCursorSizewe,
+        "ns-resize" or "row-resize" => SystemCursor.SystemCursorSizens,
+        "nesw-resize" => SystemCursor.SystemCursorSizenesw,
+        "nwse-resize" => SystemCursor.SystemCursorSizenwse,
+        "not-allowed" => SystemCursor.SystemCursorNo,
+        _ => null
+    };
 
     public void SetRelativeMouseMode(bool enabled) =>
         _sdl.SetRelativeMouseMode(enabled ? SdlBool.True : SdlBool.False);

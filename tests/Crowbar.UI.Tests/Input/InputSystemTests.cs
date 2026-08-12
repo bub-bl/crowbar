@@ -29,6 +29,8 @@ internal sealed class FakeInputSource : IInputSource
 
     public void SetCursorPosition(float x, float y) => LastWarp = new Vector2(x, y);
     public void SetCursorVisible(bool visible) => LastCursorVisible = visible;
+    public void SetCursorShape(string cursor) => LastCursorShape = cursor;
+    public string? LastCursorShape { get; private set; }
     public void SetRelativeMouseMode(bool enabled) => LastRelativeMode = enabled;
 
     public IDisposable CaptureMouse()

@@ -95,7 +95,11 @@ public abstract class Application : IDisposable
     private void WireUiInput()
     {
         var input = _window.Input;
-        input.PointerMoved += e => Ui.ProcessPointerMove(e.X, e.Y);
+        input.PointerMoved += e =>
+        {
+            Ui.ProcessPointerMove(e.X, e.Y);
+            ApplyUiCursor();
+        };
         input.PointerButtonChanged += e =>
         {
             if (e.IsDown) Ui.ProcessPointerDown(e.X, e.Y, (int)e.Button);
@@ -113,7 +117,14 @@ public abstract class Application : IDisposable
         OnUpdate(clamped);
         World.Update(clamped);
         Ui.Update(clamped);
+        // The hover cursor can change without a pointer move (a re-render, a
+        // scroll under a stationary cursor): re-assert it every frame. The
+        // platform skips the SDL call when the shape is unchanged.
+        ApplyUiCursor();
     }
+
+    /// <summary>Pushes the UI's resolved hover cursor to the OS cursor.</summary>
+    private void ApplyUiCursor() => InputSource.SetCursorShape(Ui.HoveredCursor);
 
     private void RenderFrame(double delta)
     {

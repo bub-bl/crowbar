@@ -27,6 +27,9 @@ public sealed partial class UiSystem
         // Hover tooltip: the deepest hovered panel with a `tooltip` attribute
         // (its own or inherited from an ancestor) is shown at the cursor.
         UpdateTooltip(hit, x, y);
+        // Hover cursor: the deepest hovered panel with an explicit `cursor`
+        // style (its own or inherited from an ancestor) is shown at the cursor.
+        UpdateCursor(hit);
         if (_captured is TextInput textInput) textInput.UpdatePointerSelection(x / Math.Max(0.01f, Screen.Scale));
         if (hit is not null)
         {
@@ -143,6 +146,29 @@ public sealed partial class UiSystem
             }
         }
         Renderer.SetTooltip(tooltip, x, y);
+    }
+
+    /// <summary>
+    /// Resolves the cursor to show while the pointer is over
+    /// <paramref name="hit"/>: the deepest hovered panel with an explicit
+    /// <c>cursor</c> style wins (a child's cursor overrides its ancestors',
+    /// matching CSS inheritance; <c>auto</c> means "not declared, keep
+    /// looking"). Nothing hovered leaves the UI, so the platform restores the
+    /// default arrow.
+    /// </summary>
+    private void UpdateCursor(Panel? hit)
+    {
+        var cursor = "auto";
+        for (var current = hit; current is not null; current = current.Parent)
+        {
+            var value = current.ComputedStyle.Cursor;
+            if (value != "auto")
+            {
+                cursor = value;
+                break;
+            }
+        }
+        HoveredCursor = cursor;
     }
 
     private void UpdatePressedPath(Panel? hit, bool pressed)

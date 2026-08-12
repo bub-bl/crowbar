@@ -24,6 +24,14 @@ public sealed partial class UiSystem : IDisposable
 
     /// <summary>URL of the currently displayed page, or <c>/</c> before any navigation.</summary>
     public string CurrentUrl { get; private set; } = "/";
+
+    /// <summary>
+    /// The cursor the platform should show while the pointer is over the UI:
+    /// the deepest hovered panel with an explicit <c>cursor</c> style wins
+    /// (resolved in <c>ProcessPointerMove</c>). The host reads this each frame
+    /// and applies it to the OS cursor.
+    /// </summary>
+    public string HoveredCursor { get; private set; } = "auto";
     /// <summary>Raised after a navigation, with the new URL.</summary>
     public event Action<string>? NavigationChanged;
     /// <summary>All routes discovered from <c>@page</c> directives.</summary>

@@ -59,6 +59,7 @@ root {
     border: 1px solid $border;
     color: $text;
     font-size: 10px;
+    cursor: text;
     padding: 0 6px;
     box-sizing: border-box;
 }
@@ -70,6 +71,7 @@ root {
     background-color: $panel-head;
     border: 1px solid $border;
     color: $text-muted;
+    cursor: pointer;
     font-size: 11px;
     text-align: center;
     vertical-align: center;
@@ -89,6 +91,7 @@ root {
     background-color: $input-bg;
     border: 1px dashed $border;
     color: $text-muted;
+    cursor: pointer;
     font-size: 10px;
     text-align: center;
     vertical-align: center;

@@ -38,6 +38,7 @@ root {
     width: 66px;
     height: 44px;
     color: $text-muted;
+    cursor: pointer;
     font-size: 12px;
     text-align: center;
     vertical-align: center;
@@ -71,6 +72,7 @@ root {
     height: 26px;
     border-radius: 4px;
     color: $text-muted;
+    cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -107,6 +109,7 @@ root {
     border-radius: 4px;
     background-color: $green;
     color: $text-bright;
+    cursor: pointer;
     font-size: 11px;
     text-align: center;
     vertical-align: center;
@@ -187,6 +190,7 @@ root {
     width: 46px;
     height: 44px;
     color: $text-muted;
+    cursor: pointer;
     font-size: 11px;
     text-align: center;
     vertical-align: center;

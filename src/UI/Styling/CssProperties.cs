@@ -127,6 +127,14 @@ public static class CssProperties
             "visible", "hidden", "scroll", "auto", "clip"));
         Register(Keyword("box-sizing", s => s.BoxSizing, (s, v) => s.BoxSizing = v, "border-box",
             "border-box", "content-box"));
+        // Mouse cursor shown while the panel is hovered. Values map to the
+        // platform's system cursors (SDL) at the input boundary; unknown
+        // values are ignored and fall back to the default arrow.
+        Register(Keyword("cursor", s => s.Cursor, (s, v) => s.Cursor = v, "auto",
+            "auto", "default", "pointer", "text", "crosshair", "move", "wait", "progress",
+            "help", "grab", "grabbing", "not-allowed", "ew-resize", "ns-resize",
+            "nesw-resize", "nwse-resize", "col-resize", "row-resize", "all-scroll",
+            "zoom-in", "zoom-out"));
         Register(Text("text-align", s => s.TextAlign, (s, v) => s.TextAlign = v, "left", inherited: true));
         Register(Text("vertical-align", s => s.VerticalAlign, (s, v) => s.VerticalAlign = v, "top", inherited: true));
 

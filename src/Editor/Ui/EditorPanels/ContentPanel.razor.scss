@@ -61,6 +61,7 @@ root {
     font-size: 10px;
     line-height: 20px;
     box-sizing: border-box;
+    cursor: pointer;
 
     &:hover {
         border-color: $accent;

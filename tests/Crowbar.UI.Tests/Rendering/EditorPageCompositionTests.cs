@@ -12,7 +12,7 @@ namespace Crowbar.UI.Tests.Rendering;
 /// </summary>
 public class EditorPageCompositionTests
 {
-    private static UiSystem CreateEditorUi()
+    internal static UiSystem CreateEditorUi()
     {
         var uiDir = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "src", "Editor", "Ui"));
         Assert.True(Directory.Exists(uiDir), $"Ui directory not found: {uiDir}");
