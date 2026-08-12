@@ -25,10 +25,24 @@ public sealed class SvgIconCache
     public static SvgIconCache Shared { get; } = new();
 
     /// <summary>Directory icon names are resolved against (defaults to <c>Assets/Icons</c> in the app base directory).</summary>
-    public string ContentRoot { get; set; } = Path.Combine(AppContext.BaseDirectory, "Assets", "Icons");
+    private string _contentRoot = Path.Combine(AppContext.BaseDirectory, "Assets", "Icons");
+    public string ContentRoot
+    {
+        get => _contentRoot;
+        set
+        {
+            if (string.Equals(_contentRoot, value, StringComparison.Ordinal)) return;
+            _contentRoot = value;
+            Clear();
+        }
+    }
 
     private readonly Dictionary<string, SKImage> _raster = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (float Width, float Height)> _intrinsic = new(StringComparer.OrdinalIgnoreCase);
+    // Resolving an icon currently requires File.Exists. Cache both successful
+    // and missing resolutions so the paint pass does not hit the filesystem on
+    // every frame. Clear() invalidates this when assets are reloaded.
+    private readonly Dictionary<string, string?> _resolved = new(StringComparer.OrdinalIgnoreCase);
     // The shared cache is used by every renderer in the process (tests render
     // in parallel, and hosts may load icons off the render thread); guard the
     // dictionaries so concurrent Get/Clear never corrupt them.
@@ -115,6 +129,7 @@ public sealed class SvgIconCache
             foreach (var image in _raster.Values) image.Dispose();
             _raster.Clear();
             _intrinsic.Clear();
+            _resolved.Clear();
         }
     }
 
@@ -138,8 +153,15 @@ public sealed class SvgIconCache
         var normalized = name.Replace('\\', '/');
         if (normalized.StartsWith('/') || normalized.Contains("..", StringComparison.Ordinal) ||
             normalized.IndexOfAny(InvalidNameChars) >= 0) return null;
-        var path = Path.Combine(ContentRoot, normalized + ".svg");
-        return File.Exists(path) ? path : null;
+
+        lock (_lock)
+        {
+            if (_resolved.TryGetValue(normalized, out var cached)) return cached;
+            var path = Path.Combine(_contentRoot, normalized + ".svg");
+            var resolved = File.Exists(path) ? path : null;
+            _resolved[normalized] = resolved;
+            return resolved;
+        }
     }
 
     /// <summary>

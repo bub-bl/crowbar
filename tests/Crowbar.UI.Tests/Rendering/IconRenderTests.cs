@@ -104,6 +104,22 @@ public class IconRenderTests : IDisposable
     }
 
     [Fact]
+    public void ChangingContentRootInvalidatesResolvedAssets()
+    {
+        using var secondRoot = TestUi.TempDir("icons-second");
+        secondRoot.Write("square.svg", """
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="currentColor"/></svg>
+            """);
+
+        var cache = new SvgIconCache { ContentRoot = _tmp.Path };
+        Assert.NotNull(cache.Get("square", SKColors.Red, 16, 16));
+
+        cache.ContentRoot = secondRoot.Path;
+        Assert.NotNull(cache.Get("square", SKColors.Blue, 16, 16));
+        cache.Clear();
+    }
+
+    [Fact]
     public void TraversalNamesAreRejected()
     {
         var cache = new SvgIconCache { ContentRoot = _tmp.Path };
