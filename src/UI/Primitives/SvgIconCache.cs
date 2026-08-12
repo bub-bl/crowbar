@@ -29,6 +29,10 @@ public sealed class SvgIconCache
 
     private readonly Dictionary<string, SKImage> _raster = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (float Width, float Height)> _intrinsic = new(StringComparer.OrdinalIgnoreCase);
+    // The shared cache is used by every renderer in the process (tests render
+    // in parallel, and hosts may load icons off the render thread); guard the
+    // dictionaries so concurrent Get/Clear never corrupt them.
+    private readonly object _lock = new();
 
     /// <summary>
     /// Gets the icon rasterized to exactly <paramref name="width"/> x
@@ -45,7 +49,10 @@ public sealed class SvgIconCache
         if (path is null) return null;
 
         var key = $"{path}|{tint.Red}-{tint.Green}-{tint.Blue}|{width}x{height}";
-        if (_raster.TryGetValue(key, out var cached)) return cached;
+        lock (_lock)
+        {
+            if (_raster.TryGetValue(key, out var cached)) return cached;
+        }
 
         using var source = SvgSource.Load(path, tint);
         if (source is null) return null;
@@ -59,9 +66,11 @@ public sealed class SvgIconCache
         }
 
         // SKImage.FromBitmap keeps the bitmap's pixels alive: the image is the
-        // cache entry and owns them until Clear().
+        // cache entry and owns them until Clear(). A concurrent duplicate
+        // decode simply replaces the entry; the loser is still returned to its
+        // caller and reclaimed once unused.
         var image = SKImage.FromBitmap(bitmap);
-        _raster[key] = image;
+        lock (_lock) _raster[key] = image;
         return image;
     }
 
@@ -77,11 +86,14 @@ public sealed class SvgIconCache
         if (string.IsNullOrWhiteSpace(name)) return false;
         var path = Resolve(name);
         if (path is null) return false;
-        if (_intrinsic.TryGetValue(path, out var known))
+        lock (_lock)
         {
-            width = known.Width;
-            height = known.Height;
-            return true;
+            if (_intrinsic.TryGetValue(path, out var known))
+            {
+                width = known.Width;
+                height = known.Height;
+                return true;
+            }
         }
 
         // Intrinsic size does not depend on the tint: any opaque color works.
@@ -91,16 +103,19 @@ public sealed class SvgIconCache
         if (bounds.Width <= 0f || bounds.Height <= 0f) return false;
         width = bounds.Width;
         height = bounds.Height;
-        _intrinsic[path] = (width, height);
+        lock (_lock) _intrinsic[path] = (width, height);
         return true;
     }
 
     /// <summary>Drops every cached raster and intrinsic measurement.</summary>
     public void Clear()
     {
-        foreach (var image in _raster.Values) image.Dispose();
-        _raster.Clear();
-        _intrinsic.Clear();
+        lock (_lock)
+        {
+            foreach (var image in _raster.Values) image.Dispose();
+            _raster.Clear();
+            _intrinsic.Clear();
+        }
     }
 
     // Subfolder paths are allowed (e.g. the Solar pack lives in

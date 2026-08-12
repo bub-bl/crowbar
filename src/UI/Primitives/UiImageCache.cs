@@ -20,6 +20,10 @@ public sealed class UiImageCache
     public string ContentRoot { get; set; } = AppContext.BaseDirectory;
 
     private readonly Dictionary<string, SKImage> _images = new(StringComparer.OrdinalIgnoreCase);
+    // The shared cache is used by every renderer in the process (tests render
+    // in parallel, and hosts may load images off the render thread); guard the
+    // dictionary so concurrent Register/Get/Clear never corrupt it.
+    private readonly object _lock = new();
 
     /// <summary>
     /// Registers an image under a source key without touching the disk. This is
@@ -31,17 +35,26 @@ public sealed class UiImageCache
     {
         ArgumentNullException.ThrowIfNull(source);
         ArgumentNullException.ThrowIfNull(image);
-        if (_images.TryGetValue(source, out var previous)) previous.Dispose();
-        _images[source] = image;
+        lock (_lock)
+        {
+            if (_images.TryGetValue(source, out var previous)) previous.Dispose();
+            _images[source] = image;
+        }
     }
 
     /// <summary>Gets the decoded image for a source, or null when it cannot be loaded.</summary>
     public SKImage? Get(string source)
     {
         if (string.IsNullOrWhiteSpace(source)) return null;
-        if (_images.TryGetValue(source, out var cached)) return cached;
+        lock (_lock)
+        {
+            if (_images.TryGetValue(source, out var cached)) return cached;
+        }
         var decoded = Decode(source);
-        if (decoded is not null) _images[source] = decoded;
+        if (decoded is not null)
+        {
+            lock (_lock) _images[source] = decoded;
+        }
         return decoded;
     }
 
@@ -66,8 +79,11 @@ public sealed class UiImageCache
     /// <summary>Drops every cached image (disposing the decoded bitmaps).</summary>
     public void Clear()
     {
-        foreach (var image in _images.Values) image.Dispose();
-        _images.Clear();
+        lock (_lock)
+        {
+            foreach (var image in _images.Values) image.Dispose();
+            _images.Clear();
+        }
     }
 
     private SKImage? Decode(string source)

@@ -17,6 +17,11 @@ internal enum AnimationState
 public class Panel
 {
     private readonly List<Panel> _children = [];
+    // Cached read-only view: the previous `new ReadOnlyCollection` per access
+    // was the top GC allocation type in the profiler (every cascade and paint
+    // pass touches Children for every panel). The wrapper observes the backing
+    // list by reference, so it stays valid as children are added/removed.
+    private IReadOnlyList<Panel>? _childrenView;
     private readonly HashSet<string> _classes = new(StringComparer.OrdinalIgnoreCase);
 
     // Styling state: _styleTarget is the last applied resting (non-animated)
@@ -41,7 +46,15 @@ public class Panel
     private readonly HashSet<string> _scopeIds = new(StringComparer.OrdinalIgnoreCase);
     public IReadOnlySet<string> ScopeIds => _scopeIds;
     public Panel? Parent { get; private set; }
-    public IReadOnlyList<Panel> Children => new ReadOnlyCollection<Panel>(_children);
+    public IReadOnlyList<Panel> Children => _childrenView ??= new ReadOnlyCollection<Panel>(_children);
+    /// <summary>
+    /// The backing list of <see cref="Children"/>. Per-frame tree walks
+    /// (cascade, layout, paint) iterate the concrete <see cref="List{T}"/> so
+    /// the struct enumerator is never boxed — a <c>foreach</c> over the
+    /// <c>IReadOnlyList&lt;Panel&gt;</c> interface allocates an <c>IEnumerator</c>
+    /// on every walk, the second-largest allocation type in the profiler.
+    /// </summary>
+    internal List<Panel> ChildrenInternal => _children;
     public string TagName { get; set; } = "div";
     public string? Id { get; set; }
     public IReadOnlySet<string> Classes => _classes;
@@ -193,7 +206,12 @@ public class Panel
         StyleDirty = true;
         PaintDirty = true;
         for (var p = Parent; p is not null; p = p.Parent)
-            if (p is ScreenPanel screen) { screen.AnyPaintDirty = true; screen.AnyStyleDirty = true; }
+            if (p is ScreenPanel screen)
+            {
+                screen.AnyPaintDirty = true;
+                screen.AnyStyleDirty = true;
+                screen.AddStyleDirtyRoot(this);
+            }
     }
     internal void ApplyComputedStyle(ComputedStyle target)
     {
@@ -623,6 +641,22 @@ public sealed class ScreenPanel : Panel
         if (!_inheritanceDirtyRoots.Contains(panel)) _inheritanceDirtyRoots.Add(panel);
     }
     internal void ClearInheritanceDirtyRoots() => _inheritanceDirtyRoots.Clear();
+
+    // The panels whose cascade inputs changed (classes, inline style,
+    // pseudo-state) this frame; the style pass re-cascades only their parent's
+    // subtree instead of the whole tree. A panel's state change can alter the
+    // match of descendant/child selectors (its descendants) and of
+    // adjacent/general-sibling selectors (its siblings and their descendants),
+    // so the parent's subtree is exactly the affected set. Tiny by design (one
+    // entry per mutated panel per frame), cleared after each refresh.
+    private readonly List<Panel> _styleDirtyRoots = [];
+
+    internal IReadOnlyList<Panel> StyleDirtyRoots => _styleDirtyRoots;
+    internal void AddStyleDirtyRoot(Panel panel)
+    {
+        if (!_styleDirtyRoots.Contains(panel)) _styleDirtyRoots.Add(panel);
+    }
+    internal void ClearStyleDirtyRoots() => _styleDirtyRoots.Clear();
 
     public void SetViewport(float width, float height)
     {

@@ -208,7 +208,7 @@ public sealed partial class UiSystem
     private static IEnumerable<ToggleInput> AllToggles(Panel panel)
     {
         if (panel is ToggleInput toggle) yield return toggle;
-        foreach (var child in panel.Children)
+        foreach (var child in panel.ChildrenInternal)
             foreach (var nested in AllToggles(child)) yield return nested;
     }
 
@@ -279,7 +279,7 @@ public sealed partial class UiSystem
     private static IEnumerable<TextInput> Inputs(Panel panel)
     {
         if (panel is TextInput input) yield return input;
-        foreach (var child in panel.Children)
+        foreach (var child in panel.ChildrenInternal)
             foreach (var nested in Inputs(child)) yield return nested;
     }
 }

@@ -230,10 +230,12 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         if (root.AnyStyleDirty)
         {
             if (YogaLayoutEngine.ApplyStylesTracked(root, StyleSheet)) needsLayout = true;
-            root.AnyInheritedDirty = false;
-            root.ClearInheritanceDirtyRoots();
         }
-        else if (root.AnyInheritedDirty && !needsLayout)
+        // The style pass re-applies inheritance inside the re-cascaded subtrees
+        // but no longer walks the whole tree, so inherited-property animations
+        // on panels outside those subtrees still need the refresh below. Panels
+        // inside the re-cascaded subtrees are re-applied idempotently.
+        if (root.AnyInheritedDirty && !needsLayout)
         {
             // Scope the inheritance refresh to the subtrees of the animated
             // panels that moved an inherited property, instead of walking the
@@ -285,6 +287,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 root.AnyStyleDirty = false;
                 root.AnyInheritedDirty = false;
                 root.ClearInheritanceDirtyRoots();
+                root.ClearStyleDirtyRoots();
                 root.ClearDirty();
                 return _pixels;
             }
@@ -363,6 +366,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         root.AnyStyleDirty = false;
         root.AnyInheritedDirty = false;
         root.ClearInheritanceDirtyRoots();
+        root.ClearStyleDirtyRoots();
         _forceFull = false;
         _dirty = false;
         return _pixels;
@@ -869,7 +873,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     /// </summary>
     private void DrawChildren(SKCanvas canvas, SKSurface surface, Panel panel, float ox, float oy, float opacity, bool inTransform)
     {
-        var children = panel.Children;
+        var children = panel.ChildrenInternal;
         if (children.Count > 1 && children.Any(child => child.ComputedStyle.ZIndex != 0))
         {
             foreach (var child in children.OrderBy(child => child.ComputedStyle.ZIndex))
@@ -1468,10 +1472,10 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                     if (transformed) rect = TransformBounds(rect, style);
                     // Scrolled containers: the content is painted shifted by the
                     // scroll offset, so the damage must cover the content extents.
-                    if ((panel.ScrollX != 0 || panel.ScrollY != 0) && panel.Children.Count > 0)
+                    if ((panel.ScrollX != 0 || panel.ScrollY != 0) && panel.ChildrenInternal.Count > 0)
                     {
                         var content = new SKRect(float.MaxValue, float.MaxValue, float.MinValue, float.MinValue);
-                        foreach (var child in panel.Children)
+                        foreach (var child in panel.ChildrenInternal)
                         {
                             content.Left = Math.Min(content.Left, child.Layout.X - panel.ScrollX);
                             content.Top = Math.Min(content.Top, child.Layout.Y - panel.ScrollY);
@@ -1494,7 +1498,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 style.BorderRadius, style.Opacity * opacity, style.BackgroundColor, style.BackdropFilter));
         }
 
-        foreach (var child in panel.Children)
+        foreach (var child in panel.ChildrenInternal)
             if (CollectDamage(child, effectiveTransform, opacity)) full = true;
         return full;
     }
@@ -1519,7 +1523,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var margin = PaintExtentMargin(style);
         if (margin > 0) bounds.Inflate(margin, margin);
         var hasTransform = inTransform || style.HasTransform;
-        foreach (var child in panel.Children)
+        foreach (var child in panel.ChildrenInternal)
         {
             var (childBounds, childTransform) = ComputeSubtreePaintBounds(child, hasTransform);
             bounds = Union(bounds, new SKRect(childBounds.X, childBounds.Y, childBounds.Right, childBounds.Bottom));
@@ -1792,7 +1796,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // Children paint shifted by this panel's scroll offset (DrawChildren).
         var childOx = ox - panel.ScrollX;
         var childOy = oy - panel.ScrollY;
-        var children = panel.Children;
+        var children = panel.ChildrenInternal;
         if (children.Count > 1 && children.Any(child => child.ComputedStyle.ZIndex != 0))
         {
             foreach (var child in children.OrderBy(child => child.ComputedStyle.ZIndex))
@@ -2049,7 +2053,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             }
         }
 
-        foreach (var child in panel.Children)
+        foreach (var child in panel.ChildrenInternal)
             CollectCrossingPaints(child, damage, ref union, ox - panel.ScrollX, oy - panel.ScrollY);
     }
 

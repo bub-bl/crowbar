@@ -30,15 +30,34 @@ public sealed class YogaLayoutEngine
     }
 
     /// <summary>
-    /// Re-runs the cascade over the whole tree (without Yoga) and returns true
-    /// when any layout-affecting property changed anywhere — in which case the
-    /// caller must run a full layout pass. Used for style-only invalidations
+    /// Re-runs the cascade (without Yoga) and returns true when any
+    /// layout-affecting property changed anywhere — in which case the caller
+    /// must run a full layout pass. Used for style-only invalidations
     /// (classes, inline styles, pseudo-state): most of the time only paint
     /// changes, and the layout is skipped entirely.
     /// </summary>
+    /// <remarks>
+    /// The re-cascade is scoped to the subtrees that can actually be affected:
+    /// a mutated panel's state can change the match of descendant/child
+    /// selectors (its descendants) and of adjacent/general-sibling selectors
+    /// (its siblings and their descendants), so the parent's subtree is exactly
+    /// the affected set. Re-cascading the whole tree for a single hover change
+    /// was the dominant per-frame cost in the profiler.
+    /// </remarks>
     public static bool ApplyStylesTracked(Panel root, StyleSheet? sheet)
     {
         var layoutChanged = false;
+        if (root is ScreenPanel screen && screen.StyleDirtyRoots.Count > 0)
+        {
+            foreach (var dirty in screen.StyleDirtyRoots)
+            {
+                var subtree = dirty.Parent ?? root;
+                ApplyStylesCore(subtree, sheet, subtree.Parent?.ComputedStyle, ref layoutChanged);
+            }
+
+            return layoutChanged;
+        }
+
         ApplyStylesCore(root, sheet, null, ref layoutChanged);
         return layoutChanged;
     }
@@ -55,7 +74,7 @@ public sealed class YogaLayoutEngine
     public static bool ApplyInheritanceOnly(Panel root)
     {
         var layoutChanged = false;
-        foreach (var child in root.Children) ApplyInheritance(child, root.ComputedStyle, ref layoutChanged);
+        foreach (var child in root.ChildrenInternal) ApplyInheritance(child, root.ComputedStyle, ref layoutChanged);
         return layoutChanged;
     }
 
@@ -69,7 +88,7 @@ public sealed class YogaLayoutEngine
     public static bool ApplyInheritanceSubtree(Panel root)
     {
         var layoutChanged = false;
-        foreach (var child in root.Children) ApplyInheritance(child, root.ComputedStyle, ref layoutChanged);
+        foreach (var child in root.ChildrenInternal) ApplyInheritance(child, root.ComputedStyle, ref layoutChanged);
         return layoutChanged;
     }
 
@@ -79,7 +98,7 @@ public sealed class YogaLayoutEngine
         panel.RestoreRestingStyle();
         ApplyInherited(panel.ComputedStyle, inherited);
         if (!previous.LayoutPropsEqual(panel.ComputedStyle)) layoutChanged = true;
-        foreach (var child in panel.Children) ApplyInheritance(child, panel.ComputedStyle, ref layoutChanged);
+        foreach (var child in panel.ChildrenInternal) ApplyInheritance(child, panel.ComputedStyle, ref layoutChanged);
     }
 
     private static void ApplyStyles(Panel panel, StyleSheet? sheet, ComputedStyle? inherited)
@@ -129,7 +148,7 @@ public sealed class YogaLayoutEngine
             panel.PseudoAfter = null;
         }
         if (!previous.LayoutPropsEqual(panel.ComputedStyle)) layoutChanged = true;
-        foreach (var child in panel.Children) ApplyStylesCore(child, sheet, panel.ComputedStyle, ref layoutChanged);
+        foreach (var child in panel.ChildrenInternal) ApplyStylesCore(child, sheet, panel.ComputedStyle, ref layoutChanged);
     }
 
     /// <summary>
@@ -389,7 +408,7 @@ public sealed class YogaLayoutEngine
         if (panel.Children.Count == 0) return;
         var contentRight = 0f;
         var contentBottom = 0f;
-        foreach (var child in panel.Children)
+        foreach (var child in panel.ChildrenInternal)
         {
             contentRight = Math.Max(contentRight, child.Layout.Right + child.LayoutMargin.Right - panel.Layout.X);
             contentBottom = Math.Max(contentBottom, child.Layout.Bottom + child.LayoutMargin.Bottom - panel.Layout.Y);

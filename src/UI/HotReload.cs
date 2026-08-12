@@ -360,13 +360,13 @@ public sealed partial class UiSystem
     private static void AdvanceCarets(Panel panel, float deltaTime)
     {
         if (panel is TextInput input) input.AdvanceCaret(deltaTime);
-        foreach (var child in panel.Children) AdvanceCarets(child, deltaTime);
+        foreach (var child in panel.ChildrenInternal) AdvanceCarets(child, deltaTime);
     }
 
     private static bool AdvanceAnimations(Panel panel, float deltaTime)
     {
         var animated = panel.AdvanceStyleAnimation(deltaTime);
-        foreach (var child in panel.Children) animated |= AdvanceAnimations(child, deltaTime);
+        foreach (var child in panel.ChildrenInternal) animated |= AdvanceAnimations(child, deltaTime);
         return animated;
     }
 

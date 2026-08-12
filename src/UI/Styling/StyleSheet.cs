@@ -355,7 +355,7 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
         private static bool IsFocusedWithin(Panel panel)
         {
             if (panel.IsFocused) return true;
-            foreach (var child in panel.Children)
+            foreach (var child in panel.ChildrenInternal)
                 if (IsFocusedWithin(child)) return true;
             return false;
         }
