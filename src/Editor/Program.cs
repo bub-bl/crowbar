@@ -147,7 +147,10 @@ internal sealed class DemoApplication : Application
         // Live values for the editor status bar (FPS, memory, latency). The
         // editor page re-renders on a throttle and reads these statics.
         UiDiagnostics.Fps = 1f / Math.Max(1e-4f, deltaTime);
-        UiDiagnostics.UsedMemoryBytes = GC.GetTotalMemory(false);
+        // GC.GetTotalMemory only reports the managed heap and is not a useful
+        // measure of the application's footprint. Use the process working set
+        // so native/GPU allocations are included as well.
+        UiDiagnostics.UsedMemoryBytes = Environment.WorkingSet;
         UiDiagnostics.TotalMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
         UiDiagnostics.PingMs = 15f; // démo : pas encore de réseau
 

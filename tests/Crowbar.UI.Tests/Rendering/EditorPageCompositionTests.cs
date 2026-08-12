@@ -47,6 +47,32 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void StatusBarDisplaysApplicationMemoryWithUsefulUnits()
+    {
+        var previousUsed = UiDiagnostics.UsedMemoryBytes;
+        var previousTotal = UiDiagnostics.TotalMemoryBytes;
+        try
+        {
+            UiDiagnostics.UsedMemoryBytes = 128 * 1_048_576;
+            UiDiagnostics.TotalMemoryBytes = 4L * 1_073_741_824;
+
+            using var ui = CreateEditorUi();
+            var memory = FindText(ui.Content!, "status-item",
+                text => text.StartsWith("Mémoire:", StringComparison.Ordinal));
+
+            Assert.NotNull(memory);
+            var memoryText = Assert.Single(TestUi.Texts(memory!));
+            Assert.Contains(UiDiagnostics.FormatMemory(UiDiagnostics.UsedMemoryBytes), memoryText);
+            Assert.Contains(UiDiagnostics.FormatMemory(UiDiagnostics.TotalMemoryBytes), memoryText);
+        }
+        finally
+        {
+            UiDiagnostics.UsedMemoryBytes = previousUsed;
+            UiDiagnostics.TotalMemoryBytes = previousTotal;
+        }
+    }
+
+    [Fact]
     public void ScopedStylesApplyAcrossTheComponentBoundary()
     {
         using var ui = CreateEditorUi();

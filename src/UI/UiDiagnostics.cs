@@ -12,7 +12,7 @@ public static class UiDiagnostics
     /// <summary>Current frame rate (frames per second).</summary>
     public static float Fps;
 
-    /// <summary>Managed heap bytes in use (GC.GetTotalMemory).</summary>
+    /// <summary>Application working-set bytes in use, including native allocations.</summary>
     public static long UsedMemoryBytes;
 
     /// <summary>Total memory available to the GC (physical RAM).</summary>
@@ -23,4 +23,14 @@ public static class UiDiagnostics
 
     /// <summary>Live status line from the hosted game script (gamemode demo), or empty when none.</summary>
     public static string ScriptStatus = string.Empty;
+
+    /// <summary>Formats a byte count without rounding small non-zero values down to 0 GB.</summary>
+    public static string FormatMemory(long bytes)
+    {
+        if (bytes <= 0) return "0 B";
+        if (bytes < 1_024) return $"{bytes:0} B";
+        if (bytes < 1_048_576) return $"{bytes / 1_024.0:0.0} KB";
+        if (bytes < 1_073_741_824) return $"{bytes / 1_048_576.0:0.0} MB";
+        return $"{bytes / 1_073_741_824.0:0.00} GB";
+    }
 }
