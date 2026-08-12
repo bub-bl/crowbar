@@ -25,10 +25,14 @@
     height: 18px;
     border-radius: 3px;
     color: $text-muted;
-    font-size: 10px;
-    text-align: center;
-    vertical-align: center;
-    line-height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    icon {
+        width: 12px;
+        height: 12px;
+    }
 
     &:hover {
         background-color: $panel-hover;

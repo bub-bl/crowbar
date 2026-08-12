@@ -109,6 +109,9 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
 
     public StyleSheet? StyleSheet { get; set; }
 
+    /// <summary>Cache used to rasterize <c>&lt;icon&gt;</c> SVGs (tinted by the computed color).</summary>
+    public SvgIconCache IconCache { get; set; } = SvgIconCache.Shared;
+
     /// <summary>
     /// The image cache used to resolve <c>&lt;img&gt;</c> sources and
     /// <c>background-image</c> URLs at layout and paint time. Swap it to route
@@ -249,7 +252,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         }
         if (needsLayout)
         {
-            _layout.Layout(root, Size.Width / Math.Max(0.01f, root.Scale), Size.Height / Math.Max(0.01f, root.Scale), StyleSheet, ImageCache);
+            _layout.Layout(root, Size.Width / Math.Max(0.01f, root.Scale), Size.Height / Math.Max(0.01f, root.Scale), StyleSheet, ImageCache, IconCache);
         }
 
         // Collect the damaged regions and the backdrop-filter regions (mirroring
@@ -493,6 +496,10 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // object-fit/object-position (default fill: stretch to the box).
         if (panel is Image image && !string.IsNullOrEmpty(image.Source))
             DrawImageContent(canvas, panel, image.Source, rect, alpha);
+        // An <icon> panel paints its SVG rasterized from Assets/Icons and
+        // tinted with the computed color (like text), contained in the box.
+        if (panel is Icon { Name: not null and not "" } icon)
+            DrawIconContent(canvas, panel, icon, rect, alpha);
         // Checkboxes and radios paint their indicator into the content box
         // (square + check, or circle + dot when checked).
         if (panel is ToggleInput toggleInput) DrawToggle(canvas, panel, rect, toggleInput, alpha);
@@ -591,6 +598,37 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         }
         DrawObjectFitted(canvas, image, content, style.ObjectFit, style.ObjectPosition, alpha);
         canvas.Restore();
+    }
+
+    /// <summary>
+    /// Paints the raster of an <c>&lt;icon&gt;</c> panel into its content box:
+    /// the SVG from <c>Assets/Icons</c> is rasterized at the exact box size
+    /// and tinted with the panel's computed <c>color</c>, then drawn contained
+    /// and centered. The tint comes from the same color pipeline as text, so
+    /// hover/active/disabled icon states work through CSS alone.
+    /// </summary>
+    private void DrawIconContent(SKCanvas canvas, Panel panel, Icon icon, SKRect rect, byte alpha)
+    {
+        var style = panel.ComputedStyle;
+        var border = panel.LayoutBorder;
+        var padding = panel.LayoutPadding;
+        var content = new SKRect(
+            rect.Left + border.Left + padding.Left, rect.Top + border.Top + padding.Top,
+            rect.Right - border.Right - padding.Right, rect.Bottom - border.Bottom - padding.Bottom);
+        var width = MathF.Round(content.Width);
+        var height = MathF.Round(content.Height);
+        if (width <= 0 || height <= 0) return;
+        var tint = new SKColor(style.Color.R, style.Color.G, style.Color.B, 255);
+        if (IconCache.Get(icon.Name!, tint, (int)width, (int)height) is not { } image) return;
+        using var paint = new SKPaint
+        {
+            IsAntialias = true,
+            Color = new SKColor(255, 255, 255, alpha)
+        };
+        // Contain + center: the raster already has the icon's aspect ratio
+        // fitted into the box, so drawing it across the content box is exact.
+        var draw = new SKRect(content.Left, content.Top, content.Left + image.Width, content.Top + image.Height);
+        canvas.DrawImage(image, draw, new SKSamplingOptions(SKFilterMode.Linear, SKMipmapMode.None), paint);
     }
 
     /// <summary>
@@ -1705,6 +1743,8 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // (never delegated), so the panel always repaints when invalidated.
         if (!string.IsNullOrEmpty(style.BackgroundImage)) return true;
         if (panel is Image { Source: not null and not "" }) return true;
+        // Icons paint their SVG raster into the texture (never delegated).
+        if (panel is Icon { Name: not null and not "" }) return true;
         // Checkboxes/radios paint their indicator into the texture.
         if (panel is ToggleInput) return true;
         var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
@@ -2035,6 +2075,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         if (panel.PseudoBefore is not null || panel.PseudoAfter is not null) return true;
         if (!string.IsNullOrEmpty(style.BackgroundImage)) return true;
         if (panel is Image { Source: not null and not "" }) return true;
+        if (panel is Icon { Name: not null and not "" }) return true;
         if (!style.Filter.IsNone) return true;
         return style.BackgroundColor.A > 0 && style.BorderRadius > 0;
     }

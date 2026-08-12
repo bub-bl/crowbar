@@ -31,10 +31,14 @@ root {
     height: 24px;
     border-radius: 4px;
     color: $text-muted;
-    font-size: 12px;
-    text-align: center;
-    vertical-align: center;
-    line-height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    icon {
+        width: 13px;
+        height: 13px;
+    }
 
     &:hover {
         background-color: $panel-hover;

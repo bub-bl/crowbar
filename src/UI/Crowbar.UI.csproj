@@ -11,6 +11,8 @@
 
   <ItemGroup>
     <PackageReference Include="SkiaSharp" Version="4.150.1" />
+    <!-- SKSvg rasterizes the <icon> SVG pack (Assets/Icons) into tinted bitmaps. -->
+    <PackageReference Include="Svg.Skia" Version="5.2.0" />
     <PackageReference Include="Yoga.Net" Version="3.2.3" />
     <PackageReference Include="Microsoft.AspNetCore.Razor.Language" Version="6.0.36" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />

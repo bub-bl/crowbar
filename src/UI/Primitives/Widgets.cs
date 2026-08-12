@@ -198,6 +198,17 @@ public class Image : Panel
 }
 
 /// <summary>
+/// An SVG icon from the <c>Assets/Icons</c> pack (<c>&lt;icon name="..."&gt;</c>),
+/// rasterized by the renderer and tinted with the computed <c>color</c> like
+/// text. The name is the SVG file name without its extension.
+/// </summary>
+public class Icon : Panel
+{
+    public Icon() { TagName = "icon"; }
+    public string? Name { get; set; }
+}
+
+/// <summary>
 /// A checkbox or radio button: a clickable indicator drawn by the renderer
 /// that toggles <see cref="Panel.IsChecked"/> (and feeds the <c>:checked</c>
 /// pseudo-class). Radios sharing a <see cref="GroupName"/> behave as a group:

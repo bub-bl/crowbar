@@ -14,12 +14,12 @@ public sealed class YogaLayoutEngine
 {
     public int LayoutPasses { get; private set; }
 
-    public void Layout(Panel root, float width, float height, StyleSheet? sheet = null, UiImageCache? cache = null)
+    public void Layout(Panel root, float width, float height, StyleSheet? sheet = null, UiImageCache? cache = null, SvgIconCache? iconCache = null)
     {
         LayoutPasses++;
         ApplyStyles(root, sheet, null);
         var style = root.ComputedStyle;
-        var yogaRoot = BuildYogaTree(root, cache ?? UiImageCache.Shared);
+        var yogaRoot = BuildYogaTree(root, cache ?? UiImageCache.Shared, iconCache);
         // The root always gets an explicit size: the CSS size when set (points
         // or percent, resolved against the viewport) or the full viewport.
         yogaRoot.Style.SetDimension(Dimension.Width, style.Width.IsDefined ? ToSize(style.Width) : StyleSizeLength.Points(width));
@@ -164,7 +164,7 @@ public sealed class YogaLayoutEngine
         if (style.TextShadows.Length == 0) style.TextShadows = inherited.TextShadows;
     }
 
-    private static Node BuildYogaTree(Panel panel, UiImageCache cache)
+    private static Node BuildYogaTree(Panel panel, UiImageCache cache, SvgIconCache? iconCache = null)
     {
         var style = panel.ComputedStyle;
         var node = new Node(Config.Default)
@@ -205,11 +205,11 @@ public sealed class YogaLayoutEngine
             if (intrinsicRatio > 0) node.Style.AspectRatio = new FloatOptional(intrinsicRatio);
         }
         else if (style.AspectRatio > 0) node.Style.AspectRatio = new FloatOptional(style.AspectRatio);
-        ApplyTextMeasure(node, panel, style, cache, intrinsicRatio);
+        ApplyTextMeasure(node, panel, style, cache, intrinsicRatio, iconCache);
 
         for (var i = 0; i < panel.Children.Count; i++)
         {
-            var child = BuildYogaTree(panel.Children[i], cache);
+            var child = BuildYogaTree(panel.Children[i], cache, iconCache);
             node.InsertChild(child, (nuint)i);
             child.SetOwner(node);
         }
@@ -265,7 +265,7 @@ public sealed class YogaLayoutEngine
         if (style.RowGap.IsDefined) node.Style.SetGap(Gutter.Row, ToLength(style.RowGap));
     }
 
-    private static void ApplyTextMeasure(Node node, Panel panel, ComputedStyle style, UiImageCache cache, float intrinsicRatio)
+    private static void ApplyTextMeasure(Node node, Panel panel, ComputedStyle style, UiImageCache cache, float intrinsicRatio, SvgIconCache? iconCache = null)
     {
         if ((panel.TagName.Equals("text", StringComparison.OrdinalIgnoreCase) || panel is TextInput) && !string.IsNullOrEmpty(panel is TextInput input ? input.Value : panel.Text))
         {
@@ -321,6 +321,24 @@ public sealed class YogaLayoutEngine
                 if (widthMode == MeasureMode.Exactly && width > 0)
                     return new YGSize { Width = width, Height = width / ratio };
                 return new YGSize { Width = imageWidth, Height = imageHeight };
+            });
+        }
+        else if (panel is Icon icon && !string.IsNullOrEmpty(icon.Name))
+        {
+            // An <icon> without explicit dimensions sizes to its intrinsic SVG
+            // ratio at a 16x16 default; with one axis fixed, the other follows
+            // the ratio (icons are usually square, so both stay 16px).
+            var ratio = iconCache is not null && iconCache.TryGetIntrinsicSize(icon.Name, out var iw, out var ih) && ih > 0
+                ? iw / ih
+                : 1f;
+            const float defaultSize = 16f;
+            node.SetMeasureFunc((_, width, widthMode, height, heightMode) =>
+            {
+                if (heightMode == MeasureMode.Exactly && height > 0)
+                    return new YGSize { Width = height * ratio, Height = height };
+                if (widthMode == MeasureMode.Exactly && width > 0)
+                    return new YGSize { Width = width, Height = width / ratio };
+                return new YGSize { Width = defaultSize, Height = defaultSize };
             });
         }
     }

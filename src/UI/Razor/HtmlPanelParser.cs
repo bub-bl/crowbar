@@ -210,6 +210,7 @@ internal static class HtmlPanelParser
             "input" when inputType is "radio" => new ToggleInput(radio: true),
             "input" => new TextInput(),
             "img" or "image" => new Image(),
+            "icon" => new Icon(),
             "label" or "span" => new Label(),
             _ => new Panel()
         };
@@ -261,6 +262,8 @@ internal static class HtmlPanelParser
                 image.Source = attribute.Value;
                 panel.Attributes["src"] = attribute.Value;
             }
+            else if (attribute.Name.LocalName.Equals("name", StringComparison.OrdinalIgnoreCase) && panel is Icon icon)
+                icon.Name = attribute.Value; // Icon name -> Assets/Icons/<name>.svg
             else if (attribute.Name.LocalName.Equals("name", StringComparison.OrdinalIgnoreCase) && panel is ToggleInput toggle)
                 toggle.GroupName = attribute.Value;
             else if (attribute.Name.LocalName.Equals("disabled", StringComparison.OrdinalIgnoreCase))
@@ -428,6 +431,8 @@ internal static class HtmlPanelParser
             image.Source = value;
             panel.Attributes["src"] = value;
         }
+        else if (name.Equals("name", StringComparison.OrdinalIgnoreCase) && panel is Icon icon)
+            icon.Name = value; // Icon name -> Assets/Icons/<name>.svg
         else panel.Attributes[name] = value;
     }
 

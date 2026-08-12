@@ -7,7 +7,7 @@
     <div class="tool-grid">
         @foreach (var icon in IconList)
         {
-            <div class="tool-btn">@icon</div>
+            <div class="tool-btn" title="@icon"><icon name="@icon" /></div>
         }
     </div>
 </div>
@@ -16,7 +16,7 @@
     [Parameter]
     public string Label { get; set; } = string.Empty;
 
-    /// <summary>Icon glyphs separated by whitespace (one tool button each).</summary>
+    /// <summary>Icon names separated by whitespace (one tool button each), resolved against Assets/Icons.</summary>
     [Parameter]
     public string Icons { get; set; } = string.Empty;
 
