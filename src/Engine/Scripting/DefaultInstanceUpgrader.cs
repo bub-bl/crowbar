@@ -28,6 +28,8 @@ public sealed class DefaultInstanceUpgrader : IInstanceUpgrader
             var newField = FindInstanceField(newType, field.Name);
             if (newField is null)
                 continue;
+            if (context is HotReloadUpgrader hotReload && hotReload.ShouldUseNewDefault(instance.GetType(), field.Name))
+                continue;
             var value = field.GetValue(instance);
             try
             {

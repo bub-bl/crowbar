@@ -26,6 +26,7 @@ internal sealed class HotReloadUpgrader : IUpgradeContext
     private readonly Assembly _oldAssembly;
     private readonly IReadOnlyDictionary<string, Type> _newTypes;
     private readonly IReadOnlyList<IInstanceUpgrader> _upgraders;
+    private readonly IReadOnlySet<string> _changedFieldInitializers;
 
     // Old object → upgraded object (identity preserved for script objects and rebuilt containers).
     private readonly Dictionary<object, object> _upgraded = new(ReferenceEqualityComparer.Instance);
@@ -34,12 +35,18 @@ internal sealed class HotReloadUpgrader : IUpgradeContext
     // Engine/BCL objects already walked in place (shared references are not re-walked).
     private readonly HashSet<object> _walked = new(ReferenceEqualityComparer.Instance);
 
-    public HotReloadUpgrader(Assembly oldAssembly, IReadOnlyDictionary<string, Type> newTypes, IReadOnlyList<IInstanceUpgrader> upgraders)
+    public HotReloadUpgrader(Assembly oldAssembly, IReadOnlyDictionary<string, Type> newTypes,
+        IReadOnlyList<IInstanceUpgrader> upgraders, IReadOnlySet<string>? changedFieldInitializers = null)
     {
         _oldAssembly = oldAssembly;
         _newTypes = newTypes;
         _upgraders = upgraders;
+        _changedFieldInitializers = changedFieldInitializers ?? new HashSet<string>(StringComparer.Ordinal);
     }
+
+    /// <summary>Whether a field's edited initializer should win over migrated instance state.</summary>
+    public bool ShouldUseNewDefault(Type oldType, string fieldName) =>
+        _changedFieldInitializers.Contains($"{oldType.FullName}::{fieldName}");
 
     public Type? ResolveNewType(Type oldType) => _newTypes.GetValueOrDefault(oldType.FullName ?? string.Empty);
 

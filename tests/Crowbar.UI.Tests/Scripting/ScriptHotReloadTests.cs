@@ -73,6 +73,39 @@ public sealed class ScriptHotReloadTests
     }
 
     [Fact]
+    public void ChangedInstanceInitializersApplyOnReload()
+    {
+        using var dir = TestUi.TempDir("script");
+        dir.Write("Gamemode.cs", """
+            namespace Game;
+            public class Gamemode
+            {
+                public int Score = 5;
+                public string Name = "Démo";
+            }
+            """);
+
+        using var host = new ScriptHost();
+        host.WatchDirectory(dir.Path, "InitializerGame");
+        var holder = new PlayerHolder { Current = host.Current!.CreateInstance("Game.Gamemode") };
+        host.WatchInstance(holder);
+
+        dir.Write("Gamemode.cs", """
+            namespace Game;
+            public class Gamemode
+            {
+                public int Score = 42;
+                public string Name = "Production";
+            }
+            """);
+
+        Assert.True(host.Reload());
+        var current = holder.Current!;
+        Assert.Equal(42, (int)current.GetType().GetField("Score")!.GetValue(current)!);
+        Assert.Equal("Production", current.GetType().GetField("Name")!.GetValue(current));
+    }
+
+    [Fact]
     public void WatchedInstanceGraphIsUpgraded()
     {
         using var dir = TestUi.TempDir("script");

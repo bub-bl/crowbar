@@ -42,6 +42,65 @@ internal static class ScriptChangeClassifier
         return changed;
     }
 
+    /// <summary>Returns instance fields whose source initializer changed between generations.</summary>
+    public static IReadOnlySet<string> ChangedFieldInitializers(
+        IReadOnlyDictionary<string, SyntaxTree> oldTrees,
+        IReadOnlyDictionary<string, SyntaxTree> newTrees)
+    {
+        var changed = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var file in oldTrees.Keys.Intersect(newTrees.Keys, StringComparer.OrdinalIgnoreCase))
+        {
+            if (oldTrees[file].GetRoot() is CompilationUnitSyntax oldRoot &&
+                newTrees[file].GetRoot() is CompilationUnitSyntax newRoot)
+            {
+                CompareFieldInitializers(oldRoot.Members, newRoot.Members, "", "", changed);
+            }
+        }
+
+        return changed;
+    }
+
+    private static void CompareFieldInitializers(
+        SyntaxList<MemberDeclarationSyntax> oldMembers,
+        SyntaxList<MemberDeclarationSyntax> newMembers,
+        string ns, string typePath, HashSet<string> changed)
+    {
+        var newByIdentity = newMembers.GroupBy(Identity).ToDictionary(g => g.Key, g => g.First());
+        foreach (var oldMember in oldMembers)
+        {
+            if (!newByIdentity.TryGetValue(Identity(oldMember), out var newMember))
+                continue;
+
+            switch (oldMember)
+            {
+                case NamespaceDeclarationSyntax oldNamespace when newMember is NamespaceDeclarationSyntax newNamespace:
+                    CompareFieldInitializers(oldNamespace.Members, newNamespace.Members,
+                        CombineNamespace(ns, oldNamespace.Name), typePath, changed);
+                    break;
+                case FileScopedNamespaceDeclarationSyntax oldNamespace when newMember is FileScopedNamespaceDeclarationSyntax newNamespace:
+                    CompareFieldInitializers(oldNamespace.Members, newNamespace.Members,
+                        CombineNamespace(ns, oldNamespace.Name), typePath, changed);
+                    break;
+                case BaseTypeDeclarationSyntax oldType when newMember is BaseTypeDeclarationSyntax newType:
+                    var fullTypePath = typePath.Length == 0 ? oldType.Identifier.Text : typePath + "+" + oldType.Identifier.Text;
+                    foreach (var oldField in MembersOf(oldType).OfType<FieldDeclarationSyntax>())
+                    {
+                        var newField = MembersOf(newType).OfType<FieldDeclarationSyntax>()
+                            .FirstOrDefault(candidate => Identity(candidate) == Identity(oldField));
+                        if (newField is null) continue;
+                        foreach (var oldVariable in oldField.Declaration.Variables)
+                        {
+                            var newVariable = newField.Declaration.Variables.FirstOrDefault(variable => variable.Identifier.Text == oldVariable.Identifier.Text);
+                            if (newVariable is not null && !SyntaxFactory.AreEquivalent(oldVariable.Initializer, newVariable.Initializer))
+                                changed.Add($"{FullName(ns, fullTypePath)}::{oldVariable.Identifier.Text}");
+                        }
+                    }
+                    CompareFieldInitializers(MembersOf(oldType), MembersOf(newType), ns, fullTypePath, changed);
+                    break;
+            }
+        }
+    }
+
     private static bool CompareMemberLists(
         SyntaxList<MemberDeclarationSyntax> aList, SyntaxList<MemberDeclarationSyntax> bList,
         string ns, string typePath, HashSet<string> changed)

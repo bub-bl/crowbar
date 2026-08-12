@@ -200,6 +200,9 @@ public sealed class ScriptHost : IDisposable
         }
 
         _compiler.TryGetLastSyntaxTrees(_assemblyName, out var newTrees);
+        var changedFieldInitializers = lastTrees is not null && newTrees is not null
+            ? ScriptChangeClassifier.ChangedFieldInitializers(lastTrees, newTrees)
+            : new HashSet<string>(StringComparer.Ordinal);
 
         // IL fast path: body-only changes patch the live assembly in place, so
         // existing instances keep their identity and run the new code. Falls
@@ -236,7 +239,7 @@ public sealed class ScriptHost : IDisposable
                 instances = _watchedInstances.ToArray();
             }
 
-            var upgrader = new HotReloadUpgrader(previous.Assembly, next.TypesByFullName, upgraders);
+            var upgrader = new HotReloadUpgrader(previous.Assembly, next.TypesByFullName, upgraders, changedFieldInitializers);
             upgrader.MigrateStatics(previous.TypesByFullName.Values);
             foreach (var instance in instances)
                 upgrader.UpgradeRoot(instance);
