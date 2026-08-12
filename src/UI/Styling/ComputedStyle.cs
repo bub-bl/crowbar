@@ -157,6 +157,119 @@ public sealed class ComputedStyle
     public ComputedStyle Clone() => (ComputedStyle)MemberwiseClone();
 
     /// <summary>
+    /// Immutable template holding every default value. The cascade writes the
+    /// per-panel compute buffer back to defaults through
+    /// <see cref="ResetToDefaults"/> before re-applying rules, so a reused
+    /// style never leaks a value from the previous pass. Never mutated.
+    /// </summary>
+    private static readonly ComputedStyle DefaultTemplate = new();
+
+    /// <summary>
+    /// Restores every property to its default value without allocating. The
+    /// alternative (a fresh <c>new ComputedStyle()</c> per panel per cascade
+    /// pass) was the dominant per-pass allocation in the profiler; the compute
+    /// buffer is reused and reset in place instead.
+    /// </summary>
+    internal void ResetToDefaults() => CopyFrom(DefaultTemplate);
+
+    private void CopyFrom(ComputedStyle other)
+    {
+        Display = other.Display;
+        FlexDirection = other.FlexDirection;
+        FlexWrap = other.FlexWrap;
+        AlignItems = other.AlignItems;
+        AlignContent = other.AlignContent;
+        AlignSelf = other.AlignSelf;
+        JustifyContent = other.JustifyContent;
+        JustifyItems = other.JustifyItems;
+        JustifySelf = other.JustifySelf;
+        PositionType = other.PositionType;
+        Direction = other.Direction;
+        Overflow = other.Overflow;
+        TextAlign = other.TextAlign;
+        VerticalAlign = other.VerticalAlign;
+        BoxSizing = other.BoxSizing;
+        Cursor = other.Cursor;
+        Width = other.Width;
+        Height = other.Height;
+        MinWidth = other.MinWidth;
+        MaxWidth = other.MaxWidth;
+        MinHeight = other.MinHeight;
+        MaxHeight = other.MaxHeight;
+        FlexBasis = other.FlexBasis;
+        FlexGrow = other.FlexGrow;
+        FlexShrink = other.FlexShrink;
+        AspectRatio = other.AspectRatio;
+        Gap = other.Gap;
+        RowGap = other.RowGap;
+        ColumnGap = other.ColumnGap;
+        Margin = other.Margin;
+        MarginTop = other.MarginTop;
+        MarginRight = other.MarginRight;
+        MarginBottom = other.MarginBottom;
+        MarginLeft = other.MarginLeft;
+        Padding = other.Padding;
+        PaddingTop = other.PaddingTop;
+        PaddingRight = other.PaddingRight;
+        PaddingBottom = other.PaddingBottom;
+        PaddingLeft = other.PaddingLeft;
+        Border = other.Border;
+        BorderTop = other.BorderTop;
+        BorderRight = other.BorderRight;
+        BorderBottom = other.BorderBottom;
+        BorderLeft = other.BorderLeft;
+        BorderTopStyle = other.BorderTopStyle;
+        BorderRightStyle = other.BorderRightStyle;
+        BorderBottomStyle = other.BorderBottomStyle;
+        BorderLeftStyle = other.BorderLeftStyle;
+        BorderTopColor = other.BorderTopColor;
+        BorderRightColor = other.BorderRightColor;
+        BorderBottomColor = other.BorderBottomColor;
+        BorderLeftColor = other.BorderLeftColor;
+        OutlineStyle = other.OutlineStyle;
+        OutlineWidth = other.OutlineWidth;
+        OutlineOffset = other.OutlineOffset;
+        OutlineColor = other.OutlineColor;
+        PositionTop = other.PositionTop;
+        PositionRight = other.PositionRight;
+        PositionBottom = other.PositionBottom;
+        PositionLeft = other.PositionLeft;
+        ZIndex = other.ZIndex;
+        ScrollbarWidth = other.ScrollbarWidth;
+        ScrollbarRadius = other.ScrollbarRadius;
+        ScrollbarThumbColor = other.ScrollbarThumbColor;
+        ScrollbarTrackColor = other.ScrollbarTrackColor;
+        Opacity = other.Opacity;
+        BoxShadows = other.BoxShadows;
+        TextShadows = other.TextShadows;
+        Filter = other.Filter;
+        BackdropFilter = other.BackdropFilter;
+        BorderRadius = other.BorderRadius;
+        FontSize = other.FontSize;
+        LineHeight = other.LineHeight;
+        Transitions = other.Transitions;
+        Animations = other.Animations;
+        Transform = other.Transform;
+        TransformOrigin = other.TransformOrigin;
+        BackgroundColor = other.BackgroundColor;
+        BackgroundImage = other.BackgroundImage;
+        BackgroundSize = other.BackgroundSize;
+        BackgroundPosition = other.BackgroundPosition;
+        BackgroundRepeat = other.BackgroundRepeat;
+        ObjectFit = other.ObjectFit;
+        ObjectPosition = other.ObjectPosition;
+        AspectRatioAuto = other.AspectRatioAuto;
+        Color = other.Color;
+        FontFamily = other.FontFamily;
+        FontWeight = other.FontWeight;
+        LetterSpacing = other.LetterSpacing;
+        TextTransform = other.TextTransform;
+        TextDecoration = other.TextDecoration;
+        WhiteSpace = other.WhiteSpace;
+        TextOverflow = other.TextOverflow;
+    }
+
+    /// <summary>
     /// The subset of properties that participate in Yoga layout. Comparing only
     /// these lets the renderer decide whether a style change requires a full
     /// layout pass (re-measure + reflow) or just a repaint: color, opacity,
@@ -178,14 +291,50 @@ public sealed class ComputedStyle
         "font-size", "line-height"
     ];
 
+    // Resolved once: the per-comparison dictionary lookup and the boxing
+    // GetValue/ValuesEqual round-trip were both visible in the profiler (this
+    // comparison runs for every panel on every cascade pass).
+    private static CssProperty[]? _layoutPropsCache;
+
+    private static CssProperty[] LayoutPropsCache
+    {
+        get
+        {
+            if (_layoutPropsCache is null)
+            {
+                var list = new List<CssProperty>();
+                foreach (var name in LayoutAffectingProperties)
+                    if (CssProperties.TryGet(name, out var property)) list.Add(property);
+                _layoutPropsCache = [.. list];
+            }
+
+            return _layoutPropsCache;
+        }
+    }
+
+    private static CssProperty[]? _inheritedPropsCache;
+
+    private static CssProperty[] InheritedPropsCache
+    {
+        get
+        {
+            if (_inheritedPropsCache is null)
+            {
+                var list = new List<CssProperty>();
+                foreach (var property in CssProperties.All)
+                    if (property.Inherited) list.Add(property);
+                _inheritedPropsCache = [.. list];
+            }
+
+            return _inheritedPropsCache;
+        }
+    }
+
     /// <summary>True when every layout-affecting property matches <paramref name="other"/>.</summary>
     public bool LayoutPropsEqual(ComputedStyle other)
     {
-        foreach (var name in LayoutAffectingProperties)
-        {
-            if (!CssProperties.TryGet(name, out var property)) continue;
-            if (!property.ValuesEqual(property.GetValue(this), property.GetValue(other))) return false;
-        }
+        foreach (var property in LayoutPropsCache)
+            if (!property.StylesEqual(this, other)) return false;
         return true;
     }
 
@@ -197,11 +346,8 @@ public sealed class ComputedStyle
     /// </summary>
     public bool InheritedPropsEqual(ComputedStyle other)
     {
-        foreach (var property in CssProperties.All)
-        {
-            if (!property.Inherited) continue;
-            if (!property.ValuesEqual(property.GetValue(this), property.GetValue(other))) return false;
-        }
+        foreach (var property in InheritedPropsCache)
+            if (!property.StylesEqual(this, other)) return false;
         return true;
     }
 }

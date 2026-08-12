@@ -14,8 +14,7 @@
     <Notifications />
 </div>
 
-@code {
-    // Drives the re-render cascade a few times per second so the live status
-    // bar (FPS / memory / ping) refreshes without rebuilding every frame.
-    protected override int BuildHash() => Environment.TickCount / 400;
-}
+@* No page-level time bucket: the periodic refresh is scoped to the StatusBar
+   component, whose own time-bucketed BuildHash requests the re-render. The
+   page itself only rebuilds on real state changes, so the whole tree is not
+   re-cascaded and re-laid-out every 400 ms for a couple of changing numbers. *@

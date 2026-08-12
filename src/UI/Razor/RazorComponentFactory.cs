@@ -372,9 +372,13 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         }
     }
 
-    public PanelComponent BuildTree(RazorPanel template)
+    public PanelComponent BuildTree(RazorPanel template, bool force = false)
     {
-        if (!template.NeedsBuild() && !template.NeedsContentRebuild()) return template;
+        // The render loop forces the root build when a descendant component
+        // (e.g. the time-bucketed status bar) asked for a rebuild even though
+        // the root's own hash is constant; every child is still gated by its
+        // own NeedsBuild/NeedsContentRebuild inside the build.
+        if (!force && !template.NeedsBuild() && !template.NeedsContentRebuild()) return template;
         if (!template.CanRender())
         {
             template.MarkRenderSkipped();

@@ -109,17 +109,11 @@ public sealed class YogaLayoutEngine
 
     private static void ApplyStylesCore(Panel panel, StyleSheet? sheet, ComputedStyle? inherited, ref bool layoutChanged)
     {
-        ComputedStyle computed;
-        if (sheet is not null)
-        {
-            computed = sheet.Compute(panel);
-        }
-        else
-        {
-            // Without a global sheet the panel's inline styles still apply.
-            computed = new ComputedStyle();
-            StyleSheet.Apply(computed, panel.InlineStyle);
-        }
+        // The cascade fills the panel's reusable compute buffer (reset to
+        // defaults in place), so a style-stable panel allocates no
+        // ComputedStyle per pass. Without a sheet the panel's inline styles
+        // still apply.
+        var computed = panel.ComputeStyle(sheet);
 
         var previous = panel.ComputedStyle;
         panel.ApplyComputedStyle(computed);

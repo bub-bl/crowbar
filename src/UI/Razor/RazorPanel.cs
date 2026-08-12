@@ -253,6 +253,21 @@ public abstract class RazorPanel : PanelComponent, IComponent
         }
     }
 
+    /// <summary>
+    /// Walks the live component graph: this component and every nested child
+    /// component, depth-first. The render loop uses it to detect that a
+    /// descendant (e.g. the time-bucketed status bar) wants a rebuild even
+    /// when the root's own hash is constant, so periodic refreshes are scoped
+    /// to the component that needs them.
+    /// </summary>
+    internal IEnumerable<RazorPanel> EnumerateComponents()
+    {
+        yield return this;
+        foreach (var child in _childComponents.Values)
+            foreach (var nested in child.EnumerateComponents())
+                yield return nested;
+    }
+
     internal void SetParameter(string name, string value)
     {
         var property = FindParameter(name);

@@ -16,8 +16,10 @@
 }
 
 @code {
-    // Time-bucketed like the page: the parent re-renders a few times per
-    // second and this component re-renders along, refreshing the live stats.
+    // The periodic refresh lives here, not on the page: this time-bucketed
+    // hash is the only thing that asks the tree to re-render a few times per
+    // second, so the live stats refresh without the page rebuilding on a
+    // global timer (see UiSystem.RenderRazorIfNeeded).
     protected override int BuildHash() => Environment.TickCount / 400;
 
     private string UsedMemoryGb => $"{UiDiagnostics.UsedMemoryBytes / 1_073_741_824.0:0.0}";

@@ -847,6 +847,18 @@ public sealed class StyleSheet
     public ComputedStyle Compute(Panel panel)
     {
         var style = new ComputedStyle();
+        ComputeInto(panel, style);
+        return style;
+    }
+
+    /// <summary>
+    /// Cascades the rules into an existing style object. The cascade reuses a
+    /// per-panel buffer (see <see cref="Panel.ComputeStyle"/>) so a
+    /// style-stable panel allocates nothing per pass; this method only writes
+    /// the properties the matching rules declare.
+    /// </summary>
+    internal void ComputeInto(Panel panel, ComputedStyle style)
+    {
         var mediaEnabled = !_viewportSet;
         var orderedRules = _orderedRules ??= _rules.OrderBy(rule => rule.Order).ToArray();
         for (var i = 0; i < orderedRules.Length; i++)
@@ -857,7 +869,6 @@ public sealed class StyleSheet
             Apply(style, rule.Properties);
         }
         Apply(style, panel.InlineStyle);
-        return style;
     }
 
     /// <summary>

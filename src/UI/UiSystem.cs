@@ -246,9 +246,25 @@ public sealed partial class UiSystem : IDisposable
     }
 
     public ReadOnlyMemory<byte> Render() => Renderer.Render(Screen);
+
+    /// <summary>
+    /// Rebuilds the Razor tree when the root, or any component nested under it,
+    /// wants one. Checking the descendants (not just the root) lets a
+    /// component with a periodic hash — the status bar's time-bucketed
+    /// BuildHash — drive its own refresh: the page itself has a constant hash,
+    /// so the whole tree is not rebuilt on a global timer while nothing
+    /// changed.
+    /// </summary>
     internal void RenderRazorIfNeeded()
     {
-        if (_razorRoot is null || (!_razorRenderPending && !_razorRoot.NeedsBuild())) return;
+        if (_razorRoot is null) return;
+        // A rebuild is due when the root was explicitly asked to re-render, or
+        // when any component in the tree wants one (the status bar's
+        // time-bucketed BuildHash is the usual requestor). When only a
+        // descendant asks, the root build is forced: BuildTree then re-checks
+        // every component's own hash, so hash-stable siblings are untouched.
+        var force = _razorRenderPending || AnyComponentNeedsBuild(_razorRoot);
+        if (!force) return;
         if (!_razorRoot.CanRender())
         {
             _razorRoot.MarkRenderSkipped();
@@ -256,7 +272,17 @@ public sealed partial class UiSystem : IDisposable
             return;
         }
         _razorRenderPending = false;
-        SetContent((_razorFactory ?? new RazorComponentFactory(_razorComponents)).BuildTree(_razorRoot));
+        SetContent((_razorFactory ?? new RazorComponentFactory(_razorComponents)).BuildTree(_razorRoot, force: true));
+    }
+
+    private static bool AnyComponentNeedsBuild(RazorPanel root)
+    {
+        foreach (var component in root.EnumerateComponents())
+        {
+            if (component.NeedsBuild() || component.NeedsContentRebuild()) return true;
+        }
+
+        return false;
     }
 
     /// <summary>Navigates to the page whose <c>@page</c> route matches <paramref name="url"/>.</summary>

@@ -122,11 +122,8 @@ public class EditorPageCompositionTests
 
         UiNotifications.Show("Hot reload", "Full reload : 3 instance(s) migrée(s)", "success");
 
-        // The page's BuildHash is time-bucketed (Environment.TickCount / 400):
-        // wait for the next bucket so ui.Update() rebuilds the tree.
-        var deadline = ((Environment.TickCount / 400) + 1) * 400 + 50;
-        while (Environment.TickCount < deadline)
-            Thread.Sleep(5);
+        // Notifications' own BuildHash (UiNotifications.Version) changed, so
+        // the descendant-aware render loop rebuilds the tree on ui.Update().
         ui.Update();
         ui.Render();
 

@@ -500,6 +500,8 @@ public static class CssProperties
         public override void SetValue(ComputedStyle style, object? value) => style.FontWeight = (int)value!;
         public override object? DefaultValue => 400;
         public override bool ValuesEqual(object? a, object? b) => (int)a! == (int)b!;
+        public override bool StylesEqual(ComputedStyle a, ComputedStyle b) => a.FontWeight == b.FontWeight;
+        public override bool ValuesEqual(ComputedStyle a, ComputedStyle b) => a.FontWeight == b.FontWeight;
         public override object? Lerp(object? from, object? to, float t) => null;
     }
 
@@ -566,6 +568,10 @@ public static class CssProperties
         public override object? DefaultValue => (0f, false);
         public override bool ValuesEqual(object? a, object? b) =>
             a is (float ra, bool aa) && b is (float rb, bool ab) && Math.Abs(ra - rb) < 0.0001f && aa == ab;
+        public override bool StylesEqual(ComputedStyle a, ComputedStyle b) =>
+            Math.Abs(a.AspectRatio - b.AspectRatio) < 0.0001f && a.AspectRatioAuto == b.AspectRatioAuto;
+        public override bool ValuesEqual(ComputedStyle a, ComputedStyle b) =>
+            Math.Abs(a.AspectRatio - b.AspectRatio) < 0.0001f && a.AspectRatioAuto == b.AspectRatioAuto;
         public override object? Lerp(object? from, object? to, float t) => null;
     }
 
@@ -928,6 +934,16 @@ public static class CssProperties
         public override object? DefaultValue => Array.Empty<T>();
         public override bool ValuesEqual(object? a, object? b) =>
             a is T[] left && b is T[] right ? left.AsSpan().SequenceEqual(right) : ReferenceEquals(a, b);
+        public override bool StylesEqual(ComputedStyle a, ComputedStyle b)
+        {
+            var left = _getter(a);
+            var right = _getter(b);
+            if (left is null || right is null) return ReferenceEquals(left, right);
+            return left.AsSpan().SequenceEqual(right);
+        }
+
+        public override bool ValuesEqual(ComputedStyle a, ComputedStyle b) => StylesEqual(a, b);
+
         public override object? Lerp(object? from, object? to, float t)
         {
             if (from is not T[] left || to is not T[] right) return null;

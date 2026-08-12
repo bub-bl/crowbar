@@ -31,6 +31,19 @@ public abstract class CssProperty
     /// <summary>Current value of the property for the given style, or null when not individually addressable.</summary>
     public abstract object? GetValue(ComputedStyle style);
 
+    /// <summary>
+    /// Compares the property's value on two computed styles without boxing.
+    /// Change detection (layout/inherited equality, cascade diffing) runs for
+    /// every property on every panel on every pass, so implementations read the
+    /// typed value from each style directly instead of routing through
+    /// <see cref="GetValue"/> (which boxes the <c>CssLength</c>/<c>UiColor</c>/
+    /// <c>float</c> values).
+    /// </summary>
+    public abstract bool StylesEqual(ComputedStyle a, ComputedStyle b);
+
+    /// <summary>Compares only this property's typed value on two styles.</summary>
+    public abstract bool ValuesEqual(ComputedStyle a, ComputedStyle b);
+
     /// <summary>Sets the property value directly (used for defaults and transition interpolation).</summary>
     public abstract void SetValue(ComputedStyle style, object? value);
 
@@ -81,6 +94,10 @@ public sealed class CssProperty<T> : CssProperty
     public override void SetValue(ComputedStyle style, object? value) => _setter(style, (T)value!);
     public override object? DefaultValue => _defaultValue;
     public override bool ValuesEqual(object? a, object? b) => EqualityComparer<T>.Default.Equals((T)a!, (T)b!);
+    public override bool StylesEqual(ComputedStyle a, ComputedStyle b) =>
+        EqualityComparer<T>.Default.Equals(_getter(a), _getter(b));
+    public override bool ValuesEqual(ComputedStyle a, ComputedStyle b) =>
+        EqualityComparer<T>.Default.Equals(_getter(a), _getter(b));
     /// <summary>Interpolates, or null when the property cannot interpolate between these values.</summary>
     public override object? Lerp(object? from, object? to, float t) =>
         _lerper is null ? null : _lerper((T)from!, (T)to!, t);
@@ -105,5 +122,7 @@ public abstract class CompoundCssProperty : CssProperty
 
     public override object? DefaultValue => null;
     public override bool ValuesEqual(object? a, object? b) => true;
+    public override bool StylesEqual(ComputedStyle a, ComputedStyle b) => true;
+    public override bool ValuesEqual(ComputedStyle a, ComputedStyle b) => true;
     public override object? Lerp(object? from, object? to, float t) => null;
 }

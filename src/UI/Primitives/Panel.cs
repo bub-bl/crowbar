@@ -24,13 +24,16 @@ public class Panel
     private IReadOnlyList<Panel>? _childrenView;
     private readonly HashSet<string> _classes = new(StringComparer.OrdinalIgnoreCase);
 
-    // Styling state: _styleTarget is the last applied resting (non-animated)
+    // Styling state: _resting is the last applied resting (non-animated)
     // computed style, used for change detection. The visible ComputedStyle is
-    // composed each frame from _animationBase (the resting style), the running
-    // keyframe animations (later entries overlay earlier ones) and the active
-    // per-property transitions.
-    private ComputedStyle? _styleTarget;
-    private ComputedStyle? _animationBase;
+    // composed each frame from _resting, the running keyframe animations
+    // (later entries overlay earlier ones) and the active per-property
+    // transitions. _computeBuffer is the reusable scratch the cascade fills on
+    // every pass; ApplyComputedStyle adopts it as the visible style (equal
+    // path) or clones it (first/change path), so no per-pass allocation is
+    // needed for style-stable panels.
+    private ComputedStyle? _resting;
+    private ComputedStyle _computeBuffer = new();
     private readonly List<PanelAnimation> _animations = [];
     private readonly Dictionary<string, PropertyTransition> _transitions = new(StringComparer.OrdinalIgnoreCase);
     private HashSet<string>? _animationDrivenProps;
@@ -213,13 +216,27 @@ public class Panel
                 screen.AddStyleDirtyRoot(this);
             }
     }
+    /// <summary>
+    /// Recomputes the panel's resting style into the reusable compute buffer
+    /// and returns it. The buffer is reset to defaults in place (no
+    /// allocation), then the sheet's rules and the panel's inline styles are
+    /// applied. <see cref="ApplyComputedStyle"/> adopts the returned style.
+    /// </summary>
+    internal ComputedStyle ComputeStyle(StyleSheet? sheet)
+    {
+        var target = _computeBuffer;
+        target.ResetToDefaults();
+        if (sheet is not null) sheet.ComputeInto(this, target);
+        else StyleSheet.Apply(target, InlineStyle);
+        return target;
+    }
+
     internal void ApplyComputedStyle(ComputedStyle target)
     {
         if (!_hasComputedStyle)
         {
             _hasComputedStyle = true;
-            _styleTarget = target.Clone();
-            _animationBase = target.Clone();
+            _resting = target.Clone();
             UpdateAnimations(target);
             ComputedStyle = Compose();
             return;
@@ -227,21 +244,34 @@ public class Panel
 
         UpdateAnimations(target);
 
-        if (_styleTarget is not null && StylesEqual(_styleTarget, target))
+        if (_resting is not null && StylesEqual(_resting, target))
         {
             // ComputedStyle can receive inherited values during the layout
-            // pass. Restore the unmodified target before inheritance is
-            // applied again, otherwise values such as opacity accumulate. An
+            // pass. Adopt the freshly computed buffer as the visible style so
+            // inheritance is applied to a pristine style again (otherwise
+            // values such as opacity accumulate); the previously visible
+            // style becomes the next compute buffer, keeping the visible
+            // style distinct from the buffer at every pass boundary. An
             // active transition or animation keeps the composed style instead.
-            if (_animations.Count == 0 && _transitions.Count == 0) ComputedStyle = target;
+            var previousVisible = ComputedStyle;
+            if (_animations.Count == 0 && _transitions.Count == 0)
+            {
+                ComputedStyle = target;
+                _computeBuffer = previousVisible;
+            }
+            else
+            {
+                _computeBuffer = target;
+            }
+
             return;
         }
 
-        var previous = _styleTarget ?? target;
-        _styleTarget = target.Clone();
-        _animationBase = target.Clone();
+        var previous = _resting ?? target;
+        _resting = target.Clone();
         StartTransitions(previous, target);
         ComputedStyle = Compose();
+        _computeBuffer = target;
     }
 
     /// <summary>
@@ -262,8 +292,7 @@ public class Panel
         previous._animations.Clear();
         foreach (var (name, transition) in previous._transitions) _transitions[name] = transition;
         previous._transitions.Clear();
-        _styleTarget = previous._styleTarget;
-        _animationBase = previous._animationBase;
+        _resting = previous._resting;
         _hasComputedStyle = true;
         // The composed style is only worth carrying while something is
         // animating: a plain panel gets its style from the cascade anyway, and
@@ -426,8 +455,8 @@ public class Panel
     /// </summary>
     internal void RestoreRestingStyle()
     {
-        if (_styleTarget is null) return;
-        if (_animations.Count == 0 && _transitions.Count == 0) ComputedStyle = _styleTarget.Clone();
+        if (_resting is null) return;
+        if (_animations.Count == 0 && _transitions.Count == 0) ComputedStyle = _resting.Clone();
     }
 
     /// <summary>
@@ -466,7 +495,7 @@ public class Panel
     /// </summary>
     private ComputedStyle Compose()
     {
-        var result = (_animationBase ?? _styleTarget ?? ComputedStyle).Clone();
+        var result = (_resting ?? ComputedStyle).Clone();
         foreach (var animation in _animations)
         {
             if (animation.State == AnimationState.None || animation.LastProgress < 0) continue;
@@ -496,7 +525,7 @@ public class Panel
             var name = property.Name;
             if (_animationDrivenProps?.Contains(name) == true) continue;
             var to = property.GetValue(target);
-            if (property.ValuesEqual(property.GetValue(previous), to))
+            if (property.ValuesEqual(previous, target))
             {
                 _transitions.Remove(name);
                 continue;
@@ -528,7 +557,7 @@ public class Panel
     private static bool StylesEqual(ComputedStyle a, ComputedStyle b)
     {
         foreach (var property in CssProperties.All)
-            if (!property.ValuesEqual(property.GetValue(a), property.GetValue(b))) return false;
+            if (!property.StylesEqual(a, b)) return false;
         return true;
     }
 
