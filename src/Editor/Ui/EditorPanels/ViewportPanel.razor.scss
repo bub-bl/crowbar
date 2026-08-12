@@ -1,11 +1,14 @@
 @use '../_editor-theme' as *;
 
+// Docké : le panneau remplit le groupe (le DockArea positionne les groupes).
 root {
     position: absolute;
-    left: 330px;
-    right: 280px;
-    top: 44px;
-    bottom: 264px;
+    left: 0px;
+    top: 0px;
+    right: 0px;
+    bottom: 0px;
+    width: auto;
+    height: auto;
     // Transparent : la scène 3D rendue par WebGPU transparaît ici.
     background-color: transparent;
 }

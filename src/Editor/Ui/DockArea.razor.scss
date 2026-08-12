@@ -1,0 +1,157 @@
+// Le DockArea remplit la zone éditable : entre la top bar (44 px) et la
+// status bar (32 px). Fond transparent : la scène 3D du viewport transparaît
+// là où aucun panneau opaque ne la couvre.
+@use '_editor-theme' as *;
+
+root {
+    position: absolute;
+    left: 0px;
+    right: 0px;
+    top: 44px;
+    bottom: 32px;
+    width: auto;
+    height: auto;
+    background-color: transparent;
+    box-sizing: border-box;
+}
+
+.dock-area {
+    position: absolute;
+    left: 0px;
+    top: 0px;
+    right: 0px;
+    bottom: 0px;
+    background-color: transparent;
+}
+
+// Chaque groupe est positionné en absolu avec un rect calculé par l'arbre de
+// docking. Le conteneur reste transparent : ce sont les panneaux dockés qui
+// peignent leur propre fond (le viewport, lui, reste transparent).
+.dock-group {
+    position: absolute;
+    background-color: transparent;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.dock-tabbar {
+    position: absolute;
+    left: 0px;
+    top: 0px;
+    right: 0px;
+    height: 30px;
+    flex-direction: row;
+    align-items: flex-end;
+    padding: 0 8px;
+    gap: 4px;
+    background-color: $bg;
+    border-bottom: 1px solid $border;
+    box-sizing: border-box;
+}
+
+.dock-tab {
+    height: 30px;
+    padding: 0 10px;
+    color: $text-muted;
+    font-size: 10px;
+    font-weight: bold;
+    line-height: 29px;
+    text-align: center;
+    vertical-align: center;
+    border-bottom: 2px solid transparent;
+    box-sizing: border-box;
+    cursor: pointer;
+
+    &:hover {
+        color: $text;
+        background-color: $panel-hover;
+    }
+}
+
+.dock-tab-active {
+    color: $text-bright;
+    border-bottom: 2px solid $accent;
+
+    &:hover {
+        background-color: transparent;
+    }
+}
+
+.dock-content {
+    position: absolute;
+    left: 0px;
+    top: 31px;
+    right: 0px;
+    bottom: 0px;
+    overflow: hidden;
+}
+
+.dock-pane {
+    position: absolute;
+    left: 0px;
+    top: 0px;
+    right: 0px;
+    bottom: 0px;
+}
+
+.dock-pane-hidden {
+    display: none;
+}
+
+// Fantôme suivant le curseur pendant le drag d'un onglet.
+.dock-ghost {
+    position: absolute;
+    height: 26px;
+    padding: 0 12px;
+    border-radius: 4px;
+    background-color: $panel-head;
+    border: 1px solid $accent;
+    color: $text-bright;
+    font-size: 11px;
+    line-height: 24px;
+    text-align: center;
+    vertical-align: center;
+    box-sizing: border-box;
+    z-index: 100;
+}
+
+// Prévisualisation de la zone de drop : surbrillance bleutée dans le groupe
+// cible (pleine pour l'onglet central, bande pour les bords).
+.dock-preview {
+    position: absolute;
+    border-radius: 4px;
+    background-color: rgba(47, 111, 224, 0.16);
+    border: 1px solid $accent;
+    box-sizing: border-box;
+    z-index: 50;
+}
+
+.dock-preview-center {
+    border: 2px solid $accent;
+}
+
+.dock-preview-left,
+.dock-preview-right {
+    border-left: 2px solid $accent;
+    border-right: 2px solid $accent;
+}
+
+.dock-preview-top,
+.dock-preview-bottom {
+    border-top: 2px solid $accent;
+    border-bottom: 2px solid $accent;
+}
+
+// Poignées de redimensionnement entre les groupes (sur les coutures de 1 px).
+.dock-splitter {
+    position: absolute;
+    z-index: 20;
+}
+
+.dock-splitter-v {
+    cursor: ew-resize;
+}
+
+.dock-splitter-h {
+    cursor: ns-resize;
+}

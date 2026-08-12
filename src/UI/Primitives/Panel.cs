@@ -642,6 +642,10 @@ public class Panel
     internal void RaiseClicked(UiPointerEvent e) => Clicked?.Invoke(e);
     /// <summary>True when a <see cref="Clicked"/> handler is attached (events cannot be read from outside the declaring class).</summary>
     internal bool HasClickedHandler => Clicked is not null;
+    /// <summary>True when this panel can receive pointer-captured movement.</summary>
+    internal bool HasPointerMoveHandler => PointerMove is not null;
+    /// <summary>True when this panel can receive pointer-captured release.</summary>
+    internal bool HasPointerUpHandler => PointerUp is not null;
     internal void ClearDirty()
     {
         LayoutDirty = false;

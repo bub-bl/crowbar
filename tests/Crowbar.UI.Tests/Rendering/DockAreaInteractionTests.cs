@@ -1,0 +1,151 @@
+using Crowbar.UI;
+
+namespace Crowbar.UI.Tests.Rendering;
+
+/// <summary>
+/// Exercises the DockArea's real interaction wiring on the rendered editor
+/// page: grabbing a tab, dragging it onto a drop zone and releasing must
+/// re-dock the panel (tab or split), exactly as the user would.
+/// </summary>
+public class DockAreaInteractionTests
+{
+    [Fact]
+    public void DraggingTabToCenterOfAnotherGroupDocksItAsTab()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+
+        // Grab the EXPLORATEUR tab and drag it onto the middle of the
+        // VIEWPORT group (the center drop zone docks as a tab).
+        var explorerTab = FindDockTab(content, "EXPLORATEUR");
+        Assert.NotNull(explorerTab);
+        var viewportGroup = TestUi.FindAll(content, p => p.Classes.Contains("dock-group"))
+            .Single(group => TestUi.Texts(group).Any(text => text.Contains("VIEWPORT", StringComparison.Ordinal)));
+
+        var grabX = explorerTab!.Layout.X + 5;
+        var grabY = explorerTab.Layout.Y + 5;
+        var targetX = viewportGroup.Layout.X + viewportGroup.Layout.Width / 2;
+        var targetY = viewportGroup.Layout.Y + viewportGroup.Layout.Height / 2;
+
+        ui.ProcessPointerDown(grabX, grabY);
+        // The real app can render a frame immediately after the press. The
+        // drag must survive that reconciliation before the pointer moves.
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerMove(targetX, targetY);
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerUp(targetX, targetY);
+        ui.Update();
+        ui.Render();
+
+        // EXPLORATEUR is now a tab of the same group as VIEWPORT, and the
+        // emptied explorer group collapsed out of the layout.
+        var tabs = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab"));
+        var explorer = Assert.Single(tabs, tab => TestUi.Texts(tab).Any(text => text.Contains("EXPLORATEUR", StringComparison.Ordinal)));
+        var viewport = Assert.Single(tabs, tab => TestUi.Texts(tab).Any(text => text.Contains("VIEWPORT", StringComparison.Ordinal)));
+        Assert.Same(explorer.Parent, viewport.Parent);
+        Assert.Single(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab") && TestUi.Texts(p).Any(t => t.Contains("EXPLORATEUR", StringComparison.Ordinal))));
+        Assert.Contains(TestUi.Texts(ui.Content!), text => text.Contains("Rechercher", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void DraggingTabToRightEdgeOfAnotherGroupSplitsIt()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+
+        // Drag EXPLORATEUR onto the right edge of the VIEWPORT group: the
+        // target group must be wrapped in a split with a fresh group holding
+        // EXPLORATEUR on the right side.
+        var explorerTab = FindDockTab(content, "EXPLORATEUR");
+        Assert.NotNull(explorerTab);
+        var viewportGroup = TestUi.FindAll(content, p => p.Classes.Contains("dock-group"))
+            .Single(group => TestUi.Texts(group).Any(text => text.Contains("VIEWPORT", StringComparison.Ordinal)));
+
+        var grabX = explorerTab!.Layout.X + 5;
+        var grabY = explorerTab.Layout.Y + 5;
+        var targetX = viewportGroup.Layout.Right - 8;
+        var targetY = viewportGroup.Layout.Y + viewportGroup.Layout.Height / 2;
+
+        ui.ProcessPointerDown(grabX, grabY);
+        // The real app can render a frame immediately after the press. The
+        // drag must survive that reconciliation before the pointer moves.
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerMove(targetX, targetY);
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerUp(targetX, targetY);
+        ui.Update();
+        ui.Render();
+
+        // EXPLORATEUR sits in its own group now, next to (not inside) VIEWPORT.
+        var explorerTabAfter = FindDockTab(ui.Content!, "EXPLORATEUR");
+        Assert.NotNull(explorerTabAfter);
+        Assert.NotSame(explorerTabAfter!.Parent, FindDockTab(ui.Content!, "VIEWPORT")?.Parent);
+        var explorerPane = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-pane-active"))
+            .Single(pane => TestUi.Texts(pane).Any(text => text.Contains("Rechercher", StringComparison.Ordinal)));
+        Assert.True(explorerPane.Layout.Width > 0);
+        Assert.True(explorerPane.Layout.Height > 0);
+        Assert.Contains(TestUi.Texts(ui.Content!), text => text.Contains("Rechercher", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ReleasingOutsideDockAreaCancelsDragWithoutLeavingGhost()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+        var explorerTab = FindDockTab(content, "EXPLORATEUR");
+        Assert.NotNull(explorerTab);
+        var viewportGroup = TestUi.FindAll(content, p => p.Classes.Contains("dock-group"))
+            .Single(group => TestUi.Texts(group).Any(text => text.Contains("VIEWPORT", StringComparison.Ordinal)));
+
+        var grabX = explorerTab!.Layout.X + 5;
+        var grabY = explorerTab.Layout.Y + 5;
+        var targetX = viewportGroup.Layout.X + viewportGroup.Layout.Width / 2;
+        var targetY = viewportGroup.Layout.Y + viewportGroup.Layout.Height / 2;
+
+        ui.ProcessPointerDown(grabX, grabY);
+        ui.ProcessPointerMove(targetX, targetY);
+        ui.Update();
+        ui.Render();
+        // (10, 10) is in the fixed top bar, outside DockArea. Pointer capture
+        // must still receive the release and clear the transient drag state.
+        ui.ProcessPointerUp(10, 10);
+        ui.Update();
+        ui.Render();
+
+        var tabs = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab"));
+        Assert.NotNull(FindDockTab(ui.Content!, "EXPLORATEUR"));
+        Assert.NotNull(FindDockTab(ui.Content!, "VIEWPORT"));
+        Assert.Equal(6, tabs.Count);
+        Assert.Empty(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-ghost")));
+    }
+
+    [Fact]
+    public void ClickingTabWithoutDraggingJustSwitchesThePane()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+
+        // The bottom group hosts MONDE (active) and CONTENU. Clicking CONTENU
+        // without dragging must switch the active pane without re-docking.
+        var contenuTab = FindDockTab(content, "CONTENU");
+        Assert.NotNull(contenuTab);
+        Assert.Null(TestUi.FindAll(content, p => p.Classes.Contains("dock-pane-active"))
+            .SingleOrDefault(pane => TestUi.Texts(pane).Any(text => text.Contains("MODÈLES", StringComparison.Ordinal))));
+
+        ui.ProcessPointerDown(contenuTab!.Layout.X + 5, contenuTab.Layout.Y + 5);
+        ui.ProcessPointerUp(contenuTab.Layout.X + 5, contenuTab.Layout.Y + 5);
+        ui.Update();
+        ui.Render();
+
+        var activePanes = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-pane-active"));
+        Assert.Contains(activePanes, pane => TestUi.Texts(pane).Any(text => text.Contains("MODÈLES", StringComparison.Ordinal)));
+    }
+
+    private static Panel? FindDockTab(Panel root, string title) =>
+        TestUi.FindAll(root, p => p.Classes.Contains("dock-tab"))
+            .FirstOrDefault(tab => TestUi.Texts(tab).Any(text => text.Contains(title, StringComparison.Ordinal)));
+}

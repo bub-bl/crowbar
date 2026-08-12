@@ -125,7 +125,13 @@ internal static class HtmlPanelParser
             // components) and must survive parent re-renders. Creating a fresh
             // instance here bypasses the reconciliation cache and, for file
             // components, recompiles/reopens the .razor file on every render.
-            var child = runtime.GetOrCreateChild(key, element.Name.LocalName,
+            // @key gives the instance a stable identity across the tree: the
+            // key value replaces the positional path, so a component that
+            // moves to a different markup position (e.g. a docked panel
+            // re-docked into another group) keeps its instance and state.
+            var componentKeyAttribute = element.Attribute("data-codex-key");
+            var componentKey = componentKeyAttribute is not null ? componentKeyAttribute.Value : key;
+            var child = runtime.GetOrCreateChild(componentKey, element.Name.LocalName,
                 () => componentSource.Create(typeArguments));
             if (element.Attribute("data-codex-ref") is { } refAttribute)
                 runtime.AddRef(CleanRefName(refAttribute.Value), child);

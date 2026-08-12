@@ -4,6 +4,10 @@ public sealed partial class UiSystem
 {
     private Panel? _hovered;
     private Panel? _captured;
+    // A drag handler can request movement/release dispatch through an ancestor
+    // even after the pointer leaves the original panel. This is important for
+    // dock tabs: each render replaces the hit-test tree while the drag is live.
+    private Panel? _pointerCapture;
     private Panel? _scrollDragPanel;
     private bool _scrollDragVertical;
     private Panel? _lastClickPanel;
@@ -35,7 +39,14 @@ public sealed partial class UiSystem
         {
             var e = new UiPointerEvent(x, y);
             PointerMoved?.Invoke(hit, e);
-            for (var current = hit; current is not null; current = current.Parent) current.RaisePointerMove(e);
+            if (_pointerCapture is { } captured)
+                captured.RaisePointerMove(e);
+            else
+                for (var current = hit; current is not null; current = current.Parent) current.RaisePointerMove(e);
+        }
+        else if (_pointerCapture is { } capturedOutside)
+        {
+            capturedOutside.RaisePointerMove(new UiPointerEvent(x, y));
         }
         return hit;
     }
@@ -52,6 +63,12 @@ public sealed partial class UiSystem
         PointerDown?.Invoke(hit, e);
         for (var current = hit; current is not null; current = current.Parent) current.RaisePointerDown(e);
         _captured = hit is Button or TextInput ? hit : null;
+        // Capture the nearest ancestor that owns both movement and release
+        // handlers. The reference may become detached by a Razor re-render;
+        // its delegate still points at the live component, which is exactly what
+        // lets a dock drag finish after its original tab was reconciled away.
+        _pointerCapture = PathToRoot(hit).FirstOrDefault(panel =>
+            panel.HasPointerMoveHandler && panel.HasPointerUpHandler);
         // A click toggles the nearest checkbox/radio on the hit path (deepest
         // first), then fires on the deepest clickable panel (any panel with a
         // Clicked handler, not just buttons) and stops bubbling there.
@@ -85,11 +102,19 @@ public sealed partial class UiSystem
         if (hit is not null)
         {
             var e = new UiPointerEvent(x, y, button);
-            for (var current = hit; current is not null; current = current.Parent) current.RaisePointerUp(e);
+            if (_pointerCapture is { } captured)
+                captured.RaisePointerUp(e);
+            else
+                for (var current = hit; current is not null; current = current.Parent) current.RaisePointerUp(e);
+        }
+        else if (_pointerCapture is { } capturedOutside)
+        {
+            capturedOutside.RaisePointerUp(new UiPointerEvent(x, y, button));
         }
         UpdatePressedPath(_captured ?? hit, false);
         if (_captured is TextInput textInput && button == 0) textInput.EndPointerSelection();
         _captured = null;
+        _pointerCapture = null;
         _scrollDragPanel = null;
         _scrollDragVertical = false;
         return hit;

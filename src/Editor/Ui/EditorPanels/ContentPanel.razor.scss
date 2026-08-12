@@ -1,13 +1,15 @@
 @use '../_editor-theme' as *;
 
+// Docké : le panneau remplit le groupe (le DockArea positionne les groupes).
 root {
     position: absolute;
     left: 0px;
-    right: 280px;
-    bottom: 32px;
-    height: 232px;
+    top: 0px;
+    right: 0px;
+    bottom: 0px;
+    width: auto;
+    height: auto;
     background-color: $panel;
-    border-top: 1px solid $border;
     box-sizing: border-box;
 }
 

@@ -1,19 +1,20 @@
 @use '../_editor-theme' as *;
 
+// Docké : le panneau remplit le groupe (le DockArea positionne les groupes).
 root {
     position: absolute;
+    left: 0px;
+    top: 0px;
     right: 0px;
-    top: 44px;
-    bottom: 316px;
-    width: 280px;
+    bottom: 0px;
+    width: auto;
+    height: auto;
     background-color: $panel;
-    border-left: 1px solid $border;
-    border-bottom: 1px solid $border;
     box-sizing: border-box;
 }
 
 .insp-body {
-    width: 280px;
+    width: 100%;
     flex-grow: 1;
     padding: 8px 10px;
     overflow: auto;
@@ -22,14 +23,14 @@ root {
 }
 
 .insp-row {
-    width: 260px;
+    width: 100%;
     flex-direction: row;
     align-items: center;
     gap: 8px;
 }
 
 .section-title {
-    width: 260px;
+    width: 100%;
     height: 16px;
     margin-top: 3px;
     color: $text-bright;
@@ -45,7 +46,7 @@ root {
 }
 
 .model-row {
-    width: 260px;
+    width: 100%;
     flex-direction: row;
     align-items: center;
     gap: 5px;
@@ -84,7 +85,7 @@ root {
 }
 
 .add-component {
-    width: 260px;
+    width: 100%;
     height: 26px;
     margin-top: 3px;
     border-radius: 4px;

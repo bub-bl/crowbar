@@ -4,17 +4,12 @@
 
 <div class="editor">
     <TopBar />
-    <ToolsPanel />
-    <ExplorerPanel />
-    <ViewportPanel />
-    <InspectorPanel />
-    <WorldPanel />
-    <ContentPanel />
+    <DockArea />
     <StatusBar />
     <Notifications />
 </div>
 
-@* No page-level time bucket: the periodic refresh is scoped to the StatusBar
-   component, whose own time-bucketed BuildHash requests the re-render. The
-   page itself only rebuilds on real state changes, so the whole tree is not
-   re-cascaded and re-laid-out every 400 ms for a couple of changing numbers. *@
+@* Les panneaux (outils, explorateur, viewport, inspecteur, monde, contenu)
+   sont désormais des éléments dockables gérés par le DockArea : onglets,
+   drag & drop avec prévisualisation des zones, et redimensionnement par les
+   poignées entre les groupes. La top bar et la status bar restent fixes. *@

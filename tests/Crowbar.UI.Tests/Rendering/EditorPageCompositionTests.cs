@@ -20,6 +20,12 @@ public class EditorPageCompositionTests
         ui.SetViewport(1280, 720);
         ui.RegisterRazorComponentsFromDirectory(uiDir);
         ui.Navigate("/editor");
+        // The DockArea positions its dock groups from the rect of its own root,
+        // which is only known after a layout pass: run one full frame like the
+        // app loop (render to lay out, update to rebuild, render to paint) so
+        // the docked panels are in place before the assertions.
+        ui.Render();
+        ui.Update();
         ui.Render();
         return ui;
     }
@@ -35,11 +41,15 @@ public class EditorPageCompositionTests
         var content = ui.Content!;
 
         Assert.NotNull(FindText(content, "logo", t => t == "Crowbar"));
-        Assert.NotNull(FindText(content, "panel-title", t => t == "OUTILS"));
-        Assert.NotNull(FindText(content, "panel-title", t => t == "EXPLORATEUR"));
+        // Every dockable panel is composed through the DockArea: its tab bar
+        // shows the titles the panels used to carry as headers.
+        Assert.NotNull(FindText(content, "dock-tab", t => t == "OUTILS"));
+        Assert.NotNull(FindText(content, "dock-tab", t => t == "EXPLORATEUR"));
+        Assert.NotNull(FindText(content, "dock-tab", t => t == "VIEWPORT"));
+        Assert.NotNull(FindText(content, "dock-tab", t => t == "INSPECTEUR"));
+        Assert.NotNull(FindText(content, "dock-tab", t => t == "MONDE"));
+        Assert.NotNull(FindText(content, "dock-tab", t => t == "CONTENU"));
         Assert.NotNull(TestUi.Find(content, p => p.Classes.Contains("viewport-toolbar")));
-        Assert.NotNull(FindText(content, "panel-title", t => t == "Maison_Bois"));
-        Assert.NotNull(FindText(content, "panel-title", t => t == "PARAMÈTRES DU MONDE"));
         var csActive = TestUi.Find(content, p => p.Classes.Contains("cs-active"));
         Assert.NotNull(csActive);
         Assert.Contains("Contenu", TestUi.Texts(csActive!));
@@ -177,17 +187,19 @@ public class EditorPageCompositionTests
         Assert.Equal(3, toggles.Count);
         Assert.All(toggles, t => Assert.True(t.IsChecked));
 
-        // Toggle "Générer Collision": the CheckRow primitive owns its state, so
-        // it must stay unchecked even though the parent page re-renders.
-        ui.ProcessPointerDown(toggles[1].Layout.X + 1, toggles[1].Layout.Y + 1);
-        ui.ProcessPointerUp(toggles[1].Layout.X + 1, toggles[1].Layout.Y + 1);
+        // Toggle "Générer Collision" (located by its row label: the docked
+        // tree order no longer guarantees a fixed index). The CheckRow
+        // primitive owns its state, so it must stay unchecked even though the
+        // parent page re-renders.
+        var generer = toggles.Single(t => TestUi.Texts(t.Parent!).Any(text => text.Contains("Générer Collision", StringComparison.Ordinal)));
+        ui.ProcessPointerDown(generer.Layout.X + 1, generer.Layout.Y + 1);
+        ui.ProcessPointerUp(generer.Layout.X + 1, generer.Layout.Y + 1);
         ui.Update();
         ui.Render();
 
         toggles = TestUi.FindAll(ui.Content!, p => p is ToggleInput).Cast<ToggleInput>().ToList();
         Assert.Equal(3, toggles.Count);
-        Assert.True(toggles[0].IsChecked);
-        Assert.False(toggles[1].IsChecked);
-        Assert.True(toggles[2].IsChecked);
+        Assert.Equal(2, toggles.Count(t => t.IsChecked));
+        Assert.False(toggles.Single(t => TestUi.Texts(t.Parent!).Any(text => text.Contains("Générer Collision", StringComparison.Ordinal))).IsChecked);
     }
 }
