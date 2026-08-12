@@ -160,6 +160,67 @@ public class DockAreaInteractionTests
     }
 
     [Fact]
+    public void SplitterTracksAbsolutePointerMovementAcrossFrames()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+        var splitter = TestUi.FindAll(content, p => p.Classes.Contains("dock-splitter-v")).First();
+        Assert.InRange(splitter.Layout.Width, 0f, 4f);
+        var startX = splitter.Layout.X + splitter.Layout.Width / 2;
+        var startY = splitter.Layout.Y + splitter.Layout.Height / 2;
+        var initialX = splitter.Layout.X;
+
+        var hit = ui.ProcessPointerDown(startX, startY);
+        Assert.NotNull(hit);
+        Assert.Contains("dock-splitter-v", hit!.Classes);
+        ui.Update();
+        ui.Render();
+
+        // Deliver two separate movement events. The second event's delta is
+        // absolute from the press, not relative to the previous event.
+        ui.ProcessPointerMove(startX + 17, startY);
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerMove(startX + 34, startY);
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerUp(startX + 34, startY);
+        ui.Update();
+        ui.Render();
+
+        var movedSplitter = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-splitter-v")).First();
+        Assert.Equal(34f, movedSplitter.Layout.X - initialX, precision: 1);
+    }
+
+    [Fact]
+    public void SplitterTracksVerticalPointerMovementAcrossFrames()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+        var splitter = TestUi.FindAll(content, p => p.Classes.Contains("dock-splitter-h")).First();
+        Assert.InRange(splitter.Layout.Height, 0f, 4f);
+        var startX = splitter.Layout.X + splitter.Layout.Width / 2;
+        var startY = splitter.Layout.Y + splitter.Layout.Height / 2;
+        var initialY = splitter.Layout.Y;
+
+        var hit = ui.ProcessPointerDown(startX, startY);
+        Assert.NotNull(hit);
+        Assert.Contains("dock-splitter-h", hit!.Classes);
+        ui.Update();
+        ui.Render();
+
+        ui.ProcessPointerMove(startX, startY + 25);
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerUp(startX, startY + 25);
+        ui.Update();
+        ui.Render();
+
+        var movedSplitter = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-splitter-h")).First();
+        Assert.Equal(25f, movedSplitter.Layout.Y - initialY, precision: 1);
+    }
+
+    [Fact]
     public void ClickingTabWithoutDraggingJustSwitchesThePane()
     {
         using var ui = EditorPageCompositionTests.CreateEditorUi();

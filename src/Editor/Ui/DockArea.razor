@@ -69,7 +69,7 @@
     @* Poignées de redimensionnement sur les coutures entre les groupes. *@
     @foreach (var splitter in _splitters)
     {
-        <div class="dock-splitter @(splitter.Horizontal ? "dock-splitter-h" : "dock-splitter-v")"
+        <div class="dock-splitter @(splitter.Horizontal ? "dock-splitter-v" : "dock-splitter-h")"
              data-dock-split="@splitter.SplitId" data-dock-index="@splitter.Index"
              style="left:@Px(splitter.Rect.X); top:@Px(splitter.Rect.Y); width:@Px(splitter.Rect.Width); height:@Px(splitter.Rect.Height);"
              @onmousedown="BeginSplitterDrag"></div>
@@ -121,18 +121,22 @@
 
     private sealed class SplitterDragState
     {
-        public SplitterDragState(string splitId, int index, float x, float y)
+        public SplitterDragState(string splitId, int index, float x, float y, float firstSize, float secondSize)
         {
             SplitId = splitId;
             Index = index;
             StartX = x;
             StartY = y;
+            FirstSize = firstSize;
+            SecondSize = secondSize;
         }
 
         public string SplitId { get; }
         public int Index { get; }
         public float StartX { get; }
         public float StartY { get; }
+        public float FirstSize { get; }
+        public float SecondSize { get; }
     }
 
     protected override void OnTreeBuilt()
@@ -321,7 +325,17 @@
         if (e.Button != 0) return false;
         var splitter = HitTestSplitter(e.X, e.Y);
         if (splitter is null) return false;
-        _splitDrag = new SplitterDragState(splitter.Value.SplitId, splitter.Value.Index, e.X, e.Y);
+
+        var split = _tree.Splits().FirstOrDefault(s => s.Id == splitter.Value.SplitId);
+        if (split is null || splitter.Value.Index + 1 >= split.Children.Count) return false;
+        var rects = _tree.SplitChildRects(split, new UiRect(0, 0, Layout.Width, Layout.Height));
+        if (splitter.Value.Index + 1 >= rects.Count) return false;
+
+        var first = split.Horizontal ? rects[splitter.Value.Index].Width : rects[splitter.Value.Index].Height;
+        var second = split.Horizontal ? rects[splitter.Value.Index + 1].Width : rects[splitter.Value.Index + 1].Height;
+        if (first <= 0 || second <= 0) return false;
+
+        _splitDrag = new SplitterDragState(splitter.Value.SplitId, splitter.Value.Index, e.X, e.Y, first, second);
         return true;
     }
 
@@ -345,9 +359,7 @@
             return;
         }
 
-        var a = rects[drag.Index];
-        var b = rects[drag.Index + 1];
-        var total = split.Horizontal ? a.Width + b.Width : a.Height + b.Height;
+        var total = drag.FirstSize + drag.SecondSize;
         if (total <= 0)
         {
             _splitDrag = null;
@@ -355,9 +367,12 @@
             return;
         }
 
-        var aSize = split.Horizontal ? a.Width : a.Height;
+        // Compute from the original seam position, not from the current rect:
+        // each pointer move is absolute, while the current rect already includes
+        // the previous move. Reusing the current size made the divider accelerate
+        // and drift away from the cursor after several events.
         var delta = split.Horizontal ? e.X - drag.StartX : e.Y - drag.StartY;
-        var fraction = Math.Clamp((aSize + delta) / total, 0.15f, 0.85f);
+        var fraction = Math.Clamp((drag.FirstSize + delta) / total, 0.15f, 0.85f);
         split.Weights[drag.Index] = fraction * total;
         split.Weights[drag.Index + 1] = (1f - fraction) * total;
         StateHasChanged();
