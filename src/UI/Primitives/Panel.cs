@@ -145,6 +145,7 @@ public class Panel
         // Scrolling only shifts the painted content; the layout boxes are
         // unchanged, so this is a paint-only invalidation.
         InvalidatePaint();
+        MarkDecorationDirty();
         Scrolled?.Invoke(this);
     }
 
@@ -190,7 +191,12 @@ public class Panel
     public void ClearChildren() { foreach (var child in _children) child.Parent = null; _children.Clear(); Invalidate(); }
     public void SetInlineStyle(string key, string value) { InlineStyle[key] = value; MarkStyleDirty(); }
     /// <summary>Marks the whole subtree as needing a full layout pass (and therefore a full repaint).</summary>
-    public void Invalidate() { LayoutDirty = true; Parent?.Invalidate(); }
+    public void Invalidate()
+    {
+        LayoutDirty = true;
+        MarkDecorationDirty();
+        Parent?.Invalidate();
+    }
     /// <summary>
     /// Marks only the panel's painted output as stale: the next render repaints
     /// the affected region without re-running the Yoga layout. Used by caret
@@ -203,10 +209,18 @@ public class Panel
         for (var p = Parent; p is not null; p = p.Parent)
             if (p is ScreenPanel screen) screen.AnyPaintDirty = true;
     }
+
+    /// <summary>Invalidates renderer metadata whose geometry or GPU-composited parameters changed.</summary>
+    private void MarkDecorationDirty()
+    {
+        for (var p = this; p is not null; p = p.Parent)
+            if (p is ScreenPanel screen) screen.AnyDecorationDirty = true;
+    }
     /// <summary>Marks the panel's cascade inputs as changed (classes, inline style, pseudo-state).</summary>
     internal void MarkStyleDirty()
     {
         StyleDirty = true;
+        MarkDecorationDirty();
         PaintDirty = true;
         for (var p = Parent; p is not null; p = p.Parent)
             if (p is ScreenPanel screen)
@@ -436,6 +450,10 @@ public class Panel
             // that change geometry reflow the layout.
             if (previous.LayoutPropsEqual(composed)) InvalidatePaint();
             else Invalidate();
+            // GPU decoration eligibility and parameters can depend on animated
+            // opacity, colors, shadows and geometry; invalidate that cache even
+            // when the animation is otherwise paint-only.
+            MarkDecorationDirty();
             // Inherited properties (color, opacity, text metrics, shadows) are
             // baked into the children's computed styles during the cascade;
             // when an animation moves one of them, the descendants hold stale
@@ -658,6 +676,8 @@ public sealed class ScreenPanel : Panel
     internal bool AnyStyleDirty { get; set; }
     /// <summary>True when an ancestor animation/transition moved an inherited property.</summary>
     internal bool AnyInheritedDirty { get; set; }
+    /// <summary>True when cached GPU decoration/fill metadata must be rebuilt.</summary>
+    internal bool AnyDecorationDirty { get; set; } = true;
 
     // The panels whose animation/transition moved an inherited property this
     // frame; the inheritance refresh walks only their subtrees. Tiny by design

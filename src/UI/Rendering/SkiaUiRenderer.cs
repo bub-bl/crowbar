@@ -91,6 +91,7 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     private bool _forceFull;
     private bool _collectBackdrops = true;
     private bool _partialCull;
+    private bool _decorationCacheValid;
     private readonly List<BackdropRegion> _backdrops = [];
     private readonly List<DecorationRegion> _decorations = [];
     private readonly List<FillRegion> _fills = [];
@@ -126,7 +127,12 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     /// the GPU compositor instead. The editor enables this; renderer-only tests
     /// keep it off so the raster stays self-contained.
     /// </summary>
-    public bool GpuDecorations { get; set; }
+    private bool _gpuDecorations;
+    public bool GpuDecorations
+    {
+        get => _gpuDecorations;
+        set { if (_gpuDecorations != value) { _gpuDecorations = value; _decorationCacheValid = false; } }
+    }
 
     /// <summary>
     /// When enabled, solid panel backgrounds that are safe to composite on the
@@ -135,7 +141,12 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
     /// instead. The editor enables this; renderer-only tests keep it off so
     /// the raster stays self-contained.
     /// </summary>
-    public bool GpuFills { get; set; }
+    private bool _gpuFills;
+    public bool GpuFills
+    {
+        get => _gpuFills;
+        set { if (_gpuFills != value) { _gpuFills = value; _decorationCacheValid = false; } }
+    }
 
     /// <summary>
     /// The decoration regions collected by the last render (empty when GPU
@@ -268,8 +279,21 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         // GPU decorations and fills are decided from the current computed
         // styles and the paint order, before the raster (the Skia walk reads
         // the per-panel eligibility flags they set).
-        if (GpuDecorations || GpuFills) CollectDecorations(root);
-        else { _decorations.Clear(); _fills.Clear(); }
+        if (GpuDecorations || GpuFills)
+        {
+            if (!_decorationCacheValid || root.AnyDecorationDirty)
+            {
+                CollectDecorations(root);
+                _decorationCacheValid = true;
+                root.AnyDecorationDirty = false;
+            }
+        }
+        else
+        {
+            _decorations.Clear();
+            _fills.Clear();
+            _decorationCacheValid = false;
+        }
         var fullRedraw = needsLayout || _forceFull;
         if (!fullRedraw)
         {
@@ -278,7 +302,9 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             // dirty container's rect must cover children's overflow — an
             // outline or shadow hanging past the container box) and by the
             // draw-time cull, so compute them before collecting the damage.
-            ComputeSubtreePaintBounds(root, inTransform: false);
+            // CollectDamage now computes subtree bounds post-order while it
+            // gathers damage, avoiding a second full tree traversal on every
+            // partial repaint.
             fullRedraw = CollectDamage(root, inTransform: false, opacity: root.Opacity);
             if (!fullRedraw && _damage.Count == 0)
             {
@@ -1421,6 +1447,36 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         var style = panel.ComputedStyle;
         var transformed = style.HasTransform;
         var effectiveTransform = inTransform || transformed;
+
+        // Compute the subtree bounds while collecting damage. The old pipeline
+        // performed this post-order walk and then immediately walked the same
+        // tree again in CollectDamage; combining them removes one O(tree) pass
+        // from every partial repaint.
+        var bounds = new SKRect(panel.Layout.X, panel.Layout.Y, panel.Layout.Right, panel.Layout.Bottom);
+        var margin = PaintExtentMargin(style);
+        if (margin > 0) bounds.Inflate(margin, margin);
+        var hasTransform = inTransform || transformed;
+
+        // Backdrop regions mirror DrawPanel: only in the non-transform path.
+        if (!transformed && !style.BackdropFilter.IsNone && CssFilterFunctions.IsGpuBackdropExpressible(style.BackdropFilter))
+        {
+            _backdrops.Add(new BackdropRegion(
+                panel.Layout.X, panel.Layout.Y, panel.Layout.Width, panel.Layout.Height,
+                style.BorderRadius, style.Opacity * opacity, style.BackgroundColor, style.BackdropFilter));
+        }
+
+        foreach (var child in panel.ChildrenInternal)
+        {
+            if (CollectDamage(child, effectiveTransform, opacity)) full = true;
+            bounds = Union(bounds, new SKRect(
+                child.SubtreePaintBounds.X, child.SubtreePaintBounds.Y,
+                child.SubtreePaintBounds.Right, child.SubtreePaintBounds.Bottom));
+            hasTransform |= child.SubtreeHasTransform;
+        }
+
+        panel.SubtreePaintBounds = new UiRect(bounds.Left, bounds.Top, bounds.Width, bounds.Height);
+        panel.SubtreeHasTransform = hasTransform;
+
         // An animation or transition can paint outside both the previous and
         // current layout boxes (transform, shadow, blur, outline, text-shadow).
         // The renderer does not retain the previous composed style here, so a
@@ -1453,8 +1509,8 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
                 // repaint clips at the damage boundary — a clip that cuts a
                 // painted shape shifts dashed-stroke rasterization (Skia), so
                 // the boundary must stay clear of every painted pixel.
-                var sb = panel.SubtreePaintBounds;
-                var rect = new SKRect(sb.X, sb.Y, sb.Right, sb.Bottom);
+                var rect = new SKRect(panel.SubtreePaintBounds.X, panel.SubtreePaintBounds.Y,
+                    panel.SubtreePaintBounds.Right, panel.SubtreePaintBounds.Bottom);
                 // A panel whose every paint is delegated to the GPU (fill,
                 // uniform border, outer shadows) and that paints no text, inset
                 // shadow, outline or scrollbar leaves the texture untouched
@@ -1490,16 +1546,6 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
             }
         }
 
-        // Backdrop regions mirror DrawPanel: only in the non-transform path.
-        if (!transformed && !style.BackdropFilter.IsNone && CssFilterFunctions.IsGpuBackdropExpressible(style.BackdropFilter))
-        {
-            _backdrops.Add(new BackdropRegion(
-                panel.Layout.X, panel.Layout.Y, panel.Layout.Width, panel.Layout.Height,
-                style.BorderRadius, style.Opacity * opacity, style.BackgroundColor, style.BackdropFilter));
-        }
-
-        foreach (var child in panel.ChildrenInternal)
-            if (CollectDamage(child, effectiveTransform, opacity)) full = true;
         return full;
     }
 
