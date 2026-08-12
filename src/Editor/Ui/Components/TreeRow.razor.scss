@@ -8,6 +8,14 @@
     line-height: 20px;
     box-sizing: border-box;
     cursor: pointer;
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+
+    icon {
+        width: 12px;
+        height: 12px;
+    }
 
     &:hover {
         background-color: $panel-hover;

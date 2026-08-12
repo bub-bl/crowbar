@@ -7,7 +7,15 @@
     {
         <span class="caret">@(Open ? "▾" : "▸")</span>
     }
-    @Text
+    @if (!string.IsNullOrEmpty(Icon))
+    {
+        <icon name="@Icon" />
+    }
+    else if (Folder)
+    {
+        <icon name="@(Open ? "Solar/folders/Bold/folder-open" : "Solar/folders/Bold/folder-2")" />
+    }
+    <span class="tree-text">@Text</span>
 </div>
 
 @code {
@@ -27,5 +35,10 @@
     [Parameter]
     public bool Selected { get; set; }
 
-    protected override int BuildHash() => HashCode.Combine(Text, Indent, Folder, Open, Selected);
+    /// <summary>Optional entity-type icon shown before the label. Folders without
+    /// an explicit icon fall back to the folder glyph (open/closed).</summary>
+    [Parameter]
+    public string Icon { get; set; } = string.Empty;
+
+    protected override int BuildHash() => HashCode.Combine(Text, Indent, Folder, Open, Selected, Icon);
 }

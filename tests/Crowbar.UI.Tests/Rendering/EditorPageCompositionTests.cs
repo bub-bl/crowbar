@@ -97,6 +97,24 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void ExplorerTreeRowsRenderTheirIcons()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // The explorer rows carry entity-type icons: folder rows fall back to the
+        // folder glyph, leaf rows to their entity icon. Every icon must resolve
+        // to a real panel with a name (the renderer resolves the file later).
+        var treeIcons = TestUi.FindAll(content, p => p is Icon i && !string.IsNullOrEmpty(i.Name)).Cast<Icon>().ToList();
+        Assert.Contains(treeIcons, i => i.Name == "Solar/map/Bold/globe");
+        Assert.Contains(treeIcons, i => i.Name == "terrain");
+        Assert.Contains(treeIcons, i => i.Name == "Solar/devices/Bold/lightbulb");
+        Assert.Contains(treeIcons, i => i.Name == "Solar/folders/Bold/folder-2");
+        Assert.Contains(treeIcons, i => i.Name == "Solar/folders/Bold/folder-open");
+        Assert.Contains(treeIcons, i => i.Name == "Solar/ui/Bold/flag");
+    }
+
+    [Fact]
     public void NotificationsRenderAsToastsAndPrune()
     {
         using var ui = CreateEditorUi();
