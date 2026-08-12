@@ -1,0 +1,26 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Microsoft.AspNetCore.Components
+
+<div class="tool-section">
+    <div class="tool-label">@Label</div>
+    <div class="tool-grid">
+        @foreach (var icon in IconList)
+        {
+            <div class="tool-btn">@icon</div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string Label { get; set; } = string.Empty;
+
+    /// <summary>Icon glyphs separated by whitespace (one tool button each).</summary>
+    [Parameter]
+    public string Icons { get; set; } = string.Empty;
+
+    private string[] IconList => Icons.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+    protected override int BuildHash() => HashCode.Combine(Label, Icons);
+}

@@ -1,0 +1,21 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Microsoft.AspNetCore.Components
+
+<div class="check-row">
+    <input type="checkbox" checked="@_checked" @onchange="OnToggle" />
+    @Label
+</div>
+
+@code {
+    [Parameter]
+    public string Label { get; set; } = string.Empty;
+
+    // Self-contained state: the checkbox toggles itself and no parent
+    // parameter feeds it back, so the value survives parent re-renders.
+    private bool _checked = true;
+
+    private void OnToggle(bool value) => _checked = value;
+
+    protected override int BuildHash() => HashCode.Combine(Label, _checked);
+}

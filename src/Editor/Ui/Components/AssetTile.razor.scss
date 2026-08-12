@@ -1,0 +1,52 @@
+@use '../_editor-theme' as *;
+
+.asset-tile {
+    width: 84px;
+    height: 56px;
+    align-items: center;
+    gap: 3px;
+
+    &:hover .asset-name {
+        color: $text-bright;
+    }
+}
+
+.asset-thumb {
+    width: 56px;
+    height: 36px;
+    border-radius: 3px;
+    border: 1px solid #3a3a3a;
+    box-sizing: border-box;
+}
+
+.asset-thumb.circle {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+}
+
+.asset-name {
+    width: 84px;
+    height: 13px;
+    color: $text-muted;
+    font-size: 9px;
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.thumb-wood { background-color: #7a5636; }
+.thumb-metal { background-color: #6b7280; }
+.thumb-beton { background-color: #8d8d8d; }
+.thumb-glass { background-color: #8fb7d6; }
+
+.asset-import {
+    background-color: transparent;
+    border: 1px dashed $border;
+    color: $text-muted;
+    font-size: 16px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 32px;
+}

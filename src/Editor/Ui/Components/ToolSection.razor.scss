@@ -1,0 +1,37 @@
+@use '../_editor-theme' as *;
+
+.tool-section {
+    width: 84px;
+    gap: 4px;
+}
+
+.tool-label {
+    width: 84px;
+    height: 12px;
+    color: $text-muted;
+    font-size: 8px;
+    font-weight: bold;
+}
+
+.tool-grid {
+    width: 84px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.tool-btn {
+    width: 18px;
+    height: 18px;
+    border-radius: 3px;
+    color: $text-muted;
+    font-size: 10px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 18px;
+
+    &:hover {
+        background-color: $panel-hover;
+        color: $text-bright;
+    }
+}

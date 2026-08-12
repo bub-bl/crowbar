@@ -1,6 +1,7 @@
 using System.Numerics;
 using Crowbar.Engine;
 using Crowbar.Engine.InputSystem;
+using Crowbar.UI;
 
 namespace Crowbar.Editor;
 
@@ -94,7 +95,7 @@ internal sealed class DemoApplication : Application
         var registeredCount = Ui.RegisterRazorComponentsFromDirectory(uiDirectory);
         Console.WriteLine($"Razor UI: registered {registeredCount} file(s) from {uiDirectory}");
         Ui.NavigationChanged += url => Window.SetTitle($"Crowbar — {url}");
-        Ui.Navigate("/");
+        Ui.Navigate("/editor");
         Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl}");
         Ui.WatchDirectory(uiDirectory);
     }
@@ -108,6 +109,13 @@ internal sealed class DemoApplication : Application
     protected override void OnUpdate(float deltaTime)
     {
         base.OnUpdate(deltaTime);
+
+        // Live values for the editor status bar (FPS, memory, latency). The
+        // editor page re-renders on a throttle and reads these statics.
+        UiDiagnostics.Fps = 1f / Math.Max(1e-4f, deltaTime);
+        UiDiagnostics.UsedMemoryBytes = GC.GetTotalMemory(false);
+        UiDiagnostics.TotalMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
+        UiDiagnostics.PingMs = 15f; // démo : pas encore de réseau
 
         var renderer = Renderer;
         if (renderer is null)

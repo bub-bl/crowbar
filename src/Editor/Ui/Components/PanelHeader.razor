@@ -1,0 +1,19 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Microsoft.AspNetCore.Components
+
+<div class="panel-head">
+    <div class="panel-title">@Title</div>
+    @ChildContent
+    <div class="panel-x">×</div>
+</div>
+
+@code {
+    [Parameter]
+    public string Title { get; set; } = string.Empty;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    protected override int BuildHash() => HashCode.Combine(Title);
+}

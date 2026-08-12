@@ -345,6 +345,50 @@ public class LayoutTests
     }
 
     [Fact]
+    public void AbsolutePanelWithTopAndBottomAnchorsStretchesWithViewport()
+    {
+        // The editor page anchors its panels with top/bottom (instead of fixed
+        // pixel heights) so the UI follows the window size. A panel with both
+        // anchors and no height must grow when the viewport grows.
+        var root = new ScreenPanel();
+        var child = new Panel { TagName = "div" };
+        child.AddClass("box");
+        root.AddChild(child);
+        const string css = ".box { position: absolute; top: 44px; bottom: 264px; width: 100px; }";
+
+        Layout(root, 1280, 720, css);
+        Assert.Equal(44, child.Layout.Y);
+        Assert.Equal(720 - 44 - 264, child.Layout.Height);
+
+        // Same panel in a taller window: the height stretches with the viewport.
+        Layout(root, 1280, 1080, css);
+        Assert.Equal(44, child.Layout.Y);
+        Assert.Equal(1080 - 44 - 264, child.Layout.Height);
+    }
+
+    [Fact]
+    public void AbsolutePanelWithLeftAndRightAnchorsStretchesWithViewport()
+    {
+        // The viewport panel is anchored left/right between the side columns so
+        // its width follows the window width.
+        var root = new ScreenPanel();
+        var child = new Panel { TagName = "div" };
+        child.AddClass("box");
+        root.AddChild(child);
+        const string css = ".box { position: absolute; left: 330px; right: 280px; top: 44px; bottom: 264px; }";
+
+        Layout(root, 1280, 720, css);
+        Assert.Equal(330, child.Layout.X);
+        Assert.Equal(1280 - 330 - 280, child.Layout.Width);
+        Assert.Equal(720 - 44 - 264, child.Layout.Height);
+
+        Layout(root, 1600, 900, css);
+        Assert.Equal(330, child.Layout.X);
+        Assert.Equal(1600 - 330 - 280, child.Layout.Width);
+        Assert.Equal(900 - 44 - 264, child.Layout.Height);
+    }
+
+    [Fact]
     public void AutoMarginCentersChild()
     {
         var root = new ScreenPanel();

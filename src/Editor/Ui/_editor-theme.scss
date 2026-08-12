@@ -1,0 +1,42 @@
+// Palette du thème charbon de l'éditeur (fidèle à la maquette) : surfaces
+// #111..#1e1e1e, texte gris clair, accent bleu. Partiel SCSS (préfixe _) :
+// importé par les feuilles .razor.scss des composants de l'éditeur via @use,
+// jamais compilé seul par DartSassBuilder.
+//
+// Les règles partagées (.caret, .field-label) vivent ici aussi : chaque
+// composant qui @use ce thème reçoit sa propre copie, scopée à son scope CSS.
+
+// Surfaces
+$bg: #111111;
+$panel: #1b1b1b;
+$panel-head: #242424;
+$panel-hover: #262626;
+$border: #2e2e2e;
+$input-bg: #0e0e0e;
+
+// Texte
+$text: #d6d6d6;
+$text-bright: #f2f2f2;
+$text-muted: #8c8c8c;
+
+// Accent
+$accent: #2f6fe0;
+$accent-hover: #3d7fee;
+$green: #2ea043;
+$green-hover: #37b04c;
+
+// Petite flèche déroulante (▾ / ▸), utilisée par la top bar, les arbres, les
+// dropdowns et la barre d'outils du viewport.
+.caret {
+    color: $text-muted;
+    font-size: 9px;
+}
+
+// Libellé de champ des lignes de l'inspecteur / du monde.
+.field-label {
+    width: 74px;
+    height: 18px;
+    color: $text-muted;
+    font-size: 10px;
+    line-height: 18px;
+}

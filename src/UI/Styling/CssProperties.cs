@@ -758,7 +758,8 @@ public static class CssProperties
             style.BorderTopStyle = values[0];
             style.BorderRightStyle = values.Length > 1 ? values[1] : values[0];
             style.BorderBottomStyle = values.Length > 2 ? values[2] : values[0];
-            style.BorderLeftStyle = values.Length > 3 ? values[3] : values[1];
+            // 1 value: all four sides; 2/3 values: left mirrors right (values[1]).
+            style.BorderLeftStyle = values.Length > 3 ? values[3] : values.Length > 1 ? values[1] : values[0];
             return true;
         }
     }
@@ -782,7 +783,8 @@ public static class CssProperties
             style.BorderTopColor = values[0];
             style.BorderRightColor = values.Length > 1 ? values[1] : values[0];
             style.BorderBottomColor = values.Length > 2 ? values[2] : values[0];
-            style.BorderLeftColor = values.Length > 3 ? values[3] : values[1];
+            // 1 value: all four sides; 2/3 values: left mirrors right (values[1]).
+            style.BorderLeftColor = values.Length > 3 ? values[3] : values.Length > 1 ? values[1] : values[0];
             return true;
         }
     }

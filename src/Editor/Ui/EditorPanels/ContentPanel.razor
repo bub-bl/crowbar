@@ -1,0 +1,78 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.EditorPanels
+
+<div class="content-tabs">
+    <div class="content-tab @ContentTabClass("contenu")" @onclick="ContentContenu">CONTENU</div>
+    <div class="content-tab @ContentTabClass("sortie")" @onclick="ContentSortie">SORTIE</div>
+    <div class="content-tab @ContentTabClass("console")" @onclick="ContentConsole">CONSOLE</div>
+</div>
+
+<div class="content-toolbar">
+    <div class="ct-btn">+ Importer</div>
+    <div class="ct-btn">Nouveau dossier</div>
+    <div class="breadcrumb">Assets&#160;<span class="crumb-sep">›</span>&#160;Structures</div>
+    <SearchBox Placeholder="Rechercher..." Small="true" />
+    <div class="panel-x">×</div>
+</div>
+
+<div class="content-body">
+    <div class="content-sidebar">
+        <div class="cs-item cs-active">Contenu</div>
+        <div class="cs-item">Assets › Structures</div>
+        <div class="cs-item">Props</div>
+        <div class="cs-item">Nature</div>
+        <div class="cs-item">Matériaux</div>
+        <div class="cs-item">Sons</div>
+        <div class="cs-item">Scripts</div>
+        <div class="cs-item">Expériences</div>
+        <div class="cs-item">Addons</div>
+    </div>
+    <div class="content-grid">
+        <div class="grid-row-title">MODÈLES</div>
+        <div class="asset-row">
+            @foreach (var model in Models)
+            {
+                <AssetTile Name="@model" Kind="@ThumbKind(model)" />
+            }
+        </div>
+        <div class="grid-row-title">MATÉRIAUX</div>
+        <div class="asset-row">
+            @foreach (var material in Materials)
+            {
+                <AssetTile Name="@material" Kind="@ThumbKind(material)" Circle="true" />
+            }
+            <AssetTile Name="Importer" Kind="wood" Circle="true" Import="true" />
+        </div>
+    </div>
+</div>
+
+@code {
+    private static readonly string[] Models =
+    [
+        "maison_bois.glb", "hangar_metal.glb", "tour_eau.glb", "cabanon.glb", "mur_bois.glb",
+        "porte_bois.glb", "fenetre.glb", "escalier_bois.glb", "toit_bois.glb"
+    ];
+
+    private static readonly string[] Materials =
+    [
+        "bois_mur.mat", "bois_toit.mat", "bois_sol.mat", "metal.mat", "beton.mat", "porte_bois.mat", "fenetre_vitre.mat"
+    ];
+
+    private string _contentTab = "contenu";
+
+    protected override int BuildHash() => HashCode.Combine(_contentTab);
+
+    private void ContentContenu() => _contentTab = "contenu";
+    private void ContentSortie() => _contentTab = "sortie";
+    private void ContentConsole() => _contentTab = "console";
+
+    private string ContentTabClass(string tab) => _contentTab == tab ? "content-tab-active" : "";
+
+    private static string ThumbKind(string name) => name.Contains("metal", StringComparison.OrdinalIgnoreCase)
+        ? "metal"
+        : name.Contains("beton", StringComparison.OrdinalIgnoreCase)
+            ? "beton"
+            : name.Contains("vitre", StringComparison.OrdinalIgnoreCase) || name.Contains("fenetre", StringComparison.OrdinalIgnoreCase)
+                ? "glass"
+                : "wood";
+}

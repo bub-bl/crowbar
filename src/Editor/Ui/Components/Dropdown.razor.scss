@@ -1,0 +1,21 @@
+@use '../_editor-theme' as *;
+
+.dropdown {
+    width: 100px;
+    height: 22px;
+    border-radius: 3px;
+    background-color: $input-bg;
+    border: 1px solid $border;
+    color: $text;
+    font-size: 10px;
+    line-height: 20px;
+    padding: 0 6px;
+    box-sizing: border-box;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+}
+
+.dropdown.wide {
+    width: 158px;
+}

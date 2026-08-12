@@ -1,0 +1,20 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.EditorPanels
+@using Crowbar.UI
+
+<div class="status-item">Mode&#160;:&#160;Édition</div>
+<div class="status-spacer"></div>
+<div class="status-item">FPS:&#160;@((int)UiDiagnostics.Fps)</div>
+<div class="status-sep"></div>
+<div class="status-item">Mémoire:&#160;@UsedMemoryGb&#160;GB&#160;/&#160;@TotalMemoryGb&#160;GB</div>
+<div class="status-sep"></div>
+<div class="status-item">Ping:&#160;@((int)UiDiagnostics.PingMs)&#160;ms</div>
+
+@code {
+    // Time-bucketed like the page: the parent re-renders a few times per
+    // second and this component re-renders along, refreshing the live stats.
+    protected override int BuildHash() => Environment.TickCount / 400;
+
+    private string UsedMemoryGb => $"{UiDiagnostics.UsedMemoryBytes / 1_073_741_824.0:0.0}";
+    private string TotalMemoryGb => $"{UiDiagnostics.TotalMemoryBytes / 1_073_741_824.0:0.0}";
+}

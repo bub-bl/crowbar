@@ -1,0 +1,26 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.EditorPanels
+
+<PanelHeader Title="PARAMÈTRES DU MONDE" />
+
+<div class="monde-body">
+    <SliderRow Label="Heure" Value="14:30" Percent="60" />
+    <div class="slider-row">
+        <div class="field-label">Météo</div>
+        <Dropdown Text="Ensoleillé" Wide="true" />
+    </div>
+    <SliderRow Label="Exposition" Value="1.00" Percent="50" />
+    <SliderRow Label="Température" Value="22 °C" Percent="55" />
+    <div class="slider-row">
+        <div class="field-label">Brouillard</div>
+        <div class="monde-check"><input type="checkbox" checked="@_fog" @onchange="OnFogChanged" /></div>
+    </div>
+</div>
+
+@code {
+    private bool _fog = true;
+
+    protected override int BuildHash() => HashCode.Combine(_fog);
+
+    private void OnFogChanged(bool value) => _fog = value;
+}

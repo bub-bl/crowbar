@@ -1,0 +1,40 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.EditorPanels
+
+<PanelHeader Title="Maison_Bois">
+    <CheckRow Label="Actif" />
+</PanelHeader>
+
+<div class="insp-body">
+    <div class="insp-row">
+        <div class="field-label">Type</div>
+        <Dropdown Text="Static" />
+    </div>
+
+    <div class="section-title">TRANSFORM</div>
+    <VecRow Label="Position" X="1245.6" Y="320.7" Z="884.2" />
+    <VecRow Label="Rotation" X="0.0°" Y="132.5°" Z="0.0°" />
+    <VecRow Label="Échelle" X="1.0" Y="1.0" Z="1.0" />
+
+    <div class="section-title">MODÈLE</div>
+    <div class="model-row">
+        <input class="field" value="maison_bois.glb" />
+        <div class="folder-btn">…</div>
+    </div>
+
+    <div class="section-title">MATÉRIAUX <span class="count">Éléments: 5</span></div>
+    <MaterialRow Name="Bois_Mur" Kind="wood" />
+    <MaterialRow Name="Bois_Toit" Kind="wood" />
+    <MaterialRow Name="Bois_Sol" Kind="wood" />
+    <MaterialRow Name="Porte_Bois" Kind="wood" />
+    <MaterialRow Name="Fenetre_Vitre" Kind="glass" />
+
+    <div class="section-title">COLLISION</div>
+    <div class="insp-row">
+        <div class="field-label">Type</div>
+        <Dropdown Text="Maillage" />
+    </div>
+    <CheckRow Label="Générer Collision" />
+
+    <div class="add-component">+ Ajouter un composant</div>
+</div>

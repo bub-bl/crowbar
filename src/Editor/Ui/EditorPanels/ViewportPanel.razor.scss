@@ -1,0 +1,64 @@
+@use '../_editor-theme' as *;
+
+root {
+    position: absolute;
+    left: 330px;
+    right: 280px;
+    top: 44px;
+    bottom: 264px;
+    // Transparent : la scène 3D rendue par WebGPU transparaît ici.
+    background-color: transparent;
+}
+
+.viewport-toolbar {
+    position: absolute;
+    left: 500px;
+    top: 8px;
+    width: 292px;
+    height: 30px;
+    border-radius: 5px;
+    background-color: rgba(30, 30, 30, 0.92);
+    border: 1px solid $border;
+    flex-direction: row;
+    align-items: center;
+    padding: 0 6px;
+    gap: 3px;
+    box-sizing: border-box;
+}
+
+.vt-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    color: $text-muted;
+    font-size: 12px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 24px;
+
+    &:hover {
+        background-color: $panel-hover;
+        color: $text-bright;
+    }
+}
+
+.vt-sep {
+    width: 1px;
+    height: 16px;
+    margin: 0 3px;
+    background-color: $border;
+}
+
+.vt-local {
+    width: 72px;
+    height: 24px;
+    color: $text;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 24px;
+
+    &:hover {
+        color: $text-bright;
+    }
+}

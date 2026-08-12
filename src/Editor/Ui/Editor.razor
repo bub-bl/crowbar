@@ -1,0 +1,20 @@
+@page "/editor"
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui
+
+<div class="editor">
+    <TopBar />
+    <ToolsPanel />
+    <ExplorerPanel />
+    <ViewportPanel />
+    <InspectorPanel />
+    <WorldPanel />
+    <ContentPanel />
+    <StatusBar />
+</div>
+
+@code {
+    // Drives the re-render cascade a few times per second so the live status
+    // bar (FPS / memory / ping) refreshes without rebuilding every frame.
+    protected override int BuildHash() => Environment.TickCount / 400;
+}

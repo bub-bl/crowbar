@@ -63,6 +63,16 @@ public class BorderOutlineTests
     }
 
     [Fact]
+    public void BorderStyleShorthandWithSingleValueAppliesToAllSides()
+    {
+        var style = Style("border-style: solid;");
+        Assert.Equal("solid", style.BorderTopStyle);
+        Assert.Equal("solid", style.BorderRightStyle);
+        Assert.Equal("solid", style.BorderBottomStyle);
+        Assert.Equal("solid", style.BorderLeftStyle);
+    }
+
+    [Fact]
     public void BorderColorShorthandSupportsOneToFourValues()
     {
         var style = Style("border-color: red blue green yellow;");
@@ -70,6 +80,29 @@ public class BorderOutlineTests
         Assert.Equal(new UiColor(0, 0, 255, 255), style.BorderRightColor);
         Assert.Equal(new UiColor(0, 128, 0, 255), style.BorderBottomColor);
         Assert.Equal(new UiColor(255, 255, 0, 255), style.BorderLeftColor);
+    }
+
+    [Fact]
+    public void BorderColorShorthandWithSingleValueAppliesToAllSides()
+    {
+        // A single value must apply to every side — reading values[1] here
+        // used to throw IndexOutOfRangeException (the editor uses
+        // `border-color: <accent>` on hover rules).
+        var style = Style("border-color: #ff0000;");
+        Assert.Equal(new UiColor(255, 0, 0, 255), style.BorderTopColor);
+        Assert.Equal(new UiColor(255, 0, 0, 255), style.BorderRightColor);
+        Assert.Equal(new UiColor(255, 0, 0, 255), style.BorderBottomColor);
+        Assert.Equal(new UiColor(255, 0, 0, 255), style.BorderLeftColor);
+    }
+
+    [Fact]
+    public void BorderColorShorthandWithTwoValuesMirrorsLeftRight()
+    {
+        var style = Style("border-color: red blue;");
+        Assert.Equal(new UiColor(255, 0, 0, 255), style.BorderTopColor);
+        Assert.Equal(new UiColor(0, 0, 255, 255), style.BorderRightColor);
+        Assert.Equal(new UiColor(255, 0, 0, 255), style.BorderBottomColor);
+        Assert.Equal(new UiColor(0, 0, 255, 255), style.BorderLeftColor);
     }
 
     [Fact]

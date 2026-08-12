@@ -1,6 +1,8 @@
 @* Imports for the Razor language server (IDE): pages under Ui/ can use the
-   components in Ui/Components without a per-file @using, so they are recognized
-   as components (blue highlighting, IntelliSense, no false diagnostics).
+   components in Ui/Components and Ui/EditorPanels without a per-file @using,
+   so they are recognized as components (blue highlighting, IntelliSense, no
+   false diagnostics).
    The runtime compiler ignores this file: _-prefixed files are skipped by
    RegisterRazorComponentsFromDirectory and component registration is directory based. *@
 @using Crowbar.Editor.Ui.Components
+@using Crowbar.Editor.Ui.EditorPanels

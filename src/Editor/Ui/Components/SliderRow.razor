@@ -1,0 +1,26 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Microsoft.AspNetCore.Components
+
+<div class="slider-row">
+    <div class="field-label">@Label</div>
+    <div class="slider">
+        <div class="slider-fill" style="width: @(Percent * 1.28)px"></div>
+        <div class="slider-thumb" style="left: @(Percent * 1.28 - 5)px"></div>
+    </div>
+    <div class="slider-value">@Value</div>
+</div>
+
+@code {
+    [Parameter]
+    public string Label { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>Fill position in percent (0–100); the track is 128px wide.</summary>
+    [Parameter]
+    public int Percent { get; set; }
+
+    protected override int BuildHash() => HashCode.Combine(Label, Value, Percent);
+}

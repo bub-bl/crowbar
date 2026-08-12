@@ -1,0 +1,102 @@
+@use '../_editor-theme' as *;
+
+root {
+    position: absolute;
+    right: 0px;
+    top: 44px;
+    bottom: 316px;
+    width: 280px;
+    background-color: $panel;
+    border-left: 1px solid $border;
+    border-bottom: 1px solid $border;
+    box-sizing: border-box;
+}
+
+.insp-body {
+    width: 280px;
+    flex-grow: 1;
+    padding: 8px 10px;
+    overflow: auto;
+    box-sizing: border-box;
+    gap: 7px;
+}
+
+.insp-row {
+    width: 260px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+}
+
+.section-title {
+    width: 260px;
+    height: 16px;
+    margin-top: 3px;
+    color: $text-bright;
+    font-size: 10px;
+    font-weight: bold;
+    line-height: 16px;
+}
+
+.count {
+    color: $text-muted;
+    font-size: 9px;
+    font-weight: normal;
+}
+
+.model-row {
+    width: 260px;
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+}
+
+.field {
+    flex-grow: 1;
+    height: 22px;
+    border-radius: 3px;
+    background-color: $input-bg;
+    border: 1px solid $border;
+    color: $text;
+    font-size: 10px;
+    padding: 0 6px;
+    box-sizing: border-box;
+}
+
+.folder-btn {
+    width: 24px;
+    height: 22px;
+    border-radius: 3px;
+    background-color: $panel-head;
+    border: 1px solid $border;
+    color: $text-muted;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 20px;
+    box-sizing: border-box;
+
+    &:hover {
+        color: $text-bright;
+    }
+}
+
+.add-component {
+    width: 260px;
+    height: 26px;
+    margin-top: 3px;
+    border-radius: 4px;
+    background-color: $input-bg;
+    border: 1px dashed $border;
+    color: $text-muted;
+    font-size: 10px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 24px;
+    box-sizing: border-box;
+
+    &:hover {
+        border-color: $accent;
+        color: $text-bright;
+    }
+}

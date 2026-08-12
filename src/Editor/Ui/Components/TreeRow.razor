@@ -1,0 +1,31 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Microsoft.AspNetCore.Components
+
+<div class="tree-row @(Folder ? "tree-folder" : "") @(Selected ? "tree-selected" : "")" style="padding-left: @(Indent * 12 + 6)px">
+    @if (Folder)
+    {
+        <span class="caret">@(Open ? "▾" : "▸")</span>
+    }
+    @Text
+</div>
+
+@code {
+    [Parameter]
+    public string Text { get; set; } = string.Empty;
+
+    /// <summary>Tree depth; indentation is 12px per level plus a 6px base.</summary>
+    [Parameter]
+    public int Indent { get; set; }
+
+    [Parameter]
+    public bool Folder { get; set; }
+
+    [Parameter]
+    public bool Open { get; set; }
+
+    [Parameter]
+    public bool Selected { get; set; }
+
+    protected override int BuildHash() => HashCode.Combine(Text, Indent, Folder, Open, Selected);
+}

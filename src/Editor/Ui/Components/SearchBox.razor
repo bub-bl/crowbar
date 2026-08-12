@@ -1,0 +1,18 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Microsoft.AspNetCore.Components
+
+<div class="search @(Small ? "small" : "")">
+    <span class="search-q">Q</span>
+    @Placeholder
+</div>
+
+@code {
+    [Parameter]
+    public string Placeholder { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool Small { get; set; }
+
+    protected override int BuildHash() => HashCode.Combine(Placeholder, Small);
+}

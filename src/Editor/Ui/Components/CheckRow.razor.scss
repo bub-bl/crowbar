@@ -1,0 +1,11 @@
+@use '../_editor-theme' as *;
+
+.check-row {
+    height: 20px;
+    flex-direction: row;
+    align-items: center;
+    gap: 5px;
+    color: $text;
+    font-size: 10px;
+    line-height: 20px;
+}

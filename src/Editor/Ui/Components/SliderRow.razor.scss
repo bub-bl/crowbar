@@ -1,0 +1,41 @@
+@use '../_editor-theme' as *;
+
+.slider-row {
+    width: 260px;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+}
+
+.slider {
+    width: 128px;
+    height: 10px;
+    position: relative;
+}
+
+.slider-fill {
+    position: absolute;
+    top: 3px;
+    height: 4px;
+    border-radius: 2px;
+    background-color: $accent;
+}
+
+.slider-thumb {
+    position: absolute;
+    top: 0px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: $text-bright;
+    border: 1px solid $accent;
+    box-sizing: border-box;
+}
+
+.slider-value {
+    width: 54px;
+    height: 18px;
+    color: $text;
+    font-size: 10px;
+    line-height: 18px;
+}

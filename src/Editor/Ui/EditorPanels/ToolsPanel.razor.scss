@@ -1,0 +1,36 @@
+@use '../_editor-theme' as *;
+
+root {
+    position: absolute;
+    left: 0px;
+    top: 44px;
+    bottom: 264px;
+    width: 100px;
+    background-color: $panel;
+    border-right: 1px solid $border;
+    box-sizing: border-box;
+}
+
+.outils-body {
+    width: 100px;
+    flex-grow: 1;
+    padding: 8px 8px;
+    overflow: auto;
+    box-sizing: border-box;
+    gap: 10px;
+}
+
+.more-tools {
+    width: 84px;
+    height: 24px;
+    margin-top: 2px;
+    border-radius: 3px;
+    background-color: $input-bg;
+    border: 1px solid $border;
+    color: $text-muted;
+    font-size: 8px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 22px;
+    box-sizing: border-box;
+}

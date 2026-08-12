@@ -1,0 +1,200 @@
+@use '../_editor-theme' as *;
+
+root {
+    position: absolute;
+    left: 0px;
+    right: 0px;
+    top: 0px;
+    width: auto;
+    height: 44px;
+    background-color: $bg;
+    border-bottom: 1px solid $border;
+    box-sizing: border-box;
+}
+
+.logo {
+    position: absolute;
+    left: 16px;
+    top: 0px;
+    width: 90px;
+    height: 43px;
+    color: $text-bright;
+    font-size: 15px;
+    font-weight: bold;
+    line-height: 43px;
+}
+
+.tabs {
+    position: absolute;
+    left: 110px;
+    top: 0px;
+    width: 210px;
+    height: 44px;
+    flex-direction: row;
+    gap: 6px;
+}
+
+.tab {
+    width: 66px;
+    height: 44px;
+    color: $text-muted;
+    font-size: 12px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 43px;
+    box-sizing: border-box;
+    border-bottom: 2px solid transparent;
+
+    &:hover {
+        color: $text;
+    }
+}
+
+.tab-active {
+    color: $text-bright;
+    border-bottom: 2px solid $accent;
+}
+
+.topbar-tools {
+    position: absolute;
+    left: 360px;
+    top: 0px;
+    width: 186px;
+    height: 44px;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+}
+
+.tb-btn {
+    width: 26px;
+    height: 26px;
+    border-radius: 4px;
+    color: $text-muted;
+    font-size: 13px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 26px;
+
+    &:hover {
+        background-color: $panel-hover;
+        color: $text;
+    }
+}
+
+.tb-on {
+    background-color: $panel-hover;
+    color: $text-bright;
+}
+
+.tb-sep {
+    width: 1px;
+    height: 18px;
+    margin: 0 3px;
+    background-color: $border;
+}
+
+.tb-play {
+    position: absolute;
+    left: 560px;
+    top: 8px;
+    width: 110px;
+    height: 28px;
+    border-radius: 4px;
+    background-color: $green;
+    color: $text-bright;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 28px;
+
+    &:hover {
+        background-color: $green-hover;
+    }
+}
+
+.tb-mode {
+    position: absolute;
+    left: 682px;
+    top: 8px;
+    width: 150px;
+    height: 28px;
+    border-radius: 4px;
+    background-color: $input-bg;
+    border: 1px solid $border;
+    color: $text;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 26px;
+    box-sizing: border-box;
+}
+
+.tb-user {
+    position: absolute;
+    left: 1000px;
+    top: 0px;
+    width: 180px;
+    height: 44px;
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+
+    @media (min-width: 1281px) {
+        left: auto;
+        right: 138px;
+    }
+}
+
+.avatar {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background-color: $accent;
+    color: $text-bright;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 22px;
+}
+
+.username {
+    width: 70px;
+    height: 20px;
+    color: $text;
+    font-size: 11px;
+}
+
+.tb-window {
+    position: absolute;
+    left: 1142px;
+    top: 0px;
+    width: 138px;
+    height: 44px;
+    flex-direction: row;
+
+    @media (min-width: 1281px) {
+        left: auto;
+        right: 0px;
+    }
+}
+
+.tb-win-btn {
+    width: 46px;
+    height: 44px;
+    color: $text-muted;
+    font-size: 11px;
+    text-align: center;
+    vertical-align: center;
+    line-height: 44px;
+
+    &:hover {
+        background-color: $panel-hover;
+        color: $text;
+    }
+}
+
+.tb-close:hover {
+    background-color: #e81123;
+    color: $text-bright;
+}

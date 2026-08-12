@@ -1,0 +1,25 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Microsoft.AspNetCore.Components
+
+<div class="asset-tile">
+    <div class="asset-thumb @(Circle ? "circle" : "") @(Import ? "asset-import" : "") thumb-@Kind">@(Import ? "+" : "")</div>
+    <div class="asset-name">@Name</div>
+</div>
+
+@code {
+    [Parameter]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Thumbnail color class suffix: <c>wood</c>, <c>metal</c>, <c>beton</c> or <c>glass</c>.</summary>
+    [Parameter]
+    public string Kind { get; set; } = "wood";
+
+    [Parameter]
+    public bool Circle { get; set; }
+
+    [Parameter]
+    public bool Import { get; set; }
+
+    protected override int BuildHash() => HashCode.Combine(Name, Kind, Circle, Import);
+}

@@ -1,0 +1,20 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Microsoft.AspNetCore.Components
+
+<div class="mat-row">
+    <div class="mat-thumb mat-@Kind"></div>
+    <div class="mat-name">@Name</div>
+    <div class="mat-caret">▾</div>
+</div>
+
+@code {
+    [Parameter]
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>Thumbnail color class suffix: <c>wood</c> or <c>glass</c>.</summary>
+    [Parameter]
+    public string Kind { get; set; } = "wood";
+
+    protected override int BuildHash() => HashCode.Combine(Name, Kind);
+}

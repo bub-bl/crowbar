@@ -1,0 +1,58 @@
+@use '../_editor-theme' as *;
+
+root {
+    position: absolute;
+    left: 0px;
+    right: 0px;
+    bottom: 0px;
+    width: auto;
+    height: 32px;
+    background-color: $bg;
+    border-top: 1px solid $border;
+    box-sizing: border-box;
+}
+
+.status-item {
+    position: absolute;
+    top: 0px;
+    height: 32px;
+    color: $text-muted;
+    font-size: 11px;
+    line-height: 32px;
+}
+
+.status-item:nth-child(1) {
+    left: 14px;
+    width: 140px;
+}
+
+.status-item:nth-child(3) {
+    left: 940px;
+    width: 90px;
+}
+
+.status-item:nth-child(5) {
+    left: 1032px;
+    width: 180px;
+}
+
+.status-item:nth-child(7) {
+    left: 1214px;
+    width: 70px;
+}
+
+.status-sep {
+    position: absolute;
+    top: 9px;
+    width: 1px;
+    height: 14px;
+    background-color: $border;
+}
+
+.status-sep:nth-of-type(4) {
+    left: 1024px;
+}
+
+.status-sep:nth-of-type(6) {
+    left: 1206px;
+}

@@ -1,0 +1,37 @@
+@use '../_editor-theme' as *;
+
+.mat-row {
+    width: 260px;
+    height: 24px;
+    flex-direction: row;
+    align-items: center;
+    gap: 7px;
+}
+
+.mat-thumb {
+    width: 22px;
+    height: 22px;
+    border-radius: 3px;
+    border: 1px solid #3a3a3a;
+    box-sizing: border-box;
+}
+
+.mat-wood { background-color: #7a5636; }
+.mat-glass { background-color: #8fb7d6; }
+
+.mat-name {
+    flex-grow: 1;
+    height: 18px;
+    color: $text;
+    font-size: 10px;
+    line-height: 18px;
+}
+
+.mat-caret {
+    width: 16px;
+    height: 18px;
+    color: $text-muted;
+    font-size: 9px;
+    text-align: center;
+    line-height: 18px;
+}

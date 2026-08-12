@@ -1,0 +1,18 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Microsoft.AspNetCore.Components
+
+<div class="dropdown @(Wide ? "wide" : "")">
+    <span>@Text</span>
+    <span class="caret">▾</span>
+</div>
+
+@code {
+    [Parameter]
+    public string Text { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool Wide { get; set; }
+
+    protected override int BuildHash() => HashCode.Combine(Text, Wide);
+}

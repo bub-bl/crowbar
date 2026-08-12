@@ -1,0 +1,32 @@
+@use '../_editor-theme' as *;
+
+root {
+    position: absolute;
+    right: 0px;
+    bottom: 32px;
+    width: 280px;
+    height: 284px;
+    background-color: $panel;
+    border-left: 1px solid $border;
+    box-sizing: border-box;
+}
+
+.monde-body {
+    width: 280px;
+    flex-grow: 1;
+    padding: 10px 10px;
+    box-sizing: border-box;
+    gap: 12px;
+}
+
+.slider-row {
+    width: 260px;
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+}
+
+.monde-check {
+    width: 158px;
+    height: 18px;
+}
