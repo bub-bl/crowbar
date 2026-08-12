@@ -124,6 +124,34 @@ public sealed partial class UiSystem : IDisposable
         return seen.Count;
     }
 
+    /// <summary>
+    /// Compiles every registered component ahead of the first render, in
+    /// parallel. The Roslyn compilations are independent (each references only
+    /// the fixed platform assemblies, never another generated component), so a
+    /// multi-core machine compiles the whole UI in a fraction of the serial
+    /// time — and the emitted assemblies land in the shared in-memory and disk
+    /// caches, so the first <see cref="Navigate"/> is only cache hits. Generic
+    /// (<c>@typeparam</c>) components are skipped here and compiled lazily when
+    /// used with their type arguments.
+    /// </summary>
+    public void PrecompileAll()
+    {
+        var sources = _razorComponents.Values.ToArray();
+        Parallel.ForEach(sources, source =>
+        {
+            try
+            {
+                source.Create(null);
+            }
+            catch
+            {
+                // A component that cannot compile standalone (missing type
+                // arguments, a bad import) must not abort startup: it will
+                // surface its real error when it is actually used.
+            }
+        });
+    }
+
     private void RebuildPages()
     {
         _pages.Clear();

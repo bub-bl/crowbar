@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 using Crowbar.Engine;
 using Crowbar.Engine.InputSystem;
@@ -94,9 +95,15 @@ internal sealed class DemoApplication : Application
         var uiDirectory = ResolveUiDirectory("");
         var registeredCount = Ui.RegisterRazorComponentsFromDirectory(uiDirectory);
         Console.WriteLine($"Razor UI: registered {registeredCount} file(s) from {uiDirectory}");
+        // Pré-compilation parallèle : le premier rendu (Navigate) ne fait plus
+        // que des cache hits. Mesuré pour valider les gains.
+        var precompileWatch = Stopwatch.StartNew();
+        Ui.PrecompileAll();
+        Console.WriteLine($"Razor UI: precompiled in {precompileWatch.ElapsedMilliseconds} ms");
         Ui.NavigationChanged += url => Window.SetTitle($"Crowbar — {url}");
+        var navigateWatch = Stopwatch.StartNew();
         Ui.Navigate("/editor");
-        Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl}");
+        Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
         Ui.WatchDirectory(uiDirectory);
     }
 

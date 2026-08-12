@@ -1,4 +1,6 @@
+using System.Collections.Concurrent;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Razor.Language;
@@ -41,7 +43,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
 
     public RazorPanel CompileTemplate(string razorSource, string className, Type baseType, params Assembly[] references)
     {
-        var assembly = CompileAssembly(razorSource, className, baseType, references);
+        var assembly = Assembly.Load(CompileAssembly(razorSource, className, baseType, references));
         return CreateTemplate(assembly, className);
     }
 
@@ -49,7 +51,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     public RazorPanel CompileTemplate(string razorSource, string className, Type baseType,
         IReadOnlyDictionary<string, string>? typeArguments, params Assembly[] references)
     {
-        var assembly = CompileAssembly(razorSource, className, baseType, references);
+        var assembly = Assembly.Load(CompileAssembly(razorSource, className, baseType, references));
         var names = TypeParamNamesFromSource(razorSource);
         Type[]? types = null;
         if (names.Length > 0 && typeArguments is { Count: > 0 })
@@ -80,11 +82,27 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         var assembly = TemplateAssemblyCache.Get(cacheKey, writeTime);
         if (assembly is null)
         {
-            assembly = CompileAssembly(ReadStableFileText(razorPath), className, baseType, references);
+            // Disk cache: the same component content compiled from a different
+            // path (or a previous launch) is served without a Roslyn emit. The
+            // hash covers the source, class, base type, reference locations and
+            // the whole platform assembly set, so any change invalidates it.
+            var sourceText = ReadFileTextCached(razorPath);
+            var cachePath = RazorCacheFile(ComputeCacheHash(sourceText, className, baseType, references));
+            assembly = TryLoadFromDisk(cachePath);
+            if (assembly is null)
+            {
+                var il = CompileAssembly(sourceText, className, baseType, references);
+                Interlocked.Increment(ref EmittedAssemblyCount);
+                TryWriteToDisk(cachePath, il);
+                assembly = Assembly.Load(il);
+            }
             TemplateAssemblyCache.Set(cacheKey, writeTime, assembly);
         }
 
-        var source = ReadStableFileText(razorPath);
+        // Type-parameter extraction only needs the current text: the cached
+        // read keeps repeated instantiations of the same component free of the
+        // stable double-read (which costs ~30ms of sleep per call).
+        var source = ReadFileTextCached(razorPath);
         var names = TypeParamNamesFromSource(source);
         Type[]? types = null;
         if (names.Length > 0 && typeArguments is { Count: > 0 })
@@ -106,7 +124,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     public RazorPanel CompileTemplateFromFile(string razorPath, string className, Type baseType,
         params Assembly[] references) => CompileTemplateFromFile(razorPath, className, baseType, null, references);
 
-    private static Assembly CompileAssembly(string razorSource, string className, Type baseType,
+    private static byte[] CompileAssembly(string razorSource, string className, Type baseType,
         params Assembly[] references)
     {
         // Event and binding expressions are intentionally converted to stable
@@ -147,14 +165,14 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
                         Environment.NewLine + generatedCode;
 
         var tree = CSharpSyntaxTree.ParseText(generatedCode);
-        var platformReferences = ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? string.Empty)
-            .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-            .Select(path => MetadataReference.CreateFromFile(path));
+        // The platform reference set is shared across every compilation: it is
+        // built once and reused, instead of opening ~300 assemblies per
+        // component (the startup hotspot).
         var assemblyReferences = references.Concat([
                 typeof(object).Assembly, typeof(Enumerable).Assembly,
                 typeof(RazorPanel).Assembly, typeof(RazorProjectEngine).Assembly
             ])
-            .Distinct().Select(a => MetadataReference.CreateFromFile(a.Location)).Concat(platformReferences);
+            .Distinct().Select(a => MetadataReference.CreateFromFile(a.Location)).Concat(PlatformReferences);
         var compilation = CSharpCompilation.Create(
             "Crowbar.UI.Razor." + Guid.NewGuid().ToString("N"), [tree], assemblyReferences,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
@@ -163,8 +181,69 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         if (!result.Success)
             throw new InvalidOperationException("Razor compilation failed:\n" + string.Join('\n',
                 result.Diagnostics.Where(d => d.Severity == DiagnosticSeverity.Error)));
-        stream.Position = 0;
-        return Assembly.Load(stream.ToArray());
+        return stream.ToArray();
+    }
+
+    /// <summary>Content hash identifying a compiled component across launches.</summary>
+    internal static string ComputeCacheHash(string source, string className, Type baseType, Assembly[] references)
+    {
+        var builder = new StringBuilder();
+        builder.Append(source).Append('\n');
+        builder.Append(className).Append('\n');
+        builder.Append(baseType.FullName ?? baseType.Name).Append('\n');
+        // The platform set (and thus the runtime's API surface) changes between
+        // .NET versions: fold it into the key so an upgrade never serves stale
+        // assemblies.
+        builder.Append(AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? string.Empty).Append('\n');
+        foreach (var location in references.Select(r => r.Location).OrderBy(l => l, StringComparer.Ordinal))
+            builder.Append(location).Append('\n');
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
+    }
+
+    private static string RazorCacheFile(string hash) => Path.Combine(RazorCacheDirectory, hash + ".dll");
+
+    private static Assembly? TryLoadFromDisk(string path)
+    {
+        if (!File.Exists(path)) return null;
+        try
+        {
+            return Assembly.Load(File.ReadAllBytes(path));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException)
+        {
+            // Corrupt or truncated entry: fall through to a fresh compile.
+            return null;
+        }
+    }
+
+    private static void TryWriteToDisk(string path, byte[] il)
+    {
+        try
+        {
+            Directory.CreateDirectory(RazorCacheDirectory);
+            File.WriteAllBytes(path, il);
+            PruneRazorCache();
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // The cache is best-effort: a locked or read-only directory never
+            // blocks the editor from compiling in memory.
+        }
+    }
+
+    /// <summary>Deletes stale cache entries (older than 30 days) once per process.</summary>
+    private static void PruneRazorCache()
+    {
+        if (Interlocked.Exchange(ref _pruneStarted, 1) == 1) return;
+        try
+        {
+            var cutoff = DateTime.UtcNow.AddDays(-30);
+            foreach (var file in Directory.EnumerateFiles(RazorCacheDirectory, "*.dll"))
+                if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+        }
     }
 
     private static RazorPanel CreateTemplate(Assembly assembly, string className, Type[]? typeArguments = null)
@@ -190,30 +269,73 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         return templateInstance;
     }
 
-    private static string ReadStableFileText(string path)
-    {
-        string? previous = null;
-        for (var attempt = 0; attempt < 6; attempt++)
-        {
-            try
-            {
-                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var reader = new StreamReader(stream);
-                var text = reader.ReadToEnd();
-                if (previous is not null && previous == text) return text;
-                previous = text;
-                Thread.Sleep(30);
-            }
-            catch (IOException) when (attempt < 3)
-            {
-                Thread.Sleep(25);
-            }
-        }
+    private static readonly TemplateAssemblyCacheStore TemplateAssemblyCache = new();
 
-        return previous ?? File.ReadAllText(path);
+    // Startup cost is dominated by the per-component Roslyn compilation: every
+    // component creates a CSharpCompilation against the whole trusted platform
+    // assembly set and a RazorProjectEngine from scratch. Both are rebuilt
+    // here once per process (the reference set and the per-namespace engines
+    // are immutable and safe to share), and the emitted assemblies are
+    // additionally persisted to disk keyed by a content hash so subsequent
+    // launches skip Roslyn entirely.
+    private static readonly object PlatformReferencesLock = new();
+    private static IReadOnlyList<PortableExecutableReference>? _platformReferences;
+
+    private static readonly ConcurrentDictionary<string, RazorProjectEngine> ProjectEngines =
+        new(StringComparer.Ordinal);
+
+    // File text served on the component-instantiation hot path, keyed by
+    // (path, write time). On an unchanged file this is a single File.ReadAllText
+    // (the write time changes on edit, which invalidates the entry); hot reload
+    // change detection itself lives in HotReload.cs and is not affected.
+    private static readonly ConcurrentDictionary<string, (long WriteTime, string Text)> FileTextCache =
+        new(StringComparer.Ordinal);
+
+    /// <summary>Fast file read for the hot path; changes invalidate the entry via their write time.</summary>
+    private static string ReadFileTextCached(string path)
+    {
+        var writeTime = File.GetLastWriteTimeUtc(path).Ticks;
+        if (FileTextCache.TryGetValue(path, out var entry) && entry.WriteTime == writeTime)
+            return entry.Text;
+        var text = File.ReadAllText(path);
+        FileTextCache[path] = (writeTime, text);
+        return text;
     }
 
-    private static readonly TemplateAssemblyCacheStore TemplateAssemblyCache = new();
+    private static string _razorCacheDirectory = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Crowbar", "RazorCache");
+
+    /// <summary>
+    /// Directory where compiled Razor assemblies are persisted across launches
+    /// (keyed by a hash of the source, class, base type and platform set).
+    /// Best-effort: a missing or corrupt cache entry is silently recompiled.
+    /// Tests may redirect this to a temporary directory.
+    /// </summary>
+    public static string RazorCacheDirectory
+    {
+        get => _razorCacheDirectory;
+        set => _razorCacheDirectory = value;
+    }
+
+    /// <summary>Number of Roslyn emits performed since process start (tests observe cache hits).</summary>
+    internal static int EmittedAssemblyCount;
+
+    private static int _pruneStarted;
+
+    private static IReadOnlyList<PortableExecutableReference> PlatformReferences
+    {
+        get
+        {
+            lock (PlatformReferencesLock)
+            {
+                return _platformReferences ??= ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? string.Empty)
+                    .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(path => MetadataReference.CreateFromFile(path))
+                    .ToArray();
+            }
+        }
+    }
 
     private sealed class TemplateAssemblyCacheStore
     {
@@ -394,23 +516,27 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     public static string[] ExtractPages(string source) =>
         ParseDirectives(RewriteCodeToFunctions(source), CreateProjectEngine(), "pages").Pages.ToArray();
 
-    private static RazorProjectEngine CreateProjectEngine(string? namespaceName = null)
-    {
-        return RazorProjectEngine.Create(RazorConfiguration.Default,
-            RazorProjectFileSystem.Create(AppContext.BaseDirectory), b =>
-            {
-                b.SetNamespace(namespaceName ?? "Crowbar.UI.Generated");
-                b.SetBaseType(typeof(RazorPanel).FullName!);
-                // @page is a components-only directive; register it for the
-                // legacy file kind so templates can declare routes. Its output
-                // is consumed by UiSystem, never emitted.
-                b.AddDirective(DirectiveDescriptor.CreateDirective("page", DirectiveKind.SingleLine,
-                    d => d.AddStringToken()));
-                // Captures every directive before the classifier passes consume
-                // them, and stashes them on the code document.
-                b.Features.Add(new DirectiveCapturePass());
-            });
-    }
+    private static RazorProjectEngine CreateProjectEngine(string? namespaceName = null) =>
+        // Building the Razor pipeline (extensions, features, directives) is a
+        // non-trivial per-component cost: cache the engine per namespace, which
+        // is all it differs by. Engines are immutable and safe to share across
+        // concurrent document processing.
+        ProjectEngines.GetOrAdd(namespaceName ?? "Crowbar.UI.Generated", ns =>
+            RazorProjectEngine.Create(RazorConfiguration.Default,
+                RazorProjectFileSystem.Create(AppContext.BaseDirectory), b =>
+                {
+                    b.SetNamespace(ns);
+                    b.SetBaseType(typeof(RazorPanel).FullName!);
+                    // @page is a components-only directive; register it for the
+                    // legacy file kind so templates can declare routes. Its output
+                    // is consumed by UiSystem, never emitted.
+                    b.AddDirective(DirectiveDescriptor.CreateDirective("page", DirectiveKind.SingleLine,
+                        d => d.AddStringToken()));
+                    // Captures every directive before the classifier passes consume
+                    // them, and stashes them on the code document. The pass keeps
+                    // no instance state, so the shared engine is concurrency-safe.
+                    b.Features.Add(new DirectiveCapturePass());
+                }));
 
     private static RazorDirectives ParseDirectives(string source, RazorProjectEngine engine, string fileName)
     {
