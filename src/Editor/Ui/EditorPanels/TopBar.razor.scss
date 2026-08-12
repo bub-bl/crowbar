@@ -60,7 +60,7 @@ root {
     position: absolute;
     left: 360px;
     top: 0px;
-    width: 186px;
+    width: 220px;
     height: 44px;
     flex-direction: row;
     align-items: center;
@@ -102,7 +102,7 @@ root {
 
 .tb-play {
     position: absolute;
-    left: 560px;
+    left: 590px;
     top: 8px;
     width: 110px;
     height: 28px;
@@ -114,6 +114,15 @@ root {
     text-align: center;
     vertical-align: center;
     line-height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+
+    icon {
+        width: 14px;
+        height: 14px;
+    }
 
     &:hover {
         background-color: $green-hover;
@@ -122,7 +131,7 @@ root {
 
 .tb-mode {
     position: absolute;
-    left: 682px;
+    left: 712px;
     top: 8px;
     width: 150px;
     height: 28px;
@@ -135,6 +144,15 @@ root {
     vertical-align: center;
     line-height: 26px;
     box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+
+    icon {
+        width: 13px;
+        height: 13px;
+    }
 }
 
 .tb-user {
@@ -195,6 +213,14 @@ root {
     text-align: center;
     vertical-align: center;
     line-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    icon {
+        width: 15px;
+        height: 15px;
+    }
 
     &:hover {
         background-color: $panel-hover;
