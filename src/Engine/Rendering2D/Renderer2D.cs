@@ -1,6 +1,8 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Crowbar.Engine.Rendering;
+using SixLabors.Fonts;
+using SixLabors.Fonts.Rendering;
 
 namespace Crowbar.Engine.Rendering2D;
 
@@ -23,7 +25,10 @@ internal enum BatchKind : byte
     Triangles = 1,
 
     /// <summary>Textured image quads sampling the atlas — one <c>Draw</c>.</summary>
-    Textured = 2
+    Textured = 2,
+
+    /// <summary>SDF glyph quads sampling the glyph atlas — one <c>Draw</c>.</summary>
+    Glyph = 3
 }
 
 /// <summary>A contiguous run of <see cref="BatchKind"/> draw commands, in paint order.</summary>
@@ -120,6 +125,14 @@ public sealed class Renderer2D : IDisposable
     private const int TriVertexSize = 24;    // vec2 + vec4
     private const int TexturedVertexSize = 32; // vec2 + vec2 + vec4
 
+    /// <summary>A cached glyph atlas entry: the packed SDF and its ink size.</summary>
+    private readonly struct GlyphEntry
+    {
+        public readonly Image2D Atlas;
+
+        public GlyphEntry(Image2D atlas) => Atlas = atlas;
+    }
+
     private readonly IGraphicsDevice? _device;
     private int _width = 1;
     private int _height = 1;
@@ -167,7 +180,21 @@ public sealed class Renderer2D : IDisposable
     private ISampler? _atlasSampler;
     private TextureAtlas? _atlas;
 
-    public Renderer2D(IGraphicsDevice? device = null) => _device = device;
+    // Glyph (text) rendering.
+    private readonly Dictionary<(string FontKey, int SizeKey, ushort GlyphId), GlyphEntry> _glyphCache = [];
+    private readonly FontManager _fontManager = new();
+    private readonly GlyphCollector _glyphCollector;
+    private TextureAtlas? _glyphAtlas;
+    private IPipeline? _glyphPipeline;
+    private IBindGroup? _glyphBindGroup;
+    private ITexture? _glyphTextureBound;
+    private ISampler? _glyphSampler;
+
+    public Renderer2D(IGraphicsDevice? device = null)
+    {
+        _device = device;
+        _glyphCollector = new GlyphCollector(this);
+    }
 
     /// <summary>Whether the renderer is recording between <see cref="Begin"/> and <see cref="End"/>.</summary>
     public bool IsRecording => _recording;
@@ -196,6 +223,7 @@ public sealed class Renderer2D : IDisposable
     internal int TriangleCapacity => _triangles.Capacity;
     internal int TexturedCapacity => _textured.Capacity;
     internal int CommandCapacity => _commands.Capacity;
+    internal int GlyphCacheCount => _glyphCache.Count;
     internal Matrix3x2 CurrentTransform => _current;
 
     // ---------------------------------------------------------------------
@@ -380,6 +408,108 @@ public sealed class Renderer2D : IDisposable
 
     private static RectF CenterRect(RectF dest, float width, float height) =>
         new(dest.X + (dest.Width - width) * 0.5f, dest.Y + (dest.Height - height) * 0.5f, width, height);
+
+    // ---------------------------------------------------------------------
+    // Text
+    // ---------------------------------------------------------------------
+
+    /// <summary>Draws text at <paramref name="position"/> in the given pixel size and color.</summary>
+    public void DrawText(string text, Vector2 position, float fontSize, ColorF color) =>
+        DrawText(text, position, new TextStyle(fontSize, color));
+
+    /// <summary>
+    /// Draws text with full typography (family, weight, letter spacing,
+    /// wrapping, line height, alignment). Glyphs are rasterized into the glyph
+    /// atlas on first use (cached per font/size/glyph) and rendered as SDF
+    /// quads in a single draw call.
+    /// </summary>
+    public void DrawText(string text, Vector2 position, in TextStyle style)
+    {
+        if (!_recording || string.IsNullOrEmpty(text) || style.Color.A <= 0f || style.FontSize <= 0f)
+            return;
+
+        var resolved = _fontManager.Resolve(style.Family, style.Weight);
+        var options = new TextOptions(resolved.CreateFont(style.FontSize))
+        {
+            Dpi = 72,
+            KerningMode = KerningMode.Standard,
+            ColorFontSupport = ColorFontSupport.None
+        };
+        if (style.MaxWidth > 0f)
+            options.WrappingLength = style.MaxWidth;
+        if (style.LineHeight > 0f)
+            options.LineSpacing = style.LineHeight;
+        if (style.LetterSpacing != 0f)
+            options.Tracking = style.LetterSpacing / style.FontSize;
+
+        if (style.Align != TextAlign.Left)
+        {
+            options.TextAlignment = style.Align == TextAlign.Center ? TextAlignment.Center : TextAlignment.End;
+            if (style.MaxWidth > 0f)
+            {
+                var advance = TextMeasurer.MeasureAdvance(text, options).Width;
+                var offset = style.Align == TextAlign.Center ? (style.MaxWidth - advance) * 0.5f : style.MaxWidth - advance;
+                options.Origin = new Vector2(position.X + offset, position.Y);
+            }
+            else
+            {
+                options.Origin = position;
+            }
+        }
+        else
+        {
+            options.Origin = position;
+        }
+
+        _glyphCollector.Configure(style.Color, resolved.Key, (int)MathF.Round(style.FontSize));
+        TextRenderer.RenderTo(_glyphCollector, text, options);
+    }
+
+    /// <summary>
+    /// Called by the glyph collector for each laid-out glyph: rasterizes the
+    /// outline into the glyph atlas (cached) and emits its SDF quad.
+    /// </summary>
+    internal void EmitGlyph(IReadOnlyList<Vector2> edges, ColorF color, string fontKey, int sizeKey, ushort glyphId)
+    {
+        var min = new Vector2(float.MaxValue);
+        var max = new Vector2(float.MinValue);
+        for (var i = 0; i < edges.Count; i++)
+        {
+            min = Vector2.Min(min, edges[i]);
+            max = Vector2.Max(max, edges[i]);
+        }
+        var inkWidth = (int)MathF.Ceiling(max.X - min.X);
+        var inkHeight = (int)MathF.Ceiling(max.Y - min.Y);
+        if (inkWidth <= 0 || inkHeight <= 0)
+            return;
+
+        var key = (fontKey, sizeKey, glyphId);
+        if (!_glyphCache.TryGetValue(key, out var entry))
+        {
+            _glyphAtlas ??= new TextureAtlas(_device);
+            entry = new GlyphEntry(_glyphAtlas.Add(GlyphRasterizer.Rasterize(edges, min, inkWidth, inkHeight)));
+            _glyphCache[key] = entry;
+        }
+
+        var uv = entry.Atlas.UvRect;
+        var colorVector = color.ToVector4();
+        var x0 = min.X - GlyphRasterizer.Padding;
+        var y0 = min.Y - GlyphRasterizer.Padding;
+        var x1 = x0 + entry.Atlas.Width;
+        var y1 = y0 + entry.Atlas.Height;
+        var uv0 = new Vector2(uv.X, uv.Y);
+        var uv1 = new Vector2(uv.Right, uv.Y);
+        var uv2 = new Vector2(uv.Right, uv.Bottom);
+        var uv3 = new Vector2(uv.X, uv.Bottom);
+
+        EnsureRun(BatchKind.Glyph);
+        _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = uv0, Color = colorVector });
+        _textured.Add(new TexturedVertex { Position = new Vector2(x1, y0), Uv = uv1, Color = colorVector });
+        _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = uv2, Color = colorVector });
+        _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = uv0, Color = colorVector });
+        _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = uv2, Color = colorVector });
+        _textured.Add(new TexturedVertex { Position = new Vector2(x0, y1), Uv = uv3, Color = colorVector });
+    }
 
     // ---------------------------------------------------------------------
     // Gradients
@@ -836,6 +966,24 @@ public sealed class Renderer2D : IDisposable
             ]);
             _atlasTextureBound = _atlas.Texture;
         }
+
+        _glyphPipeline ??= CreateGlyphPipeline();
+        _glyphSampler ??= _device.CreateSampler(new SamplerDescription());
+        if (_glyphAtlas is not null)
+        {
+            if (_glyphTextureBound != _glyphAtlas.Texture)
+            {
+                _glyphBindGroup?.Dispose();
+                _glyphBindGroup = null;
+            }
+            _glyphBindGroup ??= _glyphPipeline.CreateBindGroup(
+            [
+                new BindGroupBinding { Slot = 0, Texture = _glyphAtlas.Texture },
+                new BindGroupBinding { Slot = 1, Sampler = _glyphSampler },
+                new BindGroupBinding { Slot = 2, Buffer = _viewportBuffer, BufferSize = 16 }
+            ]);
+            _glyphTextureBound = _glyphAtlas.Texture;
+        }
     }
 
     private IPipeline CreateSdfPipeline()
@@ -904,6 +1052,40 @@ public sealed class Renderer2D : IDisposable
     private IPipeline CreateTexturedPipeline()
     {
         var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Textured.wgsl"));
+        return _device!.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = source,
+            VertexEntryPoint = "vs_main",
+            FragmentEntryPoint = "fs_main",
+            ColorFormat = TextureFormat.Rgba8Unorm,
+            DepthFormat = TextureFormat.Depth24Plus,
+            AlphaBlend = true,
+            DepthWriteEnabled = false,
+            DepthCompare = CompareFunction.Always,
+            VertexLayout = new VertexBufferLayoutDescription
+            {
+                Stride = TexturedVertexSize,
+                Attributes =
+                [
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 },
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 },
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x4, Offset = 4 * sizeof(float), ShaderLocation = 2 }
+                ]
+            },
+            BindGroups =
+            [
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 2, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                ]
+            ]
+        });
+    }
+
+    private IPipeline CreateGlyphPipeline()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Glyph.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -1069,6 +1251,17 @@ public sealed class Renderer2D : IDisposable
                 pass.SetVertexBuffer(_texturedBuffer!, _texturedBuffer!.Size);
                 pass.Draw((uint)command.Count);
             }
+            else if (command.Kind == BatchKind.Glyph)
+            {
+                if (currentPipeline != _glyphPipeline)
+                {
+                    pass.SetPipeline(_glyphPipeline!);
+                    pass.SetBindGroup(_glyphBindGroup!, 0);
+                    currentPipeline = _glyphPipeline;
+                }
+                pass.SetVertexBuffer(_texturedBuffer!, _texturedBuffer!.Size);
+                pass.Draw((uint)command.Count);
+            }
             else
             {
                 if (currentPipeline != _trianglePipeline)
@@ -1106,6 +1299,10 @@ public sealed class Renderer2D : IDisposable
         _texturedBindGroup?.Dispose();
         _atlasSampler?.Dispose();
         _atlas?.Dispose();
+        _glyphPipeline?.Dispose();
+        _glyphBindGroup?.Dispose();
+        _glyphSampler?.Dispose();
+        _glyphAtlas?.Dispose();
     }
 
     /// <summary>Packed gradient parameters baked inline per shape.</summary>

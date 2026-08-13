@@ -87,14 +87,27 @@ updating `Image2D` UV rects in place, so all images stay in a single bind
 group and a single draw call. Object-fit (stretch/contain/cover/center) is
 computed on the CPU before the quad is emitted.
 
+### 3.4 `Glyph.wgsl` — text
+
+Text is laid out and shaped by **SixLabors.Fonts** (`TextRenderer.RenderTo`,
+which applies kerning, ligatures and wrapping). Each glyph outline is flattened
+(adaptive de Casteljau), rasterized with even-odd winding and converted to a
+**single-channel signed distance field** (exact two-pass EDT), then packed into
+a glyph atlas. A glyph is one screen-space quad sampling the atlas with the
+`Glyph` shader, which smoothsteps the distance for antialiasing — text is crisp
+at any scale with a single rasterization per (font, size, glyph), cached in the
+atlas. Measurement reuses the same `TextOptions` as rendering, so layout and
+pixels stay in lockstep.
+
 ## 4. C# structures and buffers
 
 | Resource | Contents | Usage |
 |---|---|---|
 | `SdfInstance` (288 B) | 18 `Vector4` — rect, matrix rows, color, params, gradient, 4 clips | `Storage | CopyDst`, one per shape |
 | `TriVertex` (24 B) | `Vector2` + `Vector4` | `Vertex | CopyDst`, one per triangle vertex |
-| `TexturedVertex` (32 B) | `Vector2` + `Vector2` uv + `Vector4` tint | `Vertex | CopyDst`, one per image quad vertex |
+| `TexturedVertex` (32 B) | `Vector2` + `Vector2` uv + `Vector4` tint | `Vertex | CopyDst`, one per image/glyph quad vertex |
 | image atlas | `RGBA8` square texture (256→4096, shelf-packed) | `Sampled | CopyDst` |
+| glyph atlas | `RGBA8` square texture of SDF glyphs (256→4096, shelf-packed) | `Sampled | CopyDst` |
 | unit quad | 6 × (position + uv) | `Vertex | CopyDst`, shared by all SDF instances |
 | viewport | `Vector4` (size, 1/size) | `Uniform | CopyDst` |
 | target / depth | RGBA8 + D24 | render targets, resized with the viewport |
@@ -122,6 +135,8 @@ renderer.DrawRect(rect, linearGradient);                // + radial gradients
 var image = renderer.LoadImage("ui/icon.png");          // PNG/JPEG/WebP
 renderer.DrawImage(rect, image, tint, ImageFit.Contain); // stretch/contain/cover/center
 
+renderer.DrawText("Hello", pos, 24f, color);             // kerning, wrapping, alignment via TextStyle
+
 renderer.PushClip(rect, radius); renderer.PopClip();
 renderer.PushTransform(matrix); renderer.PopTransform();
 renderer.PushTranslate(t); renderer.PushScale(s); renderer.PushRotate(r);
@@ -145,17 +160,17 @@ below replaces one Skia surface with a `Renderer2D` equivalent:
 | Rect / rounded clips, transforms | per-instance clip list + matrix | `SdfShape` | ✅ done |
 | Solid borders | SDF stroke | `SdfShape` | ✅ done |
 | Dashed / dotted / double borders | distance along the outline `mod`-ed by the dash pattern | `SdfShape` (extend `params`) | next |
-| **Text** | glyph atlas + per-glyph quads (MSDF or SDF) in `TriMesh`; UTF-8 + kerning + wrapping measured on CPU | `TriMesh` + atlas | planned |
+| **Text** | SixLabors.Fonts shaping + single-channel SDF glyph atlas + per-glyph quads; kerning, alignment, wrapping | `Glyph` | ✅ done |
 | **SVG** | CPU parse → flatten paths → tessellate | `TriMesh` | planned |
 | **Images (PNG/JPEG/WebP)** | decode (ImageSharp) → texture atlas → image quads with object-fit | `Textured` | ✅ done |
 | Box / inner / drop shadow | blurred SDF (mirror `Decorations.wgsl`) | `SdfShape` | planned |
 | CSS filters | compose onto an offscreen layer, then filter | new `Filter.wgsl` | planned |
 | Backdrop filter | sample the 3D scene texture (already in `Backdrop.wgsl`) | `Backdrop` | exists |
 
-Text is the only CPU-measurement dependency that must remain: glyph advances,
-kerning and wrapping are measured on the CPU (as today in `TextLayout`, which
-will lose its Skia dependency) and emitted as quads referencing a GPU glyph
-atlas — the same split Chromium uses.
+Text is the only CPU-side dependency that remains: shaping, measurement,
+kerning and wrapping run on the CPU (SixLabors.Fonts, replacing the Skia-based
+`TextLayout`) and are emitted as quads referencing the GPU glyph atlas — the
+same split Chromium uses.
 
 ## 7. Performance characteristics
 
@@ -177,9 +192,11 @@ atlas — the same split Chromium uses.
   rounded clips land with the scissor/SDF-clip-in-local-space work.
 - Lines use round caps; butt/bevel caps are a follow-up.
 - Triangle edges are hard (no antialiasing) until a coverage attribute is added.
-- Text, SVG, images, dashed borders, shadows and filters are specified above
-  and not yet implemented — the existing Skia renderer still serves them until
-  each is migrated.
+- Text renders monochrome outlines (`ColorFontSupport.None`); color/emoji fonts,
+  bidi and complex-script shaping are not yet wired.
+- SVG, dashed borders, shadows and filters are specified above and not yet
+  implemented — the existing Skia renderer still serves them until each is
+  migrated.
 
 ## 9. Verification
 
