@@ -62,6 +62,14 @@ public class Panel
     internal HashSet<string> ClassesInternal => _classes;
     /// <summary>Version of selector-visible state, incremented on this panel and its ancestors when it changes.</summary>
     internal int SelectorVersion { get; private set; }
+    /// <summary>
+    /// Incremented when the panel's cascaded resting style changed. The layout
+    /// engine uses it to mark the panel's Yoga node dirty on the next pass
+    /// (Yoga.Net style setters do not dirty nodes themselves).
+    /// </summary>
+    internal int CascadeVersion { get; private set; }
+    /// <summary>True once the cascade has run at least once for this panel.</summary>
+    internal bool HasComputedStyle => _hasComputedStyle;
     private string _tagName = "div";
     public string TagName
     {
@@ -191,6 +199,7 @@ public class Panel
         child.Parent = this;
         _children.Add(child);
         Invalidate();
+        TrackNewSubtree(child);
     }
     internal void ReplaceChild(Panel previous, Panel replacement)
     {
@@ -201,6 +210,29 @@ public class Panel
         replacement.Parent = this;
         _children[index] = replacement;
         Invalidate();
+        TrackNewSubtree(replacement);
+    }
+    /// <summary>
+    /// A subtree built by a Razor rebuild is attached with its panels already
+    /// style-dirty: their <see cref="MarkStyleDirty"/> ran before they had a
+    /// parent, so the invalidation never reached the Screen and the scoped
+    /// cascade (ApplyStylesTracked) would skip them — and the layout walk's
+    /// skipClean fast path stops at their clean ancestors, so the fresh panels
+    /// would never be cascaded at all. Route the subtree through the scoped
+    /// cascade by marking the attached root dirty when any panel in it still
+    /// needs one. Subtree walks here are rare (rebuilds, SetContent); the
+    /// common case — attaching an already-cascaded subtree — is a no-op.
+    /// </summary>
+    private void TrackNewSubtree(Panel child)
+    {
+        if (SubtreeNeedsCascade(child)) child.MarkStyleDirty();
+    }
+    private static bool SubtreeNeedsCascade(Panel panel)
+    {
+        if (!panel.HasComputedStyle || panel.StyleDirty) return true;
+        foreach (var child in panel.ChildrenInternal)
+            if (SubtreeNeedsCascade(child)) return true;
+        return false;
     }
     public void RemoveChild(Panel child) { if (_children.Remove(child)) { child.Parent = null; Invalidate(); } }
     public void ClearChildren() { foreach (var child in _children) child.Parent = null; _children.Clear(); Invalidate(); }
@@ -260,6 +292,7 @@ public class Panel
         if (!_hasComputedStyle)
         {
             _hasComputedStyle = true;
+            CascadeVersion++;
             _resting = target.Clone();
             UpdateAnimations(target);
             ComputedStyle = Compose();
@@ -293,6 +326,7 @@ public class Panel
 
         var previous = _resting ?? target;
         _resting = target.Clone();
+        CascadeVersion++;
         StartTransitions(previous, target);
         ComputedStyle = Compose();
         _computeBuffer = target;

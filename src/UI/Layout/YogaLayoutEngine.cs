@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using Facebook.Yoga;
 
 namespace Crowbar.UI;
@@ -11,18 +12,46 @@ namespace Crowbar.UI;
 /// </summary>
 public sealed class YogaLayoutEngine
 {
+    /// <summary>Per-panel Yoga state kept across passes so layout is incremental.</summary>
+    private sealed class YogaNodeState
+    {
+        public Node? Node;
+        /// <summary>Identity of the measure inputs the func was built for (text, source, name).</summary>
+        public string? MeasureSig;
+        /// <summary>Hash of the measure-relevant numeric style properties.</summary>
+        public long MeasureKey;
+        public bool HasMeasureFunc;
+        /// <summary>The panel's cascade version the node's style was last applied from.</summary>
+        public int StyleVersion;
+        /// <summary>The panel's visibility the node's Display was last applied from.</summary>
+        public bool StyleVisible;
+    }
+
+    /// <summary>
+    /// Panel → Yoga node state. Keyed weakly: panels replaced by a Razor rebuild
+    /// are dropped as soon as the tree stops referencing them, so the table does
+    /// not leak across the editor's lifetime.
+    /// </summary>
+    private readonly ConditionalWeakTable<Panel, YogaNodeState> _states = new();
+
     public int LayoutPasses { get; private set; }
 
     public void Layout(Panel root, float width, float height, StyleSheet? sheet = null, UiImageCache? cache = null, SvgIconCache? iconCache = null)
     {
         LayoutPasses++;
-        ApplyStyles(root, sheet, null);
+        // The prepare pass already re-cascaded every panel a change can affect
+        // (ApplyStylesTracked's scoped walk), so this walk skips the clean rest
+        // of the tree. Direct callers (tests) build fresh trees whose panels
+        // start style-dirty, so they are always fully cascaded.
+        var unused = false;
+        ApplyStylesCore(root, sheet, null, ref unused, skipClean: true);
         var style = root.ComputedStyle;
-        var yogaRoot = BuildYogaTree(root, cache ?? UiImageCache.Shared, iconCache);
+        var yogaRoot = GetOrCreateNode(root);
         // The root always gets an explicit size: the CSS size when set (points
         // or percent, resolved against the viewport) or the full viewport.
         yogaRoot.Style.SetDimension(Dimension.Width, style.Width.IsDefined ? ToSize(style.Width) : StyleSizeLength.Points(width));
         yogaRoot.Style.SetDimension(Dimension.Height, style.Height.IsDefined ? ToSize(style.Height) : StyleSizeLength.Points(height));
+        SyncNode(root, yogaRoot, cache ?? UiImageCache.Shared, iconCache);
         LayoutAlgorithm.CalculateLayout(yogaRoot, width, height, Direction.LTR);
         ReadLayout(root, yogaRoot, 0, 0);
         root.ClearDirty();
@@ -116,14 +145,17 @@ public sealed class YogaLayoutEngine
         foreach (var child in panel.ChildrenInternal) ApplyInheritance(child, panel.ComputedStyle, ref layoutChanged);
     }
 
-    private static void ApplyStyles(Panel panel, StyleSheet? sheet, ComputedStyle? inherited)
+    private static void ApplyStylesCore(Panel panel, StyleSheet? sheet, ComputedStyle? inherited, ref bool layoutChanged, bool skipClean = false)
     {
-        var unused = false;
-        ApplyStylesCore(panel, sheet, inherited, ref unused);
-    }
+        // Layout's full walk may skip panels whose own cascade inputs are
+        // unchanged: every panel a change can affect was already re-cascaded by
+        // ApplyStylesTracked's scoped walk in the prepare pass, so re-cascading
+        // the clean rest of the tree would be redundant. The scoped walk itself
+        // never skips (a dirty root's whole subtree must refresh inherited
+        // values), and un-cascaded panels always cascade.
+        if (skipClean && !panel.StyleDirty && panel.HasComputedStyle)
+            return;
 
-    private static void ApplyStylesCore(Panel panel, StyleSheet? sheet, ComputedStyle? inherited, ref bool layoutChanged)
-    {
         // The cascade fills the panel's reusable compute buffer (reset to
         // defaults in place), so a style-stable panel allocates no
         // ComputedStyle per pass. Without a sheet the panel's inline styles
@@ -162,7 +194,7 @@ public sealed class YogaLayoutEngine
         // pass; when the tab becomes visible, its parent is style-dirty and
         // this branch is traversed again with the fresh inherited style.
         if (panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase)) return;
-        foreach (var child in panel.ChildrenInternal) ApplyStylesCore(child, sheet, panel.ComputedStyle, ref layoutChanged);
+        foreach (var child in panel.ChildrenInternal) ApplyStylesCore(child, sheet, panel.ComputedStyle, ref layoutChanged, skipClean);
     }
 
     /// <summary>
@@ -197,35 +229,149 @@ public sealed class YogaLayoutEngine
         if (style.TextShadows.Length == 0) style.TextShadows = inherited.TextShadows;
     }
 
-    private static Node BuildYogaTree(Panel panel, UiImageCache cache, SvgIconCache? iconCache = null)
+    private YogaNodeState GetOrCreateState(Panel panel) => _states.GetValue(panel, _ => new YogaNodeState());
+
+    private Node GetOrCreateNode(Panel panel)
+    {
+        var state = GetOrCreateState(panel);
+        if (state.Node is null)
+        {
+            state.Node = new Node(Config.Default);
+            state.Node.SetContext(panel);
+        }
+        return state.Node;
+    }
+
+    /// <summary>
+    /// Reconciles the panel's Yoga node with the panel's current state, reusing
+    /// the node across passes. Style setters are idempotent (Yoga marks a node
+    /// dirty only when a value actually changed), so a panel whose layout is
+    /// unchanged costs nothing and keeps its cached layout — Yoga skips clean
+    /// subtrees entirely during CalculateLayout. Structural edits touch only
+    /// the nodes that changed: the child list is merged by identity, leaving
+    /// already-correct children untouched, so a stable tree never disturbs
+    /// Yoga's caches.
+    /// </summary>
+    private void SyncNode(Panel panel, Node node, UiImageCache cache, SvgIconCache? iconCache)
+    {
+        ApplyYogaStyle(node, panel, cache, iconCache);
+
+        // Yoga.Net's style setters store the value but do not mark the node
+        // dirty, so a reused node would keep its previous layout. Mark the node
+        // explicitly whenever the cascaded style (or the derived visibility)
+        // moved since the last pass; unchanged panels stay clean and Yoga
+        // reuses their cached layout.
+        var state = GetOrCreateState(panel);
+        if (state.StyleVersion != panel.CascadeVersion || state.StyleVisible != panel.IsVisible)
+        {
+            state.StyleVersion = panel.CascadeVersion;
+            state.StyleVisible = panel.IsVisible;
+            node.MarkDirtyAndPropagate();
+        }
+
+        var displayNone = panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase);
+        var children = displayNone ? (IReadOnlyList<Panel>)Array.Empty<Panel>() : panel.ChildrenInternal;
+        var count = (int)node.GetChildCount();
+
+        if (count == children.Count)
+        {
+            var inSync = true;
+            for (var c = 0; c < count; c++)
+            {
+                if (!ReferenceEquals(node.GetChild((nuint)c).GetContext(), children[c]))
+                {
+                    inSync = false;
+                    break;
+                }
+            }
+            if (inSync)
+            {
+                for (var c = 0; c < count; c++)
+                    SyncNode(children[c], node.GetChild((nuint)c), cache, iconCache);
+                return;
+            }
+        }
+
+        // Structural change: reconcile the child list by identity. Yoga.Net's
+        // child edits do not mark the parent dirty, so a reused parent whose
+        // cached layout is otherwise valid would keep it and the new children
+        // would never be laid out (their dimensions stay undefined). Mark the
+        // parent explicitly; the recompute stays incremental because clean
+        // grandchildren keep their cached internal layout.
+        node.MarkDirtyAndPropagate();
+        var visible = new HashSet<Panel>(children);
+        for (var c = count - 1; c >= 0; c--)
+        {
+            var childNode = node.GetChild((nuint)c);
+            if (childNode.GetContext() is not Panel childPanel || !visible.Contains(childPanel))
+            {
+                node.RemoveChild(childNode);
+                childNode.SetOwner(null);
+            }
+        }
+        for (var c = 0; c < children.Count; c++)
+        {
+            var expected = GetOrCreateNode(children[c]);
+            var atIndex = c < (int)node.GetChildCount() ? node.GetChild((nuint)c) : null;
+            if (ReferenceEquals(atIndex, expected)) continue;
+
+            // Detach from wherever it currently sits (another parent, or a
+            // different index of this same node).
+            if (expected.GetOwner() is { } oldParent && !ReferenceEquals(oldParent, node))
+            {
+                oldParent.RemoveChild(expected);
+                expected.SetOwner(null);
+            }
+            else if (ReferenceEquals(expected.GetOwner(), node))
+            {
+                for (var k = 0; k < (int)node.GetChildCount(); k++)
+                {
+                    if (ReferenceEquals(node.GetChild((nuint)k), expected))
+                    {
+                        node.RemoveChild(node.GetChild((nuint)k));
+                        expected.SetOwner(null);
+                        break;
+                    }
+                }
+            }
+            node.InsertChild(expected, (nuint)c);
+            expected.SetOwner(node);
+        }
+        for (var c = 0; c < children.Count; c++)
+            SyncNode(children[c], node.GetChild((nuint)c), cache, iconCache);
+    }
+
+    /// <summary>
+    /// Applies the panel's computed style to its Yoga node in place. Every
+    /// setter is called unconditionally (even for default/undefined values) so
+    /// a reused node clears a previous explicit value; Yoga's setters compare
+    /// the old value and only mark the node dirty on an actual change.
+    /// </summary>
+    private void ApplyYogaStyle(Node node, Panel panel, UiImageCache cache, SvgIconCache? iconCache)
     {
         var style = panel.ComputedStyle;
-        var node = new Node(Config.Default)
-        {
-            Style =
-            {
-                Direction = ParseDirection(style.Direction),
-                FlexDirection = ParseFlexDirection(style.FlexDirection),
-                JustifyContent = ParseJustify(style.JustifyContent),
-                JustifyItems = ParseJustify(style.JustifyItems),
-                JustifySelf = ParseJustify(style.JustifySelf),
-                AlignContent = ParseAlign(style.AlignContent),
-                AlignItems = ParseAlign(style.AlignItems),
-                AlignSelf = ParseAlign(style.AlignSelf),
-                PositionType = ParsePositionType(style.PositionType),
-                FlexWrap = ParseWrap(style.FlexWrap),
-                Display = ParseDisplay(style.Display, panel.IsVisible),
-                Overflow = ParseOverflow(style.Overflow),
-                BoxSizing = style.BoxSizing.Equals("content-box", StringComparison.OrdinalIgnoreCase) ? BoxSizing.ContentBox : BoxSizing.BorderBox,
-            }
-        };
-        node.SetContext(panel);
+        node.Style.Direction = ParseDirection(style.Direction);
+        node.Style.FlexDirection = ParseFlexDirection(style.FlexDirection);
+        node.Style.JustifyContent = ParseJustify(style.JustifyContent);
+        node.Style.JustifyItems = ParseJustify(style.JustifyItems);
+        node.Style.JustifySelf = ParseJustify(style.JustifySelf);
+        node.Style.AlignContent = ParseAlign(style.AlignContent);
+        node.Style.AlignItems = ParseAlign(style.AlignItems);
+        node.Style.AlignSelf = ParseAlign(style.AlignSelf);
+        node.Style.PositionType = ParsePositionType(style.PositionType);
+        node.Style.FlexWrap = ParseWrap(style.FlexWrap);
+        node.Style.Display = ParseDisplay(style.Display, panel.IsVisible);
+        node.Style.Overflow = ParseOverflow(style.Overflow);
+        node.Style.BoxSizing = style.BoxSizing.Equals("content-box", StringComparison.OrdinalIgnoreCase) ? BoxSizing.ContentBox : BoxSizing.BorderBox;
 
-        ApplyFlex(node, style);
+        node.Style.FlexGrow = new FloatOptional(style.FlexGrow);
+        node.Style.FlexShrink = new FloatOptional(style.FlexShrink);
+        node.Style.FlexBasis = ToSize(style.FlexBasis);
         ApplyDimensions(node, style);
         ApplyBoxEdges(node, style);
         ApplyPositionOffsets(node, style);
         ApplyGaps(node, style);
+
         // aspect-ratio: the declared ratio drives Yoga unless `auto` is set and
         // the image carries an intrinsic ratio — then the image wins, matching
         // CSS (an image with `aspect-ratio: auto` sizes by its pixels).
@@ -233,30 +379,9 @@ public sealed class YogaLayoutEngine
         if (panel is Image image && !string.IsNullOrEmpty(image.Source) &&
             cache.TryGetSize(image.Source, out var imageWidth, out var imageHeight) && imageHeight > 0)
             intrinsicRatio = imageWidth / imageHeight;
-        if (style.AspectRatioAuto)
-        {
-            if (intrinsicRatio > 0) node.Style.AspectRatio = new FloatOptional(intrinsicRatio);
-        }
-        else if (style.AspectRatio > 0) node.Style.AspectRatio = new FloatOptional(style.AspectRatio);
+        node.Style.AspectRatio = new FloatOptional(
+            style.AspectRatioAuto ? (intrinsicRatio > 0 ? intrinsicRatio : 0f) : (style.AspectRatio > 0 ? style.AspectRatio : 0f));
         ApplyTextMeasure(node, panel, style, cache, intrinsicRatio, iconCache);
-
-        if (!style.Display.Equals("none", StringComparison.OrdinalIgnoreCase))
-        {
-            for (var i = 0; i < panel.Children.Count; i++)
-            {
-                var child = BuildYogaTree(panel.Children[i], cache, iconCache);
-                node.InsertChild(child, (nuint)i);
-                child.SetOwner(node);
-            }
-        }
-        return node;
-    }
-
-    private static void ApplyFlex(Node node, ComputedStyle style)
-    {
-        node.Style.FlexGrow = new FloatOptional(style.FlexGrow);
-        if (style.FlexShrink != 0) node.Style.FlexShrink = new FloatOptional(style.FlexShrink);
-        if (style.FlexBasis.IsDefined) node.Style.FlexBasis = ToSize(style.FlexBasis);
     }
 
     private static void ApplyDimensions(Node node, ComputedStyle style)
@@ -287,95 +412,167 @@ public sealed class YogaLayoutEngine
 
     private static void ApplyPositionOffsets(Node node, ComputedStyle style)
     {
-        if (style.PositionTop.IsDefined) node.Style.SetPosition(Edge.Top, ToLength(style.PositionTop));
-        if (style.PositionRight.IsDefined) node.Style.SetPosition(Edge.Right, ToLength(style.PositionRight));
-        if (style.PositionBottom.IsDefined) node.Style.SetPosition(Edge.Bottom, ToLength(style.PositionBottom));
-        if (style.PositionLeft.IsDefined) node.Style.SetPosition(Edge.Left, ToLength(style.PositionLeft));
+        // An undefined offset stays Undefined (never coerced to 0): with
+        // `top:auto; bottom:0`, forcing top to 0 pins the element to the top
+        // edge and the bottom is ignored (over-constrained absolute layout
+        // prefers the start edge). Yoga.Net's setter stores Undefined and
+        // clears any previously set value, so a reused node that lost an
+        // explicit offset (e.g. a status bar that stops declaring top) also
+        // resets correctly.
+        node.Style.SetPosition(Edge.Top, ToLength(style.PositionTop));
+        node.Style.SetPosition(Edge.Right, ToLength(style.PositionRight));
+        node.Style.SetPosition(Edge.Bottom, ToLength(style.PositionBottom));
+        node.Style.SetPosition(Edge.Left, ToLength(style.PositionLeft));
     }
 
     private static void ApplyGaps(Node node, ComputedStyle style)
     {
         // Yoga.Net supports gap natively (Facebook.Yoga had to fake it through
         // child margins), so the row/column gaps map straight to gutters.
-        if (style.ColumnGap.IsDefined) node.Style.SetGap(Gutter.Column, ToLength(style.ColumnGap));
-        if (style.RowGap.IsDefined) node.Style.SetGap(Gutter.Row, ToLength(style.RowGap));
+        node.Style.SetGap(Gutter.Column, ToLengthOrZero(style.ColumnGap));
+        node.Style.SetGap(Gutter.Row, ToLengthOrZero(style.RowGap));
     }
 
-    private static void ApplyTextMeasure(Node node, Panel panel, ComputedStyle style, UiImageCache cache, float intrinsicRatio, SvgIconCache? iconCache = null)
+    private static long MeasureKey(ComputedStyle style) => HashCode.Combine(
+        style.FontSize, style.LineHeight, style.FontFamily, style.FontWeight, style.LetterSpacing,
+        style.TextTransform, style.WhiteSpace, style.TextOverflow);
+
+    /// <summary>
+    /// Installs the intrinsic-measure function on <paramref name="node"/> only
+    /// when the measure inputs changed since the last pass. Nodes are reused
+    /// across passes, and Yoga.Net does not mark a node dirty when its measure
+    /// function is replaced — so a changed signature explicitly calls
+    /// <see cref="Node.MarkDirtyAndPropagate"/> to force a re-measure, while
+    /// unchanged panels keep their cached measure result (re-setting the same
+    /// function would dirty the node and defeat incremental layout). The
+    /// closures read the panel's live state, so a reused node always sizes by
+    /// the current text and computed style.
+    /// </summary>
+    private void ApplyTextMeasure(Node node, Panel panel, ComputedStyle style, UiImageCache cache, float intrinsicRatio, SvgIconCache? iconCache = null)
     {
-        if ((panel.TagName.Equals("text", StringComparison.OrdinalIgnoreCase) || panel is TextInput) && !string.IsNullOrEmpty(panel is TextInput input ? input.Value : panel.Text))
+        var state = GetOrCreateState(panel);
+        var text = panel is TextInput input ? input.Value : panel.Text;
+        if ((panel.TagName.Equals("text", StringComparison.OrdinalIgnoreCase) || panel is TextInput) && text.Length > 0)
         {
-            var text = panel is TextInput inputValue ? inputValue.Value : panel.Text;
-            var lineHeight = style.LineHeight > 0 ? style.LineHeight : style.FontSize * 1.25f;
-            // Yoga treats the measure result as the content box and adds the
-            // node's padding/border around it, so the callback must only size
-            // the text itself. The text is measured with the same font options
-            // as the GPU renderer so the layout box matches the drawn glyphs: family,
-            // weight, tracking, transform and white-space wrap are applied in
-            // both places through TextLayout. Wrapping against the available
-            // width makes a constrained text panel grow vertically.
-            // ::before/::after content of a text panel joins the text as one
-            // display flow (measured with the panel's font), so the layout box
-            // covers the generated content too.
-            var displayText = (panel.PseudoBefore?.Text ?? string.Empty) + text + (panel.PseudoAfter?.Text ?? string.Empty);
-            node.SetMeasureFunc((_, availableWidth, widthMode, _, _) =>
+            // No pseudo content: displayText is the panel's own string instance,
+            // so an unchanged panel compares by reference and never re-measures.
+            var before = panel.PseudoBefore?.Text;
+            var after = panel.PseudoAfter?.Text;
+            var displayText = before is null && after is null
+                ? text
+                : (before ?? string.Empty) + text + (after ?? string.Empty);
+            var key = MeasureKey(style);
+            if (!state.HasMeasureFunc || !Equals(state.MeasureSig, displayText) || state.MeasureKey != key)
             {
-                var font = TextLayout.CreateFont(style);
-                var transformed = TextLayout.ApplyTransform(displayText, style.TextTransform);
-                var wrapWidth = widthMode == MeasureMode.Undefined || availableWidth <= 0
-                    ? float.MaxValue
-                    : availableWidth;
-                var lines = TextLayout.Wrap(transformed, font, wrapWidth, style.WhiteSpace, style.LetterSpacing,
-                    style.TextOverflow);
-                var width = 0f;
-                foreach (var line in lines)
-                    width = Math.Max(width, TextLayout.Measure(font, line, style.LetterSpacing));
-                return new YGSize
+                state.HasMeasureFunc = true;
+                state.MeasureSig = displayText;
+                state.MeasureKey = key;
+                node.SetMeasureFunc((_, availableWidth, widthMode, _, _) =>
                 {
-                    Width = availableWidth > 0 ? Math.Min(availableWidth, width) : width,
-                    Height = Math.Max(lineHeight, lines.Count * lineHeight)
-                };
-            });
+                    // Yoga treats the measure result as the content box and adds
+                    // the node's padding/border around it, so the callback must
+                    // only size the text itself. The text is measured with the
+                    // same font options as the GPU renderer so the layout box
+                    // matches the drawn glyphs. ::before/::after content joins
+                    // the text as one display flow.
+                    var current = panel.ComputedStyle;
+                    var lineHeight = current.LineHeight > 0 ? current.LineHeight : current.FontSize * 1.25f;
+                    var font = TextLayout.CreateFont(current);
+                    var transformed = TextLayout.ApplyTransform(displayText, current.TextTransform);
+                    var wrapWidth = widthMode == MeasureMode.Undefined || availableWidth <= 0
+                        ? float.MaxValue
+                        : availableWidth;
+                    var lines = TextLayout.Wrap(transformed, font, wrapWidth, current.WhiteSpace, current.LetterSpacing,
+                        current.TextOverflow);
+                    var width = 0f;
+                    foreach (var line in lines)
+                        width = Math.Max(width, TextLayout.Measure(font, line, current.LetterSpacing));
+                    return new YGSize
+                    {
+                        Width = availableWidth > 0 ? Math.Min(availableWidth, width) : width,
+                        Height = Math.Max(lineHeight, lines.Count * lineHeight)
+                    };
+                });
+                node.MarkDirtyAndPropagate();
+            }
+            return;
         }
-        else if (panel is ToggleInput)
+
+        if (panel is ToggleInput)
         {
             // A checkbox/radio without explicit dimensions sizes to its
             // intrinsic indicator box (like a native form control).
-            node.SetMeasureFunc((_, _, _, _, _) => new YGSize { Width = 16, Height = 16 });
+            if (!state.HasMeasureFunc)
+            {
+                state.HasMeasureFunc = true;
+                state.MeasureSig = "toggle";
+                state.MeasureKey = 0;
+                node.SetMeasureFunc((_, _, _, _, _) => new YGSize { Width = 16, Height = 16 });
+            }
+            return;
         }
-        else if (panel is Image image && !string.IsNullOrEmpty(image.Source) &&
-                 cache.TryGetSize(image.Source, out var imageWidth, out var imageHeight) && imageWidth > 0 && imageHeight > 0)
+
+        if (panel is Image image && !string.IsNullOrEmpty(image.Source) &&
+            cache.TryGetSize(image.Source, out var imageWidth, out var imageHeight) && imageWidth > 0 && imageHeight > 0)
         {
             // An <img> without explicit dimensions sizes to its intrinsic
             // pixels; with one axis fixed, the other follows the ratio (the
             // measure callback receives the resolved constraint per axis).
-            var ratio = imageWidth / imageHeight;
-            node.SetMeasureFunc((_, width, widthMode, height, heightMode) =>
+            if (!state.HasMeasureFunc || !Equals(state.MeasureSig, image.Source))
             {
-                if (heightMode == MeasureMode.Exactly && height > 0)
-                    return new YGSize { Width = height * ratio, Height = height };
-                if (widthMode == MeasureMode.Exactly && width > 0)
-                    return new YGSize { Width = width, Height = width / ratio };
-                return new YGSize { Width = imageWidth, Height = imageHeight };
-            });
+                state.HasMeasureFunc = true;
+                state.MeasureSig = image.Source;
+                state.MeasureKey = 0;
+                var ratio = imageWidth / imageHeight;
+                node.SetMeasureFunc((_, width, widthMode, height, heightMode) =>
+                {
+                    if (heightMode == MeasureMode.Exactly && height > 0)
+                        return new YGSize { Width = height * ratio, Height = height };
+                    if (widthMode == MeasureMode.Exactly && width > 0)
+                        return new YGSize { Width = width, Height = width / ratio };
+                    return new YGSize { Width = imageWidth, Height = imageHeight };
+                });
+                node.MarkDirtyAndPropagate();
+            }
+            return;
         }
-        else if (panel is Icon icon && !string.IsNullOrEmpty(icon.Name))
+
+        if (panel is Icon icon && !string.IsNullOrEmpty(icon.Name))
         {
             // An <icon> without explicit dimensions sizes to its intrinsic SVG
             // ratio at a 16x16 default; with one axis fixed, the other follows
             // the ratio (icons are usually square, so both stay 16px).
-            var ratio = iconCache is not null && iconCache.TryGetIntrinsicSize(icon.Name, out var iw, out var ih) && ih > 0
-                ? iw / ih
-                : 1f;
-            const float defaultSize = 16f;
-            node.SetMeasureFunc((_, width, widthMode, height, heightMode) =>
+            if (!state.HasMeasureFunc || !Equals(state.MeasureSig, icon.Name))
             {
-                if (heightMode == MeasureMode.Exactly && height > 0)
-                    return new YGSize { Width = height * ratio, Height = height };
-                if (widthMode == MeasureMode.Exactly && width > 0)
-                    return new YGSize { Width = width, Height = width / ratio };
-                return new YGSize { Width = defaultSize, Height = defaultSize };
-            });
+                state.HasMeasureFunc = true;
+                state.MeasureSig = icon.Name;
+                state.MeasureKey = 0;
+                var ratio = iconCache is not null && iconCache.TryGetIntrinsicSize(icon.Name, out var iw, out var ih) && ih > 0
+                    ? iw / ih
+                    : 1f;
+                const float defaultSize = 16f;
+                node.SetMeasureFunc((_, width, widthMode, height, heightMode) =>
+                {
+                    if (heightMode == MeasureMode.Exactly && height > 0)
+                        return new YGSize { Width = height * ratio, Height = height };
+                    if (widthMode == MeasureMode.Exactly && width > 0)
+                        return new YGSize { Width = width, Height = width / ratio };
+                    return new YGSize { Width = defaultSize, Height = defaultSize };
+                });
+                node.MarkDirtyAndPropagate();
+            }
+            return;
+        }
+
+        // No intrinsic measure: clear any previous function so a reused node
+        // that stopped being measure-driven sizes as a plain flex box.
+        if (state.HasMeasureFunc)
+        {
+            state.HasMeasureFunc = false;
+            state.MeasureSig = null;
+            state.MeasureKey = 0;
+            node.SetMeasureFunc(null);
+            node.MarkDirtyAndPropagate();
         }
     }
 
@@ -441,20 +638,11 @@ public sealed class YogaLayoutEngine
         panel.ScrollTo(panel.ScrollX, panel.ScrollY);
     }
 
-    private static void SetMargin(Node node, Edge edge, CssLength value)
-    {
-        if (value.IsDefined) node.Style.SetMargin(edge, ToLength(value));
-    }
+    private static void SetMargin(Node node, Edge edge, CssLength value) => node.Style.SetMargin(edge, ToLengthOrZero(value));
 
-    private static void SetPadding(Node node, Edge edge, CssLength value)
-    {
-        if (value.IsDefined) node.Style.SetPadding(edge, ToLength(value));
-    }
+    private static void SetPadding(Node node, Edge edge, CssLength value) => node.Style.SetPadding(edge, ToLengthOrZero(value));
 
-    private static void SetBorder(Node node, Edge edge, CssLength value)
-    {
-        if (value.IsDefined) node.Style.SetBorder(edge, ToLength(value));
-    }
+    private static void SetBorder(Node node, Edge edge, CssLength value) => node.Style.SetBorder(edge, ToLengthOrZero(value));
 
     private static StyleSizeLength ToSize(CssLength value) => value.Unit switch
     {
@@ -464,6 +652,19 @@ public sealed class YogaLayoutEngine
         CssLengthUnit.MaxContent => StyleSizeLength.OfMaxContent(),
         CssLengthUnit.FitContent => StyleSizeLength.OfFitContent(),
         _ => StyleSizeLength.Undefined()
+    };
+
+    /// <summary>
+    /// Maps a CSS length to a Yoga length, falling back to zero when undefined:
+    /// Yoga.Net's length setters ignore undefined values, so a reused node must
+    /// receive an explicit zero to clear a previously set edge.
+    /// </summary>
+    private static StyleLength ToLengthOrZero(CssLength value) => value.Unit switch
+    {
+        CssLengthUnit.Points => StyleLength.Points(value.Value),
+        CssLengthUnit.Percent => StyleLength.Percent(value.Value),
+        CssLengthUnit.Auto => StyleLength.OfAuto(),
+        _ => StyleLength.Points(0f)
     };
 
     private static StyleLength ToLength(CssLength value) => value.Unit switch

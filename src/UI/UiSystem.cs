@@ -21,6 +21,10 @@ public sealed partial class UiSystem : IDisposable
     private readonly Dictionary<string, string> _directoryTags = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (DateTime WriteTime, string Text)> _textCache = new(StringComparer.Ordinal);
     private PageRoute? _currentRoute;
+    /// <summary>True once the tree has been laid out at least once. Before that, the
+    /// stale-tree prepare must run even when a Razor rebuild is pending: it is what
+    /// assigns the component layouts that unblock the deferred first render.</summary>
+    private bool _everLaidOut;
 
     /// <summary>URL of the currently displayed page, or <c>/</c> before any navigation.</summary>
     public string CurrentUrl { get; private set; } = "/";
@@ -252,12 +256,24 @@ public sealed partial class UiSystem : IDisposable
     /// </summary>
     public bool Prepare()
     {
-        var changed = Renderer.PrepareForGpu(Screen);
+        var changed = false;
+        // When a Razor rebuild is pending, the current tree is about to be
+        // replaced: running the style/layout passes on it first is pure waste
+        // (it used to double every drag frame's full Yoga layout before the
+        // rebuild pass re-ran them on the fresh tree). The very first frame
+        // still needs a layout to size the screen before the rebuild guard
+        // below can pass.
+        if (!_razorRenderPending || !_everLaidOut || Screen.Layout.Width <= 0 || Screen.Layout.Height <= 0)
+            changed |= Renderer.PrepareForGpu(Screen);
+        // The second condition is re-evaluated after the first prepare: it is
+        // the first PrepareForGpu that assigns the screen size that unblocks
+        // the deferred first render.
         if (_razorRenderPending && Screen.Layout.Width > 0 && Screen.Layout.Height > 0)
         {
             RenderRazorIfNeeded();
             changed |= Renderer.PrepareForGpu(Screen);
         }
+        if (changed) _everLaidOut = true;
         return changed;
     }
 
