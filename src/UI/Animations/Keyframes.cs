@@ -48,19 +48,31 @@ public sealed class KeyframeList
 /// </summary>
 public static class Keyframes
 {
+    // Test suites (and a future host) can build several UiSystem instances in
+    // parallel, each parsing the same SCSS and registering the same keyframes.
+    // The registry is therefore synchronized: the registration compiles the
+    // keyframe data outside the lock and only the dictionary write is guarded.
+    private static readonly object Sync = new();
     private static readonly Dictionary<string, KeyframeList> Registry = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Every registered keyframe definition, in registration order.</summary>
-    public static IReadOnlyCollection<KeyframeList> All => Registry.Values;
+    public static IReadOnlyCollection<KeyframeList> All
+    {
+        get { lock (Sync) return Registry.Values.ToArray(); }
+    }
 
-    public static bool TryGet(string name, out KeyframeList keyframes) => Registry.TryGetValue(name, out keyframes!);
+    public static bool TryGet(string name, out KeyframeList keyframes)
+    {
+        lock (Sync) return Registry.TryGetValue(name, out keyframes!);
+    }
 
     /// <summary>Registers (or replaces) a keyframe definition. Frames are sorted by offset.</summary>
     public static void Register(KeyframeList keyframes)
     {
         ArgumentNullException.ThrowIfNull(keyframes);
         var sorted = keyframes.Frames.OrderBy(f => f.Offset).ToArray();
-        Registry[keyframes.Name] = new KeyframeList(keyframes.Name, sorted);
+        var compiled = new KeyframeList(keyframes.Name, sorted);
+        lock (Sync) Registry[keyframes.Name] = compiled;
     }
 
     /// <summary>
@@ -74,8 +86,15 @@ public static class Keyframes
         return keyframes;
     }
 
-    public static bool Remove(string name) => Registry.Remove(name);
-    public static void Clear() => Registry.Clear();
+    public static bool Remove(string name)
+    {
+        lock (Sync) return Registry.Remove(name);
+    }
+
+    public static void Clear()
+    {
+        lock (Sync) Registry.Clear();
+    }
 
     /// <summary>
     /// Samples the keyframe animation at <paramref name="progress"/> (in [0, 1])

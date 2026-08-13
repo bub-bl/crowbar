@@ -36,6 +36,13 @@ public sealed partial class UiSystem : IDisposable
     /// and applies it to the OS cursor.
     /// </summary>
     public string HoveredCursor { get; private set; } = "auto";
+    /// <summary>
+    /// The on-surface rectangle (framebuffer pixels, top-left origin) of the
+    /// docked 3D viewport, published by the DockArea after layout. Null before
+    /// the first layout or when no viewport is docked. The engine host reads it
+    /// to confine the 3D scene to the viewport instead of the whole window.
+    /// </summary>
+    public UiRect? SceneViewport { get; private set; }
     /// <summary>Raised after a navigation, with the new URL.</summary>
     public event Action<string>? NavigationChanged;
     /// <summary>All routes discovered from <c>@page</c> directives.</summary>
@@ -200,7 +207,9 @@ public sealed partial class UiSystem : IDisposable
         _razorRoot = _razorFactory.CompileTemplate(source, className, typeof(PanelComponent), typeof(UiSystem).Assembly);
         _razorRoot.StateChanged = () => _razorRenderPending = true;
         _razorRoot.NavigationRequested = Navigate;
+        _razorRoot.ViewportPublishRequested = rect => SceneViewport = rect;
         _currentRoute = null;
+        SceneViewport = null;
         SetContent(_razorFactory.BuildTree(_razorRoot));
     }
 
@@ -347,10 +356,12 @@ public sealed partial class UiSystem : IDisposable
             foreach (var (name, value) in routeParams) template.SetParameter(name, value);
             template.StateChanged = () => _razorRenderPending = true;
             template.NavigationRequested = Navigate;
+            template.ViewportPublishRequested = rect => SceneViewport = rect;
             _razorFactory = factory;
             _razorRoot = template;
             _currentRoute = route;
             CurrentUrl = url;
+            SceneViewport = null;
             SetContent(factory.BuildTree(template));
         }
         else

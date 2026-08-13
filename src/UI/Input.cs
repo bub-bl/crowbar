@@ -15,6 +15,15 @@ public sealed partial class UiSystem
     private float _lastClickX;
     private float _lastClickY;
     public Panel? FocusedPanel { get; private set; }
+
+    /// <summary>
+    /// True when the most recent pointer press landed on an interactive UI
+    /// element (button, input, scrollbar or any panel with a click/drag
+    /// handler). The host reads this to keep scene picking and gizmos from
+    /// reacting to clicks that the UI consumed.
+    /// </summary>
+    public bool PointerPressConsumed { get; private set; }
+
     public event Action<Panel, UiPointerEvent>? PointerMoved;
     public event Action<Panel, UiPointerEvent>? PointerDown;
     public event Action<Panel, UiPointerEvent>? PointerUp;
@@ -54,6 +63,7 @@ public sealed partial class UiSystem
     public Panel? ProcessPointerDown(float x, float y, int button = 0)
     {
         var hit = ProcessPointerMove(x, y);
+        PointerPressConsumed = hit is not null && hit.IsEnabled && IsInteractiveHit(hit);
         if (hit is null || !hit.IsEnabled) return null;
         TryStartScrollDrag(hit, x, y, button);
         UpdateFocus(hit);
@@ -94,6 +104,30 @@ public sealed partial class UiSystem
         _lastClickY = y;
         return hit;
     }
+
+    /// <summary>
+    /// True when the press on <paramref name="hit"/> (or one of its ancestors)
+    /// should be treated as UI input rather than scene input. Buttons, text
+    /// inputs, scrollbars, panels with click or pointer-down handlers, and any
+    /// panel with an explicit non-default cursor (e.g. the viewport toolbar's
+    /// <c>cursor: pointer</c>) consume the press; a passive panel (like the
+    /// empty viewport) does not.
+    /// </summary>
+    private static bool IsInteractiveHit(Panel? hit)
+    {
+        for (var panel = hit; panel is not null; panel = panel.Parent)
+        {
+            if (panel is Button or TextInput or ToggleInput || panel.IsScrollContainer ||
+                panel.HasClickedHandler || panel.HasPointerDownHandler || HasInteractiveCursor(panel))
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>True when the panel declares a cursor that signals interactivity (pointer, text, grab…).</summary>
+    private static bool HasInteractiveCursor(Panel panel) =>
+        panel.ComputedStyle.Cursor is not "auto" and not "default";
 
     public Panel? ProcessPointerUp(float x, float y, int button = 0)
     {

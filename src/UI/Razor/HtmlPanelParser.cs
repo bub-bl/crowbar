@@ -141,6 +141,7 @@ internal static class HtmlPanelParser
             // returning false from its event method.
             child.StateChanged = runtime.StateHasChanged;
             child.NavigationRequested = runtime.NavigationRequested;
+            child.ViewportPublishRequested = runtime.ViewportPublishRequested;
             foreach (var attribute in element.Attributes())
             {
                 if (attribute.Name.LocalName.Equals("class", StringComparison.OrdinalIgnoreCase))

@@ -396,6 +396,18 @@ public abstract class RazorPanel : PanelComponent, IComponent
         NavigationRequested?.Invoke(url);
     }
 
+    /// <summary>
+    /// Sink for the docked 3D viewport rectangle, wired to the hosting
+    /// <see cref="UiSystem"/> (like <see cref="NavigationRequested"/>) and
+    /// propagated to child components. A component such as the DockArea calls
+    /// <see cref="PublishViewport"/> after laying out so the host can confine
+    /// the 3D scene to the viewport instead of the whole window.
+    /// </summary>
+    internal Action<UiRect?>? ViewportPublishRequested { get; set; }
+
+    /// <summary>Publishes the on-surface rectangle of the docked 3D viewport (null when absent).</summary>
+    protected void PublishViewport(UiRect? rect) => ViewportPublishRequested?.Invoke(rect);
+
     // The Razor SDK generates a design-time declaration for .razor files.
     // That declaration contains the component shape but not the generated
     // ExecuteAsync body, so the base must remain instantiable from the IDE's

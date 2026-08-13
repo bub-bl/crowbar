@@ -164,10 +164,11 @@ internal sealed class DemoApplication : Application
             return;
 
         // La scène 3D est rendue dans le viewport docké (pas dans toute la
-        // fenêtre) : on localise son rectangle dans l'arbre UI et on le donne
-        // au renderer, qui ajuste l'aspect de la caméra et limite la scène à
-        // ce rectangle. Avant le premier layout, on retombe sur toute la fenêtre.
-        var viewport = TryGetViewportRect();
+        // fenêtre) : le DockArea publie son rectangle via Ui.SceneViewport, et
+        // on le donne au renderer, qui ajuste l'aspect de la caméra et limite
+        // la scène à ce rectangle. Avant le premier layout, on retombe sur
+        // toute la fenêtre.
+        var viewport = Ui.SceneViewport;
         renderer.SetSceneViewport(viewport);
 
         var rect = viewport ?? new UiRect(0, 0, ViewportWidth, ViewportHeight);
@@ -178,13 +179,18 @@ internal sealed class DemoApplication : Application
         var insideViewport = viewport is null ||
             (mouse.X >= rect.X && mouse.X <= rect.Right && mouse.Y >= rect.Y && mouse.Y <= rect.Bottom);
 
-        renderer.Gizmos.UpdateInteraction(Camera, localMouse, Mouse.IsDown(MouseButton.Left), width, height);
+        // Un clic consommé par l'UI (bouton, onglet, saisie, scrollbar) ne doit
+        // ni commencer un drag de gizmo, ni sélectionner la scène en dessous.
+        // Un drag déjà engagé continue même si le curseur passe sur l'UI.
+        var matrices = CameraMatrices.Compute(Camera, width, height);
+        if (!Ui.PointerPressConsumed || renderer.Gizmos.Gizmo.IsDragging)
+            renderer.Gizmos.UpdateInteraction(matrices, localMouse, Mouse.IsDown(MouseButton.Left));
 
         // Sélectionne au clic gauche uniquement si le clic n'a pas commencé un
         // drag de gizmo (sinon déplacer l'entité re-sélectionnerait la scène),
-        // et uniquement quand le curseur est dans le viewport.
-        if (insideViewport && Mouse.WasPressed(MouseButton.Left) && !renderer.Gizmos.Gizmo.IsDragging)
-            renderer.Gizmos.Selection = renderer.Gizmos.Pick(World, Camera, localMouse, width, height);
+        // uniquement dans le viewport, et pas quand l'UI a consommé le clic.
+        if (insideViewport && !Ui.PointerPressConsumed && Mouse.WasPressed(MouseButton.Left) && !renderer.Gizmos.Gizmo.IsDragging)
+            renderer.Gizmos.Selection = renderer.Gizmos.Pick(World, matrices, localMouse);
     }
 
     private string DescribeGamemode()
@@ -232,39 +238,6 @@ internal sealed class DemoApplication : Application
 
     private int ViewportHeight =>
         Math.Max(1, Window.FramebufferHeight > 0 ? Window.FramebufferHeight : Window.Height);
-
-    /// <summary>
-    /// Rectangle (en pixels framebuffer, origine en haut à gauche) de la zone
-    /// 3D du viewport docké : la zone de contenu (sous la barre d'onglets) du
-    /// groupe <c>viewport</c>. Null tant que le layout UI n'est pas disponible.
-    /// </summary>
-    private UiRect? TryGetViewportRect()
-    {
-        if (Ui.Content is not { } content)
-            return null;
-
-        var group = FindPanel(content, panel =>
-            panel.Classes.Contains("dock-group") &&
-            panel.Attributes.TryGetValue("data-dock-id", out var id) && id == "viewport");
-        if (group is null)
-            return null;
-
-        var dockContent = group.Children.FirstOrDefault(panel => panel.Classes.Contains("dock-content"));
-        if (dockContent is null || dockContent.Layout.Width <= 0 || dockContent.Layout.Height <= 0)
-            return null;
-
-        return dockContent.Layout;
-    }
-
-    private static Panel? FindPanel(Panel panel, Func<Panel, bool> predicate)
-    {
-        if (predicate(panel))
-            return panel;
-        foreach (var child in panel.Children)
-            if (FindPanel(child, predicate) is { } match)
-                return match;
-        return null;
-    }
 
     private static string ResolveGameDirectory()
     {

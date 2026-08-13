@@ -190,7 +190,12 @@ public sealed class Renderer : IDisposable
     private ITexture _sceneTexture = null!;
     private IBindGroup _sceneBindGroup = null!;
 
-    private ITexture _depthTexture = null!;
+    // The 3D scene renders into viewport-sized targets (its color, depth and
+    // selection mask all share the viewport dimensions). The surface composite
+    // pass still needs a full-window depth attachment because its color target
+    // is the swapchain texture.
+    private ITexture _sceneDepth = null!;
+    private ITexture _surfaceDepth = null!;
 
     // Scene blit: the UI pipeline (Ui.wgsl) also blits the offscreen scene
     // texture onto the surface, so it is kept even though the Skia UI texture
@@ -198,6 +203,16 @@ public sealed class Renderer : IDisposable
     private ISampler _uiSampler = null!;
     private IPipeline _uiPipeline = null!;
     private IBuffer _uiVertexBuffer = null!;
+
+    // Fullscreen quad transformed to the viewport rectangle in NDC, used by the
+    // scene blit and the selection-outline composite. The backdrop compositor
+    // and the UI overlay keep the plain fullscreen quad.
+    private IBuffer _sceneQuadVertexBuffer = null!;
+    private int _sceneTargetWidth;
+    private int _sceneTargetHeight;
+    private UiRect _sceneQuadRect;
+    private int _sceneQuadWindowWidth;
+    private int _sceneQuadWindowHeight;
 
     // GPU UI renderer: the tree-walk painter records the panel tree into a
     // Renderer2D, which draws the UI offscreen on the GPU (no Skia raster).
@@ -227,9 +242,8 @@ public sealed class Renderer : IDisposable
         Gizmos = new GizmoRenderer(_device, _sceneBuffer, (ulong)sizeof(SceneUniforms));
         CreateBackdropResources();
         CreateUiResources();
-        CreateDepthTexture(_width, _height);
-        CreateSceneResources(_width, _height);
-        CreateSelectionOutlineResources(_width, _height);
+        CreateSurfaceDepth(_width, _height);
+        EnsureSceneTargets(SceneViewport);
         CreateUi2DResources();
         _ui2d = new Renderer2D(_device);
         _uiPainter = new UiTreePainter(_ui2d);
@@ -244,6 +258,7 @@ public sealed class Renderer : IDisposable
         UpdateCamera(camera);
 
         var viewport = SceneViewport;
+        EnsureSceneTargets(viewport);
 
         ITexture? frame = _device.Swapchain.AcquireTexture();
         if (frame is null)
@@ -255,6 +270,8 @@ public sealed class Renderer : IDisposable
 
             // Pass 1: render the 3D scene into the offscreen scene texture (it is
             // both blitted to the surface and copied back for the UI backdrop).
+            // The scene targets are sized to the viewport, so the whole texture
+            // is the viewport — no scissor is needed.
             var scenePassDescription = new RenderPassDescription
             {
                 Color = new ColorAttachment
@@ -266,7 +283,7 @@ public sealed class Renderer : IDisposable
                 },
                 Depth = new DepthAttachment
                 {
-                    Texture = _depthTexture,
+                    Texture = _sceneDepth,
                     LoadOp = RenderAttachmentLoadOp.Clear,
                     StoreOp = RenderAttachmentStoreOp.Store,
                     ClearValue = 1f
@@ -274,14 +291,9 @@ public sealed class Renderer : IDisposable
             };
             using (IRenderPass scenePass = commandBuffer.BeginRenderPass(scenePassDescription))
             {
-                // The 3D scene renders only inside the host's viewport
-                // rectangle. The load-op clear above covers the whole texture
-                // (scissors do not clip it), so the area outside the viewport
-                // stays the clear color while the viewport holds the scene.
-                ApplySceneViewport(scenePass, viewport);
                 DrawMeshRenderers(scenePass, world, time);
                 DrawGrid(scenePass);
-                Gizmos.Draw(scenePass, world, camera, (int)viewport.Width, (int)viewport.Height);
+                Gizmos.Draw(scenePass, world, camera, _sceneTargetWidth, _sceneTargetHeight);
             }
 
             // Pass 1b: render the selected entity into the selection mask
@@ -302,13 +314,12 @@ public sealed class Renderer : IDisposable
                     },
                     Depth = new DepthAttachment
                     {
-                        Texture = _depthTexture,
+                        Texture = _sceneDepth,
                         LoadOp = RenderAttachmentLoadOp.Load,
                         StoreOp = RenderAttachmentStoreOp.Store
                     }
                 }))
                 {
-                    ApplySceneViewport(maskPass, viewport);
                     DrawSelectionMask(maskPass);
                 }
             }
@@ -358,7 +369,7 @@ public sealed class Renderer : IDisposable
                 },
                 Depth = new DepthAttachment
                 {
-                    Texture = _depthTexture,
+                    Texture = _surfaceDepth,
                     LoadOp = RenderAttachmentLoadOp.Clear,
                     StoreOp = RenderAttachmentStoreOp.Store,
                     ClearValue = 1f
@@ -375,18 +386,19 @@ public sealed class Renderer : IDisposable
                 if (outlineActive)
                 {
                     // The selection outline pass replaces the plain scene blit.
+                    // Both draw the viewport-rect quad (not the fullscreen one).
                     UpdateOutlineParams();
                     surfacePass.SetPipeline(_outlinePipeline);
                     currentPipeline = _outlinePipeline;
                     surfacePass.SetBindGroup(_outlineBindGroup, 0);
-                    surfacePass.SetVertexBuffer(_uiVertexBuffer, 6 * 4 * sizeof(float));
+                    surfacePass.SetVertexBuffer(_sceneQuadVertexBuffer, 6 * 4 * sizeof(float));
                     surfacePass.Draw(6);
                 }
                 else
                 {
                     surfacePass.SetPipeline(_uiPipeline);
                     surfacePass.SetBindGroup(_sceneBindGroup, 0);
-                    surfacePass.SetVertexBuffer(_uiVertexBuffer, 6 * 4 * sizeof(float));
+                    surfacePass.SetVertexBuffer(_sceneQuadVertexBuffer, 6 * 4 * sizeof(float));
                     surfacePass.Draw(6);
                 }
 
@@ -437,38 +449,88 @@ public sealed class Renderer : IDisposable
         _device.Resize(width, height);
         _width = Math.Max(1, width);
         _height = Math.Max(1, height);
-        CreateDepthTexture(_width, _height);
-        CreateSceneResources(_width, _height);
-        CreateSelectionOutlineResources(_width, _height);
+        CreateSurfaceDepth(_width, _height);
+        EnsureSceneTargets(SceneViewport);
     }
 
     private void UpdateCamera(Camera camera)
     {
         var viewport = SceneViewport;
-        float aspect = Math.Max(1, viewport.Width) / (float)Math.Max(1, viewport.Height);
+        var matrices = CameraMatrices.Compute(camera, Math.Max(1, (int)viewport.Width), Math.Max(1, (int)viewport.Height));
         _scene = new SceneUniforms
         {
-            View = camera.ViewMatrix,
-            Projection = camera.ProjectionMatrix(aspect),
+            View = matrices.View,
+            Projection = matrices.Projection,
             CameraPosition = new Vector4(camera.Position, 1f),
             Time = new Vector4(0f, 0f, 0f, 0f)
         };
     }
 
-    /// <summary>
-    /// Constrains a 3D pass (scene or selection mask) to the host's viewport
-    /// rectangle, clamped to the framebuffer so a partially off-screen panel
-    /// (mid-drag dock layout) never produces an out-of-bounds scissor.
-    /// </summary>
-    private void ApplySceneViewport(IRenderPass pass, UiRect viewport)
+    /// <summary>Clamps the host viewport to the framebuffer so its targets never exceed the window.</summary>
+    private UiRect ClampViewport(UiRect viewport)
     {
         var x = Math.Max(0, viewport.X);
         var y = Math.Max(0, viewport.Y);
-        var width = Math.Max(1, Math.Min(_width, viewport.X + Math.Max(1, viewport.Width)) - x);
-        var height = Math.Max(1, Math.Min(_height, viewport.Y + Math.Max(1, viewport.Height)) - y);
+        var right = Math.Min(_width, viewport.X + Math.Max(1, viewport.Width));
+        var bottom = Math.Min(_height, viewport.Y + Math.Max(1, viewport.Height));
+        return new UiRect(x, y, Math.Max(1, right - x), Math.Max(1, bottom - y));
+    }
 
-        pass.SetViewport(x, y, width, height);
-        pass.SetScissorRect((uint)x, (uint)y, (uint)width, (uint)height);
+    /// <summary>
+    /// Recreates the viewport-sized scene targets (scene color, scene depth,
+    /// selection mask) and the viewport-rect blit quad whenever the viewport
+    /// size or position changes. A dock drag therefore only reallocates these
+    /// small textures, never the full-window ones.
+    /// </summary>
+    private void EnsureSceneTargets(UiRect viewport)
+    {
+        var rect = ClampViewport(viewport);
+        var width = (int)rect.Width;
+        var height = (int)rect.Height;
+
+        if (width != _sceneTargetWidth || height != _sceneTargetHeight)
+        {
+            _sceneTargetWidth = width;
+            _sceneTargetHeight = height;
+            CreateSceneDepth(width, height);
+            CreateSceneResources(width, height);
+            CreateSelectionOutlineResources(width, height);
+            _sceneQuadRect = default;
+        }
+
+        UpdateSceneQuad(rect);
+    }
+
+    private void UpdateSceneQuad(UiRect rect)
+    {
+        if (_sceneQuadRect == rect && _sceneQuadWindowWidth == _width && _sceneQuadWindowHeight == _height)
+            return;
+        _sceneQuadRect = rect;
+        _sceneQuadWindowWidth = _width;
+        _sceneQuadWindowHeight = _height;
+
+        _sceneQuadVertexBuffer ??= _device.CreateBuffer(new BufferDescription
+        {
+            Size = 6 * 4 * sizeof(float),
+            Usage = BufferUsage.Vertex | BufferUsage.CopyDst
+        });
+
+        // The fullscreen quad's winding/UV order, but clipped to the viewport
+        // rectangle in NDC (bottom-left, bottom-right, top-right, top-left).
+        var x0 = rect.X / _width * 2f - 1f;
+        var x1 = (rect.X + rect.Width) / _width * 2f - 1f;
+        var y0 = 1f - (rect.Y + rect.Height) / _height * 2f;
+        var y1 = 1f - rect.Y / _height * 2f;
+        float[] vertices =
+        [
+            x0, y0, 0, 1,  x1, y0, 1, 1,  x1, y1, 1, 0,
+            x1, y1, 1, 0,  x0, y1, 0, 0,  x0, y0, 0, 1
+        ];
+        unsafe
+        {
+            fixed (float* data = vertices)
+                _sceneQuadVertexBuffer.Write(new ReadOnlySpan<byte>(data, vertices.Length * sizeof(float)));
+        }
     }
 
     private void CreateMeshResources()
@@ -1095,10 +1157,24 @@ public sealed class Renderer : IDisposable
         });
     }
 
-    private void CreateDepthTexture(int width, int height)
+    /// <summary>Full-window depth attachment for the surface composite pass.</summary>
+    private void CreateSurfaceDepth(int width, int height)
     {
-        _depthTexture?.Dispose();
-        _depthTexture = _device.CreateTexture(new TextureDescription
+        _surfaceDepth?.Dispose();
+        _surfaceDepth = _device.CreateTexture(new TextureDescription
+        {
+            Width = Math.Max(1, width),
+            Height = Math.Max(1, height),
+            Format = TextureFormat.Depth24Plus,
+            RenderTarget = true
+        });
+    }
+
+    /// <summary>Viewport-sized depth attachment for the 3D scene and selection-mask passes.</summary>
+    private void CreateSceneDepth(int width, int height)
+    {
+        _sceneDepth?.Dispose();
+        _sceneDepth = _device.CreateTexture(new TextureDescription
         {
             Width = Math.Max(1, width),
             Height = Math.Max(1, height),
@@ -1293,7 +1369,8 @@ public sealed class Renderer : IDisposable
         var parameters = new SelectionOutlineParams
         {
             Color = new Vector4(Outline.Color, Outline.Opacity),
-            TexelSize = new Vector2(1f / _width, 1f / _height),
+            // The mask is viewport-sized now, so its texel is 1/viewport.
+            TexelSize = new Vector2(1f / _sceneTargetWidth, 1f / _sceneTargetHeight),
             Thickness = Outline.Thickness
         };
         _outlineParamsBuffer.Write(in parameters);
@@ -1317,9 +1394,13 @@ public sealed class Renderer : IDisposable
             var p = new BackdropGpuParams
             {
                 Region = new Vector4(region.X, region.Y, region.Width, region.Height),
+                // The scene texture is viewport-sized and blitted into the
+                // viewport rect, so scene UVs are viewport-relative.
                 UvRect = new Vector4(
-                    region.X / _width, region.Y / _height,
-                    (region.X + region.Width) / _width, (region.Y + region.Height) / _height),
+                    (region.X - _sceneQuadRect.X) / _sceneQuadRect.Width,
+                    (region.Y - _sceneQuadRect.Y) / _sceneQuadRect.Height,
+                    (region.X + region.Width - _sceneQuadRect.X) / _sceneQuadRect.Width,
+                    (region.Y + region.Height - _sceneQuadRect.Y) / _sceneQuadRect.Height),
                 RadiusBlur = new Vector4(region.Radius, 0, region.Alpha, 0),
                 Tint = new Vector4(
                     region.Tint.R / 255f, region.Tint.G / 255f,
@@ -1443,6 +1524,8 @@ public sealed class Renderer : IDisposable
         _selectionMaskModelBuffer?.Dispose();
         _selectionMaskPipeline?.Dispose();
         _selectionTexture?.Dispose();
-        _depthTexture?.Dispose();
+        _sceneDepth?.Dispose();
+        _surfaceDepth?.Dispose();
+        _sceneQuadVertexBuffer?.Dispose();
     }
 }

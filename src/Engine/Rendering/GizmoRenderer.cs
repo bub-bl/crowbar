@@ -125,7 +125,7 @@ public sealed class GizmoRenderer : IDisposable
     /// on a hovered axis starts a drag, movement drags the selected entity
     /// along the axis, release ends it.
     /// </summary>
-    public void UpdateInteraction(Camera camera, Vector2 mousePixels, bool mouseDown, int width, int height)
+    public void UpdateInteraction(CameraMatrices matrices, Vector2 mousePixels, bool mouseDown)
     {
         if (!Enabled)
             return;
@@ -134,10 +134,7 @@ public sealed class GizmoRenderer : IDisposable
         if (Gizmo.Target is null)
             return;
 
-        var aspect = Math.Max(1, width) / (float)Math.Max(1, height);
-        var view = camera.ViewMatrix;
-        var projection = camera.ProjectionMatrix(aspect);
-        var ray = Ray.FromScreen(mousePixels, width, height, view, projection);
+        var ray = matrices.RayFromScreen(mousePixels);
 
         var pressed = mouseDown && !_wasMouseDown;
         var released = !mouseDown && _wasMouseDown;
@@ -148,7 +145,7 @@ public sealed class GizmoRenderer : IDisposable
 
         if (pressed)
         {
-            Gizmo.UpdateHover(ray, mousePixels, view, projection, width, height);
+            Gizmo.UpdateHover(ray, mousePixels, matrices.View, matrices.Projection, matrices.Width, matrices.Height);
             if (Gizmo.HoveredAxis != TranslationGizmo.Axis.None)
                 Gizmo.BeginDrag(ray);
         }
@@ -158,7 +155,7 @@ public sealed class GizmoRenderer : IDisposable
         }
         else
         {
-            Gizmo.UpdateHover(ray, mousePixels, view, projection, width, height);
+            Gizmo.UpdateHover(ray, mousePixels, matrices.View, matrices.Projection, matrices.Width, matrices.Height);
         }
     }
 
@@ -311,13 +308,15 @@ public sealed class GizmoRenderer : IDisposable
     /// falls back to mesh AABB picking. Light icons are an overlay, so they
     /// must win over a mesh that happens to be behind the icon.
     /// </summary>
-    public Entity? Pick(World? world, Camera camera, Vector2 mousePixels, int width, int height)
+    public Entity? Pick(World? world, CameraMatrices matrices, Vector2 mousePixels)
     {
         if (world is null)
             return null;
 
-        var view = camera.ViewMatrix;
-        var projection = camera.ProjectionMatrix(Math.Max(1, width) / (float)Math.Max(1, height));
+        var view = matrices.View;
+        var projection = matrices.Projection;
+        var width = matrices.Width;
+        var height = matrices.Height;
         Entity? bestLight = null;
         var bestLightDepth = float.MaxValue;
         var iconRadius = SpritePixelSize * 0.75f;
@@ -341,7 +340,7 @@ public sealed class GizmoRenderer : IDisposable
         if (bestLight is not null)
             return bestLight;
 
-        var ray = Ray.FromScreen(mousePixels, width, height, view, projection);
+        var ray = matrices.RayFromScreen(mousePixels);
         Entity? bestMesh = null;
         var bestDistance = float.MaxValue;
 

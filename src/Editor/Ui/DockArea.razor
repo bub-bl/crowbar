@@ -106,6 +106,9 @@
     private readonly Dictionary<string, float> _tabShifts = new(StringComparer.Ordinal);
     private readonly List<DockSplitter> _splitters = new();
     private const float TabGap = 4f;
+
+    /// <summary>Height of the tab bar (30px) plus its 1px border: the viewport content starts below it.</summary>
+    private const float TabBarHeight = 31f;
     private bool _hideDraggedTab;
     private UiRect _areaRect;
     private DragState? _drag;
@@ -217,6 +220,7 @@
         {
             _rects.Clear();
             _splitters.Clear();
+            PublishViewport(null);
             return;
         }
 
@@ -224,6 +228,28 @@
         var area = new UiRect(0, 0, _areaRect.Width, _areaRect.Height);
         _tree.ComputeRects(area, _rects);
         _tree.ComputeSplitters(area, _splitters);
+        PublishViewportRect();
+    }
+
+    /// <summary>
+    /// Publie le rectangle (en pixels fenêtre) de la zone de contenu du groupe
+    /// <c>viewport</c> — la zone 3D sous la barre d'onglets. C'est ce que le
+    /// moteur lit pour y confiner le rendu de la scène. Les rects du dock étant
+    /// locaux à la zone, on les translate vers l'espace fenêtre.
+    /// </summary>
+    private void PublishViewportRect()
+    {
+        if (!_rects.TryGetValue("viewport", out var rect) || rect.Height <= TabBarHeight || rect.Width <= 0)
+        {
+            PublishViewport(null);
+            return;
+        }
+
+        PublishViewport(new UiRect(
+            _areaRect.X + rect.X,
+            _areaRect.Y + rect.Y + TabBarHeight,
+            rect.Width,
+            rect.Height - TabBarHeight));
     }
 
     // ---- Drag d'un onglet -------------------------------------------------
