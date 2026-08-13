@@ -129,10 +129,11 @@ fn rectOutlineDist(local: vec2f, b: vec4f, r: f32) -> f32 {
         let dBot = abs(half.y - q.y);
         let dLef = abs(q.x + half.x);
         let dRig = abs(half.x - q.x);
-        let m = min(min(dTop, dBot), min(dLef, dRig));
-        if (m == dTop) { u = q.x + ax; }
-        else if (m == dRig) { u = rightArcEnd + (q.y + ay); }
-        else if (m == dBot) { u = bottomArcEnd + (ax - q.x); }
+        // Select the closest edge without float equality (WGSL forbids == on
+        // floats); the four distances are compared directly.
+        if (dTop <= dRig && dTop <= dBot && dTop <= dLef) { u = q.x + ax; }
+        else if (dRig <= dBot && dRig <= dLef) { u = rightArcEnd + (q.y + ay); }
+        else if (dBot <= dLef) { u = bottomArcEnd + (ax - q.x); }
         else { u = leftArcEnd + (ay - q.y); }
     }
     return clamp(u, 0.0, perim);
@@ -162,9 +163,9 @@ fn lineOutlineDist(local: vec2f, a: vec2f, b: vec2f) -> f32 {
 
 // 1D on/off dash mask (local px): on for `dash` px, off for the gap (equal to
 // `dash` for dashed borders, doubled for dotted so the dots breathe).
-fn dashMask(dist: f32, style: f32, dashLen: f32) -> f32 {
+fn dashMask(dist: f32, style: u32, dashLen: f32) -> f32 {
     let dash = max(dashLen, 1.0);
-    let gap = style == 2.0 ? dash * 2.0 : dash;
+    let gap = select(dash, dash * 2.0, style == 2u);
     let period = dash + gap;
     let x = dist - period * floor(dist / period);
     let d = abs(x - dash * 0.5) - dash * 0.5;
@@ -190,13 +191,13 @@ fn stopOffset(inst: SdfInstance, i: u32) -> f32 {
 }
 
 fn evalGradient(inst: SdfInstance, local: vec2f) -> vec4f {
-    let kind = inst.flags.y;
+    let kind = u32(inst.flags.y);
     var t = 0.0;
-    if (kind == 1.0) {
+    if (kind == 1u) {
         let d = inst.grad1.xy - inst.grad0.xy;
         let denom = dot(d, d);
-        t = denom > 0.0 ? clamp(dot(local - inst.grad0.xy, d) / denom, 0.0, 1.0) : 0.0;
-    } else if (kind == 2.0) {
+        t = select(0.0, clamp(dot(local - inst.grad0.xy, d) / denom, 0.0, 1.0), denom > 0.0);
+    } else if (kind == 2u) {
         let r = max(inst.grad1.x, 0.0001);
         t = clamp(length(local - inst.grad0.xy) / r, 0.0, 1.0);
     }
@@ -250,38 +251,39 @@ fn clipMask(inst: SdfInstance, frag: vec2f) -> f32 {
 fn fs_main(@builtin(position) frag: vec4f, @location(0) local: vec2f,
            @location(1) @interpolate(flat) instance: u32) -> @location(0) vec4f {
     let inst = instances[instance];
-    let kind = inst.flags.x;
+    let kind = u32(inst.flags.x);
 
     var sd = 0.0;
-    if (kind == 3.0) {
+    if (kind == 3u) {
         // Line segment (round caps fall out of the clamped projection).
         sd = segmentSDF(local, inst.grad0.xy, inst.grad1.xy) - max(inst.params.y * 0.5, 0.0);
-    } else if (kind == 2.0) {
+    } else if (kind == 2u) {
         sd = ellipseSDF(local, inst.rect);
     } else {
         sd = roundedRectSDF(local, inst.rect, inst.params.x);
     }
 
     let strokeWidth = inst.params.y;
-    let style = inst.params.z;
+    let style = u32(inst.params.z);
     let dashLen = inst.params.w;
 
     // A stroke is the ring between |sd| <= width/2; a fill is the interior.
     // Dashed/dotted borders modulate the ring along the outline; double draws
     // two concentric rings.
     var coverage = 0.0;
-    if (strokeWidth > 0.0 && kind != 3.0) {
-        if (style == 3.0) {
+    if (strokeWidth > 0.0 && kind != 3u) {
+        if (style == 3u) {
             // Double: two rings at +/- width/3, each width/3 thick.
             let third = strokeWidth / 3.0;
             let outer = 1.0 - smoothstep(-1.0, 0.0, abs(sd - third) - third * 0.5);
             let inner = 1.0 - smoothstep(-1.0, 0.0, abs(sd + third) - third * 0.5);
             coverage = max(outer, inner);
-        } else if (style == 1.0 || style == 2.0) {
-            let dist = kind == 2.0
-                ? ellipseOutlineDist(local, inst.rect)
-                : rectOutlineDist(local, inst.rect, inst.params.x);
-            if (style == 1.0) {
+        } else if (style == 1u || style == 2u) {
+            let dist = select(
+                rectOutlineDist(local, inst.rect, inst.params.x),
+                ellipseOutlineDist(local, inst.rect),
+                kind == 2u);
+            if (style == 1u) {
                 coverage = (1.0 - smoothstep(-1.0, 0.0, abs(sd) - strokeWidth * 0.5)) * dashMask(dist, style, dashLen);
             } else {
                 // Dotted: round dots centred on the boundary.
@@ -297,9 +299,9 @@ fn fs_main(@builtin(position) frag: vec4f, @location(0) local: vec2f,
         }
     } else if (strokeWidth > 0.0) {
         // Line stroke (round caps).
-        if (style == 1.0 || style == 2.0) {
+        if (style == 1u || style == 2u) {
             let dist = lineOutlineDist(local, inst.grad0.xy, inst.grad1.xy);
-            if (style == 1.0) {
+            if (style == 1u) {
                 coverage = (1.0 - smoothstep(-1.0, 0.0, sd)) * dashMask(dist, style, dashLen);
             } else {
                 let period = max(dashLen * 3.0, 1.0);

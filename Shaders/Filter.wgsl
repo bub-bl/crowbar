@@ -32,19 +32,19 @@ fn vs_main(@location(0) position: vec2f, @location(1) uv: vec2f) -> VertexOutput
 
 fn applyOp(c: vec4f, op: vec4f) -> vec4f {
     var color = c;
-    let opType = op.x;
+    let opType = u32(op.x);
     let amount = op.y;
-    if (opType == 1.0) {
+    if (opType == 1u) {
         // brightness
         color = vec4f(color.rgb * amount, color.a);
-    } else if (opType == 2.0) {
+    } else if (opType == 2u) {
         // contrast
         color = vec4f(clamp((color.rgb - vec3f(0.5)) * amount + vec3f(0.5), vec3f(0.0), vec3f(1.0)), color.a);
-    } else if (opType == 3.0) {
+    } else if (opType == 3u) {
         // grayscale
         let luma = dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722));
         color = vec4f(mix(color.rgb, vec3f(luma), clamp(amount, 0.0, 1.0)), color.a);
-    } else if (opType == 4.0) {
+    } else if (opType == 4u) {
         // hue-rotate (degrees): the canonical CSS Filter Effects matrix.
         let rad = amount * 3.14159265358979 / 180.0;
         let cosA = cos(rad);
@@ -61,17 +61,17 @@ fn applyOp(c: vec4f, op: vec4f) -> vec4f {
         color.b = (0.213 - cosA * 0.213 - sinA * 0.787) * r
             + (0.715 - cosA * 0.715 + sinA * 0.715) * g
             + (0.072 + cosA * 0.928 + sinA * 0.072) * b;
-    } else if (opType == 5.0) {
+    } else if (opType == 5u) {
         // invert
         color = vec4f(mix(color.rgb, vec3f(1.0) - color.rgb, clamp(amount, 0.0, 1.0)), color.a);
-    } else if (opType == 6.0) {
+    } else if (opType == 6u) {
         // opacity
         color.a *= clamp(amount, 0.0, 1.0);
-    } else if (opType == 7.0) {
+    } else if (opType == 7u) {
         // saturate
         let luma = dot(color.rgb, vec3f(0.2126, 0.7152, 0.0722));
         color = vec4f(mix(vec3f(luma), color.rgb, amount), color.a);
-    } else if (opType == 8.0) {
+    } else if (opType == 8u) {
         // sepia (amount 0..1, 1 = full sepia)
         let s = clamp(amount, 0.0, 1.0);
         let m = 1.0 - s;

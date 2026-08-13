@@ -1942,7 +1942,7 @@ public sealed class Renderer2D : IDisposable
                     currentPipeline = _sdfPipeline;
                 }
                 pass.SetVertexBuffer(_quadBuffer!, (ulong)(6 * 4 * sizeof(float)));
-                pass.DrawInstanced(6, (uint)command.Count);
+                pass.DrawInstanced(6, (uint)command.Count, (uint)command.Start);
                 break;
             case BatchKind.Textured:
                 if (currentPipeline != _texturedPipeline)
@@ -1952,7 +1952,7 @@ public sealed class Renderer2D : IDisposable
                     currentPipeline = _texturedPipeline;
                 }
                 pass.SetVertexBuffer(texturedBuffer, texturedBuffer.Size);
-                pass.Draw((uint)command.Count);
+                pass.Draw((uint)command.Count, (uint)command.Start);
                 break;
             case BatchKind.Glyph:
                 if (currentPipeline != _glyphPipeline)
@@ -1962,7 +1962,7 @@ public sealed class Renderer2D : IDisposable
                     currentPipeline = _glyphPipeline;
                 }
                 pass.SetVertexBuffer(texturedBuffer, texturedBuffer.Size);
-                pass.Draw((uint)command.Count);
+                pass.Draw((uint)command.Count, (uint)command.Start);
                 break;
             case BatchKind.Shadow:
                 if (currentPipeline != _shadowPipeline)
@@ -1972,7 +1972,7 @@ public sealed class Renderer2D : IDisposable
                     currentPipeline = _shadowPipeline;
                 }
                 pass.SetVertexBuffer(_quadBuffer!, (ulong)(6 * 4 * sizeof(float)));
-                pass.DrawInstanced(6, (uint)command.Count);
+                pass.DrawInstanced(6, (uint)command.Count, (uint)command.Start);
                 break;
             case BatchKind.GlyphShadow:
                 if (currentPipeline != _glyphShadowPipeline)
@@ -1982,7 +1982,7 @@ public sealed class Renderer2D : IDisposable
                     currentPipeline = _glyphShadowPipeline;
                 }
                 pass.SetVertexBuffer(glyphShadowBuffer, glyphShadowBuffer.Size);
-                pass.Draw((uint)command.Count);
+                pass.Draw((uint)command.Count, (uint)command.Start);
                 break;
             default:
                 if (currentPipeline != _trianglePipeline)
@@ -1992,7 +1992,7 @@ public sealed class Renderer2D : IDisposable
                     currentPipeline = _trianglePipeline;
                 }
                 pass.SetVertexBuffer(triangleBuffer, triangleBuffer.Size);
-                pass.Draw((uint)command.Count);
+                pass.Draw((uint)command.Count, (uint)command.Start);
                 break;
         }
     }

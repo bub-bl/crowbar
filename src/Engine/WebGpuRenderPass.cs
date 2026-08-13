@@ -64,6 +64,18 @@ public sealed unsafe class WebGpuRenderPass : IRenderPass
         _runtime.DrawInstanced(_handle, vertexCount, instanceCount);
     }
 
+    public void Draw(uint vertexCount, uint firstVertex)
+    {
+        EnsureActive();
+        _runtime.Draw(_handle, vertexCount, firstVertex);
+    }
+
+    public void DrawInstanced(uint vertexCount, uint instanceCount, uint firstInstance)
+    {
+        EnsureActive();
+        _runtime.DrawInstanced(_handle, vertexCount, instanceCount, firstInstance);
+    }
+
     private void EnsureActive()
     {
         if (_ended)

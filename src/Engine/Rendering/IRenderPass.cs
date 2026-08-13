@@ -15,5 +15,11 @@ public interface IRenderPass : IDisposable
     void DrawIndexed(uint indexCount);
     void DrawInstanced(uint vertexCount, uint instanceCount);
 
+    /// <summary>Draws <paramref name="vertexCount"/> vertices starting at <paramref name="firstVertex"/>.</summary>
+    void Draw(uint vertexCount, uint firstVertex);
+
+    /// <summary>Instanced draw starting at instance index <paramref name="firstInstance"/>.</summary>
+    void DrawInstanced(uint vertexCount, uint instanceCount, uint firstInstance);
+
     void End();
 }

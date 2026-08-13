@@ -109,19 +109,10 @@ public sealed unsafe class WebGpuTexture : ITexture
             Origin = new Origin3D { X = (uint)x, Y = (uint)y, Z = 0 }
         };
 
-        // QueueWriteTexture reads the supplied source pointer as the top-left
-        // pixel of the upload extent. The caller gives us a pointer to the
-        // complete bitmap, while the destination origin is the damage rect's
-        // texture position; without this offset, every partial upload copies
-        // pixels from (0, 0) into (x, y), duplicating the header/left column at
-        // the hovered element (the exact corruption seen after the refactor).
-        var bytesPerPixel = Format switch
-        {
-            EngineTextureFormat.Rgba8Unorm or EngineTextureFormat.Bgra8Unorm or
-            EngineTextureFormat.Rgba8UnormSrgb or EngineTextureFormat.Bgra8UnormSrgb => 4,
-            _ => throw new InvalidOperationException($"Texture format {Format} is not valid for pixel uploads.")
-        };
-        var sourceStart = (byte*)GetUploadSource(source, sourceRowBytes, x, y, bytesPerPixel);
+        // QueueWriteTexture reads the supplied pointer as the top-left pixel of
+        // the data being uploaded. `source` is therefore already the first
+        // pixel of the sub-image (a whole bitmap, or a pre-sliced region); the
+        // destination origin (x, y) only says where to place it in the texture.
         var layout = new TextureDataLayout
         {
             BytesPerRow = (uint)sourceRowBytes,
@@ -134,19 +125,8 @@ public sealed unsafe class WebGpuTexture : ITexture
             DepthOrArrayLayers = 1
         };
         _runtime.Api.QueueWriteTexture(
-            _queue, in destination, sourceStart,
+            _queue, in destination, (byte*)source,
             (nuint)((uint)sourceRowBytes * (uint)height), in layout, in extent);
-    }
-
-    /// <summary>
-    /// Returns the source pointer corresponding to the top-left pixel of a
-    /// bitmap sub-rect. QueueWriteTexture starts reading at this pointer, not
-    /// at the destination origin, so both coordinates must be applied here.
-    /// </summary>
-    internal static nint GetUploadSource(nint source, int sourceRowBytes, int x, int y, int bytesPerPixel)
-    {
-        var sourceOffset = checked((nint)y * sourceRowBytes + (nint)x * bytesPerPixel);
-        return source + sourceOffset;
     }
 
     public void Dispose()

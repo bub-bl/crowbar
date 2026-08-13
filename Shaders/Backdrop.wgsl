@@ -42,22 +42,22 @@ fn vs_main(@location(0) position: vec2f, @location(1) uv: vec2f,
 
 fn applyOp(color: vec4f, op: vec4f) -> vec4f {
     var c = color;
-    let opType = op.x;
+    let opType = u32(op.x);
     let amount = op.y;
-    if (opType == 0.0) {
+    if (opType == 0u) {
         // brightness
         c = vec4f(c.rgb * amount, c.a);
-    } else if (opType == 1.0) {
+    } else if (opType == 1u) {
         // contrast
         c = vec4f(clamp((c.rgb - vec3f(0.5)) * amount + vec3f(0.5), vec3f(0.0), vec3f(1.0)), c.a);
-    } else if (opType == 2.0) {
+    } else if (opType == 2u) {
         // saturate
         let luma = dot(c.rgb, vec3f(0.2126, 0.7152, 0.0722));
         c = vec4f(mix(vec3f(luma), c.rgb, amount), c.a);
-    } else if (opType == 3.0) {
+    } else if (opType == 3u) {
         // invert
         c = vec4f(mix(c.rgb, vec3f(1.0) - c.rgb, amount), c.a);
-    } else if (opType == 4.0) {
+    } else if (opType == 4u) {
         // hue-rotate (degrees): the canonical CSS Filter Effects matrix.
         let rad = amount * 3.14159265358979 / 180.0;
         let cosA = cos(rad);
@@ -74,7 +74,7 @@ fn applyOp(color: vec4f, op: vec4f) -> vec4f {
         c.b = (0.213 - cosA * 0.213 - sinA * 0.787) * r
             + (0.715 - cosA * 0.715 + sinA * 0.715) * g
             + (0.072 + cosA * 0.928 + sinA * 0.072) * b;
-    } else if (opType == 5.0) {
+    } else if (opType == 5u) {
         // sepia (amount 0..1, 1 = full sepia)
         let m = 1.0 - amount;
         let r = c.r;
@@ -83,7 +83,7 @@ fn applyOp(color: vec4f, op: vec4f) -> vec4f {
         c.r = (0.393 + 0.607 * m) * r + (0.769 - 0.769 * m) * g + (0.189 - 0.189 * m) * b;
         c.g = (0.349 - 0.349 * m) * r + (0.686 + 0.314 * m) * g + (0.168 - 0.168 * m) * b;
         c.b = (0.272 - 0.272 * m) * r + (0.534 - 0.534 * m) * g + (0.131 + 0.869 * m) * b;
-    } else if (opType == 6.0) {
+    } else if (opType == 6u) {
         // opacity
         c.a *= amount;
     }
