@@ -195,6 +195,127 @@ public class DockAreaInteractionTests
     }
 
     [Fact]
+    public void DraggingTabSlidesNeighbouringTabsAsideAndSettlesOnRelease()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+        var contentTab = FindDockTab(content, "CONTENU");
+        var worldTab = FindDockTab(content, "MONDE");
+        Assert.NotNull(contentTab);
+        Assert.NotNull(worldTab);
+
+        var grabX = contentTab!.Layout.X + 5;
+        var grabY = contentTab.Layout.Y + 5;
+        var targetX = worldTab!.Layout.X + 1;
+        var targetY = worldTab.Layout.Y + 5;
+
+        ui.ProcessPointerDown(grabX, grabY);
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerMove(targetX, targetY);
+        ui.Update();
+        ui.Render();
+        // Let the 140ms slide/fade transitions run to completion so the
+        // asserted positions and opacities are the settled values.
+        for (var i = 0; i < 10; i++)
+        {
+            ui.Update();
+            ui.Render();
+        }
+
+        // Mid-drag: the dragged tab leaves its slot (it becomes an invisible
+        // phantom, hidden once the hole moves away) and the target tab slides
+        // right by exactly the dragged tab's width to open the hole.
+        var dragged = FindDockTab(ui.Content!, "CONTENU");
+        var target = FindDockTab(ui.Content!, "MONDE");
+        Assert.NotNull(dragged);
+        Assert.NotNull(target);
+        Assert.Contains("dock-tab-dragging", dragged!.Classes);
+        Assert.Equal(0f, dragged!.ComputedStyle.Opacity);
+        var translate = Assert.Single(target!.ComputedStyle.Transform.Ops,
+            op => op.Type == TransformOpType.TranslateX);
+        Assert.True(translate.A > 0);
+
+        // The layout box itself must not move: hit-testing and the drop
+        // indicator rely on the pre-shift positions.
+        Assert.Equal(worldTab.Layout.X, target.Layout.X, precision: 1);
+
+        // The shift opens a hole exactly as wide as the dragged tab (its width
+        // plus the tab gap): the neighbour never slides onto the dragged tab's
+        // slot and renders on top of it (the reported bug) — the dragged tab
+        // is hidden, and the empty space where it will land has its size.
+        Assert.Equal(contentTab.Layout.Width + 4f, translate.A, precision: 1);
+
+        ui.ProcessPointerUp(targetX, targetY);
+        ui.Update();
+        ui.Render();
+
+        // After the drop the slide is gone: no dimmed tab, no transforms left.
+        Assert.Empty(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab-dragging")));
+        foreach (var tab in TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab")))
+            Assert.True(tab.ComputedStyle.Transform.IsNone || tab.ComputedStyle.Transform.IsIdentity);
+    }
+
+    [Fact]
+    public void DraggingTabRightwardShiftsTheTabBeforeTheInsertionPointLeft()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+        var worldTab = FindDockTab(content, "MONDE");
+        var contentTab = FindDockTab(content, "CONTENU");
+        Assert.NotNull(worldTab);
+        Assert.NotNull(contentTab);
+
+        // MONDE (left tab) dragged to the right of CONTENU: the hole slides
+        // right, so CONTENU must shift left (negative translate) out of the
+        // way instead of staying put and overlapping.
+        var grabX = worldTab!.Layout.X + 5;
+        var grabY = worldTab.Layout.Y + 5;
+        var targetX = contentTab!.Layout.Right + 1;
+        var targetY = contentTab.Layout.Y + 5;
+
+        ui.ProcessPointerDown(grabX, grabY);
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerMove(targetX, targetY);
+        ui.Update();
+        ui.Render();
+        // Let the 140ms slide/fade transitions run to completion.
+        for (var i = 0; i < 10; i++)
+        {
+            ui.Update();
+            ui.Render();
+        }
+
+        var dragged = FindDockTab(ui.Content!, "MONDE");
+        var neighbour = FindDockTab(ui.Content!, "CONTENU");
+        Assert.NotNull(dragged);
+        Assert.NotNull(neighbour);
+        Assert.Equal(0f, dragged!.ComputedStyle.Opacity);
+        var translate = Assert.Single(neighbour!.ComputedStyle.Transform.Ops,
+            op => op.Type == TransformOpType.TranslateX);
+        Assert.True(translate.A < 0);
+
+        // The neighbour slides left exactly onto the dragged tab's slot (its
+        // visual left edge meets the phantom's left edge), never overlapping
+        // it, while the layout box stays put for hit-testing.
+        Assert.Equal(worldTab.Layout.X, neighbour.Layout.X + translate.A, precision: 1);
+        Assert.Equal(worldTab.Layout.X, dragged.Layout.X, precision: 1);
+
+        ui.ProcessPointerUp(targetX, targetY);
+        ui.Update();
+        ui.Render();
+
+        // The drop reorders the pair: CONTENU first, then MONDE.
+        var bottomGroup = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-group"))
+            .Single(group => TestUi.Texts(group).Contains("MONDE") && TestUi.Texts(group).Contains("CONTENU"));
+        var tabLabels = TestUi.FindAll(bottomGroup, p => p.Classes.Contains("dock-tab"))
+            .Select(tab => Assert.Single(TestUi.Texts(tab)))
+            .ToArray();
+        Assert.Equal(new[] { "CONTENU", "MONDE" }, tabLabels);
+    }
+
+    [Fact]
     public void SplitterTracksAbsolutePointerMovementAcrossFrames()
     {
         using var ui = EditorPageCompositionTests.CreateEditorUi();

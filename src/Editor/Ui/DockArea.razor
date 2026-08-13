@@ -8,6 +8,7 @@
    composant, mis à jour au pass de layout précédent). *@
 @{
     ComputeLayout();
+    ComputeTabShifts();
 }
 
 <div class="dock-area" @onmousemove="OnPointerMove" @onmouseup="OnPointerUp">
@@ -21,8 +22,12 @@
                 <div class="dock-tabbar">
                     @foreach (var tab in group.Tabs)
                     {
-                        <div class="dock-tab @(tab == active ? "dock-tab-active" : "")"
-                             data-dock-item="@tab" @onmousedown="BeginTabDrag">@Title(tab)</div>
+                        var shift = _tabShifts.TryGetValue(tab, out var amount) ? amount : 0f;
+                        var dragging = _drag is { } drag && drag.ItemId == tab;
+                        <div class="dock-tab @(tab == active ? "dock-tab-active" : "")@(dragging ? " dock-tab-dragging" : "")"
+                             data-dock-item="@tab"
+                             style="@(shift != 0f ? $"transform: translateX({Px(shift)});" : "")@(dragging && _hideDraggedTab ? " opacity: 0;" : "")"
+                             @onmousedown="BeginTabDrag">@Title(tab)</div>
                     }
                 </div>
                 <div class="dock-content">
@@ -98,7 +103,10 @@
 @code {
     private readonly DockTree _tree = CreateInitialTree();
     private readonly Dictionary<string, UiRect> _rects = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, float> _tabShifts = new(StringComparer.Ordinal);
     private readonly List<DockSplitter> _splitters = new();
+    private const float TabGap = 4f;
+    private bool _hideDraggedTab;
     private UiRect _areaRect;
     private DragState? _drag;
     private PreviewState? _preview;
@@ -107,13 +115,14 @@
 
     private sealed class DragState
     {
-        public DragState(string itemId, float x, float y)
+        public DragState(string itemId, float x, float y, float tabWidth)
         {
             ItemId = itemId;
             StartX = x;
             StartY = y;
             X = x;
             Y = y;
+            TabWidth = tabWidth;
         }
 
         public string ItemId { get; }
@@ -121,6 +130,9 @@
         public float StartY { get; }
         public float X { get; set; }
         public float Y { get; set; }
+
+        /// <summary>Width of the dragged tab at grab time, used to open a gap of the same size at the insertion point.</summary>
+        public float TabWidth { get; }
     }
 
     private readonly record struct PreviewState(string GroupId, DockZone Zone, int? TabIndex = null);
@@ -224,8 +236,11 @@
         var group = _tree.GroupOf(item);
         if (group is not null) group.Active = group.Tabs.IndexOf(item);
         ComputeLayout();
-        _drag = new DragState(item, e.X, e.Y);
-        _preview = null;
+        var tabWidth = FindDockTabPanel(item)?.Layout.Width ?? 60f;
+        _drag = new DragState(item, e.X, e.Y, tabWidth);
+        // Seed the preview immediately so the gap opens under the cursor on
+        // the very first frame of the drag instead of after the first move.
+        _preview = ComputeTarget(e.X, e.Y);
         return true;
     }
 
@@ -311,6 +326,66 @@
         }
 
         return group.Tabs.Count;
+    }
+
+    /// <summary>
+    /// Slides the tabs to open a hole exactly where the dragged tab will land
+    /// (all paint-only transforms, so layout keeps its stable hit-testing
+    /// positions).
+    ///
+    /// Reordering within the same strip: the dragged tab stays in the layout
+    /// as an invisible phantom whose slot IS the hole; only the tabs between
+    /// the hole and the insertion point move, by exactly the dragged tab's
+    /// width. Neighbours therefore always land edge-to-edge whatever their
+    /// widths, and the phantom is either hidden under a shifted tab or fully
+    /// invisible, so nothing ever overlaps.
+    ///
+    /// Moving into another strip: the target keeps every tab and its tail
+    /// after the insertion point slides right to open a gap.
+    /// </summary>
+    private void ComputeTabShifts()
+    {
+        _tabShifts.Clear();
+        _hideDraggedTab = false;
+        if (_drag is null || _preview is not { TabIndex: { } tabIndex } preview) return;
+
+        var target = _tree.FindGroup(preview.GroupId);
+        if (target is null) return;
+        var shift = _drag.TabWidth + TabGap;
+        var source = _tree.GroupOf(_drag.ItemId);
+
+        if (ReferenceEquals(source, target))
+        {
+            var sourceIndex = target.Tabs.IndexOf(_drag.ItemId);
+            // Same pre-removal adjustment as MoveTab: the drop slot is measured
+            // in the group's order before the dragged tab is taken out.
+            var finalIndex = tabIndex;
+            if (sourceIndex < finalIndex) finalIndex--;
+
+            if (finalIndex < sourceIndex)
+            {
+                // Hole moves left: the tabs between the insertion point and the
+                // dragged tab's slot slide right into it.
+                for (var i = finalIndex; i < sourceIndex; i++)
+                    _tabShifts[target.Tabs[i]] = shift;
+                _hideDraggedTab = true;
+            }
+            else if (finalIndex > sourceIndex)
+            {
+                // Hole moves right: the tabs between the dragged tab's slot and
+                // the insertion point slide left into it.
+                for (var i = sourceIndex + 1; i <= finalIndex; i++)
+                    _tabShifts[target.Tabs[i]] = -shift;
+                _hideDraggedTab = true;
+            }
+            // finalIndex == sourceIndex: the hole stays on the dragged tab's
+            // own slot; the dimmed tab itself marks the drop point.
+        }
+        else
+        {
+            for (var i = tabIndex; i < target.Tabs.Count; i++)
+                _tabShifts[target.Tabs[i]] = shift;
+        }
     }
 
     private void ApplyDock(string itemId, PreviewState preview)

@@ -61,6 +61,10 @@ root {
     border-bottom: 2px solid transparent;
     box-sizing: border-box;
     cursor: pointer;
+    // Les onglets glissent à côté pendant le drag (le décalage est un
+    // transform paint-only, la position de layout reste stable pour le
+    // hit-testing) et le tab dragué s'estompe sur place.
+    transition: transform 140ms ease-out, opacity 140ms ease-out;
 
     &:hover {
         color: $text;
@@ -75,6 +79,12 @@ root {
     &:hover {
         background-color: transparent;
     }
+}
+
+// L'onglet en cours de drag reste dans la barre (pour garder sa place dans le
+// layout) mais s'estompe pendant que le fantôme suit la souris.
+.dock-tab-dragging {
+    opacity: 0.35;
 }
 
 .dock-content {
@@ -98,7 +108,8 @@ root {
     display: none;
 }
 
-// Fantôme suivant le curseur pendant le drag d'un onglet.
+// Fantôme suivant le curseur pendant le drag d'un onglet : petite entrée en
+// zoom/fondu quand on attrape l'onglet.
 .dock-ghost {
     position: absolute;
     height: 26px;
@@ -113,6 +124,18 @@ root {
     vertical-align: center;
     box-sizing: border-box;
     z-index: 100;
+    animation: dock-ghost-in 130ms ease-out;
+}
+
+@keyframes dock-ghost-in {
+    from {
+        opacity: 0.4;
+        transform: scale(0.92);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
 }
 
 // Indicateur de position d'insertion dans la barre d'onglets.
