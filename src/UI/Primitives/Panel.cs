@@ -268,7 +268,7 @@ public class Panel
 
         UpdateAnimations(target);
 
-        if (_resting is not null && StylesEqual(_resting, target))
+        if (_resting is not null && _resting.StylesEqual(target))
         {
             // ComputedStyle can receive inherited values during the layout
             // pass. Adopt the freshly computed buffer as the visible style so
@@ -578,12 +578,6 @@ public class Panel
         return null;
     }
 
-    private static bool StylesEqual(ComputedStyle a, ComputedStyle b)
-    {
-        foreach (var property in CssProperties.All)
-            if (!property.StylesEqual(a, b)) return false;
-        return true;
-    }
 
     /// <summary>Maps a cycle progress to the actual progress honoring the animation direction.</summary>
     private static float DirectionProgress(AnimationSpec spec, float cycle, float iteration)

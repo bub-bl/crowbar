@@ -39,9 +39,13 @@ public sealed class YogaLayoutEngine
     /// The re-cascade is scoped to the subtrees that can actually be affected:
     /// a mutated panel's state can change the match of descendant/child
     /// selectors (its descendants) and of adjacent/general-sibling selectors
-    /// (its siblings and their descendants), so the parent's subtree is exactly
-    /// the affected set. Re-cascading the whole tree for a single hover change
-    /// was the dominant per-frame cost in the profiler.
+    /// (its siblings and their descendants), so the parent's subtree is the
+    /// affected set when sibling combinators exist. Without sibling
+    /// combinators (and without <c>:focus-within</c>, the one pseudo-class that
+    /// matches ancestors), a panel's change can only affect its own subtree —
+    /// so the re-cascade skips the siblings entirely. Re-cascading the whole
+    /// tree (or the whole parent subtree) for a single hover change was the
+    /// dominant per-frame cost in the profiler.
     /// </remarks>
     public static bool ApplyStylesTracked(Panel root, StyleSheet? sheet)
     {
@@ -49,10 +53,18 @@ public sealed class YogaLayoutEngine
         if (root is ScreenPanel screen && screen.StyleDirtyRoots.Count > 0)
         {
             var mayAffectLayout = screen.StyleDirtyRoots.Any(panel => panel.StyleMayAffectLayout);
+            var scopedToDirtyRoot = sheet is null || (!sheet.HasSiblingRules && !sheet.HasFocusWithinRules);
             foreach (var dirty in screen.StyleDirtyRoots)
             {
-                var subtree = dirty.Parent ?? root;
-                ApplyStylesCore(subtree, sheet, subtree.Parent?.ComputedStyle, ref layoutChanged);
+                if (scopedToDirtyRoot)
+                {
+                    ApplyStylesCore(dirty, sheet, dirty.Parent?.ComputedStyle, ref layoutChanged);
+                }
+                else
+                {
+                    var subtree = dirty.Parent ?? root;
+                    ApplyStylesCore(subtree, sheet, subtree.Parent?.ComputedStyle, ref layoutChanged);
+                }
             }
 
             // Pseudo-state changes (hover/pressed/focus) normally affect only

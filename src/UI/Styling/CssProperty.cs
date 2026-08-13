@@ -19,6 +19,23 @@ public abstract class CssProperty
     /// <summary>CSS property name, matched case-insensitively (e.g. <c>background-color</c>).</summary>
     public string Name { get; }
 
+    /// <summary>
+    /// Stable registration index used as the bit position in a
+    /// <see cref="ComputedStyle"/>'s written-property mask (see
+    /// <see cref="CssProperties.Register"/>). Assigned once at registration;
+    /// the registry is append-only after its static constructor, so the index
+    /// never changes.
+    /// </summary>
+    internal int Index { get; set; } = -1;
+
+    /// <summary>
+    /// The bit(s) set in a style's written mask when this property is applied.
+    /// Simple properties set their own bit; compounds (<c>margin</c>,
+    /// <c>border</c>, ...) expand to the longhand leaves they write so change
+    /// detection compares the actual compared fields.
+    /// </summary>
+    internal virtual System.UInt128 WrittenBits => ComputedStyle.BitOf(this);
+
     /// <summary>True when the value flows down to descendant panels during the layout pass.</summary>
     public bool Inherited { get; }
 
@@ -111,8 +128,34 @@ public sealed class CssProperty<T> : CssProperty
 /// </summary>
 public abstract class CompoundCssProperty : CssProperty
 {
-    protected CompoundCssProperty(string name) : base(name)
+    // Longhand leaves the compound writes (e.g. <c>margin</c> writes
+    // margin-top/right/bottom/left). Change detection marks these instead of
+    // the compound itself: compound values are not individually addressable
+    // (StylesEqual always returns true), so comparing the leaves is what
+    // actually detects a change. Resolved lazily because the leaves are
+    // registered after the compound in the built-in table.
+    private readonly string[] _leafNames;
+    private System.UInt128? _leafBits;
+
+    protected CompoundCssProperty(string name, params string[] leafNames) : base(name)
     {
+        _leafNames = leafNames;
+    }
+
+    internal override System.UInt128 WrittenBits
+    {
+        get
+        {
+            if (_leafNames.Length == 0) return 0;
+            if (_leafBits is null)
+            {
+                var bits = (System.UInt128)0;
+                foreach (var leaf in _leafNames)
+                    if (CssProperties.TryGet(leaf, out var property)) bits |= ComputedStyle.BitOf(property);
+                _leafBits = bits;
+            }
+            return _leafBits.Value;
+        }
     }
 
     public override object? GetValue(ComputedStyle style) => null;

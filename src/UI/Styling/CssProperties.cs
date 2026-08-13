@@ -13,19 +13,53 @@ public static class CssProperties
     /// <summary>Every registered property, in registration order.</summary>
     public static IReadOnlyCollection<CssProperty> All => Registry.Values;
 
+    // Property index -> property, for the masked change-detection loop (see
+    // ComputedStyle.StylesEqual). Built lazily: the registry is append-only
+    // after its static constructor, so the mapping is stable once built.
+    private static CssProperty[]? _byIndex;
+
+    internal static CssProperty[] ByIndex => _byIndex ??= BuildByIndex();
+
+    private static CssProperty[] BuildByIndex()
+    {
+        var array = new CssProperty[Registry.Count];
+        foreach (var property in Registry.Values) array[property.Index] = property;
+        return array;
+    }
+
     public static bool TryGet(string name, out CssProperty property) => Registry.TryGetValue(name, out property!);
 
-    /// <summary>Registers a property. Throws when the name is already taken.</summary>
+    /// <summary>
+    /// Registers a property. Throws when the name is already taken. The
+    /// property is assigned its stable index (the bit position in a
+    /// <see cref="ComputedStyle"/>'s written mask), so the registry must stay
+    /// under 128 entries.
+    /// </summary>
     public static void Register(CssProperty property)
     {
         ArgumentNullException.ThrowIfNull(property);
         if (!Registry.TryAdd(property.Name, property))
             throw new InvalidOperationException($"A CSS property named '{property.Name}' is already registered.");
+        property.Index = Registry.Count - 1;
+        if (Registry.Count > 128)
+            throw new InvalidOperationException(
+                $"Too many CSS properties ({Registry.Count}); the written-property mask holds 128 bits.");
     }
 
-    /// <summary>Applies a raw CSS declaration to the style. Unknown or invalid values are ignored.</summary>
-    public static bool TryApply(ComputedStyle style, string name, string value) =>
-        Registry.TryGetValue(name, out var property) && property.TryApply(style, value);
+    /// <summary>
+    /// Applies a raw CSS declaration to the style. Unknown or invalid values
+    /// are ignored. On success the property is recorded in the style's
+    /// written-mask so change detection (see <see cref="ComputedStyle.StylesEqual"/>)
+    /// can compare only the properties the cascade actually wrote instead of
+    /// walking all of them.
+    /// </summary>
+    public static bool TryApply(ComputedStyle style, string name, string value)
+    {
+        if (!Registry.TryGetValue(name, out var property)) return false;
+        if (!property.TryApply(style, value)) return false;
+        style.MarkWritten(property);
+        return true;
+    }
 
     /// <summary>Restores every property of the style to its default value.</summary>
     public static void Reset(ComputedStyle style)
@@ -343,7 +377,7 @@ public static class CssProperties
 
     private sealed class MarginCssProperty : CompoundCssProperty
     {
-        public MarginCssProperty() : base("margin")
+        public MarginCssProperty() : base("margin", "margin-top", "margin-right", "margin-bottom", "margin-left")
         {
         }
 
@@ -361,7 +395,7 @@ public static class CssProperties
 
     private sealed class PaddingCssProperty : CompoundCssProperty
     {
-        public PaddingCssProperty() : base("padding")
+        public PaddingCssProperty() : base("padding", "padding-top", "padding-right", "padding-bottom", "padding-left")
         {
         }
 
@@ -379,7 +413,7 @@ public static class CssProperties
 
     private sealed class GapCssProperty : CompoundCssProperty
     {
-        public GapCssProperty() : base("gap")
+        public GapCssProperty() : base("gap", "row-gap", "column-gap")
         {
         }
 
@@ -406,7 +440,7 @@ public static class CssProperties
     /// </summary>
     private sealed class FlexCssProperty : CompoundCssProperty
     {
-        public FlexCssProperty() : base("flex")
+        public FlexCssProperty() : base("flex", "flex-grow", "flex-shrink", "flex-basis")
         {
         }
 
@@ -583,7 +617,8 @@ public static class CssProperties
     /// </summary>
     private sealed class BackgroundCssProperty : CompoundCssProperty
     {
-        public BackgroundCssProperty() : base("background")
+        public BackgroundCssProperty() : base("background",
+            "background-image", "background-color", "background-repeat", "background-position", "background-size")
         {
         }
 
@@ -660,7 +695,10 @@ public static class CssProperties
     /// </summary>
     private sealed class BorderCssProperty : CompoundCssProperty
     {
-        public BorderCssProperty() : base("border")
+        public BorderCssProperty() : base("border",
+            "border-top-width", "border-right-width", "border-bottom-width", "border-left-width",
+            "border-top-style", "border-right-style", "border-bottom-style", "border-left-style",
+            "border-top-color", "border-right-color", "border-bottom-color", "border-left-color")
         {
         }
 
@@ -701,7 +739,8 @@ public static class CssProperties
         private readonly Action<ComputedStyle, UiColor> _setColor;
 
         public BorderSideCssProperty(string name, Action<ComputedStyle, CssLength> setWidth,
-            Action<ComputedStyle, string> setStyle, Action<ComputedStyle, UiColor> setColor) : base(name)
+            Action<ComputedStyle, string> setStyle, Action<ComputedStyle, UiColor> setColor)
+            : base(name, name + "-width", name + "-style", name + "-color")
         {
             _setWidth = setWidth;
             _setStyle = setStyle;
@@ -736,7 +775,8 @@ public static class CssProperties
     /// <summary>The <c>border-width</c> shorthand: 1 to 4 lengths applied to each side.</summary>
     private sealed class BorderWidthCssProperty : CompoundCssProperty
     {
-        public BorderWidthCssProperty() : base("border-width")
+        public BorderWidthCssProperty() : base("border-width",
+            "border-top-width", "border-right-width", "border-bottom-width", "border-left-width")
         {
         }
 
@@ -755,7 +795,8 @@ public static class CssProperties
     /// <summary>The <c>border-style</c> shorthand: 1 to 4 keywords applied to each side.</summary>
     private sealed class BorderStyleCssProperty : CompoundCssProperty
     {
-        public BorderStyleCssProperty() : base("border-style")
+        public BorderStyleCssProperty() : base("border-style",
+            "border-top-style", "border-right-style", "border-bottom-style", "border-left-style")
         {
         }
 
@@ -781,7 +822,8 @@ public static class CssProperties
     /// <summary>The <c>border-color</c> shorthand: 1 to 4 colors applied to each side.</summary>
     private sealed class BorderColorCssProperty : CompoundCssProperty
     {
-        public BorderColorCssProperty() : base("border-color")
+        public BorderColorCssProperty() : base("border-color",
+            "border-top-color", "border-right-color", "border-bottom-color", "border-left-color")
         {
         }
 
@@ -809,7 +851,7 @@ public static class CssProperties
     /// </summary>
     private sealed class OutlineCssProperty : CompoundCssProperty
     {
-        public OutlineCssProperty() : base("outline")
+        public OutlineCssProperty() : base("outline", "outline-width", "outline-style", "outline-color")
         {
         }
 
@@ -995,7 +1037,8 @@ public static class CssProperties
     /// </summary>
     private sealed class TransitionCssProperty : CompoundCssProperty
     {
-        public TransitionCssProperty() : base("transition")
+        public TransitionCssProperty() : base("transition",
+            "transition-property", "transition-duration", "transition-timing-function", "transition-delay")
         {
         }
 
@@ -1047,7 +1090,9 @@ public static class CssProperties
     /// </summary>
     private sealed class AnimationCssProperty : CompoundCssProperty
     {
-        public AnimationCssProperty() : base("animation")
+        public AnimationCssProperty() : base("animation",
+            "animation-name", "animation-duration", "animation-timing-function", "animation-iteration-count",
+            "animation-direction", "animation-delay", "animation-fill-mode", "animation-play-state")
         {
         }
 

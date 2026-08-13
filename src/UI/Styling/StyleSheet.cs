@@ -20,6 +20,38 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
 
     internal bool UsesComplexMatching => Compiled.IsComplex;
 
+    /// <summary>
+    /// True when the selector uses an adjacent (<c>+</c>) or general-sibling
+    /// (<c>~</c>) combinator. Sibling combinators are the only way a change on
+    /// one panel can affect a style change on a sibling, so a sheet without
+    /// them can scope a re-cascade to the dirty panel's own subtree.
+    /// </summary>
+    internal bool UsesSiblingCombinator
+    {
+        get
+        {
+            foreach (var part in Compiled.Parts)
+                if (part.IsCombinator &&
+                    part.CombinatorKind is SelectorCombinator.Adjacent or SelectorCombinator.GeneralSibling) return true;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// True when the selector uses the <c>:focus-within</c> pseudo-class, which
+    /// is the one pseudo-state that matches ancestors (a focus change on a
+    /// panel can restyle its ancestors).
+    /// </summary>
+    internal bool UsesFocusWithin
+    {
+        get
+        {
+            foreach (var part in Compiled.Parts)
+                if (!part.IsCombinator && part.UsesFocusWithin) return true;
+            return false;
+        }
+    }
+
     internal bool TryGetMatchIndex(out SelectorIndexKind kind, out string value)
     {
         var parts = Compiled.Parts;
@@ -201,6 +233,16 @@ public sealed record StyleRule(string Selector, IReadOnlyDictionary<string, stri
         private readonly (string Name, string? Value)[] _attributes = [];
 
         public bool HasComplexSelectors => _attributes.Length > 0 || _pseudoClasses.Length > 0 || _pseudoElement.Length > 0;
+
+        public bool UsesFocusWithin
+        {
+            get
+            {
+                foreach (var pseudo in _pseudoClasses)
+                    if (pseudo.Name.Equals("focus-within", StringComparison.OrdinalIgnoreCase)) return true;
+                return false;
+            }
+        }
 
         public bool TryGetIndex(out SelectorIndexKind kind, out string value)
         {
@@ -604,6 +646,46 @@ public sealed class StyleSheet
     private float _viewportWidth;
     private float _viewportHeight;
     private bool _viewportSet;
+
+    // Cached selector-shape flags used by the style-dirty scoping (see
+    // YogaLayoutEngine.ApplyStylesTracked). Recomputed whenever the rules
+    // change. A sheet with neither sibling combinators nor :focus-within lets
+    // a style change on a panel affect only that panel's own subtree, so the
+    // re-cascade can skip its siblings entirely.
+    private bool _hasSiblingRules;
+    private bool _hasFocusWithinRules;
+    private bool _flagsScanned;
+
+    internal bool HasSiblingRules
+    {
+        get
+        {
+            EnsureSelectorFlags();
+            return _hasSiblingRules;
+        }
+    }
+
+    internal bool HasFocusWithinRules
+    {
+        get
+        {
+            EnsureSelectorFlags();
+            return _hasFocusWithinRules;
+        }
+    }
+
+    private void EnsureSelectorFlags()
+    {
+        if (_flagsScanned) return;
+        _flagsScanned = true;
+        foreach (var rule in _rules)
+        {
+            if (rule.UsesSiblingCombinator) _hasSiblingRules = true;
+            if (rule.UsesFocusWithin) _hasFocusWithinRules = true;
+            if (_hasSiblingRules && _hasFocusWithinRules) break;
+        }
+    }
+
     public IReadOnlyList<StyleRule> Rules => _rules;
 
     public void AddRules(IEnumerable<StyleRule> rules)
@@ -638,6 +720,9 @@ public sealed class StyleSheet
         _universalIndex = null;
         _candidateStamps = null;
         _candidateStamp = 0;
+        _flagsScanned = false;
+        _hasSiblingRules = false;
+        _hasFocusWithinRules = false;
     }
 
     private void EnsureIndexes()

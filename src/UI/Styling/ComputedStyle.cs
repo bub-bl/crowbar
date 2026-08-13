@@ -154,6 +154,27 @@ public sealed class ComputedStyle
     /// <summary>The CSS <c>text-overflow</c> (clip or ellipsis).</summary>
     public string TextOverflow { get; set; } = "clip";
 
+    /// <summary>
+    /// Bit per registered CSS property that the cascade wrote since the last
+    /// <see cref="ResetToDefaults"/>. Change detection compares only the
+    /// properties in the union of the two styles' masks: an unwritten property
+    /// holds its default on both sides, so comparing it is pure waste. The
+    /// invariant is maintained at every write path (TryApply, CopyFrom);
+    /// keyframe/transition writes go to composed clones and are irrelevant to
+    /// the resting-vs-cascade comparison that uses the mask.
+    /// </summary>
+    private System.UInt128 _writtenMask;
+
+    internal System.UInt128 WrittenMask => _writtenMask;
+
+    internal static System.UInt128 BitOf(CssProperty property) => (System.UInt128)1 << property.Index;
+
+    /// <summary>Records that <paramref name="property"/> was just applied to this style.</summary>
+    internal void MarkWritten(CssProperty property) => _writtenMask |= property.WrittenBits;
+
+    /// <summary>Records that every property in <paramref name="bits"/> was just applied to this style.</summary>
+    internal void MarkWritten(System.UInt128 bits) => _writtenMask |= bits;
+
     public ComputedStyle Clone() => (ComputedStyle)MemberwiseClone();
 
     /// <summary>
@@ -267,6 +288,7 @@ public sealed class ComputedStyle
         TextDecoration = other.TextDecoration;
         WhiteSpace = other.WhiteSpace;
         TextOverflow = other.TextOverflow;
+        _writtenMask = other._writtenMask;
     }
 
     /// <summary>
@@ -328,6 +350,36 @@ public sealed class ComputedStyle
 
             return _inheritedPropsCache;
         }
+    }
+
+    /// <summary>
+    /// True when every property the cascade actually wrote on either style
+    /// matches. The two styles are cascade outputs (defaults plus the applied
+    /// rules), so a property absent from both masks holds its default on both
+    /// sides and cannot differ — only the union of the written sets is worth
+    /// comparing. For a panel whose rules are stable (the common repaint case)
+    /// this is a handful of properties instead of the full registry, and a
+    /// fully default style compares in O(1).
+    /// </summary>
+    public bool StylesEqual(ComputedStyle other)
+    {
+        var mask = _writtenMask | other._writtenMask;
+        if (mask == 0) return true;
+        var lo = (ulong)mask;
+        var hi = (ulong)(mask >> 64);
+        while (lo != 0)
+        {
+            var bit = System.Numerics.BitOperations.TrailingZeroCount(lo);
+            if (!CssProperties.ByIndex[bit].StylesEqual(this, other)) return false;
+            lo &= lo - 1;
+        }
+        while (hi != 0)
+        {
+            var bit = System.Numerics.BitOperations.TrailingZeroCount(hi);
+            if (!CssProperties.ByIndex[64 + bit].StylesEqual(this, other)) return false;
+            hi &= hi - 1;
+        }
+        return true;
     }
 
     /// <summary>True when every layout-affecting property matches <paramref name="other"/>.</summary>
