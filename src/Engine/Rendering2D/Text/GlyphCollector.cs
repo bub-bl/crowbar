@@ -23,15 +23,31 @@ internal sealed class GlyphCollector : IGlyphRenderer
     private Vector2 _figureStart;
     private Vector2 _figureLast;
     private bool _hasFigure;
+    private Vector2 _shadowOffset;
+    private float _shadowBlur;
+    private ColorF _shadowColor;
+    private bool _emitMain;
+    private bool _emitShadow;
 
     public GlyphCollector(Renderer2D owner) => _owner = owner;
 
-    /// <summary>Sets the per-draw state used for cache keys and quad emission.</summary>
-    public void Configure(ColorF color, string fontKey, int sizeKey)
+    /// <summary>
+    /// Sets the per-draw state used for cache keys and quad emission. The
+    /// shadow is emitted in a separate layout pass (before the main pass) so
+    /// every shadow paints under every glyph.
+    /// </summary>
+    public void Configure(
+        ColorF color, Vector2 shadowOffset, float shadowBlur, ColorF shadowColor,
+        string fontKey, int sizeKey, bool emitMain, bool emitShadow)
     {
         _color = color;
         _fontKey = fontKey;
         _sizeKey = sizeKey;
+        _shadowOffset = shadowOffset;
+        _shadowBlur = shadowBlur;
+        _shadowColor = shadowColor;
+        _emitMain = emitMain;
+        _emitShadow = emitShadow;
     }
 
     public void BeginText(in FontRectangle bounds)
@@ -53,7 +69,7 @@ internal sealed class GlyphCollector : IGlyphRenderer
     public void EndGlyph()
     {
         if (_edges.Count >= 6)
-            _owner.EmitGlyph(_edges, _color, _fontKey, _sizeKey, _glyphId);
+            _owner.EmitGlyph(_edges, _color, _shadowOffset, _shadowBlur, _shadowColor, _fontKey, _sizeKey, _glyphId, _emitMain, _emitShadow);
         _edges.Clear();
     }
 

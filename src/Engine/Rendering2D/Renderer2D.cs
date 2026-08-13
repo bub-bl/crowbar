@@ -28,7 +28,16 @@ internal enum BatchKind : byte
     Textured = 2,
 
     /// <summary>SDF glyph quads sampling the glyph atlas — one <c>Draw</c>.</summary>
-    Glyph = 3
+    Glyph = 3,
+
+    /// <summary>Instanced soft shadows (box / inner) — one <c>DrawInstanced</c>.</summary>
+    Shadow = 4,
+
+    /// <summary>A filtered child layer composited back onto its parent (one <c>Draw</c>).</summary>
+    FilterBlit = 5,
+
+    /// <summary>Soft SDF glyph shadows (text drop shadows) — one <c>Draw</c>.</summary>
+    GlyphShadow = 6
 }
 
 /// <summary>A contiguous run of <see cref="BatchKind"/> draw commands, in paint order.</summary>
@@ -101,6 +110,100 @@ internal struct TexturedVertex
 }
 
 /// <summary>
+/// One SDF glyph-shadow quad vertex (screen-space position + atlas UV + color
+/// + softness). Mirrors <c>Shaders/GlyphShadow.wgsl</c>.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct GlyphShadowVertex
+{
+    public Vector2 Position;
+    public Vector2 Uv;
+    public Vector4 Color;
+    public float Softness;
+}
+
+/// <summary>
+/// One instanced soft shadow. Mirrors <c>Shaders/Shadow.wgsl</c> exactly
+/// (13 <c>vec4f</c> = 208 bytes).
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct ShadowInstance
+{
+    public Vector4 M0;        // transform row (local -> screen)
+    public Vector4 M1;
+    public Vector4 Quad;      // rasterization bounds (local): xy top-left, zw size
+    public Vector4 Shape;     // shadow shape (local): xy top-left, zw size
+    public Vector4 Box;       // panel border box (local): xy top-left, zw size
+    public Vector4 Radii;     // x = shape radius, y = box radius, z = blur, w unused
+    public Vector4 Color;     // straight sRGB RGBA
+    public Vector4 Flags;     // x = kind (0 outer, 1 inner), y = clip count
+    public Vector4 Clip0;     // screen-space clip rects (xy top-left, zw size)
+    public Vector4 Clip1;
+    public Vector4 Clip2;
+    public Vector4 Clip3;
+    public Vector4 ClipRadii; // clip corner radii
+}
+
+/// <summary>
+/// The filter pass parameters, mirroring <c>Shaders/Filter.wgsl</c>
+/// (10 <c>vec4f</c> = 160 bytes): a blur radius plus up to eight ordered ops.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct FilterParams
+{
+    public Vector4 Blur;                    // x = blur radius
+    public Vector4 Op0;
+    public Vector4 Op1;
+    public Vector4 Op2;
+    public Vector4 Op3;
+    public Vector4 Op4;
+    public Vector4 Op5;
+    public Vector4 Op6;
+    public Vector4 Op7;
+    public Vector4 OpCount;                 // x = number of ops
+}
+
+/// <summary>A saved parent-layer state while a filtered child layer is being recorded.</summary>
+internal sealed class FilterFrame
+{
+    public List<SdfInstance> Instances = [];
+    public List<TriVertex> Triangles = [];
+    public List<TexturedVertex> Textured = [];
+    public List<ShadowInstance> Shadows = [];
+    public List<GlyphShadowVertex> GlyphShadows = [];
+    public List<DrawCmd> Commands = [];
+    public ITexture? Target;
+    public ITexture? Depth;
+    public Filter2D Filter = Filter2D.None;
+}
+
+/// <summary>
+/// A rendered child layer produced by <see cref="PushFilter"/>/<see cref="PopFilter"/>
+/// (null target/filters are allowed in headless mode).
+/// </summary>
+internal sealed class FilterLayer
+{
+    public List<SdfInstance> Instances = [];
+    public List<TriVertex> Triangles = [];
+    public List<TexturedVertex> Textured = [];
+    public List<ShadowInstance> Shadows = [];
+    public List<GlyphShadowVertex> GlyphShadows = [];
+    public List<DrawCmd> Commands = [];
+    public Filter2D Filter = Filter2D.None;
+    public ITexture? Target;
+    public ITexture? Depth;
+    public IBuffer? InstanceBuffer;
+    public IBuffer? TriangleBuffer;
+    public IBuffer? TexturedBuffer;
+    public IBuffer? ShadowBuffer;
+    public IBuffer? GlyphShadowBuffer;
+    public IBindGroup? SdfBindGroup;
+    public IBindGroup? ShadowBindGroup;
+    public IBindGroup? GlyphShadowBindGroup;
+    public IBindGroup? FilterBindGroup;
+}
+
+/// <summary>
 /// A GPU-first 2D renderer: the drawing surface the UI framework (and the
 /// editor's overlays/gizmos/graphs) call instead of Skia. Drawing commands are
 /// recorded into reusable, pre-sized buffers and transformed into the smallest
@@ -124,6 +227,9 @@ public sealed class Renderer2D : IDisposable
     private const int SdfInstanceSize = 288; // 18 * 16 bytes
     private const int TriVertexSize = 24;    // vec2 + vec4
     private const int TexturedVertexSize = 32; // vec2 + vec2 + vec4
+    private const int ShadowInstanceSize = 208; // 13 * 16 bytes
+    private const int FilterParamsSize = 160;   // 10 * 16 bytes
+    private const int GlyphShadowVertexSize = 36; // vec2 + vec2 + vec4 + f32
 
     /// <summary>A cached glyph atlas entry: the packed SDF and its ink size.</summary>
     private readonly struct GlyphEntry
@@ -147,14 +253,22 @@ public sealed class Renderer2D : IDisposable
     // Clip stack: screen-space regions, innermost last.
     private readonly List<ClipRect> _clips = [];
 
-    // Recorded batches.
-    private readonly List<SdfInstance> _instances = [];
-    private readonly List<TriVertex> _triangles = [];
-    private readonly List<TexturedVertex> _textured = [];
-    private readonly List<DrawCmd> _commands = [];
+    // Recorded batches. Swapped between the parent and child filter layers, so
+    // they cannot be readonly.
+    private List<SdfInstance> _instances = [];
+    private List<TriVertex> _triangles = [];
+    private List<TexturedVertex> _textured = [];
+    private List<ShadowInstance> _shadows = [];
+    private List<GlyphShadowVertex> _glyphShadows = [];
+    private List<DrawCmd> _commands = [];
     private bool _runOpen;
     private BatchKind _runKind;
     private int _runStart;
+
+    // Filter layer stack: each pushed filter moves the current lists/target
+    // into a frame and starts a fresh child layer; popping records a blit.
+    private readonly Stack<FilterFrame> _filterStack = new();
+    private readonly List<FilterLayer> _filterLayers = [];
 
     // Reusable scratch for polygon tessellation (no per-frame allocation).
     private readonly List<Vector2> _polyScratch = [];
@@ -191,6 +305,17 @@ public sealed class Renderer2D : IDisposable
     private ITexture? _glyphTextureBound;
     private ISampler? _glyphSampler;
 
+    // Shadow + filter passes.
+    private IBuffer? _shadowBuffer;
+    private IPipeline? _shadowPipeline;
+    private IBindGroup? _shadowBindGroup;
+    private IPipeline? _filterPipeline;
+    private ISampler? _filterSampler;
+    private IBuffer? _filterParamsBuffer;
+    private IBuffer? _glyphShadowBuffer;
+    private IPipeline? _glyphShadowPipeline;
+    private IBindGroup? _glyphShadowBindGroup;
+
     public Renderer2D(IGraphicsDevice? device = null)
     {
         _device = device;
@@ -212,6 +337,15 @@ public sealed class Renderer2D : IDisposable
     /// <summary>Number of textured-quad vertices recorded by the current frame.</summary>
     public int TexturedCount => _textured.Count;
 
+    /// <summary>Number of shadow instances recorded by the current frame.</summary>
+    public int ShadowCount => _shadows.Count;
+
+    /// <summary>Number of glyph-shadow vertices recorded by the current frame.</summary>
+    public int GlyphShadowCount => _glyphShadows.Count;
+
+    /// <summary>Number of active filter layers (0 = no filter context).</summary>
+    public int FilterDepth => _filterStack.Count;
+
     /// <summary>Number of contiguous draw runs the current frame will emit (diagnostics/tests).</summary>
     public int BatchCount => _commands.Count + (_runOpen ? 1 : 0);
 
@@ -219,7 +353,10 @@ public sealed class Renderer2D : IDisposable
     internal IReadOnlyList<SdfInstance> Instances => _instances;
     internal IReadOnlyList<TriVertex> Triangles => _triangles;
     internal IReadOnlyList<TexturedVertex> TexturedVerts => _textured;
+    internal IReadOnlyList<ShadowInstance> Shadows => _shadows;
+    internal IReadOnlyList<GlyphShadowVertex> GlyphShadows => _glyphShadows;
     internal IReadOnlyList<DrawCmd> Commands => _commands;
+    internal IReadOnlyList<FilterLayer> FilterLayers => _filterLayers;
     internal int InstanceCapacity => _instances.Capacity;
     internal int TriangleCapacity => _triangles.Capacity;
     internal int TexturedCapacity => _textured.Capacity;
@@ -248,12 +385,32 @@ public sealed class Renderer2D : IDisposable
         _instances.Clear();
         _triangles.Clear();
         _textured.Clear();
+        _shadows.Clear();
+        _glyphShadows.Clear();
         _commands.Clear();
         _transforms.Clear();
         _transformTop = -1;
         _current = Matrix3x2.Identity;
         _clips.Clear();
         _runOpen = false;
+
+        // Release the previous frame's transient filter layers and bind groups.
+        foreach (var layer in _filterLayers)
+        {
+            layer.Target?.Dispose();
+            layer.Depth?.Dispose();
+            layer.InstanceBuffer?.Dispose();
+            layer.TriangleBuffer?.Dispose();
+            layer.TexturedBuffer?.Dispose();
+            layer.ShadowBuffer?.Dispose();
+            layer.GlyphShadowBuffer?.Dispose();
+            layer.SdfBindGroup?.Dispose();
+            layer.ShadowBindGroup?.Dispose();
+            layer.GlyphShadowBindGroup?.Dispose();
+            layer.FilterBindGroup?.Dispose();
+        }
+        _filterLayers.Clear();
+        _filterStack.Clear();
     }
 
     /// <summary>
@@ -266,17 +423,12 @@ public sealed class Renderer2D : IDisposable
         if (!_recording)
             return _target;
         _recording = false;
-        if (_runOpen)
-        {
-            _commands.Add(new DrawCmd(_runKind, _runStart, RunLength(_runKind) - _runStart));
-            _runOpen = false;
-        }
+        CloseRun();
 
         if (_device is null || _commands.Count == 0)
             return _target;
 
         EnsureGpuResources();
-        Upload();
         Submit();
         return _target;
     }
@@ -556,7 +708,9 @@ public sealed class Renderer2D : IDisposable
         if (style.MaxWidth > 0f)
             options.WrappingLength = style.MaxWidth;
         if (style.LineHeight > 0f)
-            options.LineSpacing = style.LineHeight;
+            // TextStyle.LineHeight is in pixels (like FontSize); SixLabors'
+            // LineSpacing is a line-height multiplier in em.
+            options.LineSpacing = style.LineHeight / style.FontSize;
         if (style.LetterSpacing != 0f)
             options.Tracking = style.LetterSpacing / style.FontSize;
 
@@ -579,15 +733,26 @@ public sealed class Renderer2D : IDisposable
             options.Origin = position;
         }
 
-        _glyphCollector.Configure(style.Color, resolved.Key, (int)MathF.Round(style.FontSize));
+        var sizeKey = (int)MathF.Round(style.FontSize);
+        if (style.ShadowColor.A > 0f)
+        {
+            // Shadow pass first, so every shadow paints under every glyph.
+            _glyphCollector.Configure(style.Color, style.ShadowOffset, style.ShadowBlur, style.ShadowColor, resolved.Key, sizeKey, emitMain: false, emitShadow: true);
+            TextRenderer.RenderTo(_glyphCollector, text, options);
+        }
+        _glyphCollector.Configure(style.Color, style.ShadowOffset, style.ShadowBlur, style.ShadowColor, resolved.Key, sizeKey, emitMain: true, emitShadow: false);
         TextRenderer.RenderTo(_glyphCollector, text, options);
     }
 
     /// <summary>
     /// Called by the glyph collector for each laid-out glyph: rasterizes the
-    /// outline into the glyph atlas (cached) and emits its SDF quad.
+    /// outline into the glyph atlas (cached) and emits its shadow and/or main
+    /// SDF quad. The shadow pass runs first (all shadows, then all glyphs).
     /// </summary>
-    internal void EmitGlyph(IReadOnlyList<Vector2> edges, ColorF color, string fontKey, int sizeKey, ushort glyphId)
+    internal void EmitGlyph(
+        IReadOnlyList<Vector2> edges, ColorF color,
+        Vector2 shadowOffset, float shadowBlur, ColorF shadowColor,
+        string fontKey, int sizeKey, ushort glyphId, bool emitMain, bool emitShadow)
     {
         var min = new Vector2(float.MaxValue);
         var max = new Vector2(float.MinValue);
@@ -610,7 +775,6 @@ public sealed class Renderer2D : IDisposable
         }
 
         var uv = entry.Atlas.UvRect;
-        var colorVector = color.ToVector4();
         var x0 = min.X - GlyphRasterizer.Padding;
         var y0 = min.Y - GlyphRasterizer.Padding;
         var x1 = x0 + entry.Atlas.Width;
@@ -620,13 +784,32 @@ public sealed class Renderer2D : IDisposable
         var uv2 = new Vector2(uv.Right, uv.Bottom);
         var uv3 = new Vector2(uv.X, uv.Bottom);
 
-        EnsureRun(BatchKind.Glyph);
-        _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = uv0, Color = colorVector });
-        _textured.Add(new TexturedVertex { Position = new Vector2(x1, y0), Uv = uv1, Color = colorVector });
-        _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = uv2, Color = colorVector });
-        _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = uv0, Color = colorVector });
-        _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = uv2, Color = colorVector });
-        _textured.Add(new TexturedVertex { Position = new Vector2(x0, y1), Uv = uv3, Color = colorVector });
+        if (emitShadow && shadowColor.A > 0f)
+        {
+            var softness = 0.75f + MathF.Max(shadowBlur, 0f);
+            var shadowVector = shadowColor.ToVector4();
+            var ox = shadowOffset.X;
+            var oy = shadowOffset.Y;
+            EnsureRun(BatchKind.GlyphShadow);
+            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y0 + oy), Uv = uv0, Color = shadowVector, Softness = softness });
+            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y0 + oy), Uv = uv1, Color = shadowVector, Softness = softness });
+            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y1 + oy), Uv = uv2, Color = shadowVector, Softness = softness });
+            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y0 + oy), Uv = uv0, Color = shadowVector, Softness = softness });
+            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y1 + oy), Uv = uv2, Color = shadowVector, Softness = softness });
+            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y1 + oy), Uv = uv3, Color = shadowVector, Softness = softness });
+        }
+
+        if (emitMain)
+        {
+            var colorVector = color.ToVector4();
+            EnsureRun(BatchKind.Glyph);
+            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = uv0, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y0), Uv = uv1, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = uv2, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = uv0, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = uv2, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y1), Uv = uv3, Color = colorVector });
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -719,6 +902,183 @@ public sealed class Renderer2D : IDisposable
             return;
         _transformTop--;
         _current = _transformTop >= 0 ? _transforms[_transformTop] : Matrix3x2.Identity;
+    }
+
+    // ---------------------------------------------------------------------
+    // Shadows
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Draws a CSS <c>box-shadow</c>: a blurred rounded rect behind
+    /// <paramref name="rect"/>, expanded by <paramref name="spread"/> and shifted
+    /// by <paramref name="offset"/>. The panel's own box is cut out, so the
+    /// shadow only shows outside it. Draw this before the panel's fill.
+    /// </summary>
+    public void DrawBoxShadow(RectF rect, float radius, Vector2 offset, float blur, float spread, ColorF color) =>
+        EmitShadow(outer: true, rect, radius, offset, blur, spread, color);
+
+    /// <summary>
+    /// Draws a CSS inset <c>box-shadow</c>: a blurred shadow inside
+    /// <paramref name="rect"/>, shrunk by <paramref name="spread"/> and shifted
+    /// by <paramref name="offset"/>. Draw this after the panel's fill.
+    /// </summary>
+    public void DrawInnerShadow(RectF rect, float radius, Vector2 offset, float blur, float spread, ColorF color) =>
+        EmitShadow(outer: false, rect, radius, offset, blur, spread, color);
+
+    private void EmitShadow(bool outer, RectF rect, float radius, Vector2 offset, float blur, float spread, ColorF color)
+    {
+        if (!_recording || color.A <= 0f)
+            return;
+
+        RectF shape;
+        float shapeRadius;
+        if (outer)
+        {
+            shape = new RectF(rect.X + offset.X - spread, rect.Y + offset.Y - spread, rect.Width + 2f * spread, rect.Height + 2f * spread);
+            shapeRadius = MathF.Max(0f, radius + spread);
+        }
+        else
+        {
+            shape = new RectF(rect.X + offset.X + spread, rect.Y + offset.Y + spread, MathF.Max(0f, rect.Width - 2f * spread), MathF.Max(0f, rect.Height - 2f * spread));
+            shapeRadius = MathF.Max(0f, radius - spread);
+        }
+        if (shape.IsEmpty)
+            return;
+
+        var instance = new ShadowInstance
+        {
+            M0 = new Vector4(_current.M11, _current.M21, _current.M31, 0f),
+            M1 = new Vector4(_current.M12, _current.M22, _current.M32, 0f),
+            Shape = new Vector4(shape.X, shape.Y, shape.Width, shape.Height),
+            Box = new Vector4(rect.X, rect.Y, rect.Width, rect.Height),
+            Radii = new Vector4(shapeRadius, MathF.Max(0f, radius), MathF.Max(blur, 0f), 0f),
+            Color = color.ToVector4(),
+            Flags = new Vector4(outer ? 0f : 1f, ClipCount(), 0f, 0f)
+        };
+
+        // Rasterization bounds: the shape inflated by half the blur (outer) so
+        // the soft falloff is fully covered; the box itself for inner shadows.
+        var margin = outer ? blur * 0.5f + 1f : 1f;
+        instance.Quad = new Vector4(shape.X - margin, shape.Y - margin, shape.Width + 2f * margin, shape.Height + 2f * margin);
+
+        if (_clips.Count > 0) instance.Clip0 = ClipToVec(_clips[0]);
+        if (_clips.Count > 1) instance.Clip1 = ClipToVec(_clips[1]);
+        if (_clips.Count > 2) instance.Clip2 = ClipToVec(_clips[2]);
+        if (_clips.Count > 3) instance.Clip3 = ClipToVec(_clips[3]);
+        instance.ClipRadii = new Vector4(
+            _clips.Count > 0 ? _clips[0].Radius : 0f,
+            _clips.Count > 1 ? _clips[1].Radius : 0f,
+            _clips.Count > 2 ? _clips[2].Radius : 0f,
+            _clips.Count > 3 ? _clips[3].Radius : 0f);
+
+        EnsureRun(BatchKind.Shadow);
+        _shadows.Add(instance);
+    }
+
+    // ---------------------------------------------------------------------
+    // Filters
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Begins a filtered subtree: drawing between this call and the matching
+    /// <see cref="PopFilter"/> is rendered to an offscreen target and composited
+    /// back through <paramref name="filter"/> (in declaration order). The
+    /// renderer owns the transient target automatically.
+    /// </summary>
+    public void PushFilter(Filter2D filter)
+    {
+        if (!_recording)
+            return;
+        CloseRun();
+
+        _filterStack.Push(new FilterFrame
+        {
+            Instances = _instances,
+            Triangles = _triangles,
+            Textured = _textured,
+            Shadows = _shadows,
+            GlyphShadows = _glyphShadows,
+            Commands = _commands,
+            Target = _target,
+            Depth = _depth,
+            Filter = filter
+        });
+
+        _instances = [];
+        _triangles = [];
+        _textured = [];
+        _shadows = [];
+        _glyphShadows = [];
+        _commands = [];
+        _runOpen = false;
+
+        if (_device is not null)
+        {
+            _target = CreateLayerTarget();
+            _depth = CreateLayerDepth();
+        }
+    }
+
+    /// <summary>Ends a filtered subtree and composites it back into the parent layer.</summary>
+    public void PopFilter()
+    {
+        if (!_recording || _filterStack.Count == 0)
+            return;
+        CloseRun();
+
+        var frame = _filterStack.Pop();
+        var child = new FilterLayer
+        {
+            Instances = _instances,
+            Triangles = _triangles,
+            Textured = _textured,
+            Shadows = _shadows,
+            GlyphShadows = _glyphShadows,
+            Commands = _commands,
+            Filter = frame.Filter,
+            Target = _target,
+            Depth = _depth
+        };
+
+        _instances = frame.Instances;
+        _triangles = frame.Triangles;
+        _textured = frame.Textured;
+        _shadows = frame.Shadows;
+        _glyphShadows = frame.GlyphShadows;
+        _commands = frame.Commands;
+        _target = frame.Target;
+        _depth = frame.Depth;
+
+        var blitIndex = _filterLayers.Count;
+        _filterLayers.Add(child);
+        _commands.Add(new DrawCmd(BatchKind.FilterBlit, blitIndex, 1));
+    }
+
+    private ITexture CreateLayerTarget() => _device!.CreateTexture(new TextureDescription
+    {
+        Width = _width,
+        Height = _height,
+        Format = TextureFormat.Rgba8Unorm,
+        RenderTarget = true,
+        Sampled = true,
+        CopyDestination = true
+    });
+
+    private ITexture CreateLayerDepth() => _device!.CreateTexture(new TextureDescription
+    {
+        Width = _width,
+        Height = _height,
+        Format = TextureFormat.Depth24Plus,
+        RenderTarget = true
+    });
+
+    /// <summary>Flushes an open run into the command list (no-op when none is open).</summary>
+    private void CloseRun()
+    {
+        if (!_runOpen)
+            return;
+        _commands.Add(new DrawCmd(_runKind, _runStart, RunLength(_runKind) - _runStart));
+        _runOpen = false;
     }
 
     // ---------------------------------------------------------------------
@@ -1009,6 +1369,8 @@ public sealed class Renderer2D : IDisposable
     {
         BatchKind.Sdf => _instances.Count,
         BatchKind.Triangles => _triangles.Count,
+        BatchKind.Shadow => _shadows.Count,
+        BatchKind.GlyphShadow => _glyphShadows.Count,
         _ => _textured.Count
     };
 
@@ -1101,6 +1463,34 @@ public sealed class Renderer2D : IDisposable
                 new BindGroupBinding { Slot = 2, Buffer = _viewportBuffer, BufferSize = 16 }
             ]);
             _glyphTextureBound = _glyphAtlas.Texture;
+        }
+
+        _shadowPipeline ??= CreateShadowPipeline();
+        EnsureShadowBuffer();
+        _shadowBindGroup ??= _shadowPipeline.CreateBindGroup(
+        [
+            new BindGroupBinding { Slot = 0, Buffer = _shadowBuffer, BufferSize = _shadowBuffer!.Size },
+            new BindGroupBinding { Slot = 1, Buffer = _viewportBuffer, BufferSize = 16 }
+        ]);
+
+        _filterPipeline ??= CreateFilterPipeline();
+        _filterSampler ??= _device.CreateSampler(new SamplerDescription());
+        _filterParamsBuffer ??= _device.CreateBuffer(new BufferDescription
+        {
+            Size = FilterParamsSize,
+            Usage = BufferUsage.Storage | BufferUsage.CopyDst
+        });
+
+        _glyphShadowPipeline ??= CreateGlyphShadowPipeline();
+        EnsureGlyphShadowBuffer();
+        if (_glyphAtlas is not null)
+        {
+            _glyphShadowBindGroup ??= _glyphShadowPipeline.CreateBindGroup(
+            [
+                new BindGroupBinding { Slot = 0, Texture = _glyphAtlas.Texture },
+                new BindGroupBinding { Slot = 1, Sampler = _glyphSampler },
+                new BindGroupBinding { Slot = 2, Buffer = _viewportBuffer, BufferSize = 16 }
+            ]);
         }
     }
 
@@ -1235,6 +1625,133 @@ public sealed class Renderer2D : IDisposable
         });
     }
 
+    private IPipeline CreateShadowPipeline()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Shadow.wgsl"));
+        return _device!.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = source,
+            VertexEntryPoint = "vs_main",
+            FragmentEntryPoint = "fs_main",
+            ColorFormat = TextureFormat.Rgba8Unorm,
+            DepthFormat = TextureFormat.Depth24Plus,
+            AlphaBlend = true,
+            DepthWriteEnabled = false,
+            DepthCompare = CompareFunction.Always,
+            VertexLayout = new VertexBufferLayoutDescription
+            {
+                Stride = 4 * sizeof(float),
+                Attributes =
+                [
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 },
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
+                ]
+            },
+            BindGroups =
+            [
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                ]
+            ]
+        });
+    }
+
+    private IPipeline CreateFilterPipeline()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Filter.wgsl"));
+        return _device!.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = source,
+            VertexEntryPoint = "vs_main",
+            FragmentEntryPoint = "fs_main",
+            ColorFormat = TextureFormat.Rgba8Unorm,
+            AlphaBlend = true,
+            DepthWriteEnabled = false,
+            DepthCompare = CompareFunction.Always,
+            VertexLayout = new VertexBufferLayoutDescription
+            {
+                Stride = 4 * sizeof(float),
+                Attributes =
+                [
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 },
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
+                ]
+            },
+            BindGroups =
+            [
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 2, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Fragment }
+                ]
+            ]
+        });
+    }
+
+    private void EnsureShadowBuffer()
+    {
+        var required = (ulong)Math.Max(1, _shadows.Count) * (ulong)ShadowInstanceSize;
+        if (_shadowBuffer is not null && _shadowBuffer.Size >= required)
+            return;
+        _shadowBuffer?.Dispose();
+        _shadowBindGroup?.Dispose();
+        _shadowBindGroup = null;
+        _shadowBuffer = _device!.CreateBuffer(new BufferDescription
+        {
+            Size = Math.Max(required, (ulong)ShadowInstanceSize),
+            Usage = BufferUsage.Storage | BufferUsage.CopyDst
+        });
+    }
+
+    private IPipeline CreateGlyphShadowPipeline()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "GlyphShadow.wgsl"));
+        return _device!.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = source,
+            VertexEntryPoint = "vs_main",
+            FragmentEntryPoint = "fs_main",
+            ColorFormat = TextureFormat.Rgba8Unorm,
+            DepthFormat = TextureFormat.Depth24Plus,
+            AlphaBlend = true,
+            DepthWriteEnabled = false,
+            DepthCompare = CompareFunction.Always,
+            VertexLayout = new VertexBufferLayoutDescription
+            {
+                Stride = GlyphShadowVertexSize,
+                Attributes =
+                [
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 },
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 },
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x4, Offset = 4 * sizeof(float), ShaderLocation = 2 },
+                    new VertexAttributeDescription { Format = VertexFormat.Float32, Offset = 8 * sizeof(float), ShaderLocation = 3 }
+                ]
+            },
+            BindGroups =
+            [
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 2, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                ]
+            ]
+        });
+    }
+
+    private void EnsureGlyphShadowBuffer()
+    {
+        var required = (ulong)Math.Max(1, _glyphShadows.Count) * (ulong)GlyphShadowVertexSize;
+        if (_glyphShadowBuffer is not null && _glyphShadowBuffer.Size >= required)
+            return;
+        _glyphShadowBuffer?.Dispose();
+        _glyphShadowBuffer = _device!.CreateBuffer(new BufferDescription
+        {
+            Size = Math.Max(required, (ulong)GlyphShadowVertexSize),
+            Usage = BufferUsage.Vertex | BufferUsage.CopyDst
+        });
+    }
+
     private IBuffer CreateQuadBuffer()
     {
         // Unit quad (position + uv), six vertices, used by every SDF instance.
@@ -1301,100 +1818,257 @@ public sealed class Renderer2D : IDisposable
         });
     }
 
-    private void Upload()
-    {
-        if (_instances.Count > 0)
-        {
-            var span = CollectionsMarshal.AsSpan(_instances);
-            _instanceBuffer!.Write(MemoryMarshal.AsBytes(span));
-        }
-        if (_triangles.Count > 0)
-        {
-            var span = CollectionsMarshal.AsSpan(_triangles);
-            _triangleBuffer!.Write(MemoryMarshal.AsBytes(span));
-        }
-        if (_textured.Count > 0)
-        {
-            var span = CollectionsMarshal.AsSpan(_textured);
-            _texturedBuffer!.Write(MemoryMarshal.AsBytes(span));
-        }
-        _viewportBuffer!.Write(new Vector4(_width, _height, 1f / _width, 1f / _height));
-    }
-
     private void Submit()
     {
         using ICommandBuffer commandBuffer = _device!.CreateCommandBuffer();
-        using IRenderPass pass = commandBuffer.BeginRenderPass(new RenderPassDescription
-        {
-            Color = new ColorAttachment
-            {
-                Texture = _target!,
-                LoadOp = RenderAttachmentLoadOp.Clear,
-                StoreOp = RenderAttachmentStoreOp.Store,
-                ClearColor = new Vector4(0f, 0f, 0f, 0f)
-            },
-            Depth = new DepthAttachment
-            {
-                Texture = _depth!,
-                LoadOp = RenderAttachmentLoadOp.Clear,
-                StoreOp = RenderAttachmentStoreOp.Store,
-                ClearValue = 1f
-            }
-        });
+        _viewportBuffer!.Write(new Vector4(_width, _height, 1f / _width, 1f / _height));
 
+        EnsureInstanceBuffer();
+        EnsureTriangleBuffer();
+        EnsureTexturedBuffer();
+        EnsureShadowBuffer();
+        EnsureGlyphShadowBuffer();
+        Upload(_instances, _instanceBuffer!);
+        Upload(_triangles, _triangleBuffer!);
+        Upload(_textured, _texturedBuffer!);
+        Upload(_shadows, _shadowBuffer!);
+        Upload(_glyphShadows, _glyphShadowBuffer!);
+
+        RenderLayer(
+            commandBuffer, _target!, _depth!,
+            _instances, _triangles, _textured, _shadows, _glyphShadows, _commands,
+            _instanceBuffer!, _triangleBuffer!, _texturedBuffer!, _shadowBuffer!, _glyphShadowBuffer!,
+            _sdfBindGroup!, _shadowBindGroup!, _glyphShadowBindGroup!);
+        commandBuffer.Submit();
+    }
+
+    private static void Upload<T>(List<T> items, IBuffer buffer) where T : unmanaged
+    {
+        if (items.Count == 0)
+            return;
+        var span = CollectionsMarshal.AsSpan(items);
+        buffer.Write(MemoryMarshal.AsBytes(span));
+    }
+
+    private void RenderLayer(
+        ICommandBuffer commandBuffer, ITexture target, ITexture depth,
+        List<SdfInstance> instances, List<TriVertex> triangles, List<TexturedVertex> textured,
+        List<ShadowInstance> shadows, List<GlyphShadowVertex> glyphShadows, List<DrawCmd> commands,
+        IBuffer instanceBuffer, IBuffer triangleBuffer, IBuffer texturedBuffer, IBuffer shadowBuffer, IBuffer glyphShadowBuffer,
+        IBindGroup sdfBindGroup, IBindGroup shadowBindGroup, IBindGroup glyphShadowBindGroup)
+    {
+        IRenderPass? pass = BeginPass(commandBuffer, target, depth, clear: true);
         IPipeline? currentPipeline = null;
-        foreach (var command in _commands)
+
+        foreach (var command in commands)
         {
             if (command.Count <= 0)
                 continue;
-            if (command.Kind == BatchKind.Sdf)
+
+            if (command.Kind == BatchKind.FilterBlit)
             {
+                pass.End();
+                pass.Dispose();
+                pass = null;
+                currentPipeline = null;
+
+                var child = _filterLayers[command.Start];
+
+                child.InstanceBuffer = EnsureBuffer(child.InstanceBuffer, (ulong)Math.Max(1, child.Instances.Count) * (ulong)SdfInstanceSize, BufferUsage.Storage | BufferUsage.CopyDst, (ulong)SdfInstanceSize);
+                child.TriangleBuffer = EnsureBuffer(child.TriangleBuffer, (ulong)Math.Max(1, child.Triangles.Count) * (ulong)TriVertexSize, BufferUsage.Vertex | BufferUsage.CopyDst, (ulong)TriVertexSize);
+                child.TexturedBuffer = EnsureBuffer(child.TexturedBuffer, (ulong)Math.Max(1, child.Textured.Count) * (ulong)TexturedVertexSize, BufferUsage.Vertex | BufferUsage.CopyDst, (ulong)TexturedVertexSize);
+                child.ShadowBuffer = EnsureBuffer(child.ShadowBuffer, (ulong)Math.Max(1, child.Shadows.Count) * (ulong)ShadowInstanceSize, BufferUsage.Storage | BufferUsage.CopyDst, (ulong)ShadowInstanceSize);
+                child.GlyphShadowBuffer = EnsureBuffer(child.GlyphShadowBuffer, (ulong)Math.Max(1, child.GlyphShadows.Count) * (ulong)GlyphShadowVertexSize, BufferUsage.Vertex | BufferUsage.CopyDst, (ulong)GlyphShadowVertexSize);
+                child.SdfBindGroup ??= CreateSdfBindGroup(child.InstanceBuffer);
+                child.ShadowBindGroup ??= CreateShadowBindGroup(child.ShadowBuffer);
+                child.GlyphShadowBindGroup ??= CreateGlyphShadowBindGroup();
+                Upload(child.Instances, child.InstanceBuffer);
+                Upload(child.Triangles, child.TriangleBuffer);
+                Upload(child.Textured, child.TexturedBuffer);
+                Upload(child.Shadows, child.ShadowBuffer);
+                Upload(child.GlyphShadows, child.GlyphShadowBuffer);
+
+                RenderLayer(
+                    commandBuffer, child.Target!, child.Depth!,
+                    child.Instances, child.Triangles, child.Textured, child.Shadows, child.GlyphShadows, child.Commands,
+                    child.InstanceBuffer, child.TriangleBuffer, child.TexturedBuffer, child.ShadowBuffer, child.GlyphShadowBuffer,
+                    child.SdfBindGroup, child.ShadowBindGroup, child.GlyphShadowBindGroup);
+
+                BlitFilter(commandBuffer, target, depth, child);
+                pass = BeginPass(commandBuffer, target, depth, clear: false);
+                continue;
+            }
+
+            DrawCommand(pass, command, instanceBuffer, triangleBuffer, texturedBuffer, shadowBuffer, glyphShadowBuffer, sdfBindGroup, shadowBindGroup, glyphShadowBindGroup, ref currentPipeline);
+        }
+
+        pass.End();
+        pass.Dispose();
+    }
+
+    private void DrawCommand(
+        IRenderPass pass, DrawCmd command,
+        IBuffer instanceBuffer, IBuffer triangleBuffer, IBuffer texturedBuffer, IBuffer shadowBuffer, IBuffer glyphShadowBuffer,
+        IBindGroup sdfBindGroup, IBindGroup shadowBindGroup, IBindGroup glyphShadowBindGroup, ref IPipeline? currentPipeline)
+    {
+        switch (command.Kind)
+        {
+            case BatchKind.Sdf:
                 if (currentPipeline != _sdfPipeline)
                 {
                     pass.SetPipeline(_sdfPipeline!);
-                    pass.SetBindGroup(_sdfBindGroup!, 0);
+                    pass.SetBindGroup(sdfBindGroup, 0);
                     currentPipeline = _sdfPipeline;
                 }
                 pass.SetVertexBuffer(_quadBuffer!, (ulong)(6 * 4 * sizeof(float)));
                 pass.DrawInstanced(6, (uint)command.Count);
-            }
-            else if (command.Kind == BatchKind.Textured)
-            {
+                break;
+            case BatchKind.Textured:
                 if (currentPipeline != _texturedPipeline)
                 {
                     pass.SetPipeline(_texturedPipeline!);
                     pass.SetBindGroup(_texturedBindGroup!, 0);
                     currentPipeline = _texturedPipeline;
                 }
-                pass.SetVertexBuffer(_texturedBuffer!, _texturedBuffer!.Size);
+                pass.SetVertexBuffer(texturedBuffer, texturedBuffer.Size);
                 pass.Draw((uint)command.Count);
-            }
-            else if (command.Kind == BatchKind.Glyph)
-            {
+                break;
+            case BatchKind.Glyph:
                 if (currentPipeline != _glyphPipeline)
                 {
                     pass.SetPipeline(_glyphPipeline!);
                     pass.SetBindGroup(_glyphBindGroup!, 0);
                     currentPipeline = _glyphPipeline;
                 }
-                pass.SetVertexBuffer(_texturedBuffer!, _texturedBuffer!.Size);
+                pass.SetVertexBuffer(texturedBuffer, texturedBuffer.Size);
                 pass.Draw((uint)command.Count);
-            }
-            else
-            {
+                break;
+            case BatchKind.Shadow:
+                if (currentPipeline != _shadowPipeline)
+                {
+                    pass.SetPipeline(_shadowPipeline!);
+                    pass.SetBindGroup(shadowBindGroup, 0);
+                    currentPipeline = _shadowPipeline;
+                }
+                pass.SetVertexBuffer(_quadBuffer!, (ulong)(6 * 4 * sizeof(float)));
+                pass.DrawInstanced(6, (uint)command.Count);
+                break;
+            case BatchKind.GlyphShadow:
+                if (currentPipeline != _glyphShadowPipeline)
+                {
+                    pass.SetPipeline(_glyphShadowPipeline!);
+                    pass.SetBindGroup(glyphShadowBindGroup, 0);
+                    currentPipeline = _glyphShadowPipeline;
+                }
+                pass.SetVertexBuffer(glyphShadowBuffer, glyphShadowBuffer.Size);
+                pass.Draw((uint)command.Count);
+                break;
+            default:
                 if (currentPipeline != _trianglePipeline)
                 {
                     pass.SetPipeline(_trianglePipeline!);
                     pass.SetBindGroup(_triangleBindGroup!, 0);
                     currentPipeline = _trianglePipeline;
                 }
-                pass.SetVertexBuffer(_triangleBuffer!, _triangleBuffer!.Size);
+                pass.SetVertexBuffer(triangleBuffer, triangleBuffer.Size);
                 pass.Draw((uint)command.Count);
-            }
+                break;
         }
+    }
 
+    private IRenderPass BeginPass(ICommandBuffer commandBuffer, ITexture target, ITexture depth, bool clear)
+    {
+        var loadOp = clear ? RenderAttachmentLoadOp.Clear : RenderAttachmentLoadOp.Load;
+        return commandBuffer.BeginRenderPass(new RenderPassDescription
+        {
+            Color = new ColorAttachment
+            {
+                Texture = target,
+                LoadOp = loadOp,
+                StoreOp = RenderAttachmentStoreOp.Store,
+                ClearColor = new Vector4(0f, 0f, 0f, 0f)
+            },
+            Depth = new DepthAttachment
+            {
+                Texture = depth,
+                LoadOp = loadOp,
+                StoreOp = RenderAttachmentStoreOp.Store,
+                ClearValue = 1f
+            }
+        });
+    }
+
+    private void BlitFilter(ICommandBuffer commandBuffer, ITexture target, ITexture depth, FilterLayer child)
+    {
+        _filterParamsBuffer!.Write(EncodeFilterParams(child.Filter));
+        child.FilterBindGroup ??= _filterPipeline!.CreateBindGroup(
+        [
+            new BindGroupBinding { Slot = 0, Texture = child.Target! },
+            new BindGroupBinding { Slot = 1, Sampler = _filterSampler },
+            new BindGroupBinding { Slot = 2, Buffer = _filterParamsBuffer, BufferSize = _filterParamsBuffer.Size }
+        ]);
+
+        using IRenderPass pass = BeginPass(commandBuffer, target, depth, clear: false);
+        pass.SetPipeline(_filterPipeline!);
+        pass.SetBindGroup(child.FilterBindGroup, 0);
+        pass.SetVertexBuffer(_quadBuffer!, (ulong)(6 * 4 * sizeof(float)));
+        pass.Draw(6);
         pass.End();
-        commandBuffer.Submit();
+    }
+
+    internal static FilterParams EncodeFilterParams(Filter2D filter)
+    {
+        var result = default(FilterParams);
+        var count = Math.Min(8, filter.Ops.Count);
+        var ops = new Vector4[8];
+        for (var i = 0; i < count; i++)
+        {
+            var op = filter.Ops[i];
+            if (op.Kind == FilterOpKind.Blur)
+                result.Blur = new Vector4(op.Amount, 0f, 0f, 0f);
+            ops[i] = new Vector4((float)op.Kind, op.Amount, 0f, 0f);
+        }
+        result.Op0 = ops[0];
+        result.Op1 = ops[1];
+        result.Op2 = ops[2];
+        result.Op3 = ops[3];
+        result.Op4 = ops[4];
+        result.Op5 = ops[5];
+        result.Op6 = ops[6];
+        result.Op7 = ops[7];
+        result.OpCount = new Vector4(count, 0f, 0f, 0f);
+        return result;
+    }
+
+    private IBindGroup CreateSdfBindGroup(IBuffer instanceBuffer) => _sdfPipeline!.CreateBindGroup(
+    [
+        new BindGroupBinding { Slot = 0, Buffer = instanceBuffer, BufferSize = instanceBuffer.Size },
+        new BindGroupBinding { Slot = 1, Buffer = _viewportBuffer, BufferSize = 16 }
+    ]);
+
+    private IBindGroup CreateShadowBindGroup(IBuffer shadowBuffer) => _shadowPipeline!.CreateBindGroup(
+    [
+        new BindGroupBinding { Slot = 0, Buffer = shadowBuffer, BufferSize = shadowBuffer.Size },
+        new BindGroupBinding { Slot = 1, Buffer = _viewportBuffer, BufferSize = 16 }
+    ]);
+
+    private IBindGroup CreateGlyphShadowBindGroup() => _glyphShadowPipeline!.CreateBindGroup(
+    [
+        new BindGroupBinding { Slot = 0, Texture = _glyphAtlas!.Texture },
+        new BindGroupBinding { Slot = 1, Sampler = _glyphSampler },
+        new BindGroupBinding { Slot = 2, Buffer = _viewportBuffer, BufferSize = 16 }
+    ]);
+
+    private IBuffer EnsureBuffer(IBuffer? buffer, ulong required, BufferUsage usage, ulong minimum)
+    {
+        if (buffer is not null && buffer.Size >= required)
+            return buffer;
+        buffer?.Dispose();
+        return _device!.CreateBuffer(new BufferDescription
+        {
+            Size = Math.Max(required, minimum),
+            Usage = usage
+        });
     }
 
     public void Dispose()
@@ -1421,6 +2095,15 @@ public sealed class Renderer2D : IDisposable
         _glyphBindGroup?.Dispose();
         _glyphSampler?.Dispose();
         _glyphAtlas?.Dispose();
+        _shadowBuffer?.Dispose();
+        _shadowPipeline?.Dispose();
+        _shadowBindGroup?.Dispose();
+        _filterPipeline?.Dispose();
+        _filterSampler?.Dispose();
+        _filterParamsBuffer?.Dispose();
+        _glyphShadowBuffer?.Dispose();
+        _glyphShadowPipeline?.Dispose();
+        _glyphShadowBindGroup?.Dispose();
     }
 
     /// <summary>Packed gradient parameters baked inline per shape.</summary>

@@ -167,14 +167,25 @@ below replaces one Skia surface with a `Renderer2D` equivalent:
 | **Text** | SixLabors.Fonts shaping + single-channel SDF glyph atlas + per-glyph quads; kerning, alignment, wrapping | `Glyph` | ✅ done |
 | **SVG** | CPU parse (path/rect/circle/ellipse/line/poly) → flatten Béziers/arcs → even-odd scanline fill + SDF stroke | `TriMesh` + `SdfShape` | ✅ done |
 | **Images (PNG/JPEG/WebP)** | decode (ImageSharp) → texture atlas → image quads with object-fit | `Textured` | ✅ done |
-| Box / inner / drop shadow | blurred SDF (mirror `Decorations.wgsl`) | `SdfShape` | planned |
-| CSS filters | compose onto an offscreen layer, then filter | new `Filter.wgsl` | planned |
+| Box / inner / drop shadow | blurred SDF with clip/inset mask, drawn under or over the box | `Shadow` | ✅ done |
+| Text shadow | glyph SDF softness + per-glyph offset/color | `GlyphShadow` | ✅ done |
+| CSS filters | compose onto an offscreen layer, then blur + 8 color ops | `Filter` | ✅ done |
 | Backdrop filter | sample the 3D scene texture (already in `Backdrop.wgsl`) | `Backdrop` | exists |
+| **Tree walk (wiring)** | `UiTreePainter` walks the laid-out panel tree and emits `Draw*` commands in CSS paint order (background → shadows → borders → text → children → scrollbars → outline), with clip/transform/filter/z-index/scroll/opacity | all of the above | ✅ done |
 
 Text is the only CPU-side dependency that remains: shaping, measurement,
 kerning and wrapping run on the CPU (SixLabors.Fonts, replacing the Skia-based
 `TextLayout`) and are emitted as quads referencing the GPU glyph atlas — the
 same split Chromium uses.
+
+`UiTreePainter` (Engine) is the replacement for `SkiaUiRenderer`'s raster
+walk: it consumes the public panel tree + computed styles and records the same
+paint order into a `Renderer2D`, so the UI framework stays decoupled from
+WebGPU. It is headless-testable (no device). What remains before Skia can be
+deleted is the compositor swap in `Renderer.Render` (draw the `Renderer2D`
+offscreen target instead of uploading `SkiaUiRenderer`'s CPU bitmap) and the
+last Skia-coupled paint details (per-side border carving, background-image
+tiling, text selection/caret, pseudo-element content).
 
 ## 7. Performance characteristics
 
@@ -198,9 +209,12 @@ same split Chromium uses.
 - Triangle edges are hard (no antialiasing) until a coverage attribute is added.
 - Text renders monochrome outlines (`ColorFontSupport.None`); color/emoji fonts,
   bidi and complex-script shaping are not yet wired.
-- SVG, dashed borders, shadows and filters are specified above and not yet
-  implemented — the existing Skia renderer still serves them until each is
-  migrated.
+- Backdrop-filter still reads the existing `Backdrop.wgsl` compositor path
+  (the 3D scene texture), pending its wiring into the Renderer2D layer stack.
+- `UiTreePainter` paints per-side borders as solid bands (dashed/dotted/double
+  and rounded-corner carving per side deferred), draws a single background
+  tile (tiling/repeat deferred), and drops `drop-shadow` filters, text
+  selection/caret and `::before`/`::after` content (all deferred).
 
 ## 9. Verification
 
