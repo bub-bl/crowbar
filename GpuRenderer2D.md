@@ -71,11 +71,12 @@ gizmo lines) is a **single `DrawInstanced` call**.
 
 ### 3.2 `TriMesh.wgsl` — tessellated triangles
 
-For geometry the SDF cannot express (concave polygons today; SVG paths and
-MSDF glyph quads later), the CPU tessellates into screen-space triangles
-carrying a position + straight sRGB color, accumulated into one vertex buffer
-and drawn with a single `Draw`. Polygons use ear-clipping; clipping against
-the active rect uses Sutherland–Hodgman.
+For geometry the SDF cannot express (concave polygons and SVG fills), the CPU
+tessellates into screen-space triangles carrying a position + straight sRGB
+color, accumulated into one vertex buffer and drawn with a single `Draw`.
+Polygons use ear-clipping; SVG fills use an even-odd scanline sweep (correct
+for holes and self-intersections); clipping against the active rect uses
+Sutherland–Hodgman.
 
 ### 3.3 `Textured.wgsl` — image quads
 
@@ -137,6 +138,9 @@ renderer.DrawImage(rect, image, tint, ImageFit.Contain); // stretch/contain/cove
 
 renderer.DrawText("Hello", pos, 24f, color);             // kerning, wrapping, alignment via TextStyle
 
+var icon = SvgDocumentParser.Parse(svgString);           // path/rect/circle/ellipse/line/poly + g groups
+renderer.DrawSvg(icon, rect, tint);                      // even-odd fill + stroke, contain-fit
+
 renderer.PushClip(rect, radius); renderer.PopClip();
 renderer.PushTransform(matrix); renderer.PopTransform();
 renderer.PushTranslate(t); renderer.PushScale(s); renderer.PushRotate(r);
@@ -161,7 +165,7 @@ below replaces one Skia surface with a `Renderer2D` equivalent:
 | Solid borders | SDF stroke | `SdfShape` | ✅ done |
 | Dashed / dotted / double borders | arc-length along the outline `mod`-ed by the dash pattern (round dots via 2D dot mask) | `SdfShape` | ✅ done |
 | **Text** | SixLabors.Fonts shaping + single-channel SDF glyph atlas + per-glyph quads; kerning, alignment, wrapping | `Glyph` | ✅ done |
-| **SVG** | CPU parse → flatten paths → tessellate | `TriMesh` | planned |
+| **SVG** | CPU parse (path/rect/circle/ellipse/line/poly) → flatten Béziers/arcs → even-odd scanline fill + SDF stroke | `TriMesh` + `SdfShape` | ✅ done |
 | **Images (PNG/JPEG/WebP)** | decode (ImageSharp) → texture atlas → image quads with object-fit | `Textured` | ✅ done |
 | Box / inner / drop shadow | blurred SDF (mirror `Decorations.wgsl`) | `SdfShape` | planned |
 | CSS filters | compose onto an offscreen layer, then filter | new `Filter.wgsl` | planned |

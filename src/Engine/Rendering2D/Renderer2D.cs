@@ -161,6 +161,7 @@ public sealed class Renderer2D : IDisposable
     private readonly List<Vector2> _polyClipA = [];
     private readonly List<Vector2> _polyClipB = [];
     private readonly List<int> _earIndices = [];
+    private readonly List<Vector2> _svgTriangles = [];
 
     // GPU resources (created lazily; null when headless).
     private ITexture? _target;
@@ -417,6 +418,114 @@ public sealed class Renderer2D : IDisposable
 
     private static RectF CenterRect(RectF dest, float width, float height) =>
         new(dest.X + (dest.Width - width) * 0.5f, dest.Y + (dest.Height - height) * 0.5f, width, height);
+
+    // ---------------------------------------------------------------------
+    // SVG
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Draws a parsed SVG (see <see cref="SvgDocumentParser.Parse"/>) into
+    /// <paramref name="dest"/>, scaled uniformly to fit (contain) and centered.
+    /// Filled subpaths are even-odd tessellated into the triangle batch; strokes
+    /// are emitted as round-capped lines in the SDF batch. <paramref name="tint"/>
+    /// resolves every <c>currentColor</c> fill/stroke (literal colors win).
+    /// </summary>
+    public void DrawSvg(SvgShape svg, RectF dest, ColorF tint)
+    {
+        if (!_recording || svg is null || dest.IsEmpty || tint.A <= 0f)
+            return;
+
+        var view = svg.ViewBox;
+        if (view.Width <= 0f || view.Height <= 0f)
+            return;
+
+        var scale = MathF.Min(dest.Width / view.Width, dest.Height / view.Height);
+        var offset = new Vector2(
+            dest.X + (dest.Width - view.Width * scale) * 0.5f - view.X * scale,
+            dest.Y + (dest.Height - view.Height * scale) * 0.5f - view.Y * scale);
+
+        PushTranslate(offset);
+        PushScale(scale);
+
+        foreach (var element in svg.Elements)
+        {
+            if (element.Fill.Kind != SvgPaintKind.None)
+                EmitSvgFill(element.Contours, ResolvePaint(element.Fill, tint));
+            if (element.Stroke.Kind != SvgPaintKind.None)
+                EmitSvgStroke(element.Contours, element.StrokeWidth, ResolvePaint(element.Stroke, tint));
+        }
+
+        PopTransform();
+        PopTransform();
+    }
+
+    private static ColorF ResolvePaint(SvgPaint paint, ColorF tint) =>
+        paint.Kind == SvgPaintKind.Literal ? paint.Color : tint;
+
+    private void EmitSvgFill(List<SvgContour> contours, ColorF color)
+    {
+        var screenContours = new List<List<Vector2>>(contours.Count);
+        foreach (var contour in contours)
+        {
+            var count = contour.Points.Count;
+            if (count < 3)
+                continue;
+            var transformed = new List<Vector2>(count);
+            foreach (var point in contour.Points)
+                transformed.Add(Vector2.Transform(point, _current));
+
+            if (_clips.Count > 0)
+            {
+                transformed = ClipToRect(transformed, CurrentScreenClip());
+                if (transformed.Count < 3)
+                    continue;
+            }
+            screenContours.Add(transformed);
+        }
+
+        _svgTriangles.Clear();
+        EvenOddTriangulator.Triangulate(screenContours, _svgTriangles);
+
+        var colorVector = color.ToVector4();
+        for (var i = 0; i + 2 < _svgTriangles.Count; i += 3)
+            EmitTriangle(_svgTriangles[i], _svgTriangles[i + 1], _svgTriangles[i + 2], colorVector);
+    }
+
+    private void EmitSvgStroke(List<SvgContour> contours, float strokeWidth, ColorF color)
+    {
+        foreach (var contour in contours)
+        {
+            var count = contour.Points.Count;
+            if (count < 2)
+                continue;
+            for (var i = 1; i < count; i++)
+                EmitLine(contour.Points[i - 1], contour.Points[i], strokeWidth, color);
+            if (contour.Closed && count > 2)
+                EmitLine(contour.Points[count - 1], contour.Points[0], strokeWidth, color);
+        }
+    }
+
+    /// <summary>Clips one polygon against a rect (Sutherland–Hodgman) into a new list.</summary>
+    private static List<Vector2> ClipToRect(List<Vector2> polygon, RectF rect)
+    {
+        var a = new List<Vector2>(polygon.Count + 4);
+        var b = new List<Vector2>(polygon.Count + 4);
+
+        a.AddRange(polygon);
+        b.Clear();
+        ClipEdgeX(a, b, rect.X, keepMin: true);
+
+        a.Clear();
+        ClipEdgeY(b, a, rect.Y, keepMin: true);
+
+        b.Clear();
+        ClipEdgeX(a, b, rect.Right, keepMin: false);
+
+        a.Clear();
+        ClipEdgeY(b, a, rect.Bottom, keepMin: false);
+
+        return a;
+    }
 
     // ---------------------------------------------------------------------
     // Text
