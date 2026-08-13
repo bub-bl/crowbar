@@ -37,4 +37,18 @@ public sealed class Texture2D
         image.CopyPixelDataTo(pixels);
         return new Texture2D(Path.GetFileNameWithoutExtension(path), width, height, pixels);
     }
+
+    /// <summary>
+    /// Creates a texture from raw RGBA8 pixels. The pixel data is copied, so
+    /// the caller may reuse the buffer afterwards.
+    /// </summary>
+    public static Texture2D Create(string name, int width, int height, ReadOnlySpan<byte> rgba)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (width <= 0 || height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(width), "Texture dimensions must be positive.");
+        if (rgba.Length < checked(width * height * 4))
+            throw new ArgumentException("Pixel buffer is smaller than width * height * 4 bytes.", nameof(rgba));
+        return new Texture2D(name, width, height, rgba[..checked(width * height * 4)].ToArray());
+    }
 }

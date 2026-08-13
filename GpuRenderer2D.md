@@ -71,11 +71,21 @@ gizmo lines) is a **single `DrawInstanced` call**.
 
 ### 3.2 `TriMesh.wgsl` — tessellated triangles
 
-For geometry the SDF cannot express (concave polygons today; SVG paths,
-MSDF glyph quads and image quads later), the CPU tessellates into screen-space
-triangles carrying a position + straight sRGB color, accumulated into one
-vertex buffer and drawn with a single `Draw`. Polygons use ear-clipping;
-clipping against the active rect uses Sutherland–Hodgman.
+For geometry the SDF cannot express (concave polygons today; SVG paths and
+MSDF glyph quads later), the CPU tessellates into screen-space triangles
+carrying a position + straight sRGB color, accumulated into one vertex buffer
+and drawn with a single `Draw`. Polygons use ear-clipping; clipping against
+the active rect uses Sutherland–Hodgman.
+
+### 3.3 `Textured.wgsl` — image quads
+
+Images are decoded on the CPU (ImageSharp → RGBA8), packed into a **texture
+atlas** (shelf packing, 1px gutter, half-texel UV inset) and drawn as
+screen-space quads carrying an atlas UV + a straight sRGB tint. One `Draw`
+renders every image. The atlas grows (doubles) and re-uploads on overflow,
+updating `Image2D` UV rects in place, so all images stay in a single bind
+group and a single draw call. Object-fit (stretch/contain/cover/center) is
+computed on the CPU before the quad is emitted.
 
 ## 4. C# structures and buffers
 
@@ -83,6 +93,8 @@ clipping against the active rect uses Sutherland–Hodgman.
 |---|---|---|
 | `SdfInstance` (288 B) | 18 `Vector4` — rect, matrix rows, color, params, gradient, 4 clips | `Storage | CopyDst`, one per shape |
 | `TriVertex` (24 B) | `Vector2` + `Vector4` | `Vertex | CopyDst`, one per triangle vertex |
+| `TexturedVertex` (32 B) | `Vector2` + `Vector2` uv + `Vector4` tint | `Vertex | CopyDst`, one per image quad vertex |
+| image atlas | `RGBA8` square texture (256→4096, shelf-packed) | `Sampled | CopyDst` |
 | unit quad | 6 × (position + uv) | `Vertex | CopyDst`, shared by all SDF instances |
 | viewport | `Vector4` (size, 1/size) | `Uniform | CopyDst` |
 | target / depth | RGBA8 + D24 | render targets, resized with the viewport |
@@ -106,6 +118,9 @@ renderer.DrawLine(a, b, width, color);
 renderer.DrawPolyline(points, width, color);
 renderer.DrawPolygon(points, color);
 renderer.DrawRect(rect, linearGradient);                // + radial gradients
+
+var image = renderer.LoadImage("ui/icon.png");          // PNG/JPEG/WebP
+renderer.DrawImage(rect, image, tint, ImageFit.Contain); // stretch/contain/cover/center
 
 renderer.PushClip(rect, radius); renderer.PopClip();
 renderer.PushTransform(matrix); renderer.PopTransform();
@@ -132,7 +147,7 @@ below replaces one Skia surface with a `Renderer2D` equivalent:
 | Dashed / dotted / double borders | distance along the outline `mod`-ed by the dash pattern | `SdfShape` (extend `params`) | next |
 | **Text** | glyph atlas + per-glyph quads (MSDF or SDF) in `TriMesh`; UTF-8 + kerning + wrapping measured on CPU | `TriMesh` + atlas | planned |
 | **SVG** | CPU parse → flatten paths → tessellate | `TriMesh` | planned |
-| **Images (PNG/JPEG/WebP)** | decode (ImageSharp) → texture atlas → image quads with object-fit | `TriMesh` | planned |
+| **Images (PNG/JPEG/WebP)** | decode (ImageSharp) → texture atlas → image quads with object-fit | `Textured` | ✅ done |
 | Box / inner / drop shadow | blurred SDF (mirror `Decorations.wgsl`) | `SdfShape` | planned |
 | CSS filters | compose onto an offscreen layer, then filter | new `Filter.wgsl` | planned |
 | Backdrop filter | sample the 3D scene texture (already in `Backdrop.wgsl`) | `Backdrop` | exists |

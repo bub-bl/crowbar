@@ -20,7 +20,10 @@ internal enum BatchKind : byte
     Sdf = 0,
 
     /// <summary>Tessellated triangles (polygons, future paths/text) — one <c>Draw</c>.</summary>
-    Triangles = 1
+    Triangles = 1,
+
+    /// <summary>Textured image quads sampling the atlas — one <c>Draw</c>.</summary>
+    Textured = 2
 }
 
 /// <summary>A contiguous run of <see cref="BatchKind"/> draw commands, in paint order.</summary>
@@ -81,6 +84,18 @@ internal struct TriVertex
 }
 
 /// <summary>
+/// One textured-quad vertex (screen-space position + atlas UV + straight sRGB
+/// tint). Mirrors <c>Shaders/Textured.wgsl</c>.
+/// </summary>
+[StructLayout(LayoutKind.Sequential)]
+internal struct TexturedVertex
+{
+    public Vector2 Position;
+    public Vector2 Uv;
+    public Vector4 Color;
+}
+
+/// <summary>
 /// A GPU-first 2D renderer: the drawing surface the UI framework (and the
 /// editor's overlays/gizmos/graphs) call instead of Skia. Drawing commands are
 /// recorded into reusable, pre-sized buffers and transformed into the smallest
@@ -103,6 +118,7 @@ public sealed class Renderer2D : IDisposable
 
     private const int SdfInstanceSize = 288; // 18 * 16 bytes
     private const int TriVertexSize = 24;    // vec2 + vec4
+    private const int TexturedVertexSize = 32; // vec2 + vec2 + vec4
 
     private readonly IGraphicsDevice? _device;
     private int _width = 1;
@@ -121,6 +137,7 @@ public sealed class Renderer2D : IDisposable
     // Recorded batches.
     private readonly List<SdfInstance> _instances = [];
     private readonly List<TriVertex> _triangles = [];
+    private readonly List<TexturedVertex> _textured = [];
     private readonly List<DrawCmd> _commands = [];
     private bool _runOpen;
     private BatchKind _runKind;
@@ -138,11 +155,17 @@ public sealed class Renderer2D : IDisposable
     private IBuffer? _quadBuffer;
     private IBuffer? _instanceBuffer;
     private IBuffer? _triangleBuffer;
+    private IBuffer? _texturedBuffer;
     private IBuffer? _viewportBuffer;
     private IPipeline? _sdfPipeline;
     private IPipeline? _trianglePipeline;
+    private IPipeline? _texturedPipeline;
     private IBindGroup? _sdfBindGroup;
     private IBindGroup? _triangleBindGroup;
+    private IBindGroup? _texturedBindGroup;
+    private ITexture? _atlasTextureBound;
+    private ISampler? _atlasSampler;
+    private TextureAtlas? _atlas;
 
     public Renderer2D(IGraphicsDevice? device = null) => _device = device;
 
@@ -158,15 +181,20 @@ public sealed class Renderer2D : IDisposable
     /// <summary>Number of tessellated triangle vertices recorded by the current frame.</summary>
     public int TriangleCount => _triangles.Count;
 
+    /// <summary>Number of textured-quad vertices recorded by the current frame.</summary>
+    public int TexturedCount => _textured.Count;
+
     /// <summary>Number of contiguous draw runs the current frame will emit (diagnostics/tests).</summary>
     public int BatchCount => _commands.Count + (_runOpen ? 1 : 0);
 
     // Internal access for unit tests and in-process diagnostics.
     internal IReadOnlyList<SdfInstance> Instances => _instances;
     internal IReadOnlyList<TriVertex> Triangles => _triangles;
+    internal IReadOnlyList<TexturedVertex> TexturedVerts => _textured;
     internal IReadOnlyList<DrawCmd> Commands => _commands;
     internal int InstanceCapacity => _instances.Capacity;
     internal int TriangleCapacity => _triangles.Capacity;
+    internal int TexturedCapacity => _textured.Capacity;
     internal int CommandCapacity => _commands.Capacity;
     internal Matrix3x2 CurrentTransform => _current;
 
@@ -190,6 +218,7 @@ public sealed class Renderer2D : IDisposable
         _recording = true;
         _instances.Clear();
         _triangles.Clear();
+        _textured.Clear();
         _commands.Clear();
         _transforms.Clear();
         _transformTop = -1;
@@ -270,6 +299,87 @@ public sealed class Renderer2D : IDisposable
     /// </summary>
     public void DrawPolygon(ReadOnlySpan<Vector2> points, ColorF color) =>
         EmitPolygon(points, color.ToVector4());
+
+    // ---------------------------------------------------------------------
+    // Images
+    // ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Registers an image with the renderer (uploaded into the shared texture
+    /// atlas) and returns a reusable handle. Only valid while recording is not
+    /// in progress; registering during a frame is not supported.
+    /// </summary>
+    public Image2D RegisterImage(Texture2D texture)
+    {
+        if (_recording)
+            throw new InvalidOperationException("Images must be registered outside of Begin/End.");
+        _atlas ??= new TextureAtlas(_device);
+        return _atlas.Add(texture);
+    }
+
+    /// <summary>Decodes an image file (PNG, JPEG, WebP) and registers it (see <see cref="RegisterImage"/>).</summary>
+    public Image2D LoadImage(string path) => RegisterImage(Texture2D.Load(path));
+
+    /// <summary>
+    /// Draws an image into <paramref name="dest"/> fitted per
+    /// <paramref name="fit"/>, tinted by <paramref name="tint"/> (white = no
+    /// tint). The quad joins the textured batch, so all images render in one
+    /// draw call. <see cref="ImageFit.Cover"/> overflows the rect; clip it
+    /// with <see cref="PushClip"/> to crop.
+    /// </summary>
+    public void DrawImage(RectF dest, Image2D image, ColorF tint, ImageFit fit = ImageFit.Stretch)
+    {
+        if (image.IsDisposed || tint.A <= 0f || dest.IsEmpty)
+            return;
+
+        var fitted = FitRect(dest, image.Width, image.Height, fit);
+        var p0 = Vector2.Transform(fitted.TopLeft, _current);
+        var p1 = Vector2.Transform(new Vector2(fitted.Right, fitted.Y), _current);
+        var p2 = Vector2.Transform(fitted.BottomRight, _current);
+        var p3 = Vector2.Transform(new Vector2(fitted.X, fitted.Bottom), _current);
+        var uv = image.UvRect;
+        var color = tint.ToVector4();
+        var u0 = new Vector2(uv.X, uv.Y);
+        var u1 = new Vector2(uv.Right, uv.Y);
+        var u2 = new Vector2(uv.Right, uv.Bottom);
+        var u3 = new Vector2(uv.X, uv.Bottom);
+
+        EnsureRun(BatchKind.Textured);
+        _textured.Add(new TexturedVertex { Position = p0, Uv = u0, Color = color });
+        _textured.Add(new TexturedVertex { Position = p1, Uv = u1, Color = color });
+        _textured.Add(new TexturedVertex { Position = p2, Uv = u2, Color = color });
+        _textured.Add(new TexturedVertex { Position = p0, Uv = u0, Color = color });
+        _textured.Add(new TexturedVertex { Position = p2, Uv = u2, Color = color });
+        _textured.Add(new TexturedVertex { Position = p3, Uv = u3, Color = color });
+    }
+
+    private static RectF FitRect(RectF dest, float imageWidth, float imageHeight, ImageFit fit)
+    {
+        if (imageWidth <= 0 || imageHeight <= 0)
+            return dest;
+        switch (fit)
+        {
+            case ImageFit.Stretch:
+                return dest;
+            case ImageFit.Contain:
+            {
+                var scale = Math.Min(dest.Width / imageWidth, dest.Height / imageHeight);
+                return CenterRect(dest, imageWidth * scale, imageHeight * scale);
+            }
+            case ImageFit.Cover:
+            {
+                var scale = Math.Max(dest.Width / imageWidth, dest.Height / imageHeight);
+                return CenterRect(dest, imageWidth * scale, imageHeight * scale);
+            }
+            case ImageFit.Center:
+                return CenterRect(dest, imageWidth, imageHeight);
+            default:
+                return dest;
+        }
+    }
+
+    private static RectF CenterRect(RectF dest, float width, float height) =>
+        new(dest.X + (dest.Width - width) * 0.5f, dest.Y + (dest.Height - height) * 0.5f, width, height);
 
     // ---------------------------------------------------------------------
     // Gradients
@@ -647,7 +757,12 @@ public sealed class Renderer2D : IDisposable
         _runStart = RunLength(kind);
     }
 
-    private int RunLength(BatchKind kind) => kind == BatchKind.Sdf ? _instances.Count : _triangles.Count;
+    private int RunLength(BatchKind kind) => kind switch
+    {
+        BatchKind.Sdf => _instances.Count,
+        BatchKind.Triangles => _triangles.Count,
+        _ => _textured.Count
+    };
 
     // ---------------------------------------------------------------------
     // GPU backend (internal; WebGPU never leaks to callers)
@@ -701,6 +816,26 @@ public sealed class Renderer2D : IDisposable
         [
             new BindGroupBinding { Slot = 0, Buffer = _viewportBuffer, BufferSize = 16 }
         ]);
+
+        _texturedPipeline ??= CreateTexturedPipeline();
+        EnsureTexturedBuffer();
+        _atlasSampler ??= _device.CreateSampler(new SamplerDescription());
+        // The atlas texture may have been replaced (grown); rebind when it did.
+        if (_atlas is not null)
+        {
+            if (_atlasTextureBound != _atlas.Texture)
+            {
+                _texturedBindGroup?.Dispose();
+                _texturedBindGroup = null;
+            }
+            _texturedBindGroup ??= _texturedPipeline.CreateBindGroup(
+            [
+                new BindGroupBinding { Slot = 0, Texture = _atlas.Texture },
+                new BindGroupBinding { Slot = 1, Sampler = _atlasSampler },
+                new BindGroupBinding { Slot = 2, Buffer = _viewportBuffer, BufferSize = 16 }
+            ]);
+            _atlasTextureBound = _atlas.Texture;
+        }
     }
 
     private IPipeline CreateSdfPipeline()
@@ -766,6 +901,40 @@ public sealed class Renderer2D : IDisposable
         });
     }
 
+    private IPipeline CreateTexturedPipeline()
+    {
+        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Textured.wgsl"));
+        return _device!.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = source,
+            VertexEntryPoint = "vs_main",
+            FragmentEntryPoint = "fs_main",
+            ColorFormat = TextureFormat.Rgba8Unorm,
+            DepthFormat = TextureFormat.Depth24Plus,
+            AlphaBlend = true,
+            DepthWriteEnabled = false,
+            DepthCompare = CompareFunction.Always,
+            VertexLayout = new VertexBufferLayoutDescription
+            {
+                Stride = TexturedVertexSize,
+                Attributes =
+                [
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 },
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 },
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x4, Offset = 4 * sizeof(float), ShaderLocation = 2 }
+                ]
+            },
+            BindGroups =
+            [
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment },
+                    new BindGroupLayoutBinding { Slot = 2, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                ]
+            ]
+        });
+    }
+
     private IBuffer CreateQuadBuffer()
     {
         // Unit quad (position + uv), six vertices, used by every SDF instance.
@@ -819,6 +988,19 @@ public sealed class Renderer2D : IDisposable
         });
     }
 
+    private void EnsureTexturedBuffer()
+    {
+        var required = (ulong)Math.Max(1, _textured.Count) * (ulong)TexturedVertexSize;
+        if (_texturedBuffer is not null && _texturedBuffer.Size >= required)
+            return;
+        _texturedBuffer?.Dispose();
+        _texturedBuffer = _device!.CreateBuffer(new BufferDescription
+        {
+            Size = Math.Max(required, (ulong)TexturedVertexSize),
+            Usage = BufferUsage.Vertex | BufferUsage.CopyDst
+        });
+    }
+
     private void Upload()
     {
         if (_instances.Count > 0)
@@ -830,6 +1012,11 @@ public sealed class Renderer2D : IDisposable
         {
             var span = CollectionsMarshal.AsSpan(_triangles);
             _triangleBuffer!.Write(MemoryMarshal.AsBytes(span));
+        }
+        if (_textured.Count > 0)
+        {
+            var span = CollectionsMarshal.AsSpan(_textured);
+            _texturedBuffer!.Write(MemoryMarshal.AsBytes(span));
         }
         _viewportBuffer!.Write(new Vector4(_width, _height, 1f / _width, 1f / _height));
     }
@@ -871,6 +1058,17 @@ public sealed class Renderer2D : IDisposable
                 pass.SetVertexBuffer(_quadBuffer!, (ulong)(6 * 4 * sizeof(float)));
                 pass.DrawInstanced(6, (uint)command.Count);
             }
+            else if (command.Kind == BatchKind.Textured)
+            {
+                if (currentPipeline != _texturedPipeline)
+                {
+                    pass.SetPipeline(_texturedPipeline!);
+                    pass.SetBindGroup(_texturedBindGroup!, 0);
+                    currentPipeline = _texturedPipeline;
+                }
+                pass.SetVertexBuffer(_texturedBuffer!, _texturedBuffer!.Size);
+                pass.Draw((uint)command.Count);
+            }
             else
             {
                 if (currentPipeline != _trianglePipeline)
@@ -898,11 +1096,16 @@ public sealed class Renderer2D : IDisposable
         _quadBuffer?.Dispose();
         _instanceBuffer?.Dispose();
         _triangleBuffer?.Dispose();
+        _texturedBuffer?.Dispose();
         _viewportBuffer?.Dispose();
         _sdfPipeline?.Dispose();
         _trianglePipeline?.Dispose();
+        _texturedPipeline?.Dispose();
         _sdfBindGroup?.Dispose();
         _triangleBindGroup?.Dispose();
+        _texturedBindGroup?.Dispose();
+        _atlasSampler?.Dispose();
+        _atlas?.Dispose();
     }
 
     /// <summary>Packed gradient parameters baked inline per shape.</summary>
