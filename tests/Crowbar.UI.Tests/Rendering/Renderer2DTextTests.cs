@@ -138,6 +138,31 @@ public class Renderer2DTextTests
     }
 
     [Fact]
+    public void DrawText_ReplayShiftsQuadsByPosition()
+    {
+        var renderer = new Renderer2D();
+        renderer.Begin(400, 200);
+        renderer.DrawText("Hello", new Vector2(10, 10), 20f, ColorF.White);
+        renderer.End();
+        var first = renderer.TexturedVerts.ToArray();
+        Assert.NotEmpty(first);
+
+        // Second draw of the same text at a different position must replay the
+        // cached shaped run (no SixLabors re-shaping) and land exactly dx/dy
+        // away from the first draw.
+        renderer.Begin(400, 200);
+        renderer.DrawText("Hello", new Vector2(35, 60), 20f, ColorF.White);
+        renderer.End();
+        var second = renderer.TexturedVerts.ToArray();
+        Assert.Equal(first.Length, second.Length);
+        for (var i = 0; i < first.Length; i++)
+        {
+            Assert.Equal(first[i].Position.X + 25f, second[i].Position.X, 3);
+            Assert.Equal(first[i].Position.Y + 50f, second[i].Position.Y, 3);
+        }
+    }
+
+    [Fact]
     public void DrawText_BakesColorIntoQuads()
     {
         var renderer = new Renderer2D();

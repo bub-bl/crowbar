@@ -322,6 +322,48 @@ public sealed class Renderer2D : IDisposable
     private readonly FontManager _fontManager = new();
     private readonly GlyphCollector _glyphCollector;
     private TextureAtlas? _glyphAtlas;
+
+    // Shaped text-run cache. SixLabors shaping/layout/outline-flattening is
+    // deterministic per (text, font, size, typography), so a repaint of the
+    // same text re-emits the cached glyph quads instead of re-running the
+    // shaper (which was the dominant per-frame cost in the profiler). The
+    // per-glyph SDF cells stay cached in _glyphCache; this cache only stores
+    // the laid-out quad positions.
+    private readonly Dictionary<TextRunKey, ShapedRun> _textRunCache = [];
+    private List<ShapedGlyphPlacement>? _runRecording;
+    private Vector2 _runOrigin; // text-space origin of the run being recorded
+    private const int TextRunCacheCap = 1024;
+    private readonly record struct TextRunKey(
+        string Text, string FontKey, int SizeKey,
+        float MaxWidth, float LineHeight, float LetterSpacing, int Align);
+    private sealed class ShapedRun
+    {
+        public required float OriginOffsetX;
+        public required ShapedGlyphPlacement[] Glyphs;
+    }
+    private readonly struct ShapedGlyphPlacement
+    {
+        public readonly ushort GlyphId;
+        public readonly float X0, Y0, X1, Y1;
+        public ShapedGlyphPlacement(ushort glyphId, float x0, float y0, float x1, float y1)
+        {
+            GlyphId = glyphId; X0 = x0; Y0 = y0; X1 = x1; Y1 = y1;
+        }
+    }
+
+    // Measure cache for MeasureText: the painter measures every text panel on
+    // every repaint (centering, selection, caret), so cache the advance width.
+    private readonly Dictionary<(string Text, string FontKey, int SizeKey, float LetterSpacing), float> _measureCache = [];
+    private const int MeasureCacheCap = 4096;
+
+    // SVG fill tessellation cache: the transformed + clipped + triangulated
+    // triangles of an icon are deterministic per (shape, transform, clip), so
+    // a repaint of the same icon re-emits them instead of re-tessellating
+    // (EvenOddTriangulator.Triangulate was ~9% of the profile). The color is
+    // applied at emit time, so only positions are cached.
+    private readonly Dictionary<SvgFillCacheKey, List<Vector2>> _svgFillCache = [];
+    private const int SvgFillCacheCap = 512;
+    private readonly record struct SvgFillCacheKey(SvgShape Shape, int ElementIndex, Matrix3x2 Transform, RectF Clip, bool Clipped);
     private IPipeline? _glyphPipeline;
     private IBindGroup? _glyphBindGroup;
     private ITexture? _glyphTextureBound;
@@ -635,10 +677,11 @@ public sealed class Renderer2D : IDisposable
         PushTranslate(offset);
         PushScale(scale);
 
-        foreach (var element in svg.Elements)
+        for (var elementIndex = 0; elementIndex < svg.Elements.Count; elementIndex++)
         {
+            var element = svg.Elements[elementIndex];
             if (element.Fill.Kind != SvgPaintKind.None)
-                EmitSvgFill(element.Contours, ResolvePaint(element.Fill, tint));
+                EmitSvgFill(svg, elementIndex, element.Contours, ResolvePaint(element.Fill, tint));
             if (element.Stroke.Kind != SvgPaintKind.None)
                 EmitSvgStroke(element.Contours, element.StrokeWidth, ResolvePaint(element.Stroke, tint));
         }
@@ -650,8 +693,19 @@ public sealed class Renderer2D : IDisposable
     private static ColorF ResolvePaint(SvgPaint paint, ColorF tint) =>
         paint.Kind == SvgPaintKind.Literal ? paint.Color : tint;
 
-    private void EmitSvgFill(List<SvgContour> contours, ColorF color)
+    private void EmitSvgFill(SvgShape shape, int elementIndex, List<SvgContour> contours, ColorF color)
     {
+        var clipped = _clips.Count > 0;
+        var clip = clipped ? CurrentScreenClip() : default;
+        var key = new SvgFillCacheKey(shape, elementIndex, _current, clip, clipped);
+        if (_svgFillCache.TryGetValue(key, out var cached))
+        {
+            var colorVector = color.ToVector4();
+            for (var i = 0; i + 2 < cached.Count; i += 3)
+                EmitTriangle(cached[i], cached[i + 1], cached[i + 2], colorVector);
+            return;
+        }
+
         var screenContours = new List<List<Vector2>>(contours.Count);
         foreach (var contour in contours)
         {
@@ -662,9 +716,9 @@ public sealed class Renderer2D : IDisposable
             foreach (var point in contour.Points)
                 transformed.Add(Vector2.Transform(point, _current));
 
-            if (_clips.Count > 0)
+            if (clipped)
             {
-                transformed = ClipToRect(transformed, CurrentScreenClip());
+                transformed = ClipToRect(transformed, clip);
                 if (transformed.Count < 3)
                     continue;
             }
@@ -674,9 +728,16 @@ public sealed class Renderer2D : IDisposable
         _svgTriangles.Clear();
         EvenOddTriangulator.Triangulate(screenContours, _svgTriangles);
 
-        var colorVector = color.ToVector4();
+        if (_svgTriangles.Count > 0)
+        {
+            if (_svgFillCache.Count >= SvgFillCacheCap)
+                _svgFillCache.Clear();
+            _svgFillCache[key] = [.. _svgTriangles];
+        }
+
+        var emittedColor = color.ToVector4();
         for (var i = 0; i + 2 < _svgTriangles.Count; i += 3)
-            EmitTriangle(_svgTriangles[i], _svgTriangles[i + 1], _svgTriangles[i + 2], colorVector);
+            EmitTriangle(_svgTriangles[i], _svgTriangles[i + 1], _svgTriangles[i + 2], emittedColor);
     }
 
     private void EmitSvgStroke(List<SvgContour> contours, float strokeWidth, ColorF color)
@@ -735,6 +796,19 @@ public sealed class Renderer2D : IDisposable
             return;
 
         var resolved = _fontManager.Resolve(style.Family, style.Weight);
+        var sizeKey = (int)MathF.Round(style.FontSize);
+        var runKey = new TextRunKey(text, resolved.Key, sizeKey, style.MaxWidth, style.LineHeight, style.LetterSpacing, (int)style.Align);
+
+        // Repaint fast path: the laid-out glyph positions for this exact
+        // (text, font, size, typography) were cached the first time it was
+        // drawn. Replay the quads — no SixLabors shaping, no outline
+        // flattening, no measurement.
+        if (_textRunCache.TryGetValue(runKey, out var run))
+        {
+            ReplayShapedRun(run, position, style, resolved.Key, sizeKey);
+            return;
+        }
+
         var options = new TextOptions(resolved.CreateFont(style.FontSize))
         {
             Dpi = 72,
@@ -750,26 +824,28 @@ public sealed class Renderer2D : IDisposable
         if (style.LetterSpacing != 0f)
             options.Tracking = style.LetterSpacing / style.FontSize;
 
+        var originOffsetX = 0f;
         if (style.Align != TextAlign.Left)
         {
             options.TextAlignment = style.Align == TextAlign.Center ? TextAlignment.Center : TextAlignment.End;
             if (style.MaxWidth > 0f)
             {
                 var advance = TextMeasurer.MeasureAdvance(text, options).Width;
-                var offset = style.Align == TextAlign.Center ? (style.MaxWidth - advance) * 0.5f : style.MaxWidth - advance;
-                options.Origin = new Vector2(position.X + offset, position.Y);
+                originOffsetX = style.Align == TextAlign.Center ? (style.MaxWidth - advance) * 0.5f : style.MaxWidth - advance;
             }
-            else
-            {
-                options.Origin = position;
-            }
+            options.Origin = new Vector2(position.X + originOffsetX, position.Y);
         }
         else
         {
             options.Origin = position;
         }
 
-        var sizeKey = (int)MathF.Round(style.FontSize);
+        // Record the laid-out quads while shaping (the shadow pass emits the
+        // same layout, so record only on the main pass to avoid duplicates).
+        // Placements are stored relative to the text origin so a replay at a
+        // different position re-positions the whole run.
+        _runRecording = [];
+        _runOrigin = options.Origin;
         if (style.ShadowColor.A > 0f)
         {
             // Shadow pass first, so every shadow paints under every glyph.
@@ -778,6 +854,83 @@ public sealed class Renderer2D : IDisposable
         }
         _glyphCollector.Configure(style.Color, style.ShadowOffset, style.ShadowBlur, style.ShadowColor, resolved.Key, sizeKey, emitMain: true, emitShadow: false);
         TextRenderer.RenderTo(_glyphCollector, text, options);
+
+        var recorded = _runRecording;
+        _runRecording = null;
+        if (recorded is { Count: > 0 })
+        {
+            if (_textRunCache.Count >= TextRunCacheCap)
+                _textRunCache.Clear();
+            _textRunCache[runKey] = new ShapedRun { OriginOffsetX = originOffsetX, Glyphs = recorded.ToArray() };
+        }
+    }
+
+    /// <summary>
+    /// Re-emits the quads of a previously shaped run at <paramref name="position"/>.
+    /// The SDF cells are already in the glyph atlas, so this only re-emits the
+    /// vertex data — the shadow pass (if any) first, then the main pass, in the
+    /// same order the first shape produced.
+    /// </summary>
+    private void ReplayShapedRun(ShapedRun run, Vector2 position, in TextStyle style, string fontKey, int sizeKey)
+    {
+        var originX = position.X + run.OriginOffsetX;
+        var originY = position.Y;
+
+        if (style.ShadowColor.A > 0f)
+        {
+            var softness = (0.75f + MathF.Max(style.ShadowBlur, 0f)) * GlyphRasterizer.Scale;
+            var shadowVector = style.ShadowColor.ToVector4();
+            var ox = style.ShadowOffset.X;
+            var oy = style.ShadowOffset.Y;
+            foreach (var glyph in run.Glyphs)
+            {
+                if (!_glyphCache.TryGetValue((fontKey, sizeKey, glyph.GlyphId), out var entry))
+                    continue;
+                var uv = entry.Atlas.UvRect;
+                var u0 = new Vector2(uv.X, uv.Y);
+                var u1 = new Vector2(uv.Right, uv.Y);
+                var u2 = new Vector2(uv.Right, uv.Bottom);
+                var u3 = new Vector2(uv.X, uv.Bottom);
+                var x0 = originX + glyph.X0;
+                var y0 = originY + glyph.Y0;
+                var x1 = originX + glyph.X1;
+                var y1 = originY + glyph.Y1;
+                var shadowIndex = _glyphShadows.Count;
+                EnsureRun(BatchKind.GlyphShadow);
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y0 + oy), Uv = u0, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y0 + oy), Uv = u1, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y1 + oy), Uv = u2, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y0 + oy), Uv = u0, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y1 + oy), Uv = u2, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y1 + oy), Uv = u3, Color = shadowVector, Softness = softness });
+                _glyphShadowPatches.Add(new GlyphPatch(shadowIndex, entry.Atlas));
+            }
+        }
+
+        var colorVector = style.Color.ToVector4();
+        foreach (var glyph in run.Glyphs)
+        {
+            if (!_glyphCache.TryGetValue((fontKey, sizeKey, glyph.GlyphId), out var entry))
+                continue;
+            var uv = entry.Atlas.UvRect;
+            var u0 = new Vector2(uv.X, uv.Y);
+            var u1 = new Vector2(uv.Right, uv.Y);
+            var u2 = new Vector2(uv.Right, uv.Bottom);
+            var u3 = new Vector2(uv.X, uv.Bottom);
+            var x0 = originX + glyph.X0;
+            var y0 = originY + glyph.Y0;
+            var x1 = originX + glyph.X1;
+            var y1 = originY + glyph.Y1;
+            var quadIndex = _textured.Count;
+            EnsureRun(BatchKind.Glyph);
+            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = u0, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y0), Uv = u1, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = u2, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = u0, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = u2, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y1), Uv = u3, Color = colorVector });
+            _glyphPatches.Add(new GlyphPatch(quadIndex, entry.Atlas));
+        }
     }
 
     /// <summary>
@@ -808,6 +961,16 @@ public sealed class Renderer2D : IDisposable
             _glyphAtlas ??= new TextureAtlas(_device);
             entry = new GlyphEntry(_glyphAtlas.Add(GlyphRasterizer.Rasterize(edges, min, inkWidth, inkHeight)));
             _glyphCache[key] = entry;
+        }
+
+        if (emitMain && _runRecording is not null)
+        {
+            _runRecording.Add(new ShapedGlyphPlacement(
+                glyphId,
+                min.X - GlyphRasterizer.Padding - _runOrigin.X,
+                min.Y - GlyphRasterizer.Padding - _runOrigin.Y,
+                min.X - GlyphRasterizer.Padding + entry.Atlas.Width / GlyphRasterizer.Scale - _runOrigin.X,
+                min.Y - GlyphRasterizer.Padding + entry.Atlas.Height / GlyphRasterizer.Scale - _runOrigin.Y));
         }
 
         var uv = entry.Atlas.UvRect;
@@ -933,6 +1096,11 @@ public sealed class Renderer2D : IDisposable
         if (string.IsNullOrEmpty(text))
             return 0f;
         var resolved = _fontManager.Resolve(style.Family, style.Weight);
+        var sizeKey = (int)MathF.Round(style.FontSize);
+        var key = (text, resolved.Key, sizeKey, style.LetterSpacing);
+        if (_measureCache.TryGetValue(key, out var cached))
+            return cached;
+
         var options = new TextOptions(resolved.CreateFont(style.FontSize))
         {
             Dpi = 72,
@@ -941,7 +1109,11 @@ public sealed class Renderer2D : IDisposable
         };
         if (style.LetterSpacing != 0f)
             options.Tracking = style.LetterSpacing / style.FontSize;
-        return TextMeasurer.MeasureAdvance(text, options).Width;
+        var width = TextMeasurer.MeasureAdvance(text, options).Width;
+        if (_measureCache.Count >= MeasureCacheCap)
+            _measureCache.Clear();
+        _measureCache[key] = width;
+        return width;
     }
 
     // ---------------------------------------------------------------------

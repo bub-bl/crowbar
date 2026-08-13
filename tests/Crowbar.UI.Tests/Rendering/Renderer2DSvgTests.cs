@@ -44,6 +44,33 @@ public class Renderer2DSvgTests
     }
 
     [Fact]
+    public void DrawSvg_ReplayEmitsSameTriangles()
+    {
+        var renderer = new Renderer2D();
+        var svg = SvgDocumentParser.Parse(
+            "<svg viewBox='0 0 10 10' fill='currentColor'><rect width='10' height='10'/></svg>");
+
+        renderer.Begin(200, 200);
+        renderer.DrawSvg(svg, new RectF(50, 50, 100, 100), ColorF.FromRgba(255, 0, 0));
+        renderer.End();
+        var first = renderer.Triangles.ToArray();
+        Assert.True(first.Length >= 6);
+
+        // Same svg, same dest, same transform: the cached tessellation replays
+        // the identical triangles (no re-tessellation) with the new tint.
+        renderer.Begin(200, 200);
+        renderer.DrawSvg(svg, new RectF(50, 50, 100, 100), ColorF.White);
+        renderer.End();
+        var second = renderer.Triangles.ToArray();
+        Assert.Equal(first.Length, second.Length);
+        for (var i = 0; i < first.Length; i++)
+        {
+            Assert.Equal(first[i].Position.X, second[i].Position.X, 3);
+            Assert.Equal(first[i].Position.Y, second[i].Position.Y, 3);
+        }
+    }
+
+    [Fact]
     public void ContainScaling_CentersViewBox()
     {
         var renderer = new Renderer2D();
