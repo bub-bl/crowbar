@@ -7,6 +7,15 @@ namespace Crowbar.Engine.Rendering;
 public interface IRenderPass : IDisposable
 {
     void SetPipeline(IPipeline pipeline);
+
+    /// <summary>
+    /// Sets the viewport transform (NDC → pixel) and the scissor rect for the
+    /// pass. Pixel-space, top-left origin; the scissor clips every subsequent
+    /// draw (and clear when the backend applies it) to this rectangle.
+    /// </summary>
+    void SetViewport(float x, float y, float width, float height);
+    void SetScissorRect(uint x, uint y, uint width, uint height);
+
     void SetBindGroup(IBindGroup bindGroup, uint groupIndex = 0);
     void SetVertexBuffer(IBuffer buffer, ulong size);
     void SetIndexBuffer(IBuffer buffer, ulong size);

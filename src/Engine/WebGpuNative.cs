@@ -34,6 +34,12 @@ internal static unsafe class WebGpuNative
     internal static void SetPipeline(WebGPU api, WebGpuRenderPassEncoder pass, Silk.NET.WebGPU.RenderPipeline* pipeline) =>
         api.RenderPassEncoderSetPipeline((RenderPassEncoder*)pass.NativeHandle, pipeline);
 
+    internal static void SetViewport(WebGPU api, WebGpuRenderPassEncoder pass, float x, float y, float width, float height) =>
+        api.RenderPassEncoderSetViewport((RenderPassEncoder*)pass.NativeHandle, x, y, width, height, 0f, 1f);
+
+    internal static void SetScissorRect(WebGPU api, WebGpuRenderPassEncoder pass, uint x, uint y, uint width, uint height) =>
+        api.RenderPassEncoderSetScissorRect((RenderPassEncoder*)pass.NativeHandle, x, y, width, height);
+
     internal static void SetBindGroup(WebGPU api, WebGpuRenderPassEncoder pass, BindGroup* bindGroup, uint groupIndex) =>
         api.RenderPassEncoderSetBindGroup((RenderPassEncoder*)pass.NativeHandle, groupIndex,
             bindGroup, 0, null);

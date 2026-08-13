@@ -28,6 +28,18 @@ public sealed unsafe class WebGpuRenderPass : IRenderPass
         _runtime.SetPipeline(_handle, (WebGpuPipeline)pipeline);
     }
 
+    public void SetViewport(float x, float y, float width, float height)
+    {
+        EnsureActive();
+        _runtime.SetViewport(_handle, x, y, width, height);
+    }
+
+    public void SetScissorRect(uint x, uint y, uint width, uint height)
+    {
+        EnsureActive();
+        _runtime.SetScissorRect(_handle, x, y, width, height);
+    }
+
     public void SetBindGroup(IBindGroup bindGroup, uint groupIndex = 0)
     {
         EnsureActive();

@@ -43,6 +43,12 @@ public sealed class WebGpuRuntime : IDisposable
     internal void SetPipeline(WebGpuRenderPassEncoder pass, WebGpuPipeline pipeline) =>
         WebGpuNative.SetPipeline(Api, pass, pipeline.Pipeline);
 
+    internal void SetViewport(WebGpuRenderPassEncoder pass, float x, float y, float width, float height) =>
+        WebGpuNative.SetViewport(Api, pass, x, y, width, height);
+
+    internal void SetScissorRect(WebGpuRenderPassEncoder pass, uint x, uint y, uint width, uint height) =>
+        WebGpuNative.SetScissorRect(Api, pass, x, y, width, height);
+
     internal void SetBindGroup(WebGpuRenderPassEncoder pass, WebGpuBindGroup bindGroup, uint groupIndex) =>
         WebGpuNative.SetBindGroup(Api, pass, bindGroup.BindGroup, groupIndex);
 

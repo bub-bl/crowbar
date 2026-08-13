@@ -96,6 +96,24 @@ public sealed class Renderer : IDisposable
     private int _height;
     private bool _disposed;
 
+    // The rectangle of the surface (in framebuffer pixels, top-left origin)
+    // the 3D scene renders into. The host (the editor) points it at its 3D
+    // viewport panel; null means "fill the whole window" (the pre-viewport
+    // behaviour, still correct for a game-only host).
+    private UiRect? _sceneViewport;
+
+    private UiRect SceneViewport =>
+        _sceneViewport is { Width: > 0, Height: > 0 } viewport
+            ? viewport
+            : new UiRect(0, 0, _width, _height);
+
+    /// <summary>
+    /// Sets the on-surface rectangle the 3D scene renders into (framebuffer
+    /// pixels, top-left origin). Pass null to fill the whole window, which is
+    /// the default and the right choice for a host without a docked viewport.
+    /// </summary>
+    public void SetSceneViewport(UiRect? viewport) => _sceneViewport = viewport;
+
     // Camera: the per-frame view/projection/position, written into the shared
     // scene buffer each frame.
     private SceneUniforms _scene;
@@ -225,6 +243,8 @@ public sealed class Renderer : IDisposable
 
         UpdateCamera(camera);
 
+        var viewport = SceneViewport;
+
         ITexture? frame = _device.Swapchain.AcquireTexture();
         if (frame is null)
             return;
@@ -254,9 +274,14 @@ public sealed class Renderer : IDisposable
             };
             using (IRenderPass scenePass = commandBuffer.BeginRenderPass(scenePassDescription))
             {
+                // The 3D scene renders only inside the host's viewport
+                // rectangle. The load-op clear above covers the whole texture
+                // (scissors do not clip it), so the area outside the viewport
+                // stays the clear color while the viewport holds the scene.
+                ApplySceneViewport(scenePass, viewport);
                 DrawMeshRenderers(scenePass, world, time);
                 DrawGrid(scenePass);
-                Gizmos.Draw(scenePass, world, camera, _width, _height);
+                Gizmos.Draw(scenePass, world, camera, (int)viewport.Width, (int)viewport.Height);
             }
 
             // Pass 1b: render the selected entity into the selection mask
@@ -283,6 +308,7 @@ public sealed class Renderer : IDisposable
                     }
                 }))
                 {
+                    ApplySceneViewport(maskPass, viewport);
                     DrawSelectionMask(maskPass);
                 }
             }
@@ -418,7 +444,8 @@ public sealed class Renderer : IDisposable
 
     private void UpdateCamera(Camera camera)
     {
-        float aspect = Math.Max(1, _width) / (float)Math.Max(1, _height);
+        var viewport = SceneViewport;
+        float aspect = Math.Max(1, viewport.Width) / (float)Math.Max(1, viewport.Height);
         _scene = new SceneUniforms
         {
             View = camera.ViewMatrix,
@@ -426,6 +453,22 @@ public sealed class Renderer : IDisposable
             CameraPosition = new Vector4(camera.Position, 1f),
             Time = new Vector4(0f, 0f, 0f, 0f)
         };
+    }
+
+    /// <summary>
+    /// Constrains a 3D pass (scene or selection mask) to the host's viewport
+    /// rectangle, clamped to the framebuffer so a partially off-screen panel
+    /// (mid-drag dock layout) never produces an out-of-bounds scissor.
+    /// </summary>
+    private void ApplySceneViewport(IRenderPass pass, UiRect viewport)
+    {
+        var x = Math.Max(0, viewport.X);
+        var y = Math.Max(0, viewport.Y);
+        var width = Math.Max(1, Math.Min(_width, viewport.X + Math.Max(1, viewport.Width)) - x);
+        var height = Math.Max(1, Math.Min(_height, viewport.Y + Math.Max(1, viewport.Height)) - y);
+
+        pass.SetViewport(x, y, width, height);
+        pass.SetScissorRect((uint)x, (uint)y, (uint)width, (uint)height);
     }
 
     private void CreateMeshResources()
