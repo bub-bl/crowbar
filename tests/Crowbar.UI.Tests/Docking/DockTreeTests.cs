@@ -68,6 +68,29 @@ public class DockTreeTests
     }
 
     [Fact]
+    public void MoveTabReordersTabsAndActivatesTheMovedTab()
+    {
+        var tree = SimpleTree();
+        tree.MoveTab("c", "right", 0);
+
+        var right = tree.FindGroup("right")!;
+        Assert.Equal(new[] { "c", "b" }, right.Tabs);
+        Assert.Equal("c", right.ActiveTab);
+        Assert.Equal("right", tree.GroupOf("c")?.Id);
+    }
+
+    [Fact]
+    public void MoveTabAdjustsInsertionWhenMovingForwardWithinTheSameGroup()
+    {
+        var tree = SimpleTree();
+        tree.MoveTab("b", "right", 2); // Drop after c, using the pre-move slot.
+
+        var right = tree.FindGroup("right")!;
+        Assert.Equal(new[] { "c", "b" }, right.Tabs);
+        Assert.Equal("b", right.ActiveTab);
+    }
+
+    [Fact]
     public void DockToSplitWrapsTargetWithItemOnRequestedSide()
     {
         var tree = SimpleTree();

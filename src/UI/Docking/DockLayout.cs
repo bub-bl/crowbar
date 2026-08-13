@@ -140,6 +140,42 @@ public sealed class DockTree
         else group.Active = Math.Clamp(group.Active, 0, group.Tabs.Count - 1);
     }
 
+    /// <summary>
+    /// Moves an item to a specific tab slot. The target index is measured in
+    /// the target group's order before the source item is removed; this makes
+    /// drop-before/drop-after hit testing stable even when source and target
+    /// are the same group.
+    /// </summary>
+    public void MoveTab(string itemId, string targetGroupId, int targetIndex)
+    {
+        var source = GroupOf(itemId);
+        var target = FindGroup(targetGroupId);
+        if (source is null || target is null)
+        {
+            if (source is null) ParkAtRoot(itemId);
+            return;
+        }
+
+        var sourceIndex = source.Tabs.IndexOf(itemId);
+        if (sourceIndex < 0) return;
+        source.Tabs.RemoveAt(sourceIndex);
+        if (ReferenceEquals(source, target) && sourceIndex < targetIndex) targetIndex--;
+
+        if (source.Tabs.Count == 0) Detach(source);
+        else source.Active = Math.Clamp(source.Active, 0, source.Tabs.Count - 1);
+
+        target = FindGroup(targetGroupId);
+        if (target is null)
+        {
+            ParkAtRoot(itemId);
+            return;
+        }
+
+        targetIndex = Math.Clamp(targetIndex, 0, target.Tabs.Count);
+        target.Tabs.Insert(targetIndex, itemId);
+        target.Active = targetIndex;
+    }
+
     /// <summary>Docks the item into the target group as a new (active) tab.</summary>
     public void DockToTab(string itemId, string targetGroupId)
     {

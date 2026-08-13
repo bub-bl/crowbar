@@ -160,6 +160,41 @@ public class DockAreaInteractionTests
     }
 
     [Fact]
+    public void DraggingTabBeforeAnotherTabReordersTheGroup()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+        var contentTab = FindDockTab(content, "CONTENU");
+        var worldTab = FindDockTab(content, "MONDE");
+        Assert.NotNull(contentTab);
+        Assert.NotNull(worldTab);
+
+        var grabX = contentTab!.Layout.X + 5;
+        var grabY = contentTab.Layout.Y + 5;
+        var targetX = worldTab!.Layout.X + 1;
+        var targetY = worldTab.Layout.Y + 5;
+
+        ui.ProcessPointerDown(grabX, grabY);
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerMove(targetX, targetY);
+        ui.Update();
+        ui.Render();
+        ui.ProcessPointerUp(targetX, targetY);
+        ui.Update();
+        ui.Render();
+
+        var bottomGroup = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-group"))
+            .Single(group => TestUi.Texts(group).Contains("MONDE") && TestUi.Texts(group).Contains("CONTENU"));
+        var tabLabels = TestUi.FindAll(bottomGroup, p => p.Classes.Contains("dock-tab"))
+            .Select(tab => Assert.Single(TestUi.Texts(tab)))
+            .ToArray();
+        Assert.Equal(new[] { "CONTENU", "MONDE" }, tabLabels);
+        Assert.Contains(TestUi.FindAll(bottomGroup, p => p.Classes.Contains("dock-tab-active")),
+            tab => TestUi.Texts(tab).Contains("CONTENU"));
+    }
+
+    [Fact]
     public void SplitterTracksAbsolutePointerMovementAcrossFrames()
     {
         using var ui = EditorPageCompositionTests.CreateEditorUi();

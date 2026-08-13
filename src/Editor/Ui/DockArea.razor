@@ -80,10 +80,16 @@
         var ghostX = _drag.X - _areaRect.X + 10;
         var ghostY = _drag.Y - _areaRect.Y + 14;
         <div class="dock-ghost" style="left:@Px(ghostX); top:@Px(ghostY);">@Title(_drag.ItemId)</div>
-        if (_preview is { } preview)
+        if (_preview is { } preview && preview.TabIndex is { } tabIndex)
         {
-            var previewRect = PreviewRect(preview.GroupId, preview.Zone);
-            <div class="dock-preview @PreviewClass(preview.Zone)"
+            var indicatorRect = TabDropIndicatorRect(preview.GroupId, tabIndex);
+            <div class="dock-tab-drop-indicator"
+                 style="left:@Px(indicatorRect.X); top:@Px(indicatorRect.Y); width:@Px(indicatorRect.Width); height:@Px(indicatorRect.Height);"></div>
+        }
+        else if (_preview is { } dropPreview)
+        {
+            var previewRect = PreviewRect(dropPreview.GroupId, dropPreview.Zone);
+            <div class="dock-preview @PreviewClass(dropPreview.Zone)"
                  style="left:@Px(previewRect.X); top:@Px(previewRect.Y); width:@Px(previewRect.Width); height:@Px(previewRect.Height);"></div>
         }
     }
@@ -117,7 +123,7 @@
         public float Y { get; set; }
     }
 
-    private readonly record struct PreviewState(string GroupId, DockZone Zone);
+    private readonly record struct PreviewState(string GroupId, DockZone Zone, int? TabIndex = null);
 
     private sealed class SplitterDragState
     {
@@ -256,7 +262,7 @@
         // onto a stale target.
         var drop = ComputeTarget(e.X, e.Y);
         if (moved >= 4f && drop is { } preview)
-            ApplyDock(_drag.ItemId, preview.GroupId, preview.Zone);
+            ApplyDock(_drag.ItemId, preview);
         _drag = null;
         _preview = null;
         return true;
@@ -267,6 +273,15 @@
         var localX = x - _areaRect.X;
         var localY = y - _areaRect.Y;
         if (localX < 0 || localY < 0 || localX > _areaRect.Width || localY > _areaRect.Height) return null;
+
+        // The tab strip is a dedicated drop target: dropping there reorders the
+        // tabs instead of interpreting the strip as the group's top edge.
+        foreach (var (id, rect) in _rects)
+        {
+            if (localX < rect.X || localX > rect.Right || localY < rect.Y || localY > rect.Y + 31) continue;
+            return new PreviewState(id, DockZone.Center, TabInsertionIndex(_tree.FindGroup(id)!, x));
+        }
+
         foreach (var (id, rect) in _rects)
         {
             if (localX < rect.X || localX > rect.Right || localY < rect.Y || localY > rect.Bottom) continue;
@@ -287,16 +302,46 @@
         return null;
     }
 
-    private void ApplyDock(string itemId, string groupId, DockZone zone)
+    private int TabInsertionIndex(DockGroupNode group, float x)
     {
-        if (zone == DockZone.Center) _tree.DockToTab(itemId, groupId);
-        else _tree.DockToSplit(itemId, groupId, zone);
+        for (var i = 0; i < group.Tabs.Count; i++)
+        {
+            if (FindDockTabPanel(group.Tabs[i]) is { } tab && x < tab.Layout.X + tab.Layout.Width / 2)
+                return i;
+        }
+
+        return group.Tabs.Count;
+    }
+
+    private void ApplyDock(string itemId, PreviewState preview)
+    {
+        if (preview.TabIndex is { } tabIndex)
+            _tree.MoveTab(itemId, preview.GroupId, tabIndex);
+        else if (preview.Zone == DockZone.Center)
+            _tree.DockToTab(itemId, preview.GroupId);
+        else
+            _tree.DockToSplit(itemId, preview.GroupId, preview.Zone);
 
         // A stale preview can refer to a group that disappeared during a
         // reconciliation pass. Never let that turn into a missing panel: the
         // dragged item is always parked back into the layout as a last resort.
         if (_tree.GroupOf(itemId) is null)
             _tree.ParkAtRoot(itemId);
+    }
+
+    private UiRect TabDropIndicatorRect(string groupId, int tabIndex)
+    {
+        if (!_rects.TryGetValue(groupId, out var groupRect)) return new UiRect(0, 0, 0, 0);
+        var group = _tree.FindGroup(groupId);
+        if (group is null) return new UiRect(0, 0, 0, 0);
+
+        var x = groupRect.X;
+        if (tabIndex < group.Tabs.Count && FindDockTabPanel(group.Tabs[tabIndex]) is { } targetTab)
+            x = targetTab.Layout.X - _areaRect.X - 1;
+        else if (group.Tabs.Count > 0 && FindDockTabPanel(group.Tabs[^1]) is { } lastTab)
+            x = lastTab.Layout.Right - _areaRect.X + 1;
+
+        return new UiRect(x, groupRect.Y + 3, 2, 24);
     }
 
     private UiRect PreviewRect(string groupId, DockZone zone)
@@ -385,6 +430,18 @@
     /// actuellement monté (les rects de Layout y sont à jour jusqu'au prochain
     /// rendu), puis en remontant jusqu'à un élément de classe <c>dock-tab</c>.
     /// </summary>
+    private Panel? FindDockTabPanel(string itemId) =>
+        FindPanel(this, panel => panel.Classes.Contains("dock-tab") &&
+            panel.Attributes.TryGetValue("data-dock-item", out var value) && value == itemId);
+
+    private static Panel? FindPanel(Panel panel, Func<Panel, bool> predicate)
+    {
+        if (predicate(panel)) return panel;
+        foreach (var child in panel.Children)
+            if (FindPanel(child, predicate) is { } match) return match;
+        return null;
+    }
+
     private string? HitTestTab(float x, float y)
     {
         var hit = HitTestPanel(this, x, y);

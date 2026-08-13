@@ -115,6 +115,14 @@ root {
     z-index: 100;
 }
 
+// Indicateur de position d'insertion dans la barre d'onglets.
+.dock-tab-drop-indicator {
+    position: absolute;
+    background-color: $accent;
+    border-radius: 1px;
+    z-index: 110;
+}
+
 // Prévisualisation de la zone de drop : surbrillance bleutée dans le groupe
 // cible (pleine pour l'onglet central, bande pour les bords).
 .dock-preview {
