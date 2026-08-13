@@ -20,12 +20,12 @@ public class RazorFeatureTests
                 private void Insert() { inserted = true; StateHasChanged(); }
             }
             """, "KeyDemo");
-        ui.Render();
+        ui.Prepare();
         var input = TestUi.Find(ui.Screen, p => p is TextInput) as TextInput;
         Assert.NotNull(input);
         input.SetValue("edited");
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         // Insert a sibling ABOVE the keyed input via a re-render: without
         // @key the input's positional path would shift and its value would be
@@ -35,7 +35,7 @@ public class RazorFeatureTests
         ui.ProcessPointerDown(button!.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         var rerendered = TestUi.Find(ui.Screen, p => p is TextInput) as TextInput;
         Assert.NotNull(rerendered);
         Assert.Equal("edited", rerendered.Value);
@@ -63,7 +63,7 @@ public class RazorFeatureTests
                 private void Refresh() { StateHasChanged(); }
             }
             """, "RefDemo");
-        ui.Render();
+        ui.Prepare();
         // @ref fields are assigned after the render pass, so they are visible
         // from the next re-render (mirroring Blazor's OnAfterRender timing).
         Assert.NotNull(TestUi.Find(ui.Screen, p => p.Classes.Contains("box")));
@@ -72,7 +72,7 @@ public class RazorFeatureTests
         ui.ProcessPointerDown(button!.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         var texts = TestUi.Texts(ui.Screen);
         Assert.Contains(texts, t => t.Contains("set Template"));
     }
@@ -95,7 +95,7 @@ public class RazorFeatureTests
                 };
             }
             """, "AttributesDemo");
-        ui.Render();
+        ui.Prepare();
         var panel = TestUi.Find(ui.Screen, p => p.Attributes.ContainsKey("data-extra"));
         Assert.NotNull(panel);
         Assert.True(panel!.Classes.Contains("splatted"));
@@ -122,7 +122,7 @@ public class RazorFeatureTests
               <Badge T="string" Value="generic text" />
             </div>
             """, "TypeParamDemo");
-        ui.Render();
+        ui.Prepare();
         Assert.Contains("42", TestUi.Texts(ui.Screen));
         Assert.Contains("generic text", TestUi.Texts(ui.Screen));
     }
@@ -149,7 +149,7 @@ public class RazorFeatureTests
                 private void Blur() { blurCount++; StateHasChanged(); }
             }
             """, "EventsDemo");
-        ui.Render();
+        ui.Prepare();
 
         // Focus the root by clicking an empty spot, then interact.
         ui.ProcessPointerDown(600, 400);
@@ -162,7 +162,7 @@ public class RazorFeatureTests
         ui.ProcessPointerDown(button!.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         var texts = TestUi.Texts(ui.Screen);
         Assert.Contains(texts, t => t.Contains("key: 1") && t.Contains("wheel: 1"));
@@ -182,12 +182,12 @@ public class RazorFeatureTests
                 private int count;
             }
             """, "LambdaDemo");
-        ui.Render();
+        ui.Prepare();
         var button = TestUi.Find(ui.Screen, p => p is Button);
         ui.ProcessPointerDown(button!.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         Assert.Contains("1", TestUi.Texts(ui.Screen));
     }
 
@@ -203,12 +203,12 @@ public class RazorFeatureTests
         ui.LoadRazor("""
             <div class="root"><a href="/other">go</a></div>
             """, "AnchorDemo");
-        ui.Render();
+        ui.Prepare();
         var anchor = TestUi.Find(ui.Screen, p => p.TagName == "a");
         Assert.NotNull(anchor);
         ui.ProcessPointerDown(anchor!.Layout.X + 1, anchor.Layout.Y + 1);
         ui.ProcessPointerUp(anchor.Layout.X + 1, anchor.Layout.Y + 1);
-        ui.Render();
+        ui.Prepare();
         Assert.Equal("/other", ui.CurrentUrl);
         Assert.Contains("other page", TestUi.Texts(ui.Screen));
     }
@@ -228,7 +228,7 @@ public class RazorFeatureTests
                 private void ToggleChecked(bool value) { checkedState = value; }
             }
             """, "ToggleDemo");
-        ui.Render();
+        ui.Prepare();
         var toggles = TestUi.FindAll(ui.Screen, p => p is ToggleInput).Cast<ToggleInput>().ToList();
         Assert.Equal(3, toggles.Count);
         Assert.False(toggles[0].IsChecked);
@@ -236,7 +236,7 @@ public class RazorFeatureTests
         ui.ProcessPointerDown(toggles[0].Layout.X + 1, toggles[0].Layout.Y + 1);
         ui.ProcessPointerUp(toggles[0].Layout.X + 1, toggles[0].Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         // The @onchange handler re-renders the tree; re-fetch the fresh panels
         // (the bound `checked` attribute keeps the state across re-renders).
         toggles = TestUi.FindAll(ui.Screen, p => p is ToggleInput).Cast<ToggleInput>().ToList();
@@ -248,7 +248,7 @@ public class RazorFeatureTests
         ui.ProcessPointerUp(toggles[1].Layout.X + 1, toggles[1].Layout.Y + 1);
         ui.ProcessPointerDown(toggles[2].Layout.X + 1, toggles[2].Layout.Y + 1);
         ui.ProcessPointerUp(toggles[2].Layout.X + 1, toggles[2].Layout.Y + 1);
-        ui.Render();
+        ui.Prepare();
         toggles = TestUi.FindAll(ui.Screen, p => p is ToggleInput).Cast<ToggleInput>().ToList();
         Assert.True(toggles[2].IsChecked);
         Assert.False(toggles[1].IsChecked);
@@ -264,7 +264,7 @@ public class RazorFeatureTests
               <input type="checkbox" checked="checked" disabled="disabled" />
             </div>
             """, "DisabledDemo");
-        ui.Render();
+        ui.Prepare();
         var toggle = TestUi.Find(ui.Screen, p => p is ToggleInput) as ToggleInput;
         Assert.NotNull(toggle);
         Assert.True(toggle!.IsChecked);
@@ -289,7 +289,7 @@ public class RazorFeatureTests
                 private void Scr() { scrollCount++; StateHasChanged(); }
             }
             """, "MoreEventsDemo");
-        ui.Render();
+        ui.Prepare();
         var scroller = TestUi.Find(ui.Screen, p => p.IsScrollContainer);
         Assert.NotNull(scroller);
         var x = scroller!.Layout.X + 5;
@@ -299,7 +299,7 @@ public class RazorFeatureTests
         ui.ProcessPointerDown(x, y);
         ui.ProcessPointerUp(x, y);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         // The dblclick handler re-renders; scroll the fresh panel instance so
         // the @onscroll handler (wired on the new tree) receives the event, then
         // let the StateHasChanged from the handler trigger the re-render.
@@ -308,7 +308,7 @@ public class RazorFeatureTests
         Assert.True(scroller!.MaxScrollY > 0);
         scroller.ScrollTo(0, 100);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         var texts = TestUi.Texts(ui.Screen);
         Assert.Contains(texts, t => t.Contains("dbl: 1") && t.Contains("scroll: 1"));
     }

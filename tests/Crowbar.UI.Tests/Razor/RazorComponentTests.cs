@@ -34,7 +34,7 @@ public class RazorComponentTests
                 private void Changed(string value) { changed = value == "second"; }
             }
             """, "ReactiveDemo");
-        ui.Render();
+        ui.Prepare();
 
         var button = TestUi.Find(ui.Screen, p => p is Button);
         Assert.NotNull(button);
@@ -43,7 +43,7 @@ public class RazorComponentTests
         ui.ProcessPointerDown(button.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         Assert.Contains("Visible", TestUi.Texts(ui.Screen));
         Assert.Contains("Count: 1", TestUi.Texts(ui.Screen));
@@ -52,7 +52,7 @@ public class RazorComponentTests
         Assert.NotNull(textInput);
         textInput.SetValue("second");
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         Assert.Contains("second", TestUi.Texts(ui.Screen));
         Assert.Contains("Changed", TestUi.Texts(ui.Screen));
@@ -62,7 +62,7 @@ public class RazorComponentTests
         ui.ProcessPointerDown(textInput.Layout.Right - 1, textInput.Layout.Y + 1);
         ui.ProcessKey(0x43, true);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         var rerenderedInput = TestUi.Find(ui.Screen, p => p is TextInput) as TextInput;
         Assert.NotNull(rerenderedInput);
         Assert.Equal("secondc", rerenderedInput.Value);
@@ -93,7 +93,7 @@ public class RazorComponentTests
         ui.LoadRazor("""
             <EditorCard><span>editor content</span></EditorCard>
             """, "EditorRoot");
-        ui.Render();
+        ui.Prepare();
         Assert.Contains("editor content", TestUi.Texts(ui.Screen));
     }
 
@@ -127,7 +127,7 @@ public class RazorComponentTests
                 private string name = "first";
             }
             """, "ChildContentDemo");
-        ui.Render();
+        ui.Prepare();
 
         Assert.Contains("Card title", TestUi.Texts(ui.Screen));
         Assert.Contains("first", TestUi.Texts(ui.Screen));
@@ -137,7 +137,7 @@ public class RazorComponentTests
         Assert.NotNull(textInput);
         textInput.SetValue("second");
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         var rerenderedInput = TestUi.Find(ui.Screen, p => p is TextInput) as TextInput;
         Assert.NotNull(rerenderedInput);
@@ -166,13 +166,13 @@ public class RazorComponentTests
                 private void Refresh() { StateHasChanged(); }
             }
             """, "StatefulParent");
-        ui.Render();
+        ui.Prepare();
 
         var childButton = TestUi.FindAll(ui.Screen, p => p is Button)[0];
         ui.ProcessPointerDown(childButton.Layout.X + 1, childButton.Layout.Y + 1);
         ui.ProcessPointerUp(childButton.Layout.X + 1, childButton.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         Assert.Contains(TestUi.Texts(ui.Screen), text => text.Contains("child: 1", StringComparison.Ordinal));
     }
@@ -202,21 +202,21 @@ public class RazorComponentTests
                 private void Toggle() { show = !show; StateHasChanged(); }
             }
             """, "ToggleDemo");
-        ui.Render();
+        ui.Prepare();
         Assert.Contains("Card title", TestUi.Texts(ui.Screen));
 
         var button = TestUi.Find(ui.Screen, p => p is Button);
         ui.ProcessPointerDown(button.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         Assert.DoesNotContain("Card title", TestUi.Texts(ui.Screen));
 
         button = TestUi.Find(ui.Screen, p => p is Button);
         ui.ProcessPointerDown(button.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         Assert.Contains("Card title", TestUi.Texts(ui.Screen));
     }
 }

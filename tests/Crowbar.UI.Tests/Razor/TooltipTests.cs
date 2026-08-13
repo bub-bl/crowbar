@@ -18,7 +18,7 @@ public class TooltipTests
               <button tooltip="Delete the item">X</button>
             </div>
             """, "TooltipElementDemo");
-        ui.Render();
+        ui.Prepare();
         var button = TestUi.Find(ui.Screen, p => p is Button);
         Assert.NotNull(button);
         Assert.Equal("Delete the item", button!.Tooltip);
@@ -39,7 +39,7 @@ public class TooltipTests
               <PlainCard tooltip="A reusable card" />
             </div>
             """, "TooltipComponentDemo");
-        ui.Render();
+        ui.Prepare();
         // The tooltip lands on the component's root panel (the attribute is
         // stored before the template builds its children).
         var card = TestUi.Find(ui.Screen, p => p.Tooltip == "A reusable card");
@@ -62,7 +62,7 @@ public class TooltipTests
                 };
             }
             """, "TooltipSplatDemo");
-        ui.Render();
+        ui.Prepare();
         var panel = TestUi.Find(ui.Screen, p => p.Attributes.ContainsKey("data-extra"));
         Assert.NotNull(panel);
         Assert.Equal("from the splat", panel!.Tooltip);
@@ -80,7 +80,7 @@ public class TooltipTests
               </div>
             </div>
             """, "TooltipHoverDemo");
-        ui.Render();
+        ui.Prepare();
 
         Assert.Null(ui.Renderer.TooltipText);
 
@@ -106,7 +106,7 @@ public class TooltipTests
               <button tooltip="Save changes" style="width: 100px; height: 30px; position: absolute; left: 40px; top: 40px;">save</button>
             </div>
             """, "TooltipRendererDemo");
-        ui.Render();
+        ui.Prepare();
         var button = TestUi.Find(ui.Screen, p => p is Button);
         Assert.NotNull(button);
         ui.ProcessPointerMove(button!.Layout.X + 5, button.Layout.Y + 5);

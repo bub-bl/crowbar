@@ -102,24 +102,6 @@ public class Panel
     }
     public bool HasScope(string scopeId) => !string.IsNullOrEmpty(scopeId) && _scopeIds.Contains(scopeId);
 
-    /// <summary>
-    /// Bitmask of <see cref="PanelDecorationFlags"/> set by the renderer's
-    /// GPU-decoration pass each frame: which decorations the GPU composites
-    /// instead of Skia (see <see cref="SkiaUiRenderer.CollectDecorations"/>).
-    /// </summary>
-    internal byte GpuDecorationFlags;
-    /// <summary>
-    /// Screen-space bounds of the panel's whole painted subtree (own border box
-    /// inflated by the paint-extent margin, unioned with every descendant),
-    /// computed by the renderer on each partial redraw (see
-    /// <see cref="SkiaUiRenderer.ComputeSubtreePaintBounds"/>). The
-    /// partial-raster cull uses it so a panel whose own box misses the damage
-    /// is still redrawn when its children overflow it — otherwise those
-    /// children are erased on the next paint-only redraw.
-    /// </summary>
-    internal UiRect SubtreePaintBounds;
-    /// <summary>True when the panel or any descendant has a CSS transform; such subtrees are never culled.</summary>
-    internal bool SubtreeHasTransform;
     public ComputedStyle ComputedStyle { get; internal set; } = new();
     public UiRect Layout { get; internal set; }
     /// <summary>Horizontal scroll offset of the content box, in layout units.</summary>
@@ -169,7 +151,6 @@ public class Panel
         // Scrolling only shifts the painted content; the layout boxes are
         // unchanged, so this is a paint-only invalidation.
         InvalidatePaint();
-        MarkDecorationDirty();
         Scrolled?.Invoke(this);
     }
 
@@ -228,7 +209,6 @@ public class Panel
     public void Invalidate()
     {
         LayoutDirty = true;
-        MarkDecorationDirty();
         for (var current = this; current is not null; current = current.Parent) current.SelectorVersion++;
         Parent?.Invalidate();
     }
@@ -245,18 +225,11 @@ public class Panel
             if (p is ScreenPanel screen) screen.AnyPaintDirty = true;
     }
 
-    /// <summary>Invalidates renderer metadata whose geometry or GPU-composited parameters changed.</summary>
-    private void MarkDecorationDirty()
-    {
-        for (var p = this; p is not null; p = p.Parent)
-            if (p is ScreenPanel screen) screen.AnyDecorationDirty = true;
-    }
     /// <summary>Marks the panel's cascade inputs as changed (classes, inline style, pseudo-state).</summary>
     internal void MarkStyleDirty(bool mayAffectLayout = true)
     {
         StyleDirty = true;
         StyleMayAffectLayout |= mayAffectLayout;
-        MarkDecorationDirty();
         for (var current = this; current is not null; current = current.Parent) current.SelectorVersion++;
         PaintDirty = true;
         for (var p = Parent; p is not null; p = p.Parent)
@@ -487,10 +460,6 @@ public class Panel
             // that change geometry reflow the layout.
             if (previous.LayoutPropsEqual(composed)) InvalidatePaint();
             else Invalidate();
-            // GPU decoration eligibility and parameters can depend on animated
-            // opacity, colors, shadows and geometry; invalidate that cache even
-            // when the animation is otherwise paint-only.
-            MarkDecorationDirty();
             // Inherited properties (color, opacity, text metrics, shadows) are
             // baked into the children's computed styles during the cascade;
             // when an animation moves one of them, the descendants hold stale
@@ -718,8 +687,6 @@ public sealed class ScreenPanel : Panel
     internal bool AnyStyleDirty { get; set; }
     /// <summary>True when an ancestor animation/transition moved an inherited property.</summary>
     internal bool AnyInheritedDirty { get; set; }
-    /// <summary>True when cached GPU decoration/fill metadata must be rebuilt.</summary>
-    internal bool AnyDecorationDirty { get; set; } = true;
 
     // The panels whose animation/transition moved an inherited property this
     // frame; the inheritance refresh walks only their subtrees. Tiny by design

@@ -19,7 +19,7 @@ public class IconRazorTests
               <icon name="translate" />
             </div>
             """, "IconNameDemo");
-        ui.Render();
+        ui.Prepare();
 
         var icon = TestUi.Find(ui.Screen, p => p is Icon);
         Assert.NotNull(icon);
@@ -38,7 +38,7 @@ public class IconRazorTests
               <icon name="Solar/ui/Bold/cursor" />
             </div>
             """, "IconSubfolderDemo");
-        ui.Render();
+        ui.Prepare();
 
         var icon = TestUi.Find(ui.Screen, p => p is Icon);
         Assert.NotNull(icon);
@@ -55,7 +55,7 @@ public class IconRazorTests
             </div>
             """, "IconNoNameDemo");
         // Must not throw even though the icon has nothing to draw.
-        ui.Render();
+        ui.Prepare();
     }
 
     [Fact]
@@ -73,7 +73,7 @@ public class IconRazorTests
                 };
             }
             """, "IconSplatDemo");
-        ui.Render();
+        ui.Prepare();
 
         var icon = TestUi.Find(ui.Screen, p => p is Icon);
         Assert.NotNull(icon);

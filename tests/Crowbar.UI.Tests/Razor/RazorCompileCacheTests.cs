@@ -108,7 +108,7 @@ public class RazorCompileCacheTests : IDisposable
         ui.RegisterRazorComponentsFromDirectory(uiDir);
         ui.PrecompileAll(); // must not throw on the real component set
         ui.Navigate("/editor");
-        ui.Render();
+        ui.Prepare();
         Assert.NotNull(ui.Content);
     }
 }

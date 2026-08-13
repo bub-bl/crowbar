@@ -6,7 +6,7 @@ public sealed record PageRoute(string Template, string TagName, string RazorPath
 public sealed partial class UiSystem : IDisposable
 {
     public ScreenPanel Screen { get; } = new();
-    public SkiaUiRenderer Renderer { get; } = new();
+    public UiLayoutEngine Renderer { get; } = new();
     public Panel? Content { get; private set; }
     private readonly Dictionary<string, StyleSheet> _scopedStyleSheets = new(StringComparer.OrdinalIgnoreCase);
     public StyleSheet? GlobalStyleSheet { get; private set; }
@@ -248,8 +248,7 @@ public sealed partial class UiSystem : IDisposable
     /// <summary>
     /// Runs only the style/layout passes (no raster) so the GPU tree-walk
     /// painter can record the laid-out tree, and handles the deferred Razor
-    /// rebuild exactly like <see cref="Render"/>. Returns false when nothing
-    /// changed and the frame can be skipped.
+    /// rebuild. Returns false when nothing changed and the frame can be skipped.
     /// </summary>
     public bool Prepare()
     {
@@ -260,24 +259,6 @@ public sealed partial class UiSystem : IDisposable
             changed |= Renderer.PrepareForGpu(Screen);
         }
         return changed;
-    }
-
-    public ReadOnlyMemory<byte> Render()
-    {
-        var pixels = Renderer.Render(Screen);
-
-        // A component can request its first geometry-dependent render while the
-        // tree is being built, before the renderer has assigned layout rects.
-        // Process that deferred request after the first layout pass, then paint
-        // the resulting tree. This keeps the normal Update -> Render frame order
-        // from displaying an empty DockArea on startup.
-        if (_razorRenderPending && Screen.Layout.Width > 0 && Screen.Layout.Height > 0)
-        {
-            RenderRazorIfNeeded();
-            pixels = Renderer.Render(Screen);
-        }
-
-        return pixels;
     }
 
     /// <summary>

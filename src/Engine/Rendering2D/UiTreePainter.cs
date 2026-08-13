@@ -21,6 +21,12 @@ public sealed class UiTreePainter
     private readonly Dictionary<string, SvgShape?> _svgCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Image2D?> _imageCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<BackdropRegion> _backdrops = [];
+    private string? _tooltipText;
+    private Vector2 _tooltipAnchor;
+
+    private static readonly ColorF TooltipBackground = ColorF.FromRgba(24, 26, 30, 245);
+    private static readonly ColorF TooltipBorder = ColorF.FromRgba(70, 76, 88, 255);
+    private static readonly ColorF TooltipTextColor = ColorF.FromRgba(232, 235, 242, 255);
 
     public UiTreePainter(Renderer2D renderer)
     {
@@ -33,7 +39,7 @@ public sealed class UiTreePainter
     /// <summary>
     /// The backdrop-filter regions collected by the last paint, in paint order.
     /// The GPU compositor draws one region per quad between the 3D scene and the
-    /// UI (sampling the scene texture), exactly like <see cref="SkiaUiRenderer.Backdrops"/>.
+    /// UI (sampling the scene texture).
     /// </summary>
     public IReadOnlyList<BackdropRegion> Backdrops => _backdrops;
 
@@ -49,6 +55,16 @@ public sealed class UiTreePainter
     /// <see cref="Image2D"/>. Null falls back to <see cref="Renderer2D.LoadImage"/>.
     /// </summary>
     public Func<string, Image2D?>? ImageResolver { get; set; }
+
+    /// <summary>
+    /// Sets the hover tooltip to draw on top of the tree (screen-space cursor
+    /// anchor), or null to hide it. Mirrors the old Skia renderer's tooltip.
+    /// </summary>
+    public void SetTooltip(string? text, Vector2 anchor)
+    {
+        _tooltipText = text;
+        _tooltipAnchor = anchor;
+    }
 
     /// <summary>
     /// Paints the whole tree at the root's viewport size, applying the root's
@@ -70,7 +86,37 @@ public sealed class UiTreePainter
         PaintPanel(root, Vector2.Zero, root.Opacity);
         if (root.Scale != 1f)
             _renderer.PopTransform();
+        // The tooltip is an overlay in screen space, drawn above the tree.
+        DrawTooltip(new Vector2(width, height));
         _renderer.End();
+    }
+
+    /// <summary>
+    /// Paints the hover tooltip: a dark rounded box with a subtle border and the
+    /// tooltip text in near-white, placed next to the cursor (flipping to the
+    /// other side when it would overflow the viewport).
+    /// </summary>
+    private void DrawTooltip(Vector2 viewport)
+    {
+        var text = _tooltipText;
+        if (string.IsNullOrEmpty(text))
+            return;
+
+        var style = new TextStyle(12f, TooltipTextColor, "Segoe UI", 400);
+        var textWidth = _renderer.MeasureText(text, style);
+        const float padX = 8f;
+        const float padY = 5f;
+        var boxWidth = textWidth + padX * 2f;
+        var boxHeight = 12f + padY * 2f;
+        var x = _tooltipAnchor.X + 14f;
+        var y = _tooltipAnchor.Y + 18f;
+        if (x + boxWidth > viewport.X) x = Math.Max(0f, _tooltipAnchor.X - boxWidth - 14f);
+        if (y + boxHeight > viewport.Y) y = Math.Max(0f, _tooltipAnchor.Y - boxHeight - 18f);
+
+        var rect = new RectF(x, y, boxWidth, boxHeight);
+        _renderer.DrawRoundedRect(rect, 4f, TooltipBackground);
+        _renderer.DrawRoundedRect(rect, 4f, 1f, TooltipBorder);
+        _renderer.DrawText(text, new Vector2(x + padX, y + padY), style);
     }
 
     private void PreResolveImages(Panel panel)

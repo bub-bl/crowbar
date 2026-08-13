@@ -40,18 +40,24 @@ public static class SvgDocumentParser
         {
             Fill = SvgPaint.Tint,     // SVG default fill is black; icons pass a tint.
             Stroke = SvgPaint.None,
-            StrokeWidth = 0f
+            StrokeWidth = 0f,
+            FillRule = SvgFillRule.NonZero,
+            Opacity = 1f
         };
 
         public SvgPaint Fill;
         public SvgPaint Stroke;
         public float StrokeWidth;
+        public SvgFillRule FillRule;
+        public float Opacity;
 
-        public PaintState(SvgPaint fill, SvgPaint stroke, float strokeWidth)
+        public PaintState(SvgPaint fill, SvgPaint stroke, float strokeWidth, SvgFillRule fillRule, float opacity)
         {
             Fill = fill;
             Stroke = stroke;
             StrokeWidth = strokeWidth;
+            FillRule = fillRule;
+            Opacity = opacity;
         }
     }
 
@@ -60,7 +66,9 @@ public static class SvgDocumentParser
         var state = new PaintState(
             ResolvePaint(inherited.Fill, element.Attribute("fill")?.Value),
             ResolvePaint(inherited.Stroke, element.Attribute("stroke")?.Value),
-            InheritFloat(inherited.StrokeWidth, element.Attribute("stroke-width")?.Value));
+            InheritFloat(inherited.StrokeWidth, element.Attribute("stroke-width")?.Value),
+            ResolveFillRule(inherited.FillRule, element.Attribute("fill-rule")?.Value),
+            InheritFloat(inherited.Opacity, element.Attribute("opacity")?.Value));
 
         switch (element.Name.LocalName.ToLowerInvariant())
         {
@@ -100,8 +108,19 @@ public static class SvgDocumentParser
         Contours = contours,
         Fill = state.Fill,
         Stroke = state.Stroke,
-        StrokeWidth = state.StrokeWidth
+        StrokeWidth = state.StrokeWidth,
+        FillRule = state.FillRule,
+        Opacity = state.Opacity
     };
+
+    private static SvgFillRule ResolveFillRule(SvgFillRule inherited, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return inherited;
+        return value.Trim().Equals("evenodd", StringComparison.OrdinalIgnoreCase)
+            ? SvgFillRule.EvenOdd
+            : SvgFillRule.NonZero;
+    }
 
     private static List<SvgContour> Circle(XElement element)
     {

@@ -91,13 +91,13 @@ public class CssPropertyRegistryTests
         panel.SetInlineStyle("background-color", "#ff0000");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(new UiColor(255, 0, 0, 255), panel.ComputedStyle.BackgroundColor);
 
         // The property change starts a transition: the style is interpolated
         // instead of snapping to the target.
         panel.SetInlineStyle("background-color", "#0000ff");
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(new UiColor(255, 0, 0, 255), panel.ComputedStyle.BackgroundColor);
 
         // Halfway through the transition with the CSS `ease` curve

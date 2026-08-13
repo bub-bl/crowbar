@@ -173,7 +173,7 @@ public class TextInput : Panel
         var contentX = Math.Max(0, x - Layout.X - LayoutPadding.Left);
         if (string.IsNullOrEmpty(Value) || contentX <= 0) return 0;
 
-        using var font = TextLayout.CreateFont(ComputedStyle);
+        var font = TextLayout.CreateFont(ComputedStyle);
         var tracking = ComputedStyle.LetterSpacing;
         var totalWidth = TextLayout.Measure(font, Value, tracking);
         if (contentX >= totalWidth) return Value.Length;

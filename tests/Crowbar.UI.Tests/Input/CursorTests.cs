@@ -29,7 +29,7 @@ public class CursorTests
         var panel = PanelAt(20, 20, 100, 50);
         panel.SetInlineStyle("cursor", "pointer");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerMove(40, 40);
         Assert.Equal("pointer", ui.HoveredCursor);
@@ -49,7 +49,7 @@ public class CursorTests
         inner.SetInlineStyle("cursor", "text");
         outer.AddChild(inner);
         ui.Screen.AddChild(outer);
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerMove(80, 80); // inside the inner panel -> text
         Assert.Equal("text", ui.HoveredCursor);
@@ -67,7 +67,7 @@ public class CursorTests
         var child = PanelAt(50, 50, 100, 100); // no cursor
         outer.AddChild(child);
         ui.Screen.AddChild(outer);
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerMove(80, 80);
         Assert.Equal("pointer", ui.HoveredCursor);
@@ -83,7 +83,7 @@ public class CursorTests
         child.SetInlineStyle("cursor", "default");
         outer.AddChild(child);
         ui.Screen.AddChild(outer);
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerMove(80, 80);
         Assert.Equal("default", ui.HoveredCursor);
@@ -96,7 +96,7 @@ public class CursorTests
         var panel = PanelAt(20, 20, 100, 50);
         panel.SetInlineStyle("cursor", "bogus");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerMove(40, 40);
         Assert.Equal("auto", ui.HoveredCursor);

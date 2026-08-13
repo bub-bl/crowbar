@@ -1,4 +1,6 @@
 using Crowbar.UI;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Crowbar.UI.Tests.Razor;
 
@@ -14,7 +16,7 @@ public class ImageRazorTests
               <image src="icons/close.png" />
             </div>
             """, "ImageDemo");
-        ui.Render();
+        ui.Prepare();
 
         var images = TestUi.FindAll(ui.Screen, p => p is Image);
         Assert.Equal(2, images.Count);
@@ -30,20 +32,20 @@ public class ImageRazorTests
         using var ui = TestUi.Create();
         var cache = new UiImageCache();
         ui.Renderer.ImageCache = cache;
-        cache.Register("img://red", MakeImage());
+        cache.Register("img://red", 40, 20);
         ui.LoadRazor("""
             <div class="hero"></div>
             """, "ImageDemo");
         ui.LoadScopedStyles("ImageDemo", ".hero { width: 40px; height: 20px; background-image: url(img://red); background-size: 40px 20px; background-repeat: no-repeat; }", "b-imagedemo");
-        ui.Render();
+        ui.Prepare();
 
         var hero = TestUi.Find(ui.Screen, p => p.Classes.Contains("hero"));
         Assert.NotNull(hero);
         Assert.Equal("img://red", hero.ComputedStyle.BackgroundImage);
-
-        var pixels = ui.Render().ToArray();
-        var i = (5 * 640 + 5) * 4;
-        Assert.True(pixels[i + 3] > 200 && pixels[i] > 200, "background image should paint in the hero box");
+        // The cache resolves the intrinsic size the layout engine needs.
+        Assert.True(cache.TryGetSize("img://red", out var width, out var height));
+        Assert.Equal(40, width);
+        Assert.Equal(20, height);
     }
 
     [Fact]
@@ -56,12 +58,9 @@ public class ImageRazorTests
         using var tmp = TestUi.TempDir("img-demo");
         var uiDir = Path.Combine(tmp.Path, "Ui", "images");
         Directory.CreateDirectory(uiDir);
-        using (var bitmap = new SkiaSharp.SKBitmap(20, 20, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Opaque))
-        using (var canvas = new SkiaSharp.SKCanvas(bitmap))
+        using (var image = new Image<Rgba32>(20, 20))
         {
-            canvas.Clear(SkiaSharp.SKColors.DodgerBlue);
-            using var encoded = bitmap.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
-            File.WriteAllBytes(Path.Combine(uiDir, "demo.png"), encoded.ToArray());
+            image.SaveAsPng(Path.Combine(uiDir, "demo.png"));
         }
         cache.ContentRoot = tmp.Path;
         ui.Renderer.ImageCache = cache;
@@ -75,29 +74,17 @@ public class ImageRazorTests
             .bg { width: 40px; height: 40px; background-image: url(Ui/images/demo.png);
                   background-size: cover; background-repeat: no-repeat; }
             """, "b-imagedemo");
-        ui.Render();
+        ui.Prepare();
 
-        var pixels = ui.Render().ToArray();
-        static (byte R, byte G, byte B, byte A) Pixel(byte[] buffer, int x, int y)
-        {
-            var i = (y * 640 + x) * 4;
-            return (buffer[i], buffer[i + 1], buffer[i + 2], buffer[i + 3]);
-        }
+        // Both sources resolve the same file through the content root.
+        var hero = (Image)TestUi.Find(ui.Screen, p => p is Image)!;
+        Assert.Equal("Ui/images/demo.png", hero.Source);
+        Assert.True(cache.TryGetSize(hero.Source, out var width, out var height));
+        Assert.Equal(20, width);
+        Assert.Equal(20, height);
 
-        // The <img> (fill) and the background (cover) both paint DodgerBlue at
-        // the center of their 40x40 boxes (hero at (0,0), bg at (0,40)).
-        var imgPixel = Pixel(pixels, 20, 20);
-        Assert.True(imgPixel.A > 200 && imgPixel.B > 200 && imgPixel.R < 80, $"img should paint the file image, got {imgPixel}");
-        var bgPixel = Pixel(pixels, 20, 60);
-        Assert.True(bgPixel.A > 200 && bgPixel.B > 200 && bgPixel.R < 80, $"background-image should paint the file image, got {bgPixel}");
-    }
-
-    private static SkiaSharp.SKImage MakeImage()
-    {
-        using var bitmap = new SkiaSharp.SKBitmap(1, 1, SkiaSharp.SKColorType.Rgba8888, SkiaSharp.SKAlphaType.Opaque);
-        using var canvas = new SkiaSharp.SKCanvas(bitmap);
-        canvas.Clear(SkiaSharp.SKColors.Red);
-        using var data = bitmap.Encode(SkiaSharp.SKEncodedImageFormat.Png, 100);
-        return SkiaSharp.SKImage.FromEncodedData(data);
+        var bg = TestUi.Find(ui.Screen, p => p.Classes.Contains("bg"));
+        Assert.NotNull(bg);
+        Assert.Equal("Ui/images/demo.png", bg.ComputedStyle.BackgroundImage);
     }
 }

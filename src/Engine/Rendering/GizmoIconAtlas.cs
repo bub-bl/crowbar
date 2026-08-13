@@ -1,9 +1,5 @@
 using System.Numerics;
-using System.Text;
-using SixLabors.ImageSharp;
-using SixLabors.ImageSharp.PixelFormats;
-using SkiaSharp;
-using Svg.Skia;
+using Crowbar.Engine.Rendering2D;
 
 namespace Crowbar.Engine.Rendering;
 
@@ -23,7 +19,8 @@ public readonly record struct GizmoIcon(string Name)
 /// <summary>
 /// GPU atlas containing the editor-only SVG gizmo icons. SVG remains the source
 /// asset; this class discovers every <c>*.svg</c> in the <c>Assets/Gizmos</c>
-/// directory, rasterizes them once when the renderer is created and exposes one
+/// directory, rasterizes them once (with the engine's own SVG parser and CPU
+/// rasterizer — no Skia) when the renderer is created and exposes one
 /// texture/sampler pair plus normalized UV rectangles for the sprite shader.
 /// </summary>
 public sealed class GizmoIconAtlas : IDisposable
@@ -131,41 +128,14 @@ public sealed class GizmoIconAtlas : IDisposable
 
     private static byte[] RasterizeSvg(string path, int size)
     {
-        // The supplied icons use currentColor. Rasterize them white, then let
-        // the GPU multiply the sampled RGB by the light/entity tint.
-        var source = File.ReadAllText(path).Replace("currentColor", "#FFFFFF", StringComparison.Ordinal);
-        using var sourceStream = new MemoryStream(Encoding.UTF8.GetBytes(source));
-        using var svg = new SKSvg();
-        if (svg.Load(sourceStream) is null || svg.Picture is null)
-            throw new InvalidDataException($"Could not rasterize SVG gizmo icon '{path}'.");
-
-        var bounds = svg.Picture.CullRect;
-        if (bounds.Width <= 0f || bounds.Height <= 0f)
+        // The supplied icons use currentColor: the engine's parser treats it as
+        // a caller tint, so rasterize white and let the sprite shader multiply
+        // the sampled RGB by the light/entity tint.
+        var shape = SvgDocumentParser.Parse(File.ReadAllText(path));
+        if (shape.ViewBox.Width <= 0f || shape.ViewBox.Height <= 0f)
             throw new InvalidDataException($"SVG gizmo icon '{path}' has no drawable bounds.");
 
-        using var bitmap = new SKBitmap(size, size, SKColorType.Rgba8888, SKAlphaType.Premul);
-        using (var canvas = new SKCanvas(bitmap))
-        {
-            canvas.Clear(SKColors.Transparent);
-            var scale = MathF.Min(size / bounds.Width, size / bounds.Height);
-            canvas.Save();
-            canvas.Translate(
-                (size - bounds.Width * scale) * 0.5f - bounds.Left * scale,
-                (size - bounds.Height * scale) * 0.5f - bounds.Top * scale);
-            canvas.Scale(scale);
-            canvas.DrawPicture(svg.Picture);
-            canvas.Restore();
-            canvas.Flush();
-        }
-
-        using var image = SKImage.FromBitmap(bitmap);
-        using var encoded = image.Encode(SKEncodedImageFormat.Png, 100)
-            ?? throw new InvalidDataException($"Could not encode SVG gizmo icon '{path}'.");
-        using var pngStream = encoded.AsStream();
-        using var raster = Image.Load<Rgba32>(pngStream);
-        var pixels = new byte[size * size * 4];
-        raster.CopyPixelDataTo(pixels);
-        return pixels;
+        return SvgRasterizer.Rasterize(shape, size, ColorF.White);
     }
 
     public void Dispose()

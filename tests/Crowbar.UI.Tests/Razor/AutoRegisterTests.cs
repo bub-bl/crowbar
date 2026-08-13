@@ -21,7 +21,7 @@ public class AutoRegisterTests
         Assert.Equal(1, registered);
 
         ui.LoadRazor("<AutoLabel Label=\"auto resolved\" />", "AutoRoot");
-        ui.Render();
+        ui.Prepare();
         Assert.NotNull(TestUi.Find(ui.Screen, p => p.Text == "auto resolved"));
     }
 

@@ -1,10 +1,8 @@
-using SkiaSharp;
-
 namespace Crowbar.UI;
 
 /// <summary>
 /// Registry of every CSS filter function the styling engine understands, plus
-/// the list parser and the Skia filter-chain builder. Registering a
+/// the list parser and the GPU-expressibility check. Registering a
 /// <see cref="FilterFunctionDefinition"/> (see
 /// <see cref="BuiltInFilterFunctions"/> for the standard set) is the extension
 /// point: the function then flows through style-sheet parsing, cascading,
@@ -87,7 +85,7 @@ public static class CssFilterFunctions
     /// intermediate result), plus any number of color transforms (brightness,
     /// contrast, saturate, grayscale, invert, hue-rotate, opacity, sepia).
     /// Chains the GPU cannot express (drop-shadow, blur after a color op, more
-    /// than eight color ops) keep using the Skia CPU path.
+    /// than eight color ops) are dropped by the renderer.
     /// </summary>
     public static bool IsGpuBackdropExpressible(CssFilter filter)
     {
@@ -118,27 +116,6 @@ public static class CssFilterFunctions
             return false;
         }
         return true;
-    }
-
-    /// <summary>
-    /// Builds the composed Skia image filter for a parsed list, applying the
-    /// functions in declaration order (the first function is applied first).
-    /// Returns null for <c>none</c>.
-    /// </summary>
-    public static SKImageFilter? BuildImageFilter(CssFilter filter)
-    {
-        if (filter.IsNone) return null;
-        // Each function wraps the previously built chain as its input, so the
-        // first function ends up innermost: f1(f2(...fn(x))) with fn(x) being
-        // the panel's raw content.
-        SKImageFilter? input = null;
-        foreach (var function in filter.Functions)
-        {
-            if (!Registry.TryGetValue(function.Name, out var definition)) return null;
-            input = definition.CreateImageFilter(function, input);
-            if (input is null) return null;
-        }
-        return input;
     }
 
     static CssFilterFunctions() => BuiltInFilterFunctions.RegisterAll();

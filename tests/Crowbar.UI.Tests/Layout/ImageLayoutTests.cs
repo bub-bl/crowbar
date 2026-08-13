@@ -1,23 +1,21 @@
 using Crowbar.UI;
-using SkiaSharp;
 
 namespace Crowbar.UI.Tests.Layout;
 
 public class ImageLayoutTests
 {
-    private static SKImage MakeImage(int width, int height, SKColor color)
+    private static UiImageCache CacheWith2x1() => Register2x1(new UiImageCache());
+
+    private static UiImageCache Register2x1(UiImageCache cache)
     {
-        using var bitmap = new SKBitmap(width, height, SKColorType.Rgba8888, SKAlphaType.Opaque);
-        using (var canvas = new SKCanvas(bitmap)) canvas.Clear(color);
-        using var data = bitmap.Encode(SKEncodedImageFormat.Png, 100);
-        return SKImage.FromEncodedData(data);
+        cache.Register("img://2x1", 2, 1);
+        return cache;
     }
 
     [Fact]
     public void ImagePanelSizesToIntrinsicDimensions()
     {
-        var cache = new UiImageCache();
-        cache.Register("img://2x1", MakeImage(2, 1, SKColors.Red));
+        var cache = CacheWith2x1();
 
         var root = new ScreenPanel();
         root.SetInlineStyle("align-items", "flex-start");
@@ -33,8 +31,7 @@ public class ImageLayoutTests
     [Fact]
     public void FixedWidthImageKeepsIntrinsicRatio()
     {
-        var cache = new UiImageCache();
-        cache.Register("img://2x1", MakeImage(2, 1, SKColors.Red));
+        var cache = CacheWith2x1();
 
         var root = new ScreenPanel();
         root.SetInlineStyle("align-items", "flex-start");
@@ -51,8 +48,7 @@ public class ImageLayoutTests
     [Fact]
     public void AspectRatioAutoUsesImageIntrinsicRatio()
     {
-        var cache = new UiImageCache();
-        cache.Register("img://2x1", MakeImage(2, 1, SKColors.Red));
+        var cache = CacheWith2x1();
 
         var root = new ScreenPanel();
         root.SetInlineStyle("align-items", "flex-start");
@@ -70,8 +66,7 @@ public class ImageLayoutTests
     [Fact]
     public void ExplicitAspectRatioBeatsIntrinsicOnImage()
     {
-        var cache = new UiImageCache();
-        cache.Register("img://2x1", MakeImage(2, 1, SKColors.Red));
+        var cache = CacheWith2x1();
 
         var root = new ScreenPanel();
         root.SetInlineStyle("align-items", "flex-start");

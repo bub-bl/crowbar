@@ -35,7 +35,7 @@ public class KeyedComponentTests
                 private void Swap() { first = !first; StateHasChanged(); }
             }
             """, "KeyDemo");
-        ui.Render();
+        ui.Prepare();
 
         // Increment the counter labelled A (second button on the first pass).
         var buttons = TestUi.FindAll(ui.Screen, p => p is Button);
@@ -44,7 +44,7 @@ public class KeyedComponentTests
         ui.ProcessPointerDown(aButton.Layout.X + 1, aButton.Layout.Y + 1);
         ui.ProcessPointerUp(aButton.Layout.X + 1, aButton.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         Assert.Contains(TestUi.Texts(ui.Screen), text => text == "1");
 
         // Swap the order of the two keyed components: their instances (and
@@ -53,7 +53,7 @@ public class KeyedComponentTests
         ui.ProcessPointerDown(swap.Layout.X + 1, swap.Layout.Y + 1);
         ui.ProcessPointerUp(swap.Layout.X + 1, swap.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         Assert.Contains(TestUi.Texts(ui.Screen), text => text == "1"); // A kept its count
         Assert.Contains(TestUi.Texts(ui.Screen), text => text == "0"); // B still untouched

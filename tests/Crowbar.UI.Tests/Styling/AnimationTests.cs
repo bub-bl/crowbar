@@ -200,8 +200,8 @@ public class AnimationTests
         var panel = PanelWithClass("box");
         var style = Compute(".box { transform: translate(50%, 25%); }", panel);
         var matrix = style.Transform.BuildMatrix(200, 100, TransformOrigin.Center, 0, 0);
-        Assert.Equal(100f, matrix.TransX, 3);
-        Assert.Equal(25f, matrix.TransY, 3);
+        Assert.Equal(100f, matrix.M31, 3);
+        Assert.Equal(25f, matrix.M32, 3);
     }
 
     [Fact]
@@ -293,7 +293,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "slide-rotate 1s linear");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.5f);
         Assert.Equal(20f, TranslateX(panel.ComputedStyle), 3);
         Assert.Equal(90f, Rotate(panel.ComputedStyle), 3);
@@ -324,7 +324,7 @@ public class AnimationTests
         panel.SetInlineStyle("opacity", "0.5"); // resting style, overridden by the animation
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(0f, panel.ComputedStyle.Opacity, 3); // from keyframe
 
         ui.Update(0.5f);
@@ -349,7 +349,7 @@ public class AnimationTests
         panel.SetInlineStyle("opacity", "0.5");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(1f);
         Assert.Equal(1f, panel.ComputedStyle.Opacity, 3); // kept after completion
     }
@@ -367,14 +367,14 @@ public class AnimationTests
         panel.SetInlineStyle("opacity", "0.5");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(1f);
         Assert.Equal(1f, panel.ComputedStyle.Opacity, 3); // filled end state
 
         // Further renders and ticks must not restart the animation.
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.5f);
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(1f, panel.ComputedStyle.Opacity, 3);
     }
 
@@ -390,7 +390,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade2 1s linear 2");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.25f);
         Assert.Equal(0.25f, panel.ComputedStyle.Opacity, 3);
         // Second iteration restarts from the from keyframe.
@@ -413,7 +413,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade15 1s linear 1.5 forwards");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(1.5f);
         Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3); // half of the second iteration
     }
@@ -430,7 +430,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade-r 1s linear reverse");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(0.8f, panel.ComputedStyle.Opacity, 3); // starts from the "to" keyframe
         ui.Update(0.25f);
         Assert.Equal(0.65f, panel.ComputedStyle.Opacity, 3); // 1 - 0.25 through the curve
@@ -448,7 +448,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade-a 1s linear infinite alternate");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.25f);
         Assert.Equal(0.35f, panel.ComputedStyle.Opacity, 3); // first iteration: forward
         ui.Update(1f); // elapsed 1.25 → 0.25 into the second (reversed) iteration
@@ -467,7 +467,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade-d 1s linear 0.5s backwards");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(0f, panel.ComputedStyle.Opacity, 3); // backwards fill during the delay
         ui.Update(0.25f);
         Assert.Equal(0f, panel.ComputedStyle.Opacity, 3); // still in the delay
@@ -487,7 +487,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade-nd 1s linear -0.5s");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3);
     }
 
@@ -503,7 +503,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade-p 1s linear paused");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.5f);
         Assert.Equal(0f, panel.ComputedStyle.Opacity, 3); // never advanced
     }
@@ -520,17 +520,17 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade-ps 1s linear");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.5f);
         Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3);
 
         panel.SetInlineStyle("animation", "fade-ps 1s linear paused");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.5f);
         Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3); // frozen
 
         panel.SetInlineStyle("animation", "fade-ps 1s linear");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.5f);
         Assert.Equal(1f, panel.ComputedStyle.Opacity, 3); // resumes, does not restart
     }
@@ -547,7 +547,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade-inf 1s linear infinite");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(2.5f);
         Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3);
         ui.Update(0.25f); // elapsed 2.75 → 0.75 into the third iteration
@@ -567,7 +567,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade-e 1s ease-in");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.5f);
         Assert.InRange(panel.ComputedStyle.Opacity, 0.2f, 0.4f);
     }
@@ -584,7 +584,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "slide 1s linear");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(0f, TranslateX(panel.ComputedStyle), 3);
         ui.Update(0.5f);
         Assert.Equal(50f, TranslateX(panel.ComputedStyle), 3);
@@ -601,7 +601,7 @@ public class AnimationTests
         panel.AddClass("box");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(0f, panel.ComputedStyle.Opacity, 3);
         ui.Update(0.5f);
         Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3);
@@ -622,7 +622,7 @@ public class AnimationTests
         panel.SetInlineStyle("animation", "fade-m 1s linear, slide-m 0.5s linear");
         ui.Screen.AddChild(panel);
 
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.25f);
         // fade-m is a quarter through (0.25); slide-m is half through (50px).
         Assert.Equal(0.25f, panel.ComputedStyle.Opacity, 3);
@@ -630,7 +630,7 @@ public class AnimationTests
 
         // Dropping one animation leaves the other running.
         panel.SetInlineStyle("animation", "fade-m 1s linear");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.25f); // fade-m elapsed 0.5 → 0.5; transform falls back to resting
         Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3);
         Assert.Equal(0f, TranslateX(panel.ComputedStyle), 3);
@@ -663,11 +663,11 @@ public class AnimationTests
         panel.SetInlineStyle("background-color", "#ff0000");
         panel.SetInlineStyle("opacity", "1");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         panel.SetInlineStyle("background-color", "#0000ff");
         panel.SetInlineStyle("opacity", "0");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.1f);
 
         // background-color is listed: interpolated to the midpoint.
@@ -684,10 +684,10 @@ public class AnimationTests
         panel.SetInlineStyle("transition", "opacity 0.2s linear 0.1s");
         panel.SetInlineStyle("opacity", "1");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         panel.SetInlineStyle("opacity", "0");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.05f);
         Assert.Equal(1f, panel.ComputedStyle.Opacity, 3); // still within the delay
 
@@ -706,10 +706,10 @@ public class AnimationTests
         panel.SetInlineStyle("transition", "transform 0.2s linear");
         panel.SetInlineStyle("transform", "translate(0px, 0px)");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         panel.SetInlineStyle("transform", "translate(100px, 0px)");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.1f);
         Assert.Equal(50f, TranslateX(panel.ComputedStyle), 3);
     }
@@ -722,10 +722,10 @@ public class AnimationTests
         panel.SetInlineStyle("transition", "transform-origin 0.2s linear");
         panel.SetInlineStyle("transform-origin", "left top");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         panel.SetInlineStyle("transform-origin", "right bottom");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.1f);
         Assert.Equal(50f, panel.ComputedStyle.TransformOrigin.ResolveX(100), 3);
         Assert.Equal(50f, panel.ComputedStyle.TransformOrigin.ResolveY(100), 3);
@@ -739,10 +739,10 @@ public class AnimationTests
         panel.SetInlineStyle("transition", "transform 0.2s linear");
         panel.SetInlineStyle("transform", "translate(0px, 0px)");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         panel.SetInlineStyle("transform", "scale(2)");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.1f);
         Assert.Equal(1.5f, ScaleX(panel.ComputedStyle), 3);
     }
@@ -755,10 +755,10 @@ public class AnimationTests
         panel.SetInlineStyle("transition", "width 0.2s linear");
         panel.SetInlineStyle("width", "100px");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         panel.SetInlineStyle("width", "200px");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.1f);
         Assert.Equal(150f, panel.ComputedStyle.Width.Px, 3);
     }
@@ -771,10 +771,10 @@ public class AnimationTests
         panel.SetInlineStyle("transition", "box-shadow 0.2s linear");
         panel.SetInlineStyle("box-shadow", "0px 0px 0px 0px #000000");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         panel.SetInlineStyle("box-shadow", "10px 20px 30px 40px #ffffff");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.1f);
         var shadow = Assert.Single(panel.ComputedStyle.BoxShadows);
         Assert.Equal(5f, shadow.OffsetX, 3);
@@ -793,11 +793,11 @@ public class AnimationTests
         panel.SetInlineStyle("opacity", "1");
         panel.SetInlineStyle("background-color", "#ff0000");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         panel.SetInlineStyle("opacity", "0");
         panel.SetInlineStyle("background-color", "#0000ff");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.1f);
         Assert.Equal(0.5f, panel.ComputedStyle.Opacity, 3);
         Assert.Equal(new UiColor(128, 0, 128, 255), panel.ComputedStyle.BackgroundColor);
@@ -810,12 +810,12 @@ public class AnimationTests
         var panel = new Panel();
         panel.SetInlineStyle("transition", "box-shadow 0.2s linear");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         // The empty list is padded with a transparent shadow (CSS semantics),
         // so a shadow fades in instead of snapping.
         panel.SetInlineStyle("box-shadow", "0px 0px 10px #ff0000");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.1f);
         var shadow = Assert.Single(panel.ComputedStyle.BoxShadows);
         Assert.Equal(5f, shadow.BlurRadius, 3);
@@ -831,11 +831,11 @@ public class AnimationTests
         panel.SetInlineStyle("opacity", "1");
         panel.SetInlineStyle("background-color", "#ff0000");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         panel.SetInlineStyle("opacity", "0");
         panel.SetInlineStyle("background-color", "#0000ff");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.1f);
         // Each property transitions on its own spec's clock.
         Assert.Equal(0.75f, panel.ComputedStyle.Opacity, 3); // 0.1/0.4
@@ -859,11 +859,11 @@ public class AnimationTests
         panel.SetInlineStyle("transition", "background-color 0.2s linear");
         panel.SetInlineStyle("background-color", "#ff0000");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         // The animation drives the transform; the transition drives background-color.
         panel.SetInlineStyle("background-color", "#0000ff");
-        ui.Render();
+        ui.Prepare();
         ui.Update(0.1f);
         Assert.Equal(1.01f, ScaleX(panel.ComputedStyle), 3); // animation advanced on the same tick
         Assert.Equal(new UiColor(128, 0, 128, 255), panel.ComputedStyle.BackgroundColor);
@@ -893,7 +893,7 @@ public class AnimationTests
             }
             """, "AnimKeep");
         ui.LoadStyles(".box { animation: fade-keep 1s linear; }");
-        ui.Render();
+        ui.Prepare();
 
         var box = TestUi.Find(ui.Screen, p => p.Classes.Contains("box"));
         Assert.NotNull(box);
@@ -908,7 +908,7 @@ public class AnimationTests
         ui.ProcessPointerDown(button!.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update(); // StateHasChanged → re-render, then the clock ticks on
-        ui.Render();
+        ui.Prepare();
 
         var rerendered = TestUi.Find(ui.Screen, p => p.Classes.Contains("box"));
         Assert.NotNull(rerendered);
@@ -931,7 +931,7 @@ public class AnimationTests
             }
             """, "TransitionKeep");
         ui.LoadStyles(".box { transition: opacity 0.2s linear; }");
-        ui.Render();
+        ui.Prepare();
 
         var box = TestUi.Find(ui.Screen, p => p.Classes.Contains("box"));
         Assert.Equal(1f, box!.ComputedStyle.Opacity, 3);
@@ -942,7 +942,7 @@ public class AnimationTests
         ui.ProcessPointerDown(button!.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update(0); // re-render: rebuilds the tree, no tick yet
-        ui.Render(); // cascade starts the transition from the visible value
+        ui.Prepare(); // cascade starts the transition from the visible value
 
         var rerendered = TestUi.Find(ui.Screen, p => p.Classes.Contains("box"));
         Assert.NotNull(rerendered);

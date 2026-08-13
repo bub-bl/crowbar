@@ -1,6 +1,5 @@
 using System.Globalization;
 using System.Text;
-using SkiaSharp;
 
 namespace Crowbar.UI;
 
@@ -8,8 +7,9 @@ namespace Crowbar.UI;
 /// The standard CSS filter functions (<c>blur</c>, <c>brightness</c>,
 /// <c>contrast</c>, <c>drop-shadow</c>, <c>grayscale</c>, <c>hue-rotate</c>,
 /// <c>invert</c>, <c>opacity</c>, <c>saturate</c>, <c>sepia</c>) registered at
-/// startup. They are ordinary <see cref="FilterFunctionDefinition"/>s, so a
-/// custom filter can be added the same way by calling
+/// startup. They are ordinary <see cref="FilterFunctionDefinition"/>s that only
+/// parse CSS syntax; the actual color/effect math lives in the GPU renderer's
+/// filter pass. A custom filter can be added the same way by calling
 /// <see cref="CssFilterFunctions.Register"/>.
 /// </summary>
 internal static class BuiltInFilterFunctions
@@ -30,66 +30,6 @@ internal static class BuiltInFilterFunctions
 
     private static void Register(FilterFunctionDefinition definition) => CssFilterFunctions.Register(definition);
 
-    // The color-matrix coefficients below are the canonical matrices published
-    // by the CSS Filter Effects specification (grayscale, sepia, saturate,
-    // hue-rotate, invert, brightness, contrast, opacity).
-    private static SKImageFilter CreateColorMatrixFilter(float[] matrix, SKImageFilter? input)
-    {
-        using var colorFilter = SKColorFilter.CreateColorMatrix(matrix);
-        return SKImageFilter.CreateColorFilter(colorFilter, input);
-    }
-
-    private static float[] SaturationMatrix(float s) =>
-    [
-        0.2126f + 0.7874f * s, 0.7152f - 0.7152f * s, 0.0722f - 0.0722f * s, 0, 0,
-        0.2126f - 0.2126f * s, 0.7152f + 0.2848f * s, 0.0722f - 0.0722f * s, 0, 0,
-        0.2126f - 0.2126f * s, 0.7152f - 0.7152f * s, 0.0722f + 0.9278f * s, 0, 0,
-        0, 0, 0, 1, 0,
-    ];
-
-    private static float[] SepiaMatrix(float s) =>
-    [
-        0.393f + 0.607f * s, 0.769f - 0.769f * s, 0.189f - 0.189f * s, 0, 0,
-        0.349f - 0.349f * s, 0.686f + 0.314f * s, 0.168f - 0.168f * s, 0, 0,
-        0.272f - 0.272f * s, 0.534f - 0.534f * s, 0.131f + 0.869f * s, 0, 0,
-        0, 0, 0, 1, 0,
-    ];
-
-    private static float[] InvertMatrix(float amount)
-    {
-        var diagonal = 1 - 2 * amount;
-        var offset = amount;
-        return
-        [
-            diagonal, 0, 0, 0, offset,
-            0, diagonal, 0, 0, offset,
-            0, 0, diagonal, 0, offset,
-            0, 0, 0, 1, 0,
-        ];
-    }
-
-    private static float[] HueRotateMatrix(float degrees)
-    {
-        var radians = degrees * MathF.PI / 180f;
-        var cos = MathF.Cos(radians);
-        var sin = MathF.Sin(radians);
-        return
-        [
-            0.213f + cos * 0.787f - sin * 0.213f, 0.715f - cos * 0.715f - sin * 0.715f, 0.072f - cos * 0.072f + sin * 0.928f, 0, 0,
-            0.213f - cos * 0.213f + sin * 0.143f, 0.715f + cos * 0.285f + sin * 0.140f, 0.072f - cos * 0.072f - sin * 0.283f, 0, 0,
-            0.213f - cos * 0.213f - sin * 0.787f, 0.715f - cos * 0.715f + sin * 0.715f, 0.072f + cos * 0.928f + sin * 0.072f, 0, 0,
-            0, 0, 0, 1, 0,
-        ];
-    }
-
-    private static float[] OpacityMatrix(float amount) =>
-    [
-        1, 0, 0, 0, 0,
-        0, 1, 0, 0, 0,
-        0, 0, 1, 0, 0,
-        0, 0, 0, amount, 0,
-    ];
-
     /// <summary>blur(radius): Gaussian blur whose standard deviation is the radius.</summary>
     private sealed class BlurFilter : FilterFunctionDefinition
     {
@@ -102,13 +42,10 @@ internal static class BuiltInFilterFunctions
             function = new CssFilterFunction(Name, [radius]);
             return true;
         }
-
-        public override SKImageFilter? CreateImageFilter(CssFilterFunction function, SKImageFilter? input) =>
-            SKImageFilter.CreateBlur(function.Parameters[0], function.Parameters[0], SKShaderTileMode.Decal, input);
     }
 
     /// <summary>brightness(amount): scales the RGB channels (values over 100% allowed).</summary>
-    private sealed class BrightnessFilter : ColorMatrixFilter
+    private sealed class BrightnessFilter : FilterFunctionDefinition
     {
         public BrightnessFilter() : base("brightness") { }
 
@@ -119,18 +56,10 @@ internal static class BuiltInFilterFunctions
             function = new CssFilterFunction(Name, [amount]);
             return true;
         }
-
-        protected override float[] BuildMatrix(float amount) =>
-        [
-            amount, 0, 0, 0, 0,
-            0, amount, 0, 0, 0,
-            0, 0, amount, 0, 0,
-            0, 0, 0, 1, 0,
-        ];
     }
 
     /// <summary>contrast(amount): scales the deviation from mid-gray.</summary>
-    private sealed class ContrastFilter : ColorMatrixFilter
+    private sealed class ContrastFilter : FilterFunctionDefinition
     {
         public ContrastFilter() : base("contrast") { }
 
@@ -140,18 +69,6 @@ internal static class BuiltInFilterFunctions
             if (!FilterArgumentParser.TryParseAmount(arguments, out var amount)) return false;
             function = new CssFilterFunction(Name, [amount]);
             return true;
-        }
-
-        protected override float[] BuildMatrix(float amount)
-        {
-            var offset = 0.5f * (1 - amount);
-            return
-            [
-                amount, 0, 0, 0, offset,
-                0, amount, 0, 0, offset,
-                0, 0, amount, 0, offset,
-                0, 0, 0, 1, 0,
-            ];
         }
     }
 
@@ -187,20 +104,10 @@ internal static class BuiltInFilterFunctions
             function = new CssFilterFunction(Name, [lengths[0], lengths[1], lengths.Count > 2 ? lengths[2] : 0], color);
             return true;
         }
-
-        public override SKImageFilter? CreateImageFilter(CssFilterFunction function, SKImageFilter? input)
-        {
-            var color = function.Color!.Value;
-            // The CSS blur radius is twice the Gaussian sigma, as in box-shadow.
-            var sigma = function.Parameters[2] / 2f;
-            return SKImageFilter.CreateDropShadow(
-                function.Parameters[0], function.Parameters[1], sigma, sigma,
-                new SKColor(color.R, color.G, color.B, color.A), input);
-        }
     }
 
     /// <summary>grayscale(amount): desaturates toward luminance; amount is clamped to [0, 1].</summary>
-    private sealed class GrayscaleFilter : ColorMatrixFilter
+    private sealed class GrayscaleFilter : FilterFunctionDefinition
     {
         public GrayscaleFilter() : base("grayscale") { }
 
@@ -211,12 +118,10 @@ internal static class BuiltInFilterFunctions
             function = new CssFilterFunction(Name, [Math.Clamp(amount, 0, 1)]);
             return true;
         }
-
-        protected override float[] BuildMatrix(float amount) => SaturationMatrix(1 - amount);
     }
 
     /// <summary>hue-rotate(angle): rotates the hue (deg/grad/rad/turn accepted).</summary>
-    private sealed class HueRotateFilter : ColorMatrixFilter
+    private sealed class HueRotateFilter : FilterFunctionDefinition
     {
         public HueRotateFilter() : base("hue-rotate") { }
 
@@ -227,12 +132,10 @@ internal static class BuiltInFilterFunctions
             function = new CssFilterFunction(Name, [degrees]);
             return true;
         }
-
-        protected override float[] BuildMatrix(float amount) => HueRotateMatrix(amount);
     }
 
     /// <summary>invert(amount): flips colors; amount is clamped to [0, 1].</summary>
-    private sealed class InvertFilter : ColorMatrixFilter
+    private sealed class InvertFilter : FilterFunctionDefinition
     {
         public InvertFilter() : base("invert") { }
 
@@ -243,12 +146,10 @@ internal static class BuiltInFilterFunctions
             function = new CssFilterFunction(Name, [Math.Clamp(amount, 0, 1)]);
             return true;
         }
-
-        protected override float[] BuildMatrix(float amount) => InvertMatrix(amount);
     }
 
     /// <summary>opacity(amount): scales the alpha channel; amount is clamped to [0, 1].</summary>
-    private sealed class OpacityFilter : ColorMatrixFilter
+    private sealed class OpacityFilter : FilterFunctionDefinition
     {
         public OpacityFilter() : base("opacity") { }
 
@@ -259,12 +160,10 @@ internal static class BuiltInFilterFunctions
             function = new CssFilterFunction(Name, [Math.Clamp(amount, 0, 1)]);
             return true;
         }
-
-        protected override float[] BuildMatrix(float amount) => OpacityMatrix(amount);
     }
 
     /// <summary>saturate(amount): scales colorfulness (values over 100% allowed).</summary>
-    private sealed class SaturateFilter : ColorMatrixFilter
+    private sealed class SaturateFilter : FilterFunctionDefinition
     {
         public SaturateFilter() : base("saturate") { }
 
@@ -275,12 +174,10 @@ internal static class BuiltInFilterFunctions
             function = new CssFilterFunction(Name, [amount]);
             return true;
         }
-
-        protected override float[] BuildMatrix(float amount) => SaturationMatrix(amount);
     }
 
     /// <summary>sepia(amount): applies a sepia tone; amount is clamped to [0, 1].</summary>
-    private sealed class SepiaFilter : ColorMatrixFilter
+    private sealed class SepiaFilter : FilterFunctionDefinition
     {
         public SepiaFilter() : base("sepia") { }
 
@@ -291,19 +188,6 @@ internal static class BuiltInFilterFunctions
             function = new CssFilterFunction(Name, [Math.Clamp(amount, 0, 1)]);
             return true;
         }
-
-        protected override float[] BuildMatrix(float amount) => SepiaMatrix(1 - amount);
-    }
-
-    /// <summary>Base for the color-matrix filters (brightness, contrast, ...).</summary>
-    private abstract class ColorMatrixFilter : FilterFunctionDefinition
-    {
-        protected ColorMatrixFilter(string name) : base(name) { }
-
-        protected abstract float[] BuildMatrix(float amount);
-
-        public override SKImageFilter? CreateImageFilter(CssFilterFunction function, SKImageFilter? input) =>
-            CreateColorMatrixFilter(BuildMatrix(function.Parameters[0]), input);
     }
 
     /// <summary>Argument parsers shared by the built-in filter functions.</summary>

@@ -95,7 +95,7 @@ public class ShadowTests
         parent.AddChild(child);
         ui.Screen.AddChild(parent);
         ui.LoadStyles(".parent { text-shadow: 2px 2px 0 #ff0000; }");
-        ui.Render();
+        ui.Prepare();
 
         Assert.Single(child.ComputedStyle.TextShadows);
         Assert.Equal(new UiColor(255, 0, 0, 255), child.ComputedStyle.TextShadows[0].Color);

@@ -24,9 +24,9 @@ public class EditorPageCompositionTests
         // which is only known after a layout pass: run one full frame like the
         // app loop (render to lay out, update to rebuild, render to paint) so
         // the docked panels are in place before the assertions.
-        ui.Render();
+        ui.Prepare();
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         return ui;
     }
 
@@ -122,7 +122,7 @@ public class EditorPageCompositionTests
         ui.ProcessPointerDown(dev!.Layout.X + 1, dev.Layout.Y + 1);
         ui.ProcessPointerUp(dev.Layout.X + 1, dev.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         dev = FindText(ui.Content!, "tab", t => t == "DÉVELOPPER");
         Assert.NotNull(dev);
@@ -161,7 +161,7 @@ public class EditorPageCompositionTests
         // Notifications' own BuildHash (UiNotifications.Version) changed, so
         // the descendant-aware render loop rebuilds the tree on ui.Update().
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         // The toast is rendered with its title and message text.
         var toast = TestUi.Find(content, p => p.Classes.Contains("notification") && p.Classes.Contains("success"));
@@ -195,7 +195,7 @@ public class EditorPageCompositionTests
         ui.ProcessPointerDown(generer.Layout.X + 1, generer.Layout.Y + 1);
         ui.ProcessPointerUp(generer.Layout.X + 1, generer.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         toggles = TestUi.FindAll(ui.Content!, p => p is ToggleInput).Cast<ToggleInput>().ToList();
         Assert.Equal(3, toggles.Count);

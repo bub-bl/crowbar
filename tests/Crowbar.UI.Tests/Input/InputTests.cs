@@ -15,7 +15,7 @@ public class InputTests
         var clicked = false;
         button.Clicked += _ => clicked = true;
         ui.Screen.AddChild(button);
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerDown(button.Layout.X + 1, button.Layout.Y + 1);
         Assert.True(clicked);
@@ -39,14 +39,14 @@ public class InputTests
         button.AddClass("hoverable");
         ui.Screen.AddChild(button);
         ui.LoadStyles(".hoverable { background-color: #000000; } .hoverable:hover { background-color: #00ff00; }");
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerMove(button.Layout.X + 1, button.Layout.Y + 1);
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(new UiColor(0, 255, 0, 255), button.ComputedStyle.BackgroundColor);
 
         ui.ProcessPointerMove(639, 199);
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(new UiColor(0, 0, 0, 255), button.ComputedStyle.BackgroundColor);
     }
 
@@ -59,7 +59,7 @@ public class InputTests
         edit.SetInlineStyle("height", "32px");
         edit.SetValue("Je t'aime");
         ui.Screen.AddChild(edit);
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerDown(edit.Layout.Right - 1, edit.Layout.Y + 1);
         ui.ProcessKey(0x43, true); // C
@@ -89,7 +89,7 @@ public class InputTests
         edit.SetInlineStyle("width", "160px");
         edit.SetInlineStyle("height", "32px");
         ui.Screen.AddChild(edit);
-        ui.Render();
+        ui.Prepare();
 
         edit.SetValue("one two three");
         ui.ProcessPointerDown(edit.Layout.Right - 1, edit.Layout.Y + 1);
@@ -99,8 +99,8 @@ public class InputTests
         Assert.Equal("one two ", edit.Value);
 
         edit.SetValue("select me");
-        using var font = new SkiaSharp.SKFont { Size = edit.ComputedStyle.FontSize };
-        var targetX = edit.Layout.X + edit.LayoutPadding.Left + font.MeasureText("select");
+        var font = TextLayout.CreateFont(edit.ComputedStyle);
+        var targetX = edit.Layout.X + edit.LayoutPadding.Left + TextLayout.Measure(font, "select", edit.ComputedStyle.LetterSpacing);
         ui.ProcessPointerDown(edit.Layout.X + edit.LayoutPadding.Left + 1, edit.Layout.Y + 1);
         ui.ProcessPointerMove(targetX, edit.Layout.Y + 1);
         ui.ProcessPointerUp(targetX, edit.Layout.Y + 1);
@@ -119,7 +119,7 @@ public class InputTests
         second.SetValue("b");
         ui.Screen.AddChild(first);
         ui.Screen.AddChild(second);
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerDown(first.Layout.X + 1, first.Layout.Y + 1);
         Assert.True(first.IsFocused);

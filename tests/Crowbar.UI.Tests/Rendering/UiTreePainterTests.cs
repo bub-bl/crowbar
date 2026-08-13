@@ -16,7 +16,7 @@ public class UiTreePainterTests
 {
     private static (Renderer2D Renderer, UiTreePainter Painter) Paint(UiSystem ui, Action<UiTreePainter>? configure = null)
     {
-        ui.Render(); // run layout + cascade
+        ui.Prepare(); // run layout + cascade
         var renderer = new Renderer2D();
         var painter = new UiTreePainter(renderer);
         configure?.Invoke(painter);
@@ -245,7 +245,7 @@ public class UiTreePainterTests
         ui.Screen.AddChild(image);
         ui.LoadStyles(".img { position: absolute; left: 10px; top: 10px; width: 100px; height: 50px; }");
 
-        ui.Render();
+        ui.Prepare();
         var renderer = new Renderer2D();
         var painter = new UiTreePainter(renderer);
         var texture = Texture2D.Create("test", 2, 2, new byte[] { 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255 });
@@ -266,7 +266,7 @@ public class UiTreePainterTests
         ui.Screen.AddChild(box);
         ui.LoadStyles(".box { position: absolute; left: 0px; top: 0px; width: 128px; height: 64px; background-image: url(tile.png); background-size: 32px 32px; background-repeat: repeat; }");
 
-        ui.Render();
+        ui.Prepare();
         var renderer = new Renderer2D();
         var painter = new UiTreePainter(renderer);
         var texture = Texture2D.Create("tile", 2, 2, new byte[] { 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255 });
@@ -286,7 +286,7 @@ public class UiTreePainterTests
         ui.Screen.AddChild(box);
         ui.LoadStyles(".box { position: absolute; left: 0px; top: 0px; width: 120px; height: 80px; background-image: url(tile.png); background-size: 40px 40px; background-repeat: no-repeat; background-position: 50% 50%; }");
 
-        ui.Render();
+        ui.Prepare();
         var renderer = new Renderer2D();
         var painter = new UiTreePainter(renderer);
         var texture = Texture2D.Create("tile", 2, 2, new byte[] { 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255 });
@@ -328,7 +328,7 @@ public class UiTreePainterTests
         badge.AddClass("badge");
         ui.Screen.AddChild(badge);
         ui.LoadStyles(".badge { position: absolute; left: 10px; top: 10px; width: 50px; height: 20px; } .badge::after { content: \" ✓\"; color: #00aa00; }");
-        ui.Render();
+        ui.Prepare();
         Assert.NotNull(badge.PseudoAfter);
 
         var renderer = new Renderer2D();
@@ -347,11 +347,11 @@ public class UiTreePainterTests
         input.AddClass("field");
         ui.Screen.AddChild(input);
         ui.LoadStyles(".field { position: absolute; left: 10px; top: 10px; width: 160px; height: 24px; color: #ffffff; font-size: 16px; white-space: nowrap; }");
-        ui.Render();
+        ui.Prepare();
         input.SetValue("hello");
         input.SetFocused(true);
         input.FocusAtEnd();
-        ui.Render();
+        ui.Prepare();
 
         var renderer = new Renderer2D();
         var painter = new UiTreePainter(renderer);
@@ -372,7 +372,7 @@ public class UiTreePainterTests
         glass.AddClass("glass");
         ui.Screen.AddChild(glass);
         ui.LoadStyles(".glass { position: absolute; left: 10px; top: 10px; width: 120px; height: 60px; background-color: #ffffff33; backdrop-filter: blur(6px); }");
-        ui.Render();
+        ui.Prepare();
 
         var renderer = new Renderer2D();
         var painter = new UiTreePainter(renderer);
@@ -383,6 +383,29 @@ public class UiTreePainterTests
         Assert.Equal(10f, region.Y);
         Assert.Equal(120f, region.Width);
         Assert.Equal(60f, region.Height);
+    }
+
+    // --- Tooltip ----------------------------------------------------------
+
+    [Fact]
+    public void Paint_DrawsTooltipOnTopOfTheTree()
+    {
+        using var ui = TestUi.Create(200, 120);
+        var (renderer, painter) = Paint(ui, p => p.SetTooltip("hover", new Vector2(20, 20)));
+
+        // The tooltip paints a filled box + a border ring, plus glyphs for the text.
+        Assert.True(renderer.Instances.Count >= 2, $"expected tooltip box + border, got {renderer.Instances.Count} instances");
+        Assert.Contains(renderer.Commands, c => c.Kind == BatchKind.Glyph);
+    }
+
+    [Fact]
+    public void Paint_NoTooltipEmitsNoOverlay()
+    {
+        using var ui = TestUi.Create(200, 120);
+        var (renderer, _) = Paint(ui);
+
+        Assert.Empty(renderer.Instances);
+        Assert.Empty(renderer.Commands);
     }
 
     // --- Text transform helper -------------------------------------------

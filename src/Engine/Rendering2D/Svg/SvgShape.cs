@@ -34,6 +34,13 @@ internal readonly record struct SvgPaint(SvgPaintKind Kind, ColorF Color)
     public static SvgPaint Literal(ColorF color) => new(SvgPaintKind.Literal, color);
 }
 
+/// <summary>How a fill is resolved: even-odd or non-zero winding.</summary>
+internal enum SvgFillRule : byte
+{
+    NonZero = 0,
+    EvenOdd = 1
+}
+
 /// <summary>One drawable element: a fill and/or stroke over a set of contours.</summary>
 internal sealed class SvgElement
 {
@@ -41,6 +48,8 @@ internal sealed class SvgElement
     public SvgPaint Fill = SvgPaint.None;
     public SvgPaint Stroke = SvgPaint.None;
     public float StrokeWidth;
+    public SvgFillRule FillRule = SvgFillRule.NonZero;
+    public float Opacity = 1f;
 }
 
 /// <summary>A flattened outline in SVG (viewBox) coordinates, open or closed.</summary>

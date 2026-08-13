@@ -151,11 +151,11 @@ var texture = renderer.End();           // offscreen texture, sampled by the com
 Transform composition is pre-multiplied (`current = pushed * current`), so the
 most recently pushed transform applies first — the canvas/Skia convention.
 
-## 6. Migration from Skia (progressive)
+## 6. Migration from Skia (complete)
 
-The existing `SkiaUiRenderer` rasterizes the panel tree to a CPU bitmap and
-delegates fills/shadows/borders/backdrops to the GPU compositor. Each feature
-below replaces one Skia surface with a `Renderer2D` equivalent:
+Skia (SkiaSharp + Svg.Skia) has been removed from the solution entirely. The
+renderer replaces every former Skia surface with a `Renderer2D` equivalent;
+the table below records how each feature migrated:
 
 | Feature | Architecture | Shader | Status |
 |---|---|---|---|
@@ -178,16 +178,18 @@ kerning and wrapping run on the CPU (SixLabors.Fonts, replacing the Skia-based
 `TextLayout`) and are emitted as quads referencing the GPU glyph atlas — the
 same split Chromium uses.
 
-`UiTreePainter` (Engine) is the replacement for `SkiaUiRenderer`'s raster
-walk: it consumes the public panel tree + computed styles and records the same
-paint order into a `Renderer2D`, so the UI framework stays decoupled from
-WebGPU. It is headless-testable (no device). The compositor swap is in place:
-`Renderer.Render` draws the `Renderer2D` offscreen target (`Ui2D.wgsl`)
-instead of uploading `SkiaUiRenderer`'s CPU bitmap, the runtime calls
-`UiSystem.Prepare()` (style/layout only) rather than the Skia raster, and the
-dead Skia texture-upload/fill/decoration pipelines were removed. What remains
-before the Skia rasterizer class can be deleted is the last paint parity work
-(per-side border carving and `drop-shadow` filters).
+`UiTreePainter` (Engine) walks the laid-out panel tree + computed styles and
+records the same paint order into a `Renderer2D`, so the UI framework stays
+decoupled from WebGPU. It is headless-testable (no device). The compositor swap
+is in place: `Renderer.Render` draws the `Renderer2D` offscreen target
+(`Ui2D.wgsl`), the runtime calls `UiSystem.Prepare()` (style/layout only), and
+the old CPU rasterizer (`SkiaUiRenderer`), its texture upload and its
+fill/decoration pipelines were deleted. Layout measurement now runs through
+`UiLayoutEngine` + a SixLabors.Fonts-based `TextLayout`; icon/image intrinsic
+sizes come from `SvgIconCache` (viewBox) and `UiImageCache` (ImageSharp); the
+gizmo icon atlas is rasterized by the engine's own `SvgRasterizer`. The only
+remaining paint-parity gaps are per-side border carving and `drop-shadow`
+filters, neither used by the editor's CSS.
 
 ## 7. Performance characteristics
 

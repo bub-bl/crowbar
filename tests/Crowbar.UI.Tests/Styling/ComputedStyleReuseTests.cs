@@ -28,7 +28,7 @@ public class ComputedStyleReuseTests
         var child = new Panel { TagName = "div" };
         parent.AddChild(child);
         ui.Screen.AddChild(parent);
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(0.5f, child.ComputedStyle.Opacity, 4);
 
@@ -38,10 +38,10 @@ public class ComputedStyleReuseTests
         for (var i = 0; i < 5; i++)
         {
             child.SetHovered(i % 2 == 0);
-            ui.Render();
+            ui.Prepare();
             Assert.Equal(0.5f, child.ComputedStyle.Opacity, 4);
             ui.Screen.Invalidate();
-            ui.Render();
+            ui.Prepare();
             Assert.Equal(0.5f, child.ComputedStyle.Opacity, 4);
         }
     }
@@ -58,16 +58,16 @@ public class ComputedStyleReuseTests
         var child = new Panel { TagName = "div" };
         parent.AddChild(child);
         ui.Screen.AddChild(parent);
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(1f, child.ComputedStyle.Opacity, 4);
 
         parent.SetInlineStyle("opacity", "0.4");
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(0.4f, child.ComputedStyle.Opacity, 4);
 
         parent.SetInlineStyle("opacity", "0.2");
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(0.2f, child.ComputedStyle.Opacity, 4);
     }
 
@@ -83,18 +83,18 @@ public class ComputedStyleReuseTests
         var box = new Panel { TagName = "div" };
         box.AddClass("box");
         ui.Screen.AddChild(box);
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(100f, box.Layout.Width, 3);
 
         for (var i = 0; i < 3; i++)
         {
             ui.Screen.Invalidate();
-            ui.Render();
+            ui.Prepare();
         }
 
         box.SetInlineStyle("width", "160px");
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(160f, box.Layout.Width, 3);
     }
 
@@ -109,12 +109,12 @@ public class ComputedStyleReuseTests
         var box = new Panel { TagName = "div" };
         box.AddClass("box");
         ui.Screen.AddChild(box);
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(100f, box.Layout.Width, 3);
 
         box.SetInlineStyle("background-color", "#ff0000");
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(new UiColor(255, 0, 0, 255), box.ComputedStyle.BackgroundColor);
         Assert.Equal(100f, box.Layout.Width, 3);

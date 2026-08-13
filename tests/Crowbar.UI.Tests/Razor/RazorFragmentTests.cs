@@ -54,7 +54,7 @@ public class RazorFragmentTests
                 private void ToggleHeader() { showHeader = !showHeader; StateHasChanged(); }
             }
             """, "MultiFragmentDemo");
-        ui.Render();
+        ui.Prepare();
 
         var texts = TestUi.Texts(ui.Screen);
         Assert.Contains("Title first", texts);
@@ -66,7 +66,7 @@ public class RazorFragmentTests
         var textInput = TestUi.Find(ui.Screen, p => p is TextInput) as TextInput;
         textInput!.SetValue("second");
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         texts = TestUi.Texts(ui.Screen);
         Assert.Contains("Title second", texts);
         Assert.Contains("Footer second", texts);
@@ -76,7 +76,7 @@ public class RazorFragmentTests
         ui.ProcessPointerDown(button.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         Assert.DoesNotContain("Title second", TestUi.Texts(ui.Screen));
         var shiftedInput = TestUi.Find(ui.Screen, p => p is TextInput) as TextInput;
@@ -90,7 +90,7 @@ public class RazorFragmentTests
         ui.ProcessPointerDown(button.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         Assert.Contains("Title second", TestUi.Texts(ui.Screen));
     }
 
@@ -122,7 +122,7 @@ public class RazorFragmentTests
                 </Layout>
             </div>
             """, "MixedFragmentsDemo");
-        ui.Render();
+        ui.Prepare();
 
         var texts = TestUi.Texts(ui.Screen);
         Assert.Contains("Head", texts);
@@ -164,7 +164,7 @@ public class RazorFragmentTests
                 private void Toggle() { show = !show; StateHasChanged(); }
             }
             """, "PositionShiftDemo");
-        ui.Render();
+        ui.Prepare();
 
         foreach (var extraVisible in new[] { true, false, true })
         {
@@ -176,7 +176,7 @@ public class RazorFragmentTests
             ui.ProcessPointerDown(button.Layout.X + 1, button.Layout.Y + 1);
             ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
             ui.Update();
-            ui.Render();
+            ui.Prepare();
         }
     }
 }

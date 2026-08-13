@@ -17,35 +17,35 @@ public class RazorRoutingTests
         Assert.Equal(4, ui.Pages.Count);
 
         ui.Navigate("/");
-        ui.Render();
+        ui.Prepare();
         Assert.Equal("/", ui.CurrentUrl);
         Assert.NotNull(TestUi.Find(ui.Screen, p => p.Text == "Home"));
 
         ui.Navigate("/home");
-        ui.Render();
+        ui.Prepare();
         Assert.NotNull(TestUi.Find(ui.Screen, p => p.Text == "Home"));
 
         ui.Navigate("/items/42");
-        ui.Render();
+        ui.Prepare();
         Assert.NotNull(TestUi.Find(ui.Screen, p => p.Text == "Item 42"));
 
         ui.Navigate("/items/abc");
-        ui.Render();
+        ui.Prepare();
         Assert.NotNull(TestUi.Find(ui.Screen, p => p.Text.Contains("404")));
 
         ui.Navigate("/missing");
-        ui.Render();
+        ui.Prepare();
         Assert.Equal("/missing", ui.CurrentUrl);
         Assert.NotNull(TestUi.Find(ui.Screen, p => p.Text.Contains("404")));
 
         ui.Navigate("/nav");
-        ui.Render();
+        ui.Prepare();
         var button = TestUi.Find(ui.Screen, p => p is Button);
         Assert.NotNull(button);
         ui.ProcessPointerDown(button.Layout.X + 1, button.Layout.Y + 1);
         ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         Assert.Equal("/home", ui.CurrentUrl);
         Assert.NotNull(TestUi.Find(ui.Screen, p => p.Text == "Home"));
     }

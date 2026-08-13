@@ -176,7 +176,7 @@ public class SelectorPseudoTests
         panel.AddClass("badge");
         ui.Screen.AddChild(panel);
         ui.LoadStyles(".badge::after { content: \" ✓\"; color: #00aa00; }");
-        ui.Render();
+        ui.Prepare();
         Assert.NotNull(panel.PseudoAfter);
         Assert.Equal(" ✓", panel.PseudoAfter!.Value.Text);
         Assert.Equal(new UiColor(0, 170, 0, 255), panel.PseudoAfter.Value.Style.Color);

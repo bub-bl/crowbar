@@ -1,6 +1,5 @@
 using System.Globalization;
 using Crowbar.UI;
-using SkiaSharp;
 
 namespace Crowbar.UI.Tests.Styling;
 
@@ -136,13 +135,12 @@ public class FilterTests
     }
 
     [Fact]
-    public void CustomFilterFunctionParsesAndBuilds()
+    public void CustomFilterFunctionParses()
     {
         Assert.True(CssFilterFunctions.TryParse("tint(0.5)", out var filter));
         var function = filter.Functions[0];
         Assert.Equal("tint", function.Name);
         Assert.Equal(0.5f, function.Parameters[0]);
-        Assert.NotNull(CssFilterFunctions.BuildImageFilter(filter));
     }
 
     [Fact]
@@ -182,18 +180,6 @@ public class FilterTests
             if (!float.TryParse(arguments, NumberStyles.Float, CultureInfo.InvariantCulture, out var amount)) return false;
             function = new CssFilterFunction(Name, [amount]);
             return true;
-        }
-
-        public override SKImageFilter? CreateImageFilter(CssFilterFunction function, SKImageFilter? input)
-        {
-            using var colorFilter = SKColorFilter.CreateColorMatrix(
-            [
-                1, 0, 0, 0, 0,
-                0, 1, 0, 0, 0,
-                0, 0, 1, 0, 0,
-                0, 0, 0, 1, 0,
-            ]);
-            return SKImageFilter.CreateColorFilter(colorFilter, input);
         }
     }
 }

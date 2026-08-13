@@ -1,5 +1,5 @@
 using System.Globalization;
-using SkiaSharp;
+using System.Numerics;
 
 namespace Crowbar.UI;
 
@@ -66,8 +66,8 @@ public sealed class TransformList : IEquatable<TransformList>
             foreach (var op in Ops)
             {
                 var m = OpMatrix(op, 1, 1);
-                if (Math.Abs(m.ScaleX - 1) > 1e-4f || Math.Abs(m.SkewY) > 1e-4f || Math.Abs(m.SkewX) > 1e-4f ||
-                    Math.Abs(m.ScaleY - 1) > 1e-4f || Math.Abs(m.TransX) > 1e-4f || Math.Abs(m.TransY) > 1e-4f) return false;
+                if (Math.Abs(m.M11 - 1) > 1e-4f || Math.Abs(m.M12) > 1e-4f || Math.Abs(m.M21) > 1e-4f ||
+                    Math.Abs(m.M22 - 1) > 1e-4f || Math.Abs(m.M31) > 1e-4f || Math.Abs(m.M32) > 1e-4f) return false;
             }
             return true;
         }
@@ -87,22 +87,20 @@ public sealed class TransformList : IEquatable<TransformList>
     /// (<paramref name="offsetX"/>, <paramref name="offsetY"/>), with percentages
     /// resolved and rotation/scaling pivoting on <paramref name="origin"/>.
     /// </summary>
-    public SKMatrix BuildMatrix(float width, float height, TransformOrigin origin, float offsetX, float offsetY)
+    public Matrix3x2 BuildMatrix(float width, float height, TransformOrigin origin, float offsetX, float offsetY)
     {
         var ox = origin.ResolveX(width);
         var oy = origin.ResolveY(height);
-        // SkiaSharp's instance PostConcat(other) pre-multiplies (this = other ·
-        // this), so each matrix must be introduced in the order it applies to a
-        // point. Build the product as T(offset+origin) · ops · T(-origin): start
-        // with the innermost shift (local point relative to the origin), apply
-        // the functions in CSS order, then place the result at the box position.
-        // The naive "T(offset+origin) first" order lands the back-shift before
-        // the functions and pivots the transform around the NEGATED origin — a
-        // scale then grows toward the bottom-right instead of around its center.
-        var m = SKMatrix.CreateTranslation(-ox, -oy);
-        foreach (var op in Ops) m = m.PostConcat(OpMatrix(op, width, height));
-        m = m.PostConcat(SKMatrix.CreateTranslation(offsetX + ox, offsetY + oy));
-        return m;
+        // Build the product as T(offset+origin) · ops · T(-origin): start with
+        // the innermost shift (local point relative to the origin), apply the
+        // functions in CSS order (each pre-multiplies), then place the result at
+        // the box position. The naive "T(offset+origin) first" order lands the
+        // back-shift before the functions and pivots the transform around the
+        // NEGATED origin — a scale then grows toward the bottom-right instead of
+        // around its center.
+        var m = Matrix3x2.CreateTranslation(-ox, -oy);
+        foreach (var op in Ops) m = OpMatrix(op, width, height) * m;
+        return Matrix3x2.CreateTranslation(offsetX + ox, offsetY + oy) * m;
     }
 
     /// <summary>
@@ -152,33 +150,26 @@ public sealed class TransformList : IEquatable<TransformList>
     }
 
     /// <summary>Matrix of a single operation, with percentages resolved against the element box.</summary>
-    private static SKMatrix OpMatrix(TransformOp op, float width, float height) => op.Type switch
+    private static Matrix3x2 OpMatrix(TransformOp op, float width, float height) => op.Type switch
     {
-        TransformOpType.Matrix => new SKMatrix
-        {
-            ScaleX = op.A, SkewY = op.B, SkewX = op.C, ScaleY = op.D,
-            TransX = op.E, TransY = op.F, Persp0 = 0, Persp1 = 0, Persp2 = 1
-        },
-        TransformOpType.Translate => SKMatrix.CreateTranslation(
+        TransformOpType.Matrix => new Matrix3x2(op.A, op.B, op.C, op.D, op.E, op.F),
+        TransformOpType.Translate => Matrix3x2.CreateTranslation(
             op.AIsPercent ? width * op.A / 100f : op.A,
             op.BIsPercent ? height * op.B / 100f : op.B),
-        TransformOpType.TranslateX => SKMatrix.CreateTranslation(op.AIsPercent ? width * op.A / 100f : op.A, 0),
-        TransformOpType.TranslateY => SKMatrix.CreateTranslation(0, op.AIsPercent ? height * op.A / 100f : op.A),
-        TransformOpType.Scale => SKMatrix.CreateScale(op.A, op.B),
-        TransformOpType.ScaleX => SKMatrix.CreateScale(op.A, 1),
-        TransformOpType.ScaleY => SKMatrix.CreateScale(1, op.A),
-        TransformOpType.Rotate => SKMatrix.CreateRotationDegrees(op.A),
+        TransformOpType.TranslateX => Matrix3x2.CreateTranslation(op.AIsPercent ? width * op.A / 100f : op.A, 0f),
+        TransformOpType.TranslateY => Matrix3x2.CreateTranslation(0f, op.AIsPercent ? height * op.A / 100f : op.A),
+        TransformOpType.Scale => Matrix3x2.CreateScale(op.A, op.B),
+        TransformOpType.ScaleX => Matrix3x2.CreateScale(op.A, 1f),
+        TransformOpType.ScaleY => Matrix3x2.CreateScale(1f, op.A),
+        TransformOpType.Rotate => Matrix3x2.CreateRotation(op.A * MathF.PI / 180f),
         TransformOpType.Skew => SkewMatrix(op.A, op.B),
-        TransformOpType.SkewX => SkewMatrix(op.A, 0),
-        TransformOpType.SkewY => SkewMatrix(0, op.A),
-        _ => SKMatrix.CreateIdentity()
+        TransformOpType.SkewX => SkewMatrix(op.A, 0f),
+        TransformOpType.SkewY => SkewMatrix(0f, op.A),
+        _ => Matrix3x2.Identity
     };
 
-    private static SKMatrix SkewMatrix(float xDegrees, float yDegrees) => new()
-    {
-        ScaleX = 1, SkewY = MathF.Tan(DegToRad(yDegrees)), SkewX = MathF.Tan(DegToRad(xDegrees)), ScaleY = 1,
-        TransX = 0, TransY = 0, Persp0 = 0, Persp1 = 0, Persp2 = 1
-    };
+    private static Matrix3x2 SkewMatrix(float xDegrees, float yDegrees) =>
+        new(1f, MathF.Tan(DegToRad(yDegrees)), MathF.Tan(DegToRad(xDegrees)), 1f, 0f, 0f);
 
     private static bool TryParseFunction(string function, out TransformOp? op)
     {
@@ -386,7 +377,7 @@ public sealed class TransformList : IEquatable<TransformList>
             // Percentages cannot be resolved without the element size; the
             // numeric value is used (matched lists avoid this path entirely).
             var m = OpMatrix(op, 1, 1);
-            (a, b, c, d, e, f) = Multiply(a, b, c, d, e, f, m.ScaleX, m.SkewY, m.SkewX, m.ScaleY, m.TransX, m.TransY);
+            (a, b, c, d, e, f) = Multiply(a, b, c, d, e, f, m.M11, m.M12, m.M21, m.M22, m.M31, m.M32);
         }
         return (a, b, c, d, e, f);
     }

@@ -10,8 +10,8 @@ namespace Crowbar.Engine.Rendering;
 /// <summary>
 /// Runtime renderer. Owns the 3D scene pass (the world's
 /// <see cref="MeshRenderer"/> components), the offscreen scene texture and
-/// the Skia-UI compositing (texture upload + fills/backdrops/decorations
-/// quads), and records every frame through the backend-neutral
+/// the UI compositing (the GPU-rendered UI layer + backdrop-filter quads),
+/// and records every frame through the backend-neutral
 /// <see cref="IGraphicsDevice"/> resources. The world hands its mesh
 /// renderers to <see cref="Render"/> each frame; this class keeps its own
 /// GPU representation (buffers cached per <see cref="Mesh"/>, uniforms per
@@ -168,7 +168,7 @@ public sealed class Renderer : IDisposable
     // surface, then the scene is blitted to the surface. backdrop-filter
     // panels are composited on the GPU by Backdrop.wgsl sampling this texture
     // directly (like S&box's ui_backdropfilter.shader), so the CPU never sees
-    // the scene and the Skia UI raster only re-runs when the UI changes.
+    // the scene and the UI layer only re-records when the UI changes.
     private ITexture _sceneTexture = null!;
     private IBindGroup _sceneBindGroup = null!;
 
@@ -298,7 +298,10 @@ public sealed class Renderer : IDisposable
                 // is skipped (idle frames cost nothing).
                 var changed = ui.Prepare();
                 if (changed || _ui2d.Target is null)
+                {
+                    _uiPainter.SetTooltip(ui.Renderer.TooltipText, new Vector2(ui.Renderer.TooltipX, ui.Renderer.TooltipY));
                     _uiPainter.Paint(ui.Screen);
+                }
 
                 var target = _ui2d.Target;
                 if (target is not null && !ReferenceEquals(_ui2dTextureBound, target))
@@ -364,7 +367,7 @@ public sealed class Renderer : IDisposable
                 // backdrop-filter: one instanced fullscreen quad per region,
                 // sampling the 3D scene texture with blur + color transforms. The
                 // regions come from the tree-walk painter (which defers expressible
-                // backdrop-filters to the compositor, like the Skia raster did); the
+                // backdrop-filters to the compositor); the
                 // UI overlay is drawn on top afterwards (regions are painted between
                 // the scene and the UI, like S&box's ui_backdropfilter).
                 var backdrops = _uiPainter.Backdrops;

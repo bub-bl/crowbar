@@ -67,7 +67,7 @@ public class ScrollTests
         container.AddClass("scroll");
         ui.Screen.AddChild(container);
         ui.LoadStyles(".scroll { width: 200px; height: 100px; overflow: auto; scrollbar-width: 14px; }");
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(14, container.ScrollbarThickness);
         var track = ScrollBars.VerticalTrack(container);
@@ -80,7 +80,7 @@ public class ScrollTests
         plain.SetInlineStyle("height", "100px");
         plain.SetInlineStyle("overflow", "auto");
         ui.Screen.AddChild(plain);
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(ScrollBars.Thickness, plain.ScrollbarThickness);
     }
 
@@ -90,7 +90,7 @@ public class ScrollTests
         using var ui = TestUi.Create();
         var container = NewScrollContainer(overflow: "auto");
         ui.Screen.AddChild(container);
-        ui.Render();
+        ui.Prepare();
 
         // 6 children of 40px in a 100px-tall container: 140px are scrollable.
         Assert.Equal(140, container.MaxScrollY);
@@ -104,7 +104,7 @@ public class ScrollTests
         using var ui = TestUi.Create();
         var container = NewScrollContainer(overflow: "auto");
         ui.Screen.AddChild(container);
-        ui.Render();
+        ui.Prepare();
 
         container.ScrollTo(0, 500);
         Assert.Equal(140, container.ScrollY);
@@ -132,7 +132,7 @@ public class ScrollTests
         child.SetInlineStyle("flex-shrink", "0");
         container.AddChild(child);
         ui.LoadStyles(".scroll { width: 200px; height: 100px; overflow: auto; }");
-        ui.Render();
+        ui.Prepare();
 
         // The 120px top margin is part of the scrollable overflow: 160 - 100.
         Assert.Equal(60, container.MaxScrollY);
@@ -144,7 +144,7 @@ public class ScrollTests
         using var ui = TestUi.Create();
         var container = NewScrollContainer(overflow: "auto");
         ui.Screen.AddChild(container);
-        ui.Render();
+        ui.Prepare();
         Assert.True(ScrollBars.ShouldShowVertical(container));
 
         // Same container without overflowing content: no scrollbar.
@@ -153,7 +153,7 @@ public class ScrollTests
         fits.SetInlineStyle("height", "100px");
         fits.SetInlineStyle("overflow", "auto");
         ui.Screen.AddChild(fits);
-        ui.Render();
+        ui.Prepare();
         Assert.False(ScrollBars.ShouldShowVertical(fits));
         Assert.False(fits.CanScrollVertically);
     }
@@ -167,7 +167,7 @@ public class ScrollTests
         container.SetInlineStyle("height", "100px");
         container.SetInlineStyle("overflow", "scroll");
         ui.Screen.AddChild(container);
-        ui.Render();
+        ui.Prepare();
 
         Assert.True(ScrollBars.ShouldShowVertical(container));
         Assert.Equal(0, container.MaxScrollY);
@@ -181,7 +181,7 @@ public class ScrollTests
             using var ui = TestUi.Create();
             var container = NewScrollContainer(overflow);
             ui.Screen.AddChild(container);
-            ui.Render();
+            ui.Prepare();
 
             Assert.False(container.IsScrollContainer);
             Assert.False(container.CanScrollVertically);
@@ -199,7 +199,7 @@ public class ScrollTests
         using var ui = TestUi.Create();
         var container = NewScrollContainer(overflow: "auto");
         ui.Screen.AddChild(container);
-        ui.Render();
+        ui.Prepare();
 
         var x = container.Layout.X + 50;
         var y = container.Layout.Y + 50;
@@ -233,7 +233,7 @@ public class ScrollTests
         tail.SetInlineStyle("height", "300px");
         tail.SetInlineStyle("flex-shrink", "0");
         outer.AddChild(tail);
-        ui.Render();
+        ui.Prepare();
 
         Assert.True(outer.MaxScrollY > 0);
         Assert.Equal(180, inner.MaxScrollY); // 6 × 40px content in a 60px box
@@ -250,7 +250,7 @@ public class ScrollTests
         using var ui = TestUi.Create();
         var container = NewScrollContainer(overflow: "auto");
         ui.Screen.AddChild(container);
-        ui.Render();
+        ui.Prepare();
 
         var x = container.Layout.X + 50;
         var y = container.Layout.Y + 90;
@@ -281,7 +281,7 @@ public class ScrollTests
         clipped.SetInlineStyle("margin-top", "160px");
         clipped.SetInlineStyle("flex-shrink", "0");
         container.AddChild(clipped);
-        ui.Render();
+        ui.Prepare();
 
         var x = container.Layout.X + 50;
         Assert.Same(visible, ui.Screen.HitTest(x, container.Layout.Y + 10));
@@ -307,7 +307,7 @@ public class ScrollTests
         child.SetInlineStyle("margin-top", "120px");
         child.SetInlineStyle("flex-shrink", "0");
         container.AddChild(child);
-        ui.Render();
+        ui.Prepare();
 
         // The child overflows the container (overflow: visible) and stays hittable.
         var hit = ui.Screen.HitTest(container.Layout.X + 50, container.Layout.Y + 140);
@@ -320,7 +320,7 @@ public class ScrollTests
         using var ui = TestUi.Create();
         var container = NewScrollContainer(overflow: "auto");
         ui.Screen.AddChild(container);
-        ui.Render();
+        ui.Prepare();
 
         var track = ScrollBars.VerticalTrack(container);
         var x = track.X + track.Width / 2;
@@ -343,7 +343,7 @@ public class ScrollTests
         using var ui = TestUi.Create();
         var container = NewScrollContainer(overflow: "auto");
         ui.Screen.AddChild(container);
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerDown(container.Layout.X + 50, container.Layout.Y + 10);
         Assert.True(container.Children[0].IsFocused);
@@ -359,7 +359,7 @@ public class ScrollTests
     }
 
     [Fact]
-    public void RendererClipsAndTranslatesScrolledContent()
+    public void ScrolledContentIsClippedAndTranslated()
     {
         using var ui = TestUi.Create(width: 320, height: 200);
         var container = new Panel { TagName = "div" };
@@ -371,15 +371,15 @@ public class ScrollTests
         ui.LoadStyles(
             ".scroll { width: 120px; height: 80px; overflow: auto; } " +
             ".item { width: 100px; height: 40px; margin-top: 120px; flex-shrink: 0; background-color: #ff0000; }");
-        ui.Render();
+        ui.Prepare();
 
-        // The red child sits below the fold: fully clipped away.
-        Assert.Equal(0, CountRed(ui.Render()));
+        // The child sits below the fold: the container clips and scrolls.
+        Assert.True(container.ClipsContent);
+        Assert.Equal(80, container.MaxScrollY);
+        Assert.Equal(120, child.Layout.Y);
 
         container.ScrollTo(0, 60);
-        var pixels = ui.Render();
-        // The child now slides into the visible 60..80 band of the container.
-        Assert.True(CountRed(pixels) > 0);
+        Assert.Equal(60, container.ScrollY);
         Assert.Equal(80, container.MaxScrollY);
     }
 
@@ -393,7 +393,7 @@ public class ScrollTests
         var uiDirectory = Path.Combine(FindRepoRoot(), "src", "Editor", "Ui");
         ui.RegisterRazorComponentsFromDirectory(uiDirectory);
         ui.Navigate("/");
-        ui.Render();
+        ui.Prepare();
 
         var scrollArea = TestUi.Find(ui.Screen, p => p.Classes.Contains("scroll-area"));
         Assert.NotNull(scrollArea);
@@ -426,10 +426,10 @@ public class ScrollTests
         using var ui = TestUi.Create();
         var container = NewScrollContainer(overflow: "auto");
         ui.Screen.AddChild(container);
-        ui.Render();
+        ui.Prepare();
 
         container.ScrollTo(0, 100);
-        ui.Render(); // full re-layout must not reset the offset
+        ui.Prepare(); // full re-layout must not reset the offset
         Assert.Equal(100, container.ScrollY);
     }
 
@@ -460,15 +460,5 @@ public class ScrollTests
         }
 
         return container;
-    }
-
-    private static int CountRed(ReadOnlyMemory<byte> pixels)
-    {
-        var span = pixels.Span;
-        var count = 0;
-        for (var i = 0; i < span.Length; i += 4)
-            if (span[i] == 255 && span[i + 1] == 0 && span[i + 2] == 0)
-                count++;
-        return count;
     }
 }

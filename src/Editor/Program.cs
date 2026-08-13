@@ -14,7 +14,7 @@ internal static class Program
 }
 
 /// <summary>
-/// Demo application: loads the Razor + Yoga + Skia + WebGPU showcase page and
+/// Demo application: loads the Razor + Yoga + WebGPU showcase page and
 /// runs it on the engine's input → update → render loop. The platform, input,
 /// UI runtime and graphics device are all owned by <see cref="Application"/>.
 /// </summary>

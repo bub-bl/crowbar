@@ -24,7 +24,7 @@ public class ScopedCssTests
             root { width: 99px; height: 99px; }
             .scoped-label { color: #ff0000; }
             """);
-        ui.Render();
+        ui.Prepare();
 
         var parentLabel = TestUi.Find(ui.Screen, p => p.Text == "Parent");
         var childLabel = TestUi.Find(ui.Screen, p => p.Text == "Child");
@@ -59,7 +59,7 @@ public class ScopedCssTests
         ui.LoadRazor("""
             <div class="root"><HoverBtn Label="hi" /></div>
             """, "HoverShorthandDemo");
-        ui.Render();
+        ui.Prepare();
 
         var btn = TestUi.Find(ui.Screen, p => p.Classes.Contains("btn"));
         var title = TestUi.Find(ui.Screen, p => p.Classes.Contains("title"));
@@ -69,12 +69,12 @@ public class ScopedCssTests
         Assert.Equal(new UiColor(51, 51, 51, 255), title.ComputedStyle.Color);
 
         ui.ProcessPointerMove(btn.Layout.X + btn.Layout.Width / 2, btn.Layout.Y + btn.Layout.Height / 2);
-        ui.Render();
+        ui.Prepare();
         Assert.True(btn.IsHovered);
         Assert.Equal(new UiColor(51, 51, 51, 255), btn.ComputedStyle.BackgroundColor);
 
         ui.ProcessPointerMove(639, 199);
-        ui.Render();
+        ui.Prepare();
         Assert.Equal(new UiColor(0, 0, 0, 255), btn.ComputedStyle.BackgroundColor);
     }
 }

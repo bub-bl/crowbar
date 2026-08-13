@@ -12,8 +12,8 @@ public interface ITexture : IDisposable
     TextureFormat Format { get; }
 
     /// <summary>
-    /// Uploads raw pixels (e.g. the Skia UI raster) into a sub-rect of the
-    /// texture. Only valid for textures created with <see cref="TextureDescription.CopyDestination"/>.
+    /// Uploads raw pixels (e.g. a CPU-rendered UI or icon atlas) into a sub-rect
+    /// of the texture. Only valid for textures created with <see cref="TextureDescription.CopyDestination"/>.
     /// </summary>
     void Write(nint source, int sourceRowBytes, int x, int y, int width, int height);
 }

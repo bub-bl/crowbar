@@ -1,61 +1,44 @@
-using SkiaSharp;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Crowbar.UI;
 
 /// <summary>
-/// Loads and caches the images referenced by the UI pipeline: the <c>src</c>
-/// of an <c>&lt;img&gt;</c> panel and the <c>url(...)</c> of
+/// Resolves the intrinsic size of the images referenced by the UI pipeline:
+/// the <c>src</c> of an <c>&lt;img&gt;</c> panel and the <c>url(...)</c> of
 /// <c>background-image</c>. A source is resolved against
 /// <see cref="ContentRoot"/> when it is a relative path (absolute paths are
 /// used as-is, so SCSS/CSS can point anywhere on disk); <c>data:</c> URIs are
-/// decoded inline. Entries are cached by normalized source so the per-frame
-/// paint pass and the layout measure never decode twice.
+/// decoded inline. Only the decoded dimensions are cached — the actual pixels
+/// are loaded by the GPU renderer's image atlas, so this cache carries no
+/// Skia dependency. Entries are cached by normalized source so the per-frame
+/// layout measure never decodes twice.
 /// </summary>
 public sealed class UiImageCache
 {
-    /// <summary>The process-wide cache used by the renderer and the layout engine by default.</summary>
+    /// <summary>The process-wide cache used by the layout engine by default.</summary>
     public static UiImageCache Shared { get; } = new();
 
     /// <summary>Directory relative image sources are resolved against (defaults to the app base directory).</summary>
     public string ContentRoot { get; set; } = AppContext.BaseDirectory;
 
-    private readonly Dictionary<string, SKImage> _images = new(StringComparer.OrdinalIgnoreCase);
-    // The shared cache is used by every renderer in the process (tests render
-    // in parallel, and hosts may load images off the render thread); guard the
+    private readonly Dictionary<string, (int Width, int Height)> _sizes = new(StringComparer.OrdinalIgnoreCase);
+    // The shared cache is used by every renderer in the process (tests run in
+    // parallel, and hosts may load images off the render thread); guard the
     // dictionary so concurrent Register/Get/Clear never corrupt it.
     private readonly object _lock = new();
 
     /// <summary>
-    /// Registers an image under a source key without touching the disk. This is
-    /// the injection point for tests and for hosts that decode images through
-    /// their own asset pipeline (the cache takes ownership of the image and
-    /// disposes it on <see cref="Clear"/> or on re-registration).
+    /// Registers an intrinsic size under a source key without touching the
+    /// disk. This is the injection point for tests and for hosts that resolve
+    /// image dimensions through their own asset pipeline.
     /// </summary>
-    public void Register(string source, SKImage image)
+    public void Register(string source, int width, int height)
     {
-        ArgumentNullException.ThrowIfNull(source);
-        ArgumentNullException.ThrowIfNull(image);
-        lock (_lock)
-        {
-            if (_images.TryGetValue(source, out var previous)) previous.Dispose();
-            _images[source] = image;
-        }
-    }
-
-    /// <summary>Gets the decoded image for a source, or null when it cannot be loaded.</summary>
-    public SKImage? Get(string source)
-    {
-        if (string.IsNullOrWhiteSpace(source)) return null;
-        lock (_lock)
-        {
-            if (_images.TryGetValue(source, out var cached)) return cached;
-        }
-        var decoded = Decode(source);
-        if (decoded is not null)
-        {
-            lock (_lock) _images[source] = decoded;
-        }
-        return decoded;
+        ArgumentException.ThrowIfNullOrWhiteSpace(source);
+        if (width < 0 || height < 0)
+            throw new ArgumentOutOfRangeException(nameof(width), "Image dimensions must be non-negative.");
+        lock (_lock) _sizes[source] = (width, height);
     }
 
     /// <summary>
@@ -65,28 +48,35 @@ public sealed class UiImageCache
     /// </summary>
     public bool TryGetSize(string source, out float width, out float height)
     {
-        if (Get(source) is { } image)
-        {
-            width = image.Width;
-            height = image.Height;
-            return true;
-        }
         width = 0;
         height = 0;
-        return false;
-    }
+        if (string.IsNullOrWhiteSpace(source)) return false;
 
-    /// <summary>Drops every cached image (disposing the decoded bitmaps).</summary>
-    public void Clear()
-    {
         lock (_lock)
         {
-            foreach (var image in _images.Values) image.Dispose();
-            _images.Clear();
+            if (_sizes.TryGetValue(source, out var cached))
+            {
+                width = cached.Width;
+                height = cached.Height;
+                return cached.Width > 0 && cached.Height > 0;
+            }
         }
+
+        var size = ReadSize(source);
+        if (size is not { } s || s.Width <= 0 || s.Height <= 0) return false;
+        lock (_lock) _sizes[source] = s;
+        width = s.Width;
+        height = s.Height;
+        return true;
     }
 
-    private SKImage? Decode(string source)
+    /// <summary>Drops every cached size.</summary>
+    public void Clear()
+    {
+        lock (_lock) _sizes.Clear();
+    }
+
+    private (int Width, int Height)? ReadSize(string source)
     {
         try
         {
@@ -100,25 +90,28 @@ public sealed class UiImageCache
                 // Strip any data-URI quoting the CSS url() may have kept.
                 if (payload.Length >= 2 && payload[0] is '"' or '\'' && payload[^1] == payload[0])
                     payload = payload[1..^1];
+                byte[] bytes;
                 try
                 {
-                    return SKImage.FromEncodedData(Convert.FromBase64String(payload));
+                    bytes = Convert.FromBase64String(payload);
                 }
                 catch (FormatException)
                 {
                     return null;
                 }
+                using var stream = new MemoryStream(bytes);
+                using var image = SixLabors.ImageSharp.Image.Load<Rgba32>(stream);
+                return (image.Width, image.Height);
             }
 
             var path = Path.IsPathRooted(source) ? source : Path.Combine(ContentRoot, source);
             if (!File.Exists(path)) return null;
-            using var stream = File.OpenRead(path);
-            return SKImage.FromEncodedData(stream);
+            using var loaded = SixLabors.ImageSharp.Image.Load<Rgba32>(path);
+            return (loaded.Width, loaded.Height);
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {
-            // A missing, locked or undecodable image must never crash the UI:
-            // the paint pass simply draws nothing for that panel.
+            // A missing, locked or undecodable image must never crash the UI.
             return null;
         }
     }

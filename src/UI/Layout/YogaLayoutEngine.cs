@@ -1,5 +1,4 @@
 using Facebook.Yoga;
-using SkiaSharp;
 
 namespace Crowbar.UI;
 
@@ -298,8 +297,8 @@ public sealed class YogaLayoutEngine
             var lineHeight = style.LineHeight > 0 ? style.LineHeight : style.FontSize * 1.25f;
             // Yoga treats the measure result as the content box and adds the
             // node's padding/border around it, so the callback must only size
-            // the text itself. The text is measured with the same Skia font as
-            // the renderer so the layout box matches the drawn glyphs: family,
+            // the text itself. The text is measured with the same font options
+            // as the GPU renderer so the layout box matches the drawn glyphs: family,
             // weight, tracking, transform and white-space wrap are applied in
             // both places through TextLayout. Wrapping against the available
             // width makes a constrained text panel grow vertically.
@@ -309,7 +308,7 @@ public sealed class YogaLayoutEngine
             var displayText = (panel.PseudoBefore?.Text ?? string.Empty) + text + (panel.PseudoAfter?.Text ?? string.Empty);
             node.SetMeasureFunc((_, availableWidth, widthMode, _, _) =>
             {
-                using var font = TextLayout.CreateFont(style);
+                var font = TextLayout.CreateFont(style);
                 var transformed = TextLayout.ApplyTransform(displayText, style.TextTransform);
                 var wrapWidth = widthMode == MeasureMode.Undefined || availableWidth <= 0
                     ? float.MaxValue

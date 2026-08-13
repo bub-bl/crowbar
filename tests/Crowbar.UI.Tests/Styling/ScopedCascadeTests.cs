@@ -24,14 +24,14 @@ public class ScopedCascadeTests
         inner.AddClass("inner");
         outer.AddChild(inner);
         ui.Screen.AddChild(outer);
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(UiColor.White, inner.ComputedStyle.Color);
 
         // Only the hovered panel is a style root; the descendant is not.
         outer.SetHovered(true);
         Assert.Equal([outer], ui.Screen.StyleDirtyRoots);
-        ui.Render();
+        ui.Prepare();
 
         // .outer:hover .inner must still re-match even though `inner` itself
         // was not marked dirty.
@@ -51,12 +51,12 @@ public class ScopedCascadeTests
         container.AddChild(a);
         container.AddChild(b);
         ui.Screen.AddChild(container);
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(UiColor.White, b.ComputedStyle.Color);
 
         a.SetHovered(true);
-        ui.Render();
+        ui.Prepare();
 
         // The re-cascade walks the parent's subtree, so the adjacent sibling
         // re-matches.
@@ -74,12 +74,12 @@ public class ScopedCascadeTests
         right.AddClass("box");
         ui.Screen.AddChild(left);
         ui.Screen.AddChild(right);
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(UiColor.Transparent, right.ComputedStyle.BackgroundColor);
 
         left.SetHovered(true);
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(new UiColor(0, 255, 0, 255), left.ComputedStyle.BackgroundColor);
         Assert.Equal(UiColor.Transparent, right.ComputedStyle.BackgroundColor);
@@ -92,12 +92,12 @@ public class ScopedCascadeTests
         var panel = new Panel { TagName = "div" };
         panel.AddClass("box");
         ui.Screen.AddChild(panel);
-        ui.Render();
+        ui.Prepare();
 
         panel.SetHovered(true);
         Assert.Single(ui.Screen.StyleDirtyRoots);
 
-        ui.Render();
+        ui.Prepare();
         Assert.Empty(ui.Screen.StyleDirtyRoots);
     }
 
@@ -126,13 +126,13 @@ public class ScopedCascadeTests
             btn.AddClass("btn");
             ui.Screen.AddChild(fade);
             ui.Screen.AddChild(btn);
-            ui.Render();
+            ui.Prepare();
             var label = (Label)fadeChild.Children[0];
 
             // Mid-animation, hover the unrelated button in the same frame.
             ui.Update(0.1f);
             btn.SetHovered(true);
-            ui.Render();
+            ui.Prepare();
 
             Assert.Equal(new UiColor(255, 0, 0, 255), btn.ComputedStyle.BackgroundColor);
             Assert.Equal(fade.ComputedStyle.Opacity, label.ComputedStyle.Opacity, 3);

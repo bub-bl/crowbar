@@ -162,7 +162,7 @@ public class BorderOutlineTests
         panel.AddClass("box");
         ui.Screen.AddChild(panel);
         ui.LoadStyles(".box { width: 100px; height: 40px; border: 4px solid #ff0000; }");
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(100f, panel.Layout.Width);
         Assert.Equal(4f, panel.LayoutBorder.Left);
@@ -178,7 +178,7 @@ public class BorderOutlineTests
         panel.AddClass("box");
         ui.Screen.AddChild(panel);
         ui.LoadStyles(".box { width: 100px; height: 40px; outline: 8px solid #ff0000; }");
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(100f, panel.Layout.Width);
         Assert.Equal(100f, panel.ClientWidth);

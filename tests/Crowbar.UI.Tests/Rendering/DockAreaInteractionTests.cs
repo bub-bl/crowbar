@@ -23,7 +23,7 @@ public class DockAreaInteractionTests
         // Render must defer the geometry-dependent DockArea rebuild until after
         // that first layout pass; no second manual frame is required.
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         Assert.NotNull(FindDockTab(ui.Content!, "EXPLORATEUR"));
         Assert.NotNull(FindDockTab(ui.Content!, "VIEWPORT"));
@@ -51,13 +51,13 @@ public class DockAreaInteractionTests
         // The real app can render a frame immediately after the press. The
         // drag must survive that reconciliation before the pointer moves.
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerMove(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerUp(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         // EXPLORATEUR is now a tab of the same group as VIEWPORT, and the
         // emptied explorer group collapsed out of the layout.
@@ -92,13 +92,13 @@ public class DockAreaInteractionTests
         // The real app can render a frame immediately after the press. The
         // drag must survive that reconciliation before the pointer moves.
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerMove(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerUp(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         // EXPLORATEUR sits in its own group now, next to (not inside) VIEWPORT.
         var explorerTabAfter = FindDockTab(ui.Content!, "EXPLORATEUR");
@@ -129,12 +129,12 @@ public class DockAreaInteractionTests
         ui.ProcessPointerDown(grabX, grabY);
         ui.ProcessPointerMove(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         // (10, 10) is in the fixed top bar, outside DockArea. Pointer capture
         // must still receive the release and clear the transient drag state.
         ui.ProcessPointerUp(10, 10);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         var tabs = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab"));
         Assert.NotNull(FindDockTab(ui.Content!, "EXPLORATEUR"));
@@ -154,7 +154,7 @@ public class DockAreaInteractionTests
         // in that case.
         ui.ProcessPointerMove(200, 100);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         Assert.Equal(before, ui.Renderer.LayoutPasses);
     }
@@ -176,13 +176,13 @@ public class DockAreaInteractionTests
 
         ui.ProcessPointerDown(grabX, grabY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerMove(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerUp(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         var bottomGroup = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-group"))
             .Single(group => TestUi.Texts(group).Contains("MONDE") && TestUi.Texts(group).Contains("CONTENU"));
@@ -211,16 +211,16 @@ public class DockAreaInteractionTests
 
         ui.ProcessPointerDown(grabX, grabY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerMove(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         // Let the 140ms slide/fade transitions run to completion so the
         // asserted positions and opacities are the settled values.
         for (var i = 0; i < 10; i++)
         {
             ui.Update();
-            ui.Render();
+            ui.Prepare();
         }
 
         // Mid-drag: the dragged tab leaves its slot (it becomes an invisible
@@ -248,7 +248,7 @@ public class DockAreaInteractionTests
 
         ui.ProcessPointerUp(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         // After the drop the slide is gone: no dimmed tab, no transforms left.
         Assert.Empty(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab-dragging")));
@@ -276,15 +276,15 @@ public class DockAreaInteractionTests
 
         ui.ProcessPointerDown(grabX, grabY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerMove(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         // Let the 140ms slide/fade transitions run to completion.
         for (var i = 0; i < 10; i++)
         {
             ui.Update();
-            ui.Render();
+            ui.Prepare();
         }
 
         var dragged = FindDockTab(ui.Content!, "MONDE");
@@ -304,7 +304,7 @@ public class DockAreaInteractionTests
 
         ui.ProcessPointerUp(targetX, targetY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         // The drop reorders the pair: CONTENU first, then MONDE.
         var bottomGroup = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-group"))
@@ -330,19 +330,19 @@ public class DockAreaInteractionTests
         Assert.NotNull(hit);
         Assert.Contains("dock-splitter-v", hit!.Classes);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         // Deliver two separate movement events. The second event's delta is
         // absolute from the press, not relative to the previous event.
         ui.ProcessPointerMove(startX + 17, startY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerMove(startX + 34, startY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerUp(startX + 34, startY);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         var movedSplitter = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-splitter-v")).First();
         Assert.Equal(34f, movedSplitter.Layout.X - initialX, precision: 1);
@@ -363,14 +363,14 @@ public class DockAreaInteractionTests
         Assert.NotNull(hit);
         Assert.Contains("dock-splitter-h", hit!.Classes);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         ui.ProcessPointerMove(startX, startY + 25);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
         ui.ProcessPointerUp(startX, startY + 25);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         var movedSplitter = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-splitter-h")).First();
         Assert.Equal(25f, movedSplitter.Layout.Y - initialY, precision: 1);
@@ -392,7 +392,7 @@ public class DockAreaInteractionTests
         ui.ProcessPointerDown(contenuTab!.Layout.X + 5, contenuTab.Layout.Y + 5);
         ui.ProcessPointerUp(contenuTab.Layout.X + 5, contenuTab.Layout.Y + 5);
         ui.Update();
-        ui.Render();
+        ui.Prepare();
 
         var activePanes = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-pane-active"));
         Assert.Contains(activePanes, pane => TestUi.Texts(pane).Any(text => text.Contains("MODÈLES", StringComparison.Ordinal)));
