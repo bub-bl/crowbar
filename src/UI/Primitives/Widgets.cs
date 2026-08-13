@@ -24,7 +24,8 @@ public class TextInput : Panel
     public int SelectionStart { get; private set; }
     public int SelectionEnd { get; private set; }
     public bool HasSelection => SelectionStart != SelectionEnd;
-    internal bool CaretVisible { get; private set; } = true;
+    /// <summary>Whether the caret is currently shown (blinks while focused). Read by the renderer.</summary>
+    public bool CaretVisible { get; private set; } = true;
     private float _caretTime;
     private bool _shiftDown;
     private bool _controlDown;

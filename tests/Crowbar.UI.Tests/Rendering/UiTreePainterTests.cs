@@ -257,6 +257,49 @@ public class UiTreePainterTests
         Assert.Contains(renderer.Commands, c => c.Kind == BatchKind.Textured);
     }
 
+    [Fact]
+    public void Paint_BackgroundImageTilesWithRepeat()
+    {
+        using var ui = TestUi.Create(160, 160);
+        var box = new Panel { TagName = "div" };
+        box.AddClass("box");
+        ui.Screen.AddChild(box);
+        ui.LoadStyles(".box { position: absolute; left: 0px; top: 0px; width: 128px; height: 64px; background-image: url(tile.png); background-size: 32px 32px; background-repeat: repeat; }");
+
+        ui.Render();
+        var renderer = new Renderer2D();
+        var painter = new UiTreePainter(renderer);
+        var texture = Texture2D.Create("tile", 2, 2, new byte[] { 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255 });
+        painter.ImageResolver = _ => renderer.RegisterImage(texture);
+        painter.Paint(ui.Screen);
+
+        // 128x64 area tiled with 32x32 tiles = 4 columns x 2 rows = 8 quads.
+        Assert.Equal(8 * 6, renderer.TexturedCount);
+    }
+
+    [Fact]
+    public void Paint_BackgroundImageNoRepeatHonorsPosition()
+    {
+        using var ui = TestUi.Create(200, 120);
+        var box = new Panel { TagName = "div" };
+        box.AddClass("box");
+        ui.Screen.AddChild(box);
+        ui.LoadStyles(".box { position: absolute; left: 0px; top: 0px; width: 120px; height: 80px; background-image: url(tile.png); background-size: 40px 40px; background-repeat: no-repeat; background-position: 50% 50%; }");
+
+        ui.Render();
+        var renderer = new Renderer2D();
+        var painter = new UiTreePainter(renderer);
+        var texture = Texture2D.Create("tile", 2, 2, new byte[] { 255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255 });
+        painter.ImageResolver = _ => renderer.RegisterImage(texture);
+        painter.Paint(ui.Screen);
+
+        // A single centered tile: (120-40)/2 = 40 offset on each axis.
+        Assert.Equal(6, renderer.TexturedCount);
+        var quad = renderer.TexturedVerts[0];
+        Assert.Equal(40f, quad.Position.X, 2);
+        Assert.Equal(20f, quad.Position.Y, 2); // (80-40)/2
+    }
+
     // --- Filters ----------------------------------------------------------
 
     [Fact]
@@ -273,6 +316,73 @@ public class UiTreePainterTests
         Assert.Single(renderer.FilterLayers);
         Assert.Contains(renderer.Commands, c => c.Kind == BatchKind.FilterBlit);
         Assert.Equal(2, renderer.FilterLayers[0].Filter.Ops.Count);
+    }
+
+    // --- Pseudo elements and caret ---------------------------------------
+
+    [Fact]
+    public void Paint_PseudoElementEmitsText()
+    {
+        using var ui = TestUi.Create(200, 100);
+        var badge = new Panel { TagName = "div" };
+        badge.AddClass("badge");
+        ui.Screen.AddChild(badge);
+        ui.LoadStyles(".badge { position: absolute; left: 10px; top: 10px; width: 50px; height: 20px; } .badge::after { content: \" ✓\"; color: #00aa00; }");
+        ui.Render();
+        Assert.NotNull(badge.PseudoAfter);
+
+        var renderer = new Renderer2D();
+        var painter = new UiTreePainter(renderer);
+        painter.Paint(ui.Screen);
+
+        Assert.True(renderer.TexturedCount > 0);
+        Assert.Contains(renderer.Commands, c => c.Kind == BatchKind.Glyph);
+    }
+
+    [Fact]
+    public void Paint_FocusedInputDrawsCaret()
+    {
+        using var ui = TestUi.Create(240, 100);
+        var input = new TextInput();
+        input.AddClass("field");
+        ui.Screen.AddChild(input);
+        ui.LoadStyles(".field { position: absolute; left: 10px; top: 10px; width: 160px; height: 24px; color: #ffffff; font-size: 16px; white-space: nowrap; }");
+        ui.Render();
+        input.SetValue("hello");
+        input.SetFocused(true);
+        input.FocusAtEnd();
+        ui.Render();
+
+        var renderer = new Renderer2D();
+        var painter = new UiTreePainter(renderer);
+        painter.Paint(ui.Screen);
+
+        // The caret is a line shape with a stroke width.
+        var caret = Assert.Single(renderer.Instances, i => i.Flags.X == (float)ShapeKind.Line);
+        Assert.True(caret.Params.Y > 0f);
+    }
+
+    // --- Backdrops --------------------------------------------------------
+
+    [Fact]
+    public void Paint_CollectsBackdropRegions()
+    {
+        using var ui = TestUi.Create(200, 120);
+        var glass = new Panel { TagName = "div" };
+        glass.AddClass("glass");
+        ui.Screen.AddChild(glass);
+        ui.LoadStyles(".glass { position: absolute; left: 10px; top: 10px; width: 120px; height: 60px; background-color: #ffffff33; backdrop-filter: blur(6px); }");
+        ui.Render();
+
+        var renderer = new Renderer2D();
+        var painter = new UiTreePainter(renderer);
+        painter.Paint(ui.Screen);
+
+        var region = Assert.Single(painter.Backdrops);
+        Assert.Equal(10f, region.X);
+        Assert.Equal(10f, region.Y);
+        Assert.Equal(120f, region.Width);
+        Assert.Equal(60f, region.Height);
     }
 
     // --- Text transform helper -------------------------------------------

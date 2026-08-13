@@ -20,6 +20,7 @@ public sealed class UiTreePainter
     // in-memory resolvers. Both caches are keyed so assets decode/parse once.
     private readonly Dictionary<string, SvgShape?> _svgCache = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, Image2D?> _imageCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly List<BackdropRegion> _backdrops = [];
 
     public UiTreePainter(Renderer2D renderer)
     {
@@ -28,6 +29,13 @@ public sealed class UiTreePainter
 
     /// <summary>The renderer this painter records into.</summary>
     public Renderer2D Renderer => _renderer;
+
+    /// <summary>
+    /// The backdrop-filter regions collected by the last paint, in paint order.
+    /// The GPU compositor draws one region per quad between the 3D scene and the
+    /// UI (sampling the scene texture), exactly like <see cref="SkiaUiRenderer.Backdrops"/>.
+    /// </summary>
+    public IReadOnlyList<BackdropRegion> Backdrops => _backdrops;
 
     /// <summary>
     /// Resolves an <c>&lt;icon&gt;</c> name (the SVG file name without its
@@ -52,6 +60,7 @@ public sealed class UiTreePainter
         // Images register into the renderer's texture atlas, which must not
         // mutate while a frame is being recorded, so resolve them before Begin.
         PreResolveImages(root);
+        _backdrops.Clear();
 
         var width = Math.Max(1, (int)MathF.Ceiling(root.Layout.Width * root.Scale));
         var height = Math.Max(1, (int)MathF.Ceiling(root.Layout.Height * root.Scale));
@@ -87,6 +96,16 @@ public sealed class UiTreePainter
             panel.Layout.X + origin.X, panel.Layout.Y + origin.Y,
             panel.Layout.Width, panel.Layout.Height);
         var alpha = style.Opacity * opacity;
+
+        // backdrop-filter: the backdrop itself is filtered by the GPU
+        // compositor (Backdrop.wgsl) sampling the 3D scene, not by the painter.
+        // Transformed panels bypass this path (mirroring the Skia renderer).
+        if (!style.HasTransform && !style.BackdropFilter.IsNone && CssFilterFunctions.IsGpuBackdropExpressible(style.BackdropFilter))
+        {
+            _backdrops.Add(new BackdropRegion(
+                rect.X, rect.Y, rect.Width, rect.Height,
+                style.BorderRadius, alpha, style.BackgroundColor, style.BackdropFilter));
+        }
 
         if (style.HasTransform)
         {
@@ -136,6 +155,16 @@ public sealed class UiTreePainter
         var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
         if (!string.IsNullOrEmpty(text))
             DrawText(panel, rect, text, alpha);
+        // Generated ::before/::after content of non-text panels paints as a
+        // decorative line at the content box start (before) / end (after), using
+        // the pseudo element's own computed style.
+        if (panel.TagName != "text" && panel is not TextInput)
+        {
+            if (panel.PseudoBefore is { } pseudoBefore)
+                DrawPseudoText(panel, rect, pseudoBefore.Style, pseudoBefore.Text, start: true, alpha);
+            if (panel.PseudoAfter is { } pseudoAfter)
+                DrawPseudoText(panel, rect, pseudoAfter.Style, pseudoAfter.Text, start: false, alpha);
+        }
 
         if (panel.ClipsContent)
         {
@@ -188,7 +217,8 @@ public sealed class UiTreePainter
 
     private void DrawBackgroundImage(Panel panel, RectF rect, float alpha)
     {
-        var source = panel.ComputedStyle.BackgroundImage;
+        var style = panel.ComputedStyle;
+        var source = style.BackgroundImage;
         if (string.IsNullOrEmpty(source))
             return;
         var image = ResolveImage(source);
@@ -196,26 +226,103 @@ public sealed class UiTreePainter
             return;
 
         // The background positioning area is the padding box, clipped to the
-        // border-box rounded shape. Tiling/repeat is deferred: a single tile is
-        // drawn fitted to the area (cover/contain/stretch).
+        // border-box rounded shape.
         var border = panel.LayoutBorder;
         var padding = panel.LayoutPadding;
         var area = new RectF(
             rect.X + border.Left + padding.Left, rect.Y + border.Top + padding.Top,
             Math.Max(0, rect.Width - border.Left - border.Right - padding.Left - padding.Right),
             Math.Max(0, rect.Height - border.Top - border.Bottom - padding.Top - padding.Bottom));
-
-        var fit = panel.ComputedStyle.BackgroundSize.Type switch
-        {
-            BackgroundSizeType.Cover => ImageFit.Cover,
-            BackgroundSizeType.Contain => ImageFit.Contain,
-            _ => ImageFit.Stretch
-        };
+        if (area.Width <= 0 || area.Height <= 0)
+            return;
 
         _renderer.PushClip(rect, EffectiveRadius(panel, rect));
-        _renderer.DrawImage(area, image, ColorF.White.WithAlpha(alpha), fit);
+
+        // cover/contain scale one image to the whole area (never tiled).
+        if (style.BackgroundSize.Type is BackgroundSizeType.Cover or BackgroundSizeType.Contain)
+        {
+            var fit = style.BackgroundSize.Type == BackgroundSizeType.Cover ? ImageFit.Cover : ImageFit.Contain;
+            _renderer.DrawImage(area, image, ColorF.White.WithAlpha(alpha), fit);
+            _renderer.PopClip();
+            return;
+        }
+
+        var (tileW, tileH) = ResolveTileSize(style.BackgroundSize, image, area);
+        if (tileW <= 0 || tileH <= 0)
+        {
+            _renderer.PopClip();
+            return;
+        }
+
+        // The reference tile's top-left comes from background-position (a
+        // percentage offsets by (area - tile) * pct). Repeating tiles fill both
+        // directions from that reference; no-repeat draws a single tile.
+        var noRepeatX = style.BackgroundRepeat.X == RepeatMode.NoRepeat;
+        var noRepeatY = style.BackgroundRepeat.Y == RepeatMode.NoRepeat;
+        var tileX0 = area.X + ResolvePosition(style.BackgroundPosition.X, area.Width, tileW);
+        var tileY0 = area.Y + ResolvePosition(style.BackgroundPosition.Y, area.Height, tileH);
+        var startX = noRepeatX ? tileX0 : tileX0 + MathF.Floor((area.X - tileX0) / tileW) * tileW;
+        var startY = noRepeatY ? tileY0 : tileY0 + MathF.Floor((area.Y - tileY0) / tileH) * tileH;
+
+        var color = ColorF.White.WithAlpha(alpha);
+        var y = startY;
+        while (y < area.Bottom)
+        {
+            var x = startX;
+            while (x < area.Right)
+            {
+                _renderer.DrawImage(new RectF(x, y, tileW, tileH), image, color, ImageFit.Stretch);
+                if (noRepeatX)
+                    break;
+                x += tileW;
+            }
+            if (noRepeatY)
+                break;
+            y += tileH;
+        }
+
         _renderer.PopClip();
     }
+
+    /// <summary>Resolves the tiled background size: explicit lengths, or the image's intrinsic size otherwise.</summary>
+    private static (float Width, float Height) ResolveTileSize(BackgroundSize size, Image2D image, RectF area)
+    {
+        var iw = (float)image.Width;
+        var ih = (float)image.Height;
+        if (iw <= 0 || ih <= 0)
+            return (area.Width, area.Height);
+
+        if (size.Type != BackgroundSizeType.Explicit)
+            return (iw, ih);
+
+        var w = ResolveExplicitLength(size.Width, area.Width);
+        var h = ResolveExplicitLength(size.Height, area.Height);
+        // A single explicit axis scales the other to preserve the ratio; a
+        // fully-auto pair falls back to the intrinsic size.
+        if (w <= 0 && h <= 0)
+            return (iw, ih);
+        if (w <= 0)
+            w = h * iw / ih;
+        if (h <= 0)
+            h = w * ih / iw;
+        return (w, h);
+    }
+
+    /// <summary>Resolves an explicit background-size length (points/percent) to pixels, 0 for auto.</summary>
+    private static float ResolveExplicitLength(CssLength length, float reference) => length.Unit switch
+    {
+        CssLengthUnit.Points => length.Value,
+        CssLengthUnit.Percent => length.Value / 100f * reference,
+        _ => 0f
+    };
+
+    /// <summary>Resolves a background-position component to a pixel offset inside the area.</summary>
+    private static float ResolvePosition(CssLength length, float area, float tile) => length.Unit switch
+    {
+        CssLengthUnit.Points => length.Value,
+        CssLengthUnit.Percent => (area - tile) * length.Value / 100f,
+        _ => 0f
+    };
 
     private void DrawBoxShadows(Panel panel, RectF rect, float alpha, bool inset)
     {
@@ -424,7 +531,12 @@ public sealed class UiTreePainter
         var contentWidth = Math.Max(0, rect.Width - padding.Left - padding.Right);
         var contentHeight = Math.Max(0, rect.Height - padding.Top - padding.Bottom);
 
-        var transformed = ApplyTextTransform(text, style.TextTransform);
+        // ::before/::after content of a text panel joins the text as one flow
+        // (the layout box already measured it the same way).
+        var displayText = panel is TextInput || (panel.PseudoBefore is null && panel.PseudoAfter is null)
+            ? text
+            : (panel.PseudoBefore?.Text ?? string.Empty) + text + (panel.PseudoAfter?.Text ?? string.Empty);
+        var transformed = ApplyTextTransform(displayText, style.TextTransform);
         if (string.IsNullOrEmpty(transformed))
             return;
 
@@ -441,24 +553,70 @@ public sealed class UiTreePainter
         var align = style.TextAlign.Equals("center", StringComparison.OrdinalIgnoreCase) ? TextAlign.Center
             : style.TextAlign.Equals("right", StringComparison.OrdinalIgnoreCase) ? TextAlign.Right
             : TextAlign.Left;
+        var color = ToColorF(style.Color, alpha);
+
+        // nowrap/pre (and inputs) never wrap; otherwise newlines split lines.
+        var wrap = style.WhiteSpace is "nowrap" or "pre" ? 0f : contentWidth;
+        var singleLine = wrap == 0f || !transformed.Contains('\n');
+
+        // Selection highlight and caret are placed with the same measurement the
+        // renderer uses for alignment, so they track the glyphs exactly.
+        var measureStyle = new TextStyle(style.FontSize, color, style.FontFamily, style.FontWeight, style.LetterSpacing);
+        var measured = singleLine ? _renderer.MeasureText(transformed, measureStyle) : 0f;
+        var x = align == TextAlign.Center ? left + Math.Max(0, (contentWidth - measured) / 2f)
+            : align == TextAlign.Right ? left + Math.Max(0, contentWidth - measured)
+            : left;
+
+        if (panel is TextInput input && input.HasSelection && singleLine)
+        {
+            var start = Math.Clamp(Math.Min(input.SelectionStart, input.SelectionEnd), 0, transformed.Length);
+            var end = Math.Clamp(Math.Max(input.SelectionStart, input.SelectionEnd), 0, transformed.Length);
+            var selLeft = x + _renderer.MeasureText(transformed[..start], measureStyle);
+            var selRight = x + _renderer.MeasureText(transformed[..end], measureStyle);
+            _renderer.DrawRect(new RectF(selLeft, y, Math.Max(0, selRight - selLeft), lineHeight), ColorF.FromRgba(50, 120, 220).WithAlpha(alpha));
+        }
 
         var textStyle = new TextStyle(
-            style.FontSize,
-            ToColorF(style.Color, alpha),
-            style.FontFamily,
-            style.FontWeight,
-            style.LetterSpacing,
-            contentWidth,
-            lineHeight,
-            align);
-
+            style.FontSize, color, style.FontFamily, style.FontWeight,
+            style.LetterSpacing, wrap, lineHeight, align);
         if (style.TextShadows.Length > 0)
         {
             var shadow = style.TextShadows[0];
             textStyle = textStyle.WithShadow(
                 new Vector2(shadow.OffsetX, shadow.OffsetY), shadow.BlurRadius, ToColorF(shadow.Color, alpha));
         }
+        _renderer.DrawText(transformed, new Vector2(left, y), textStyle);
 
+        if (panel is TextInput caretInput && caretInput.IsFocused && caretInput.CaretVisible && singleLine)
+        {
+            var caretX = x + _renderer.MeasureText(transformed[..Math.Clamp(caretInput.CaretIndex, 0, transformed.Length)], measureStyle);
+            _renderer.DrawLine(
+                new Vector2(caretX, top + 3),
+                new Vector2(caretX, top + Math.Max(style.FontSize + 3, contentHeight - 3)),
+                1.5f, color);
+        }
+    }
+
+    /// <summary>
+    /// Draws the generated content of a <c>::before</c>/<c>::after</c> element
+    /// of a non-text panel: a single line at the content box start (top-left) or
+    /// end, styled by the pseudo element's own computed style.
+    /// </summary>
+    private void DrawPseudoText(Panel panel, RectF rect, ComputedStyle style, string text, bool start, float alpha)
+    {
+        var border = panel.LayoutBorder;
+        var padding = panel.LayoutPadding;
+        var left = rect.X + border.Left + padding.Left;
+        var top = rect.Y + border.Top + padding.Top;
+        var contentHeight = Math.Max(0, rect.Height - border.Top - border.Bottom - padding.Top - padding.Bottom);
+        var transformed = ApplyTextTransform(text, style.TextTransform);
+        if (string.IsNullOrEmpty(transformed))
+            return;
+        var lineHeight = style.LineHeight > 0 ? style.LineHeight : style.FontSize * 1.25f;
+        var y = start ? top : top + Math.Max(0, contentHeight - lineHeight);
+        var textStyle = new TextStyle(
+            style.FontSize, ToColorF(style.Color, alpha), style.FontFamily, style.FontWeight,
+            style.LetterSpacing, 0f, lineHeight, TextAlign.Left);
         _renderer.DrawText(transformed, new Vector2(left, y), textStyle);
     }
 

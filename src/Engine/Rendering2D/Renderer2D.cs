@@ -812,6 +812,27 @@ public sealed class Renderer2D : IDisposable
         }
     }
 
+    /// <summary>
+    /// Measures the advance width of a single line of <paramref name="text"/>
+    /// using the same font resolution and tracking as <see cref="DrawText"/>,
+    /// so selection and caret placement agree with the rendered glyphs.
+    /// </summary>
+    public float MeasureText(string text, in TextStyle style)
+    {
+        if (string.IsNullOrEmpty(text))
+            return 0f;
+        var resolved = _fontManager.Resolve(style.Family, style.Weight);
+        var options = new TextOptions(resolved.CreateFont(style.FontSize))
+        {
+            Dpi = 72,
+            KerningMode = KerningMode.Standard,
+            ColorFontSupport = ColorFontSupport.None
+        };
+        if (style.LetterSpacing != 0f)
+            options.Tracking = style.LetterSpacing / style.FontSize;
+        return TextMeasurer.MeasureAdvance(text, options).Width;
+    }
+
     // ---------------------------------------------------------------------
     // Gradients
     // ---------------------------------------------------------------------

@@ -131,11 +131,11 @@ public class Panel
     /// <summary>Maximum vertical scroll offset, set by the layout pass from the overflowing children.</summary>
     public float MaxScrollY { get; internal set; }
     /// <summary>Generated <c>::before</c> content (text + computed style), set by the cascade.</summary>
-    internal PseudoContent? PseudoBefore;
+    public PseudoContent? PseudoBefore { get; internal set; }
     /// <summary>Generated <c>::after</c> content (text + computed style), set by the cascade.</summary>
-    internal PseudoContent? PseudoAfter;
+    public PseudoContent? PseudoAfter { get; internal set; }
     /// <summary>Text and computed style of a generated <c>::before</c>/<c>::after</c> element.</summary>
-    internal readonly record struct PseudoContent(string Text, ComputedStyle Style);
+    public readonly record struct PseudoContent(string Text, ComputedStyle Style);
 
     /// <summary>Resolved padding of the last layout pass (percentages included).</summary>
     public UiThickness LayoutPadding { get; internal set; }

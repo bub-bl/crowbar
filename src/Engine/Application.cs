@@ -39,9 +39,6 @@ public abstract class Application : IDisposable
 
     protected virtual WindowOptions CreateWindowOptions() => new(Title: "Crowbar", Width: 1280, Height: 720);
 
-    /// <summary>Whether the GPU compositor should take the UI's fills/decorations.</summary>
-    protected virtual bool EnableUiCompositing => true;
-
     protected IPlatform Platform => _platform;
     protected IWindow Window => _window;
     protected UiSystem Ui => _ui;
@@ -73,12 +70,11 @@ public abstract class Application : IDisposable
         if (_graphics is not null)
         {
             _renderer = new Renderer(_graphics);
-            _ui.Renderer.GpuDecorations = EnableUiCompositing;
-            _ui.Renderer.GpuFills = EnableUiCompositing;
             var width = FramebufferWidth;
             var height = FramebufferHeight;
             _ui.SetViewport(width, height);
-            _ui.Render();
+            // Layout only: the GPU renderer paints the tree (no Skia raster).
+            _ui.Prepare();
         }
         WireUiInput();
         OnInitialize();
@@ -136,7 +132,7 @@ public abstract class Application : IDisposable
     {
         _renderer?.Resize(width, height);
         Ui.SetViewport(width, height);
-        Ui.Render();
+        Ui.Prepare();
         OnResize(width, height);
     }
 

@@ -181,11 +181,13 @@ same split Chromium uses.
 `UiTreePainter` (Engine) is the replacement for `SkiaUiRenderer`'s raster
 walk: it consumes the public panel tree + computed styles and records the same
 paint order into a `Renderer2D`, so the UI framework stays decoupled from
-WebGPU. It is headless-testable (no device). What remains before Skia can be
-deleted is the compositor swap in `Renderer.Render` (draw the `Renderer2D`
-offscreen target instead of uploading `SkiaUiRenderer`'s CPU bitmap) and the
-last Skia-coupled paint details (per-side border carving, background-image
-tiling, text selection/caret, pseudo-element content).
+WebGPU. It is headless-testable (no device). The compositor swap is in place:
+`Renderer.Render` draws the `Renderer2D` offscreen target (`Ui2D.wgsl`)
+instead of uploading `SkiaUiRenderer`'s CPU bitmap, the runtime calls
+`UiSystem.Prepare()` (style/layout only) rather than the Skia raster, and the
+dead Skia texture-upload/fill/decoration pipelines were removed. What remains
+before the Skia rasterizer class can be deleted is the last paint parity work
+(per-side border carving and `drop-shadow` filters).
 
 ## 7. Performance characteristics
 
@@ -212,9 +214,9 @@ tiling, text selection/caret, pseudo-element content).
 - Backdrop-filter still reads the existing `Backdrop.wgsl` compositor path
   (the 3D scene texture), pending its wiring into the Renderer2D layer stack.
 - `UiTreePainter` paints per-side borders as solid bands (dashed/dotted/double
-  and rounded-corner carving per side deferred), draws a single background
-  tile (tiling/repeat deferred), and drops `drop-shadow` filters, text
-  selection/caret and `::before`/`::after` content (all deferred).
+  and rounded-corner carving per side deferred) and drops `drop-shadow`
+  filters; background-image tiling (repeat/no-repeat + position + explicit
+  size), text selection/caret and `::before`/`::after` content are wired.
 
 ## 9. Verification
 

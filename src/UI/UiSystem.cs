@@ -245,6 +245,23 @@ public sealed partial class UiSystem : IDisposable
         return Path.ChangeExtension(razorPath, ".razor.css");
     }
 
+    /// <summary>
+    /// Runs only the style/layout passes (no raster) so the GPU tree-walk
+    /// painter can record the laid-out tree, and handles the deferred Razor
+    /// rebuild exactly like <see cref="Render"/>. Returns false when nothing
+    /// changed and the frame can be skipped.
+    /// </summary>
+    public bool Prepare()
+    {
+        var changed = Renderer.PrepareForGpu(Screen);
+        if (_razorRenderPending && Screen.Layout.Width > 0 && Screen.Layout.Height > 0)
+        {
+            RenderRazorIfNeeded();
+            changed |= Renderer.PrepareForGpu(Screen);
+        }
+        return changed;
+    }
+
     public ReadOnlyMemory<byte> Render()
     {
         var pixels = Renderer.Render(Screen);

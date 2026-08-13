@@ -398,6 +398,54 @@ public sealed class SkiaUiRenderer : IUiRenderer, IDisposable
         return _pixels;
     }
 
+    /// <summary>
+    /// Runs only the style/cascade/inheritance/layout passes (no Skia raster),
+    /// leaving the tree laid out so the GPU tree-walk painter can record it.
+    /// Returns false when nothing is dirty (the caller may skip repainting).
+    /// Shared by the Skia raster path and the GPU renderer so both agree on
+    /// the same laid-out tree.
+    /// </summary>
+    public bool PrepareForGpu(ScreenPanel root)
+    {
+        if (!_dirty && !root.AnyPaintDirty && !root.AnyStyleDirty && !root.AnyInheritedDirty && !root.LayoutDirty)
+            return false;
+
+        root.SetViewport(Size.Width, Size.Height);
+
+        var needsLayout = root.LayoutDirty;
+        if (root.AnyStyleDirty)
+        {
+            if (YogaLayoutEngine.ApplyStylesTracked(root, StyleSheet)) needsLayout = true;
+        }
+        if (root.AnyInheritedDirty && !needsLayout)
+        {
+            if (root.InheritanceDirtyRoots.Count > 0)
+            {
+                foreach (var animated in root.InheritanceDirtyRoots)
+                {
+                    if (animated.Parent is null) continue;
+                    if (YogaLayoutEngine.ApplyInheritanceSubtree(animated)) needsLayout = true;
+                }
+            }
+            else if (YogaLayoutEngine.ApplyInheritanceOnly(root)) needsLayout = true;
+            root.AnyInheritedDirty = false;
+            root.ClearInheritanceDirtyRoots();
+        }
+        if (needsLayout)
+        {
+            _layout.Layout(root, Size.Width / Math.Max(0.01f, root.Scale), Size.Height / Math.Max(0.01f, root.Scale), StyleSheet, ImageCache, IconCache);
+        }
+
+        _dirty = false;
+        root.AnyPaintDirty = false;
+        root.AnyStyleDirty = false;
+        root.AnyInheritedDirty = false;
+        root.ClearInheritanceDirtyRoots();
+        root.ClearStyleDirtyRoots();
+        root.ClearDirty();
+        return true;
+    }
+
     private void DrawPanel(SKCanvas canvas, SKSurface surface, Panel panel, float ox, float oy, float opacity, bool inTransform = false)
     {
         var style = panel.ComputedStyle;
