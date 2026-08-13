@@ -143,7 +143,7 @@ public sealed unsafe class WebGpuPipeline : IPipeline
                     CullMode = CullMode.None
                 },
                 DepthStencil = &depthStencil,
-                Multisample = new MultisampleState { Count = 1, Mask = 0xFFFFFFFF },
+                Multisample = new MultisampleState { Count = (uint)Math.Max(1, description.SampleCount), Mask = 0xFFFFFFFF },
                 Fragment = &fragment
             };
             Pipeline = _runtime.Api.DeviceCreateRenderPipeline(

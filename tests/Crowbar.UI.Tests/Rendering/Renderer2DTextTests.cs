@@ -62,8 +62,10 @@ public class Renderer2DTextTests
 
         var sdf = GlyphRasterizer.Rasterize(edges, Vector2.Zero, 10, 10);
 
-        Assert.Equal(10 + GlyphRasterizer.Padding * 2, sdf.Width);
-        Assert.Equal(10 + GlyphRasterizer.Padding * 2, sdf.Height);
+        // The grid is rasterized at GlyphRasterizer.Scale× the ink size.
+        var expected = (10 + GlyphRasterizer.Padding * 2) * GlyphRasterizer.Scale;
+        Assert.Equal(expected, sdf.Width);
+        Assert.Equal(expected, sdf.Height);
 
         // Center pixel is deep inside: stored value > 0.5.
         var center = Sample(sdf, sdf.Width / 2, sdf.Height / 2);
@@ -92,11 +94,12 @@ public class Renderer2DTextTests
 
         var sdf = GlyphRasterizer.Rasterize(edges, Vector2.Zero, 10, 10);
 
-        // Grid coordinates map to ink via (grid - Padding + 0.5). The band
-        // (outer square minus the hole) is filled; the hole center is outside.
-        var band = Sample(sdf, 4, 4);  // ink (1.5, 1.5): inside the filled band
+        // Grid coordinates map to ink via
+        // ink = (grid - Padding*Scale + 0.5) / Scale. The band (outer square
+        // minus the hole) is filled; the hole center is outside.
+        var band = Sample(sdf, InkToGrid(1.5f), InkToGrid(1.5f)); // ink (1.5, 1.5): inside the filled band
         Assert.True(band > 0.5f);
-        var hole = Sample(sdf, 8, 8);  // ink (5.5, 5.5): inside the hole
+        var hole = Sample(sdf, InkToGrid(5.5f), InkToGrid(5.5f)); // ink (5.5, 5.5): inside the hole
         Assert.True(hole < 0.5f);
     }
 
@@ -186,4 +189,8 @@ public class Renderer2DTextTests
 
     private static float Sample(Crowbar.Engine.Texture2D sdf, int x, int y) =>
         sdf.Pixels[(y * sdf.Width + x) * 4] / 255f;
+
+    // Grid index whose cell center lands on the given ink coordinate.
+    private static int InkToGrid(float ink) =>
+        (int)MathF.Round(ink * GlyphRasterizer.Scale + GlyphRasterizer.Padding * GlyphRasterizer.Scale - 0.5f);
 }

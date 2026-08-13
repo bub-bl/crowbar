@@ -17,3 +17,6 @@ src/Editor/Ui/**/*.css
 
 .log
 .sln.DotSettings.user
+
+# Licences tierces (fichiers .lic à côté des packages)
+*.lic

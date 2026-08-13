@@ -10,9 +10,12 @@
 @group(0) @binding(1) var glyph_sampler: sampler;
 @group(0) @binding(2) var<uniform> viewport: vec4f; // xy = size, zw = 1/size
 
-// Must match GlyphRasterizer.Spread and the antialiasing band width.
-const SPREAD: f32 = 8.0;
-const AA: f32 = 0.75;
+// Must match GlyphRasterizer (Spread * Scale) and the antialiasing band width.
+// The atlas is rasterized at GlyphRasterizer.Scale×, so distances come back in
+// grid units: SPREAD and AA are the 1× values scaled by Scale (8px spread,
+// 0.75px AA band).
+const SPREAD: f32 = 16.0;
+const AA: f32 = 1.5;
 
 struct VertexOutput {
     @builtin(position) position: vec4f,

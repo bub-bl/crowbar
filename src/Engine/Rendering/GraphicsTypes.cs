@@ -88,6 +88,16 @@ public sealed class TextureDescription
 
     /// <summary>Usable as the destination of CPU→GPU pixel uploads.</summary>
     public bool CopyDestination { get; init; }
+
+    /// <summary>Usable as the source of GPU→CPU pixel readbacks.</summary>
+    public bool CopySource { get; init; }
+
+    /// <summary>
+    /// Multisample count (1 = single-sample). MSAA textures are render targets
+    /// only — they cannot be sampled — so rendering resolves into a companion
+    /// single-sample texture before sampling.
+    /// </summary>
+    public int SampleCount { get; init; } = 1;
 }
 
 /// <summary>Describes a GPU buffer the runtime wants to create.</summary>
@@ -179,6 +189,12 @@ public sealed class PipelineDescription
 
     /// <summary>Primitive topology; defaults to triangles.</summary>
     public PrimitiveTopology Topology { get; init; } = PrimitiveTopology.TriangleList;
+
+    /// <summary>
+    /// Multisample count of the render targets this pipeline draws into; must
+    /// match the pass attachments (defaults to 1).
+    /// </summary>
+    public int SampleCount { get; init; } = 1;
 }
 
 /// <summary>One resource actually bound to a bind-group slot.</summary>
@@ -213,6 +229,14 @@ public enum RenderAttachmentStoreOp
 public sealed class ColorAttachment
 {
     public required ITexture Texture { get; init; }
+
+    /// <summary>
+    /// Optional single-sample texture the pass resolves <see cref="Texture"/>
+    /// into at its end (required when <see cref="Texture"/> is multisampled,
+    /// which cannot be sampled directly). Must share the format and size.
+    /// </summary>
+    public ITexture? ResolveTarget { get; init; }
+
     public RenderAttachmentLoadOp LoadOp { get; init; } = RenderAttachmentLoadOp.Clear;
     public RenderAttachmentStoreOp StoreOp { get; init; } = RenderAttachmentStoreOp.Store;
     public Vector4 ClearColor { get; init; } = new(0.12f, 0.12f, 0.14f, 1.0f);

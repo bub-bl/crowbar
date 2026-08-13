@@ -20,8 +20,9 @@ public class Renderer2DTextShadowTests
         Assert.Equal(0, renderer.GlyphShadowCount % 6);
 
         // The shadow quad carries the widened softness and the shadow color.
+        // Softness is expressed in grid units, so it is scaled with the SDF.
         var shadow = renderer.GlyphShadows[0];
-        Assert.Equal(4f + 0.75f, shadow.Softness, 2);
+        Assert.Equal((4f + 0.75f) * GlyphRasterizer.Scale, shadow.Softness, 2);
         Assert.Equal(new Vector4(0, 0, 0, 128f / 255f), shadow.Color);
 
         // The shadow batch is recorded before the glyph batch.

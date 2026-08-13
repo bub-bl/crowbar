@@ -9,8 +9,9 @@
 @group(0) @binding(1) var glyph_sampler: sampler;
 @group(0) @binding(2) var<uniform> viewport: vec4f; // xy = size, zw = 1/size
 
-// Must match GlyphRasterizer.Spread.
-const SPREAD: f32 = 8.0;
+// Must match GlyphRasterizer.Spread * Scale (the atlas is rasterized at 2×,
+// so distances come back in grid units).
+const SPREAD: f32 = 16.0;
 
 struct VertexOutput {
     @builtin(position) position: vec4f,

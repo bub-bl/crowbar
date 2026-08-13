@@ -53,6 +53,7 @@ public sealed unsafe class WebGpuTexture : ITexture
         if (description.RenderTarget) usage |= TextureUsage.RenderAttachment;
         if (description.Sampled) usage |= TextureUsage.TextureBinding;
         if (description.CopyDestination) usage |= TextureUsage.CopyDst;
+        if (description.CopySource) usage |= TextureUsage.CopySrc;
 
         var descriptor = new TextureDescriptor
         {
@@ -66,7 +67,7 @@ public sealed unsafe class WebGpuTexture : ITexture
             },
             Format = WebGpuNative.ToNative(description.Format),
             MipLevelCount = 1,
-            SampleCount = 1
+            SampleCount = (uint)Math.Max(1, description.SampleCount)
         };
         var texture = runtime.Api.DeviceCreateTexture(device.UnsafeHandle, in descriptor);
         if (texture == null)

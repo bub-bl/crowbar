@@ -69,11 +69,18 @@ internal static unsafe class WebGpuNative
         WebGpuNativeCommandEncoder encoder,
         RenderPassDescription description)
     {
+        // A multisampled attachment cannot be stored directly: it resolves into
+        // its companion single-sample texture at pass end (and, per the WebGPU
+        // spec, the multisampled attachment itself must then be discarded).
+        var resolve = description.Color.ResolveTarget as WebGpuTexture;
         var colorAttachment = new RenderPassColorAttachment
         {
             View = ((WebGpuTexture)description.Color.Texture).View,
             LoadOp = ToNative(description.Color.LoadOp),
-            StoreOp = ToNative(description.Color.StoreOp),
+            StoreOp = resolve is not null
+                ? Silk.NET.WebGPU.StoreOp.Discard
+                : ToNative(description.Color.StoreOp),
+            ResolveTarget = resolve?.View,
             ClearValue = new Color
             {
                 R = description.Color.ClearColor.X,

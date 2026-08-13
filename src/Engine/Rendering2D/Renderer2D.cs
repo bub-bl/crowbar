@@ -123,6 +123,15 @@ internal struct GlyphShadowVertex
 }
 
 /// <summary>
+/// Records where a glyph quad was appended so its UVs can be refreshed at
+/// frame end. The glyph atlas can grow (repacking every cell) while a frame is
+/// being recorded, which orphans the UVs baked into already-emitted quads; the
+/// image always holds the cell's current rect, so it re-derives them just
+/// before upload.
+/// </summary>
+internal readonly record struct GlyphPatch(int VertexIndex, Image2D Atlas);
+
+/// <summary>
 /// One instanced soft shadow. Mirrors <c>Shaders/Shadow.wgsl</c> exactly
 /// (13 <c>vec4f</c> = 208 bytes).
 /// </summary>
@@ -172,7 +181,10 @@ internal sealed class FilterFrame
     public List<ShadowInstance> Shadows = [];
     public List<GlyphShadowVertex> GlyphShadows = [];
     public List<DrawCmd> Commands = [];
+    public List<GlyphPatch> GlyphPatches = [];
+    public List<GlyphPatch> GlyphShadowPatches = [];
     public ITexture? Target;
+    public ITexture? MsaaTarget;
     public ITexture? Depth;
     public Filter2D Filter = Filter2D.None;
 }
@@ -189,8 +201,11 @@ internal sealed class FilterLayer
     public List<ShadowInstance> Shadows = [];
     public List<GlyphShadowVertex> GlyphShadows = [];
     public List<DrawCmd> Commands = [];
+    public List<GlyphPatch> GlyphPatches = [];
+    public List<GlyphPatch> GlyphShadowPatches = [];
     public Filter2D Filter = Filter2D.None;
     public ITexture? Target;
+    public ITexture? MsaaTarget;
     public ITexture? Depth;
     public IBuffer? InstanceBuffer;
     public IBuffer? TriangleBuffer;
@@ -261,6 +276,11 @@ public sealed class Renderer2D : IDisposable
     private List<ShadowInstance> _shadows = [];
     private List<GlyphShadowVertex> _glyphShadows = [];
     private List<DrawCmd> _commands = [];
+
+    // Per-layer records of emitted glyph quads (and shadow quads), so frame end
+    // can refresh their UVs after any mid-frame atlas growth/repack.
+    private List<GlyphPatch> _glyphPatches = [];
+    private List<GlyphPatch> _glyphShadowPatches = [];
     private bool _runOpen;
     private BatchKind _runKind;
     private int _runStart;
@@ -278,7 +298,9 @@ public sealed class Renderer2D : IDisposable
     private readonly List<Vector2> _svgTriangles = [];
 
     // GPU resources (created lazily; null when headless).
+    private const int UISampleCount = 4;
     private ITexture? _target;
+    private ITexture? _msaaTarget;
     private ITexture? _depth;
     private IBuffer? _quadBuffer;
     private IBuffer? _instanceBuffer;
@@ -388,6 +410,8 @@ public sealed class Renderer2D : IDisposable
         _shadows.Clear();
         _glyphShadows.Clear();
         _commands.Clear();
+        _glyphPatches.Clear();
+        _glyphShadowPatches.Clear();
         _transforms.Clear();
         _transformTop = -1;
         _current = Matrix3x2.Identity;
@@ -398,6 +422,7 @@ public sealed class Renderer2D : IDisposable
         foreach (var layer in _filterLayers)
         {
             layer.Target?.Dispose();
+            layer.MsaaTarget?.Dispose();
             layer.Depth?.Dispose();
             layer.InstanceBuffer?.Dispose();
             layer.TriangleBuffer?.Dispose();
@@ -424,6 +449,17 @@ public sealed class Renderer2D : IDisposable
             return _target;
         _recording = false;
         CloseRun();
+
+        // The glyph atlas can grow (repacking every cell) while a frame is being
+        // recorded, orphaning the UVs baked into already-emitted quads. Refresh
+        // them from the cached entries' current cell rects before upload.
+        PatchGlyphUvs(_textured, _glyphPatches);
+        PatchGlyphShadowUvs(_glyphShadows, _glyphShadowPatches);
+        foreach (var layer in _filterLayers)
+        {
+            PatchGlyphUvs(layer.Textured, layer.GlyphPatches);
+            PatchGlyphShadowUvs(layer.GlyphShadows, layer.GlyphShadowPatches);
+        }
 
         if (_device is null || _commands.Count == 0)
             return _target;
@@ -775,10 +811,12 @@ public sealed class Renderer2D : IDisposable
         }
 
         var uv = entry.Atlas.UvRect;
+        // The atlas cell is rasterized at GlyphRasterizer.Scale×; the quad is
+        // drawn at 1× screen size so the SDF is sampled at Scale texels per pixel.
         var x0 = min.X - GlyphRasterizer.Padding;
         var y0 = min.Y - GlyphRasterizer.Padding;
-        var x1 = x0 + entry.Atlas.Width;
-        var y1 = y0 + entry.Atlas.Height;
+        var x1 = x0 + entry.Atlas.Width / GlyphRasterizer.Scale;
+        var y1 = y0 + entry.Atlas.Height / GlyphRasterizer.Scale;
         var uv0 = new Vector2(uv.X, uv.Y);
         var uv1 = new Vector2(uv.Right, uv.Y);
         var uv2 = new Vector2(uv.Right, uv.Bottom);
@@ -786,10 +824,12 @@ public sealed class Renderer2D : IDisposable
 
         if (emitShadow && shadowColor.A > 0f)
         {
-            var softness = 0.75f + MathF.Max(shadowBlur, 0f);
+            // In grid units (the shader's SPREAD is also scaled): 0.75 px AA band + blur.
+            var softness = (0.75f + MathF.Max(shadowBlur, 0f)) * GlyphRasterizer.Scale;
             var shadowVector = shadowColor.ToVector4();
             var ox = shadowOffset.X;
             var oy = shadowOffset.Y;
+            var shadowIndex = _glyphShadows.Count;
             EnsureRun(BatchKind.GlyphShadow);
             _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y0 + oy), Uv = uv0, Color = shadowVector, Softness = softness });
             _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y0 + oy), Uv = uv1, Color = shadowVector, Softness = softness });
@@ -797,11 +837,13 @@ public sealed class Renderer2D : IDisposable
             _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y0 + oy), Uv = uv0, Color = shadowVector, Softness = softness });
             _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y1 + oy), Uv = uv2, Color = shadowVector, Softness = softness });
             _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y1 + oy), Uv = uv3, Color = shadowVector, Softness = softness });
+            _glyphShadowPatches.Add(new GlyphPatch(shadowIndex, entry.Atlas));
         }
 
         if (emitMain)
         {
             var colorVector = color.ToVector4();
+            var quadIndex = _textured.Count;
             EnsureRun(BatchKind.Glyph);
             _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = uv0, Color = colorVector });
             _textured.Add(new TexturedVertex { Position = new Vector2(x1, y0), Uv = uv1, Color = colorVector });
@@ -809,6 +851,75 @@ public sealed class Renderer2D : IDisposable
             _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = uv0, Color = colorVector });
             _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = uv2, Color = colorVector });
             _textured.Add(new TexturedVertex { Position = new Vector2(x0, y1), Uv = uv3, Color = colorVector });
+            _glyphPatches.Add(new GlyphPatch(quadIndex, entry.Atlas));
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the atlas UVs of every recorded glyph quad from its cached
+    /// entry's current cell rect (the atlas may have grown and repacked since
+    /// the quad was emitted). Called once at frame end, before upload.
+    /// </summary>
+    private static void PatchGlyphUvs(List<TexturedVertex> vertices, List<GlyphPatch> patches)
+    {
+        foreach (var patch in patches)
+        {
+            var uv = patch.Atlas.UvRect;
+            var i = patch.VertexIndex;
+            var u0 = new Vector2(uv.X, uv.Y);
+            var u1 = new Vector2(uv.Right, uv.Y);
+            var u2 = new Vector2(uv.Right, uv.Bottom);
+            var u3 = new Vector2(uv.X, uv.Bottom);
+            var v = vertices[i];
+            v.Uv = u0;
+            vertices[i] = v;
+            v = vertices[i + 1];
+            v.Uv = u1;
+            vertices[i + 1] = v;
+            v = vertices[i + 2];
+            v.Uv = u2;
+            vertices[i + 2] = v;
+            v = vertices[i + 3];
+            v.Uv = u0;
+            vertices[i + 3] = v;
+            v = vertices[i + 4];
+            v.Uv = u2;
+            vertices[i + 4] = v;
+            v = vertices[i + 5];
+            v.Uv = u3;
+            vertices[i + 5] = v;
+        }
+    }
+
+    /// <summary>See <see cref="PatchGlyphUvs"/>; applies to glyph-shadow quads.</summary>
+    private static void PatchGlyphShadowUvs(List<GlyphShadowVertex> vertices, List<GlyphPatch> patches)
+    {
+        foreach (var patch in patches)
+        {
+            var uv = patch.Atlas.UvRect;
+            var i = patch.VertexIndex;
+            var u0 = new Vector2(uv.X, uv.Y);
+            var u1 = new Vector2(uv.Right, uv.Y);
+            var u2 = new Vector2(uv.Right, uv.Bottom);
+            var u3 = new Vector2(uv.X, uv.Bottom);
+            var v = vertices[i];
+            v.Uv = u0;
+            vertices[i] = v;
+            v = vertices[i + 1];
+            v.Uv = u1;
+            vertices[i + 1] = v;
+            v = vertices[i + 2];
+            v.Uv = u2;
+            vertices[i + 2] = v;
+            v = vertices[i + 3];
+            v.Uv = u0;
+            vertices[i + 3] = v;
+            v = vertices[i + 4];
+            v.Uv = u2;
+            vertices[i + 4] = v;
+            v = vertices[i + 5];
+            v.Uv = u3;
+            vertices[i + 5] = v;
         }
     }
 
@@ -1020,7 +1131,10 @@ public sealed class Renderer2D : IDisposable
             Shadows = _shadows,
             GlyphShadows = _glyphShadows,
             Commands = _commands,
+            GlyphPatches = _glyphPatches,
+            GlyphShadowPatches = _glyphShadowPatches,
             Target = _target,
+            MsaaTarget = _msaaTarget,
             Depth = _depth,
             Filter = filter
         });
@@ -1031,11 +1145,14 @@ public sealed class Renderer2D : IDisposable
         _shadows = [];
         _glyphShadows = [];
         _commands = [];
+        _glyphPatches = [];
+        _glyphShadowPatches = [];
         _runOpen = false;
 
         if (_device is not null)
         {
             _target = CreateLayerTarget();
+            _msaaTarget = CreateLayerMsaaTarget();
             _depth = CreateLayerDepth();
         }
     }
@@ -1056,8 +1173,11 @@ public sealed class Renderer2D : IDisposable
             Shadows = _shadows,
             GlyphShadows = _glyphShadows,
             Commands = _commands,
+            GlyphPatches = _glyphPatches,
+            GlyphShadowPatches = _glyphShadowPatches,
             Filter = frame.Filter,
             Target = _target,
+            MsaaTarget = _msaaTarget,
             Depth = _depth
         };
 
@@ -1067,7 +1187,10 @@ public sealed class Renderer2D : IDisposable
         _shadows = frame.Shadows;
         _glyphShadows = frame.GlyphShadows;
         _commands = frame.Commands;
+        _glyphPatches = frame.GlyphPatches;
+        _glyphShadowPatches = frame.GlyphShadowPatches;
         _target = frame.Target;
+        _msaaTarget = frame.MsaaTarget;
         _depth = frame.Depth;
 
         var blitIndex = _filterLayers.Count;
@@ -1085,12 +1208,24 @@ public sealed class Renderer2D : IDisposable
         CopyDestination = true
     });
 
+    // The multisampled companion receives the layer's rendering; it resolves
+    // into the single-sample Target (which is what gets sampled/composited).
+    private ITexture CreateLayerMsaaTarget() => _device!.CreateTexture(new TextureDescription
+    {
+        Width = _width,
+        Height = _height,
+        Format = TextureFormat.Rgba8Unorm,
+        RenderTarget = true,
+        SampleCount = UISampleCount
+    });
+
     private ITexture CreateLayerDepth() => _device!.CreateTexture(new TextureDescription
     {
         Width = _width,
         Height = _height,
         Format = TextureFormat.Depth24Plus,
-        RenderTarget = true
+        RenderTarget = true,
+        SampleCount = UISampleCount
     });
 
     /// <summary>Flushes an open run into the command list (no-op when none is open).</summary>
@@ -1407,6 +1542,7 @@ public sealed class Renderer2D : IDisposable
         if (_target is null || _target.Width != _width || _target.Height != _height)
         {
             _target?.Dispose();
+            _msaaTarget?.Dispose();
             _depth?.Dispose();
             _target = _device.CreateTexture(new TextureDescription
             {
@@ -1417,12 +1553,14 @@ public sealed class Renderer2D : IDisposable
                 Sampled = true,
                 CopyDestination = true
             });
+            _msaaTarget = CreateLayerMsaaTarget();
             _depth = _device.CreateTexture(new TextureDescription
             {
                 Width = _width,
                 Height = _height,
                 Format = TextureFormat.Depth24Plus,
-                RenderTarget = true
+                RenderTarget = true,
+                SampleCount = UISampleCount
             });
             _sdfBindGroup?.Dispose();
             _triangleBindGroup?.Dispose();
@@ -1528,6 +1666,7 @@ public sealed class Renderer2D : IDisposable
             AlphaBlend = true,
             DepthWriteEnabled = false,
             DepthCompare = CompareFunction.Always,
+            SampleCount = UISampleCount,
             VertexLayout = new VertexBufferLayoutDescription
             {
                 Stride = 4 * sizeof(float),
@@ -1560,6 +1699,7 @@ public sealed class Renderer2D : IDisposable
             AlphaBlend = true,
             DepthWriteEnabled = false,
             DepthCompare = CompareFunction.Always,
+            SampleCount = UISampleCount,
             VertexLayout = new VertexBufferLayoutDescription
             {
                 Stride = TriVertexSize,
@@ -1591,6 +1731,7 @@ public sealed class Renderer2D : IDisposable
             AlphaBlend = true,
             DepthWriteEnabled = false,
             DepthCompare = CompareFunction.Always,
+            SampleCount = UISampleCount,
             VertexLayout = new VertexBufferLayoutDescription
             {
                 Stride = TexturedVertexSize,
@@ -1625,6 +1766,7 @@ public sealed class Renderer2D : IDisposable
             AlphaBlend = true,
             DepthWriteEnabled = false,
             DepthCompare = CompareFunction.Always,
+            SampleCount = UISampleCount,
             VertexLayout = new VertexBufferLayoutDescription
             {
                 Stride = TexturedVertexSize,
@@ -1690,6 +1832,7 @@ public sealed class Renderer2D : IDisposable
             AlphaBlend = true,
             DepthWriteEnabled = false,
             DepthCompare = CompareFunction.Always,
+            SampleCount = UISampleCount,
             VertexLayout = new VertexBufferLayoutDescription
             {
                 Stride = 4 * sizeof(float),
@@ -1738,6 +1881,7 @@ public sealed class Renderer2D : IDisposable
             AlphaBlend = true,
             DepthWriteEnabled = false,
             DepthCompare = CompareFunction.Always,
+            SampleCount = UISampleCount,
             VertexLayout = new VertexBufferLayoutDescription
             {
                 Stride = GlyphShadowVertexSize,
@@ -1856,7 +2000,7 @@ public sealed class Renderer2D : IDisposable
         Upload(_glyphShadows, _glyphShadowBuffer!);
 
         RenderLayer(
-            commandBuffer, _target!, _depth!,
+            commandBuffer, _target!, _msaaTarget!, _depth!,
             _instances, _triangles, _textured, _shadows, _glyphShadows, _commands,
             _instanceBuffer!, _triangleBuffer!, _texturedBuffer!, _shadowBuffer!, _glyphShadowBuffer!,
             _sdfBindGroup!, _shadowBindGroup!, _glyphShadowBindGroup!);
@@ -1872,13 +2016,13 @@ public sealed class Renderer2D : IDisposable
     }
 
     private void RenderLayer(
-        ICommandBuffer commandBuffer, ITexture target, ITexture depth,
+        ICommandBuffer commandBuffer, ITexture target, ITexture msaaTarget, ITexture depth,
         List<SdfInstance> instances, List<TriVertex> triangles, List<TexturedVertex> textured,
         List<ShadowInstance> shadows, List<GlyphShadowVertex> glyphShadows, List<DrawCmd> commands,
         IBuffer instanceBuffer, IBuffer triangleBuffer, IBuffer texturedBuffer, IBuffer shadowBuffer, IBuffer glyphShadowBuffer,
         IBindGroup sdfBindGroup, IBindGroup shadowBindGroup, IBindGroup glyphShadowBindGroup)
     {
-        IRenderPass? pass = BeginPass(commandBuffer, target, depth, clear: true);
+        IRenderPass? pass = BeginPass(commandBuffer, msaaTarget, target, depth, clear: true);
         IPipeline? currentPipeline = null;
 
         foreach (var command in commands)
@@ -1910,13 +2054,13 @@ public sealed class Renderer2D : IDisposable
                 Upload(child.GlyphShadows, child.GlyphShadowBuffer);
 
                 RenderLayer(
-                    commandBuffer, child.Target!, child.Depth!,
+                    commandBuffer, child.Target!, child.MsaaTarget!, child.Depth!,
                     child.Instances, child.Triangles, child.Textured, child.Shadows, child.GlyphShadows, child.Commands,
                     child.InstanceBuffer, child.TriangleBuffer, child.TexturedBuffer, child.ShadowBuffer, child.GlyphShadowBuffer,
                     child.SdfBindGroup, child.ShadowBindGroup, child.GlyphShadowBindGroup);
 
-                BlitFilter(commandBuffer, target, depth, child);
-                pass = BeginPass(commandBuffer, target, depth, clear: false);
+                BlitFilter(commandBuffer, msaaTarget, target, depth, child);
+                pass = BeginPass(commandBuffer, msaaTarget, target, depth, clear: false);
                 continue;
             }
 
@@ -1997,14 +2141,17 @@ public sealed class Renderer2D : IDisposable
         }
     }
 
-    private IRenderPass BeginPass(ICommandBuffer commandBuffer, ITexture target, ITexture depth, bool clear)
+    private IRenderPass BeginPass(ICommandBuffer commandBuffer, ITexture msaaTarget, ITexture target, ITexture depth, bool clear)
     {
         var loadOp = clear ? RenderAttachmentLoadOp.Clear : RenderAttachmentLoadOp.Load;
         return commandBuffer.BeginRenderPass(new RenderPassDescription
         {
             Color = new ColorAttachment
             {
-                Texture = target,
+                // Render into the multisampled target and resolve into the
+                // single-sample target, which is what later passes sample.
+                Texture = msaaTarget,
+                ResolveTarget = target,
                 LoadOp = loadOp,
                 StoreOp = RenderAttachmentStoreOp.Store,
                 ClearColor = new Vector4(0f, 0f, 0f, 0f)
@@ -2019,7 +2166,7 @@ public sealed class Renderer2D : IDisposable
         });
     }
 
-    private void BlitFilter(ICommandBuffer commandBuffer, ITexture target, ITexture depth, FilterLayer child)
+    private void BlitFilter(ICommandBuffer commandBuffer, ITexture msaaTarget, ITexture target, ITexture depth, FilterLayer child)
     {
         _filterParamsBuffer!.Write(EncodeFilterParams(child.Filter));
         child.FilterBindGroup ??= _filterPipeline!.CreateBindGroup(
@@ -2029,7 +2176,7 @@ public sealed class Renderer2D : IDisposable
             new BindGroupBinding { Slot = 2, Buffer = _filterParamsBuffer, BufferSize = _filterParamsBuffer.Size }
         ]);
 
-        using IRenderPass pass = BeginPass(commandBuffer, target, depth, clear: false);
+        using IRenderPass pass = BeginPass(commandBuffer, msaaTarget, target, depth, clear: false);
         pass.SetPipeline(_filterPipeline!);
         pass.SetBindGroup(child.FilterBindGroup, 0);
         pass.SetVertexBuffer(_quadBuffer!, (ulong)(6 * 4 * sizeof(float)));
@@ -2098,6 +2245,7 @@ public sealed class Renderer2D : IDisposable
             return;
         _disposed = true;
         _target?.Dispose();
+        _msaaTarget?.Dispose();
         _depth?.Dispose();
         _quadBuffer?.Dispose();
         _instanceBuffer?.Dispose();

@@ -17,6 +17,11 @@ internal sealed class TextureAtlas : IDisposable
 
     private readonly IGraphicsDevice? _device;
     private readonly List<Image2D> _images = [];
+
+    // Atlas textures retired by Grow(). A texture must not be destroyed while a
+    // previously-submitted command buffer may still sample it, so growth keeps
+    // the old texture alive until the next growth (or Dispose) releases it.
+    private readonly List<ITexture> _retired = [];
     private ITexture? _texture;
     private int _size;
     private int _cursorX;
@@ -89,7 +94,10 @@ internal sealed class TextureAtlas : IDisposable
         if (next > MaxSize)
             throw new InvalidOperationException("The texture atlas exceeded its maximum size.");
         _size = next;
-        _texture?.Dispose();
+        // Retire, don't destroy: a frame submitted before this growth may still
+        // reference the old texture. Released on the next growth or Dispose.
+        if (_texture is not null)
+            _retired.Add(_texture);
         if (_device is not null)
         {
             _texture = _device.CreateTexture(new TextureDescription
@@ -154,6 +162,9 @@ internal sealed class TextureAtlas : IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        foreach (var retired in _retired)
+            retired?.Dispose();
+        _retired.Clear();
         _texture?.Dispose();
         _texture = null;
         _images.Clear();

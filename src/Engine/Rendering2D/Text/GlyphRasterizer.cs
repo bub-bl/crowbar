@@ -14,24 +14,37 @@ internal static class GlyphRasterizer
     /// <summary>Outside border (in pixels) added around the ink, so the SDF has room and no atlas bleeding occurs.</summary>
     public const int Padding = 3;
 
-    /// <summary>Distance range (pixels) the stored field captures: +spread inside, -spread outside.</summary>
+    /// <summary>
+    /// SDF supersampling factor. The distance field is rasterized at
+    /// <see cref="Scale"/>× the display size and the quad is drawn at 1×, so
+    /// thin strokes and curves get accurate distances instead of being lost
+    /// between two texels. The shader constants (SPREAD, AA) are the 1× values
+    /// scaled by this factor to stay in grid units.
+    /// </summary>
+    public const int Scale = 2;
+
+    /// <summary>Distance range (grid units) the stored field captures: +spread inside, -spread outside.</summary>
     public const float Spread = 8f;
 
     /// <summary>
     /// Rasterizes <paramref name="edges"/> (screen-space, row-major pairs) whose
     /// axis-aligned bounds start at <paramref name="min"/> with the given ink
-    /// size, into an SDF texture of (inkWidth + 2·Padding) × (inkHeight + 2·Padding).
+    /// size, into an SDF texture of (inkWidth + 2·Padding) × (inkHeight + 2·Padding)
+    /// scaled by <see cref="Scale"/>. Each grid cell is 1/Scale screen pixels;
+    /// the stored field covers ±(Spread·Scale) grid units (±Spread display px).
     /// </summary>
     public static Texture2D Rasterize(IReadOnlyList<Vector2> edges, Vector2 min, int inkWidth, int inkHeight)
     {
-        var gridWidth = inkWidth + Padding * 2;
-        var gridHeight = inkHeight + Padding * 2;
+        var gridWidth = (inkWidth + Padding * 2) * Scale;
+        var gridHeight = (inkHeight + Padding * 2) * Scale;
 
         var inside = new bool[gridWidth * gridHeight];
         for (var y = 0; y < gridHeight; y++)
         for (var x = 0; x < gridWidth; x++)
         {
-            var p = new Vector2(min.X + (x - Padding) + 0.5f, min.Y + (y - Padding) + 0.5f);
+            var p = new Vector2(
+                min.X + (x - Padding * Scale + 0.5f) / Scale,
+                min.Y + (y - Padding * Scale + 0.5f) / Scale);
             inside[y * gridWidth + x] = Contains(p, edges);
         }
 
@@ -39,7 +52,7 @@ internal static class GlyphRasterizer
         var pixels = new byte[gridWidth * gridHeight * 4];
         for (var i = 0; i < signed.Length; i++)
         {
-            var s = Math.Clamp(0.5f + signed[i] / Spread, 0f, 1f);
+            var s = Math.Clamp(0.5f + signed[i] / (Spread * Scale), 0f, 1f);
             var value = (byte)MathF.Round(s * 255f);
             var offset = i * 4;
             pixels[offset] = value;
