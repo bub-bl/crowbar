@@ -12,6 +12,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Crowbar.UI.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Include="..\..\Shaders\**\*.wgsl" Link="Shaders\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\Assets\Gizmos\**\*.svg" Link="Assets\Gizmos\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\Assets\Icons\**\*.svg" Link="Assets\Icons\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
