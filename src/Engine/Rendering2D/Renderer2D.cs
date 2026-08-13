@@ -61,7 +61,7 @@ internal struct SdfInstance
     public Vector4 M0;        // transform row: screen.x = M0.x*lx + M0.y*ly + M0.z
     public Vector4 M1;        // transform row: screen.y = M1.x*lx + M1.y*ly + M1.z
     public Vector4 Color;     // straight sRGB RGBA, used when gradient kind == 0
-    public Vector4 Params;    // x = corner radius, y = stroke width (0 = fill), z/w unused
+    public Vector4 Params;    // x = corner radius, y = stroke width (0 = fill), z = border style, w = dash length
     public Vector4 Grad0;     // linear: start (local); radial: center (local); line: start
     public Vector4 Grad1;     // linear: end (local); radial: x = radius, y = focal; line: end
     public Vector4 Stop0;     // gradient stop colors (straight sRGB)
@@ -296,21 +296,30 @@ public sealed class Renderer2D : IDisposable
     public void DrawEllipse(RectF bounds, ColorF color) =>
         EmitShape(ShapeKind.Ellipse, bounds, 0f, 0f, color, GradientData.None);
 
-    /// <summary>Draws a stroked rounded rect (a solid border of <paramref name="strokeWidth"/>).</summary>
-    public void DrawRoundedRect(RectF rect, float radius, float strokeWidth, ColorF color) =>
-        EmitShape(ShapeKind.RoundedRect, rect, radius, strokeWidth, color, GradientData.None);
+    /// <summary>Draws a stroked rect (a border of <paramref name="strokeWidth"/>).</summary>
+    public void DrawRect(RectF rect, float strokeWidth, ColorF color, BorderStyle style = BorderStyle.Solid, float dashLength = 8f) =>
+        EmitShape(ShapeKind.Rect, rect, 0f, strokeWidth, color, GradientData.None, style, dashLength);
+
+    /// <summary>
+    /// Draws a stroked rounded rect (a border of <paramref name="strokeWidth"/>).
+    /// <paramref name="style"/> selects solid, dashed, dotted or double;
+    /// <paramref name="dashLength"/> is the on-length (in local px) for
+    /// dashed/dotted borders.
+    /// </summary>
+    public void DrawRoundedRect(RectF rect, float radius, float strokeWidth, ColorF color, BorderStyle style = BorderStyle.Solid, float dashLength = 8f) =>
+        EmitShape(ShapeKind.RoundedRect, rect, radius, strokeWidth, color, GradientData.None, style, dashLength);
 
     /// <summary>Draws a stroked circle (a ring of <paramref name="strokeWidth"/>).</summary>
-    public void DrawCircle(Vector2 center, float radius, float strokeWidth, ColorF color) =>
-        EmitShape(ShapeKind.Ellipse, CircleRect(center, radius), 0f, strokeWidth, color, GradientData.None);
+    public void DrawCircle(Vector2 center, float radius, float strokeWidth, ColorF color, BorderStyle style = BorderStyle.Solid, float dashLength = 8f) =>
+        EmitShape(ShapeKind.Ellipse, CircleRect(center, radius), 0f, strokeWidth, color, GradientData.None, style, dashLength);
 
     /// <summary>Draws a stroked ellipse.</summary>
-    public void DrawEllipse(RectF bounds, float strokeWidth, ColorF color) =>
-        EmitShape(ShapeKind.Ellipse, bounds, 0f, strokeWidth, color, GradientData.None);
+    public void DrawEllipse(RectF bounds, float strokeWidth, ColorF color, BorderStyle style = BorderStyle.Solid, float dashLength = 8f) =>
+        EmitShape(ShapeKind.Ellipse, bounds, 0f, strokeWidth, color, GradientData.None, style, dashLength);
 
     /// <summary>Draws a line segment with round caps.</summary>
-    public void DrawLine(Vector2 a, Vector2 b, float width, ColorF color) =>
-        EmitLine(a, b, width, color);
+    public void DrawLine(Vector2 a, Vector2 b, float width, ColorF color, BorderStyle style = BorderStyle.Solid, float dashLength = 8f) =>
+        EmitLine(a, b, width, color, style, dashLength);
 
     /// <summary>Draws a polyline as one round-capped line per segment.</summary>
     public void DrawPolyline(ReadOnlySpan<Vector2> points, float width, ColorF color)
@@ -610,14 +619,14 @@ public sealed class Renderer2D : IDisposable
     private static RectF CircleRect(Vector2 center, float radius) =>
         new(center.X - radius, center.Y - radius, radius * 2f, radius * 2f);
 
-    private void EmitLine(Vector2 a, Vector2 b, float width, ColorF color)
+    private void EmitLine(Vector2 a, Vector2 b, float width, ColorF color, BorderStyle style = BorderStyle.Solid, float dashLength = 8f)
     {
         var half = MathF.Max(width, 0f) * 0.5f;
         var min = Vector2.Min(a, b) - new Vector2(half);
         var max = Vector2.Max(a, b) + new Vector2(half);
         var rect = RectF.FromLTRB(min.X, min.Y, max.X, max.Y);
         var instance = BeginInstance(ShapeKind.Line, rect);
-        instance.Params = new Vector4(0f, MathF.Max(width, 0f), 0f, 0f);
+        instance.Params = new Vector4(0f, MathF.Max(width, 0f), (float)style, MathF.Max(dashLength, 0f));
         instance.Color = color.ToVector4();
         instance.Grad0 = new Vector4(a.X, a.Y, 0f, 0f);
         instance.Grad1 = new Vector4(b.X, b.Y, 0f, 0f);
@@ -625,12 +634,12 @@ public sealed class Renderer2D : IDisposable
         AddInstance(instance);
     }
 
-    private void EmitShape(ShapeKind kind, RectF rect, float radius, float strokeWidth, ColorF color, in GradientData gradient)
+    private void EmitShape(ShapeKind kind, RectF rect, float radius, float strokeWidth, ColorF color, in GradientData gradient, BorderStyle style = BorderStyle.Solid, float dashLength = 8f)
     {
         if (rect.IsEmpty)
             return;
         var instance = BeginInstance(kind, rect);
-        instance.Params = new Vector4(radius, MathF.Max(strokeWidth, 0f), 0f, 0f);
+        instance.Params = new Vector4(radius, MathF.Max(strokeWidth, 0f), (float)style, MathF.Max(dashLength, 0f));
         instance.Color = color.ToVector4();
         instance.Grad0 = gradient.A;
         instance.Grad1 = gradient.B;

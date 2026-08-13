@@ -36,3 +36,17 @@ public readonly record struct RectF(float X, float Y, float Width, float Height)
         return right <= left || bottom <= top ? default : FromLTRB(left, top, right, bottom);
     }
 }
+
+/// <summary>
+/// The style of a border stroke. <see cref="Solid"/> is a plain ring;
+/// <see cref="Dashed"/> and <see cref="Dotted"/> modulate the stroke along the
+/// shape's outline (dotted uses round dots), and <see cref="Double"/> draws two
+/// concentric rings. Only meaningful when a stroke width is supplied.
+/// </summary>
+public enum BorderStyle : byte
+{
+    Solid = 0,
+    Dashed = 1,
+    Dotted = 2,
+    Double = 3
+}

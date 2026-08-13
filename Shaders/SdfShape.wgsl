@@ -12,7 +12,7 @@ struct SdfInstance {
     m0: vec4f,         // transform row: screen.x = m0.x*lx + m0.y*ly + m0.z
     m1: vec4f,         // transform row: screen.y = m1.x*lx + m1.y*ly + m1.z
     color: vec4f,      // straight sRGB RGBA (used when the gradient kind is 0)
-    params: vec4f,     // x = corner radius, y = stroke width (0 = fill), z/w unused
+    params: vec4f,     // x = corner radius, y = stroke width (0 = fill), z = border style, w = dash length
     grad0: vec4f,      // linear: start (local); radial: center (local); line: start
     grad1: vec4f,      // linear: end (local); radial: x = radius, y = focal; line: end
     stop0: vec4f,      // gradient stop colors (straight sRGB)
@@ -83,6 +83,92 @@ fn segmentSDF(p: vec2f, a: vec2f, b: vec2f) -> f32 {
     let ba = b - a;
     let h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
     return length(pa - ba * h);
+}
+
+// Arc length (local px) along a (rounded) rectangle outline, clockwise from
+// the top edge's left end. Straight edges use the nearest-edge distance;
+// corners use the quarter-arc angle (the arcs collapse to zero length when
+// the corner radius is 0). Used to phase dashed/dotted borders.
+fn rectOutlineDist(local: vec2f, b: vec4f, r: f32) -> f32 {
+    let half = b.zw * 0.5;
+    let center = b.xy + half;
+    let rr = min(r, min(half.x, half.y));
+    let ax = max(half.x - rr, 0.0);
+    let ay = max(half.y - rr, 0.0);
+    let arcLen = rr * 1.5707963267948966; // quarter arc = r * pi / 2
+    let perim = 4.0 * (ax + ay + arcLen);
+    if (perim <= 0.0001) { return 0.0; }
+
+    let q = local - center;
+    let topEnd = 2.0 * ax;
+    let rightArcEnd = topEnd + arcLen;
+    let rightEnd = rightArcEnd + 2.0 * ay;
+    let bottomArcEnd = rightEnd + arcLen;
+    let bottomEnd = bottomArcEnd + 2.0 * ax;
+    let leftArcEnd = bottomEnd + arcLen;
+    let leftEnd = leftArcEnd + 2.0 * ay;
+    let halfPi = 1.5707963267948966;
+    let pi = 3.141592653589793;
+
+    let qx = abs(q.x);
+    let qy = abs(q.y);
+    var u = 0.0;
+    if (qx > ax && qy > ay) {
+        if (q.x >= 0.0 && q.y <= 0.0) { u = topEnd + (atan2(q.y + ay, q.x - ax) + halfPi) * rr; }
+        else if (q.x >= 0.0 && q.y >= 0.0) { u = rightEnd + atan2(q.y - ay, q.x - ax) * rr; }
+        else if (q.x <= 0.0 && q.y >= 0.0) { u = bottomEnd + (atan2(q.y - ay, q.x + ax) - halfPi) * rr; }
+        else {
+            // Top-left corner: the angle sweeps pi (left) -> -pi/2 (top),
+            // wrapping through the 2pi boundary.
+            var theta = atan2(q.y + ay, q.x + ax);
+            if (theta < 0.0) { theta = theta + 6.283185307179586; }
+            u = leftEnd + (theta - pi) * rr;
+        }
+    } else {
+        let dTop = abs(q.y + half.y);
+        let dBot = abs(half.y - q.y);
+        let dLef = abs(q.x + half.x);
+        let dRig = abs(half.x - q.x);
+        let m = min(min(dTop, dBot), min(dLef, dRig));
+        if (m == dTop) { u = q.x + ax; }
+        else if (m == dRig) { u = rightArcEnd + (q.y + ay); }
+        else if (m == dBot) { u = bottomArcEnd + (ax - q.x); }
+        else { u = leftArcEnd + (ay - q.y); }
+    }
+    return clamp(u, 0.0, perim);
+}
+
+// Approximate arc length along an ellipse outline via the parametric angle.
+// Exact for circles; for eccentric ellipses the dash spacing varies slightly.
+fn ellipseOutlineDist(local: vec2f, b: vec4f) -> f32 {
+    let half = b.zw * 0.5;
+    let center = b.xy + half;
+    let q = (local - center) / half;
+    var t = atan2(q.y, q.x);
+    if (t < 0.0) { t = t + 6.283185307179586; } // 0..2pi
+    let a = max(half.x, 0.0001);
+    let c = max(half.y, 0.0001);
+    let h = (a - c) * (a - c) / ((a + c) * (a + c));
+    let perim = 3.141592653589793 * (a + c) * (1.0 + 3.0 * h / (10.0 + sqrt(4.0 - 3.0 * h)));
+    return t / 6.283185307179586 * perim;
+}
+
+// Arc length (local px) along a line segment, clamped to its endpoints.
+fn lineOutlineDist(local: vec2f, a: vec2f, b: vec2f) -> f32 {
+    let ba = b - a;
+    let t = clamp(dot(local - a, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0);
+    return t * length(ba);
+}
+
+// 1D on/off dash mask (local px): on for `dash` px, off for the gap (equal to
+// `dash` for dashed borders, doubled for dotted so the dots breathe).
+fn dashMask(dist: f32, style: f32, dashLen: f32) -> f32 {
+    let dash = max(dashLen, 1.0);
+    let gap = style == 2.0 ? dash * 2.0 : dash;
+    let period = dash + gap;
+    let x = dist - period * floor(dist / period);
+    let d = abs(x - dash * 0.5) - dash * 0.5;
+    return 1.0 - smoothstep(-1.0, 1.0, d);
 }
 
 // The gradient stops are indexed with constant indices only (naga rejects
@@ -176,12 +262,58 @@ fn fs_main(@builtin(position) frag: vec4f, @location(0) local: vec2f,
         sd = roundedRectSDF(local, inst.rect, inst.params.x);
     }
 
-    // A stroke is the ring between |sd| <= width/2; a fill is the interior.
-    var coverage = 0.0;
     let strokeWidth = inst.params.y;
+    let style = inst.params.z;
+    let dashLen = inst.params.w;
+
+    // A stroke is the ring between |sd| <= width/2; a fill is the interior.
+    // Dashed/dotted borders modulate the ring along the outline; double draws
+    // two concentric rings.
+    var coverage = 0.0;
     if (strokeWidth > 0.0 && kind != 3.0) {
-        coverage = 1.0 - smoothstep(-1.0, 0.0, abs(sd) - strokeWidth * 0.5);
+        if (style == 3.0) {
+            // Double: two rings at +/- width/3, each width/3 thick.
+            let third = strokeWidth / 3.0;
+            let outer = 1.0 - smoothstep(-1.0, 0.0, abs(sd - third) - third * 0.5);
+            let inner = 1.0 - smoothstep(-1.0, 0.0, abs(sd + third) - third * 0.5);
+            coverage = max(outer, inner);
+        } else if (style == 1.0 || style == 2.0) {
+            let dist = kind == 2.0
+                ? ellipseOutlineDist(local, inst.rect)
+                : rectOutlineDist(local, inst.rect, inst.params.x);
+            if (style == 1.0) {
+                coverage = (1.0 - smoothstep(-1.0, 0.0, abs(sd) - strokeWidth * 0.5)) * dashMask(dist, style, dashLen);
+            } else {
+                // Dotted: round dots centred on the boundary.
+                let period = max(dashLen * 3.0, 1.0);
+                let x = dist - period * floor(dist / period);
+                let along = min(x, period - x);
+                let rdot = max(dashLen * 0.5, 0.5);
+                let d2 = sqrt(sd * sd + along * along);
+                coverage = 1.0 - smoothstep(-1.0, 1.0, d2 - rdot);
+            }
+        } else {
+            coverage = 1.0 - smoothstep(-1.0, 0.0, abs(sd) - strokeWidth * 0.5);
+        }
+    } else if (strokeWidth > 0.0) {
+        // Line stroke (round caps).
+        if (style == 1.0 || style == 2.0) {
+            let dist = lineOutlineDist(local, inst.grad0.xy, inst.grad1.xy);
+            if (style == 1.0) {
+                coverage = (1.0 - smoothstep(-1.0, 0.0, sd)) * dashMask(dist, style, dashLen);
+            } else {
+                let period = max(dashLen * 3.0, 1.0);
+                let x = dist - period * floor(dist / period);
+                let along = min(x, period - x);
+                let rdot = max(dashLen * 0.5, 0.5);
+                let d2 = sqrt(sd * sd + along * along);
+                coverage = 1.0 - smoothstep(-1.0, 1.0, d2 - rdot);
+            }
+        } else {
+            coverage = 1.0 - smoothstep(-1.0, 0.0, sd);
+        }
     } else {
+        // Fill.
         coverage = 1.0 - smoothstep(-1.0, 0.0, sd);
     }
 

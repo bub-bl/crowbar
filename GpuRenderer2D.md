@@ -159,7 +159,7 @@ below replaces one Skia surface with a `Renderer2D` equivalent:
 | Solid + gradient fills | inline gradient in the instance | `SdfShape` | ✅ done |
 | Rect / rounded clips, transforms | per-instance clip list + matrix | `SdfShape` | ✅ done |
 | Solid borders | SDF stroke | `SdfShape` | ✅ done |
-| Dashed / dotted / double borders | distance along the outline `mod`-ed by the dash pattern | `SdfShape` (extend `params`) | next |
+| Dashed / dotted / double borders | arc-length along the outline `mod`-ed by the dash pattern (round dots via 2D dot mask) | `SdfShape` | ✅ done |
 | **Text** | SixLabors.Fonts shaping + single-channel SDF glyph atlas + per-glyph quads; kerning, alignment, wrapping | `Glyph` | ✅ done |
 | **SVG** | CPU parse → flatten paths → tessellate | `TriMesh` | planned |
 | **Images (PNG/JPEG/WebP)** | decode (ImageSharp) → texture atlas → image quads with object-fit | `Textured` | ✅ done |
