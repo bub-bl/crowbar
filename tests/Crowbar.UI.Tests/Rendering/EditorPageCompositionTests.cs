@@ -202,4 +202,32 @@ public class EditorPageCompositionTests
         Assert.Equal(2, toggles.Count(t => t.IsChecked));
         Assert.False(toggles.Single(t => TestUi.Texts(t.Parent!).Any(text => text.Contains("Générer Collision", StringComparison.Ordinal))).IsChecked);
     }
+
+    [Fact]
+    public void WindowResizeRelayoutsAndRepublishesTheSceneViewport()
+    {
+        using var ui = CreateEditorUi();
+        var before = ui.SceneViewport;
+        Assert.NotNull(before);
+        Assert.True(before.Value.Width > 0 && before.Value.Height > 0);
+
+        // Simulate the host resizing the window and running one frame:
+        // OnResized calls SetViewport, then the loop runs Update + Prepare.
+        ui.SetViewport(1600, 900);
+        ui.Update();
+
+        // Prepare lays out at the new size and returns true, so the render loop
+        // repaints (recreating the UI offscreen target at 1600x900 instead of
+        // leaving it at the pre-resize 1280x720).
+        Assert.True(ui.Prepare(), "the resized frame must trigger a repaint");
+        Assert.Equal(1600f, ui.Screen.Layout.Width);
+        Assert.Equal(900f, ui.Screen.Layout.Height);
+
+        // The dock republished its scene viewport from the freshly laid-out
+        // geometry, so the 3D scene fills the enlarged viewport panel.
+        var after = ui.SceneViewport;
+        Assert.NotNull(after);
+        Assert.True(after.Value.Width > before.Value.Width, $"viewport width did not grow ({before.Value.Width} -> {after.Value.Width})");
+        Assert.True(after.Value.Height > before.Value.Height, $"viewport height did not grow ({before.Value.Height} -> {after.Value.Height})");
+    }
 }

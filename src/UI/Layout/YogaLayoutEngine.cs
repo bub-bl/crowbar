@@ -580,11 +580,14 @@ public sealed class YogaLayoutEngine
     private static void ReadLayout(Panel panel, Node node, float parentX, float parentY)
     {
         var layout = node.Layout;
-        panel.Layout = new UiRect(
+        var oldLayout = panel.Layout;
+        var newLayout = new UiRect(
             parentX + layout.Position(PhysicalEdge.Left),
             parentY + layout.Position(PhysicalEdge.Top),
             layout.Dimension(Dimension.Width),
             layout.Dimension(Dimension.Height));
+        var layoutChanged = newLayout != oldLayout;
+        panel.Layout = newLayout;
         // Yoga resolves every length (including percentages) during layout;
         // the renderer consumes these resolved values instead of re-deriving
         // them from the computed style.
@@ -609,6 +612,12 @@ public sealed class YogaLayoutEngine
         for (var i = 0; i < panel.Children.Count && i < (int)node.GetChildCount(); i++)
             ReadLayout(panel.Children[i], node.GetChild((nuint)i)!, panel.Layout.X, panel.Layout.Y);
         ComputeScrollRange(panel);
+        // Children are laid out first so the notify runs on a complete subtree.
+        // Only fire for an already-laid-out panel whose rect moved (a window
+        // resize): a fresh panel's 0 → actual transition is its first layout
+        // and is handled by the build cycle (OnTreeBuilt), not this hook.
+        if (layoutChanged && oldLayout.Width > 0 && oldLayout.Height > 0)
+            panel.OnLayoutChanged();
     }
 
     /// <summary>

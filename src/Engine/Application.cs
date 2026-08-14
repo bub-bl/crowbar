@@ -139,8 +139,11 @@ public abstract class Application : IDisposable
     private void OnResized(int width, int height)
     {
         _renderer?.Resize(width, height);
+        // Layout + repaint happen in the render loop (Renderer.Render calls
+        // Ui.Prepare and repaints when it returns true). Preparing here would
+        // consume the dirty flag first, so the render loop would skip the
+        // repaint and the UI offscreen target would stay at the old size.
         Ui.SetViewport(width, height);
-        Ui.Prepare();
         OnResize(width, height);
     }
 

@@ -112,6 +112,13 @@ public class Panel
 
     public ComputedStyle ComputedStyle { get; internal set; } = new();
     public UiRect Layout { get; internal set; }
+
+    /// <summary>
+    /// Called by the layout pass when this panel's resolved rect changed (e.g.
+    /// after a window resize). Components may override it to republish geometry-
+    /// derived state — the docked scene viewport — without a Razor rebuild.
+    /// </summary>
+    protected internal virtual void OnLayoutChanged() { }
     /// <summary>Horizontal scroll offset of the content box, in layout units.</summary>
     public float ScrollX { get; private set; }
     /// <summary>Vertical scroll offset of the content box, in layout units.</summary>

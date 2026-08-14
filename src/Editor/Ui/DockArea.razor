@@ -167,6 +167,13 @@
         StateHasChanged();
     }
 
+    /// <summary>
+    /// The dock area's own rect changed (a window resize): recompute the group
+    /// rects and republish the scene viewport, then request a rebuild so the
+    /// dock group divs re-render their explicit positions from the fresh rects.
+    /// </summary>
+    protected override void OnLayoutChanged() => StateHasChanged();
+
     /// <summary>Disposition initiale : outils / explorateur / (viewport + bas) / inspecteur.</summary>
     private static DockTree CreateInitialTree()
     {
