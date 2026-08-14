@@ -20,7 +20,8 @@ public sealed class GizmoRenderer : IDisposable
         Circle = 0,
         Diamond = 1,
         Ring = 2,
-        Icon = 3
+        Icon = 3,
+        Square = 4
     }
 
     // Mirrors GizmoSpriteParams in Shaders/GizmoSprite.wgsl.
@@ -29,7 +30,7 @@ public sealed class GizmoRenderer : IDisposable
     {
         public Vector4 Center;
         public Vector4 Color;
-        public Vector4 ScaleKind; // x = half-size (world), y = kind
+        public Vector4 ScaleKind; // x = half-size (world), y = kind (0 circle, 1 diamond, 2 ring, 3 icon, 4 square)
         public Vector4 UvRect;    // icon atlas rectangle (u0, v0, u1, v1)
     }
 
@@ -41,7 +42,8 @@ public sealed class GizmoRenderer : IDisposable
         public Vector4 End;      // xyz = world end (shaft tip / head apex)
         public Vector4 Color;
         public Vector4 Sizes;    // shaft: x = kind (0), y = half-width (px);
-                                 // cone: x = kind (1), z = length (world), w = radius (world)
+                                 // cone:  x = kind (1), z = length (world), w = radius (world)
+                                 // ring:  x = kind (2), z = radius (world), w = half-thickness (world)
         public Vector4 Viewport; // x = width, y = height in pixels (vec4 keeps the
                                  // element stride a multiple of 16)
     }
@@ -63,6 +65,9 @@ public sealed class GizmoRenderer : IDisposable
     private const float HeadLengthPx = 26f;       // cone length in pixels
     private const float HeadHalfWidthPx = 10f;    // cone radius (20px diameter)
     private const int ConeVertexCount = 16 * 3;  // 16-sided cone, one triangle per side
+    private const int RingSegments = 48;         // rotation ring tessellation
+    private const int RingVertexCount = RingSegments * 6;
+    private const float RingHalfThicknessPx = 2f; // 4px thick rings
 
     private readonly IGraphicsDevice _device;
     private readonly IBuffer _sceneBuffer;
@@ -70,19 +75,24 @@ public sealed class GizmoRenderer : IDisposable
     private GizmoIconAtlas _iconAtlas = null!;
     private readonly GizmoSpriteParams[] _spriteParams = new GizmoSpriteParams[MaxSprites];
     private readonly GizmoWidgetElement[] _widgetElements = new GizmoWidgetElement[6];
+    private readonly GizmoWidgetElement[] _ringElements = new GizmoWidgetElement[3];
     private IPipeline _widgetPipeline = null!;
     private IPipeline _spritePipeline = null!;
     private IBuffer _shaftVertexBuffer = null!;
     private IBuffer _coneVertexBuffer = null!;
+    private IBuffer _ringVertexBuffer = null!;
     private IBuffer _spriteVertexBuffer = null!;
     private IBuffer _shaftElementsBuffer = null!;
     private IBuffer _coneElementsBuffer = null!;
+    private IBuffer _ringElementsBuffer = null!;
     private IBuffer _spriteParamsBuffer = null!;
     private IBindGroup _shaftBindGroup = null!;
     private IBindGroup _coneBindGroup = null!;
+    private IBindGroup _ringBindGroup = null!;
     private IBindGroup _spriteBindGroup = null!;
     private bool _wasMouseDown;
     private bool _disposed;
+    private GizmoMode _mode = GizmoMode.Translate;
 
     public GizmoRenderer(IGraphicsDevice device, IBuffer sceneBuffer, ulong sceneBufferSize)
     {
@@ -92,8 +102,41 @@ public sealed class GizmoRenderer : IDisposable
         CreateResources();
     }
 
-    /// <summary>Widget logic (hover/drag/snap). Configure <see cref="TranslationGizmo.SnapSize"/> through <see cref="SnapSize"/>.</summary>
-    public TranslationGizmo Gizmo { get; } = new();
+    /// <summary>Translate widget logic (hover/drag/snap). Configure snapping through <see cref="SnapSize"/>.</summary>
+    public TranslationGizmo Translate { get; } = new();
+
+    /// <summary>Rotate widget logic (hover/drag/degree snapping).</summary>
+    public RotationGizmo Rotation { get; } = new();
+
+    /// <summary>Scale widget logic (hover/drag/snapping).</summary>
+    public ScaleGizmo Scale { get; } = new();
+
+    /// <summary>The gizmo tool the viewport currently edits.</summary>
+    public GizmoMode Mode
+    {
+        get => _mode;
+        set
+        {
+            if (_mode == value)
+                return;
+            _mode = value;
+            // Switching tools mid-drag must never strand an active axis.
+            Translate.EndDrag();
+            Rotation.EndDrag();
+            Scale.EndDrag();
+        }
+    }
+
+    /// <summary>The gizmo active for the current <see cref="Mode"/>.</summary>
+    public Gizmo ActiveGizmo => Mode switch
+    {
+        GizmoMode.Rotate => Rotation,
+        GizmoMode.Scale => Scale,
+        _ => Translate
+    };
+
+    /// <summary>True while any widget gizmo is dragging the selection.</summary>
+    public bool IsDragging => ActiveGizmo.IsDragging;
 
     /// <summary>The entity the widget follows; null hides the widget.</summary>
     public Entity? Selection { get; set; }
@@ -107,11 +150,11 @@ public sealed class GizmoRenderer : IDisposable
     /// <summary>Whether non-selected mesh entities get billboard icons.</summary>
     public bool ShowEntitySprites { get; set; } = true;
 
-    /// <summary>Snap size for dragged movement in world units, or null to move freely.</summary>
+    /// <summary>Snap size for dragged translation in world units, or null to move freely.</summary>
     public float? SnapSize
     {
-        get => Gizmo.SnapSize;
-        set => Gizmo.SnapSize = value;
+        get => Translate.SnapSize;
+        set => Translate.SnapSize = value;
     }
 
     /// <summary>Screen-constant light icon size in pixels (diameter).</summary>
@@ -130,9 +173,14 @@ public sealed class GizmoRenderer : IDisposable
         if (!Enabled)
             return;
 
-        Gizmo.SetTarget(Selection?.GetComponent<TransformComponent>());
-        if (Gizmo.Target is null)
+        var gizmo = ActiveGizmo;
+        gizmo.SetTarget(Selection?.GetComponent<TransformComponent>());
+        if (gizmo.Target is null)
             return;
+
+        // The widget is drawn at a constant screen size; the hover tests the
+        // same world-space extent, so both stay in sync at any camera distance.
+        gizmo.ScreenSizePx = WidgetPixelSize;
 
         var ray = matrices.RayFromScreen(mousePixels);
 
@@ -141,21 +189,21 @@ public sealed class GizmoRenderer : IDisposable
         _wasMouseDown = mouseDown;
 
         if (released)
-            Gizmo.EndDrag();
+            gizmo.EndDrag();
 
         if (pressed)
         {
-            Gizmo.UpdateHover(ray, mousePixels, matrices.View, matrices.Projection, matrices.Width, matrices.Height);
-            if (Gizmo.HoveredAxis != TranslationGizmo.Axis.None)
-                Gizmo.BeginDrag(ray);
+            gizmo.UpdateHover(ray, mousePixels, matrices.View, matrices.Projection, matrices.Width, matrices.Height);
+            if (gizmo.HoveredAxis != GizmoAxis.None)
+                gizmo.BeginDrag(ray);
         }
-        else if (mouseDown && Gizmo.IsDragging)
+        else if (mouseDown && gizmo.IsDragging)
         {
-            Gizmo.Drag(ray);
+            gizmo.Drag(ray);
         }
         else
         {
-            Gizmo.UpdateHover(ray, mousePixels, matrices.View, matrices.Projection, matrices.Width, matrices.Height);
+            gizmo.UpdateHover(ray, mousePixels, matrices.View, matrices.Projection, matrices.Width, matrices.Height);
         }
     }
 
@@ -166,87 +214,15 @@ public sealed class GizmoRenderer : IDisposable
             return;
 
         var target = Selection?.GetComponent<TransformComponent>();
-        Gizmo.SetTarget(target);
+        ActiveGizmo.SetTarget(target);
 
         if (target is null && (world is null || !ShowLightSprites))
             return;
 
-        var tanHalfFov = MathF.Tan(camera.FieldOfView * 0.5f);
-        // World half-size of an object that must span `pixels` on screen at
-        // `position`: pixels = size * height / (2 * depth * tan(fov/2)), where
-        // depth is the distance along the camera's forward axis (so the size
-        // is exact at any viewing angle).
-        float screenHalfSize(Vector3 position, float pixels)
-        {
-            var depth = Vector3.Dot(camera.Forward, position - camera.Position);
-            return pixels * 2f * Math.Max(1e-4f, depth) * tanHalfFov / Math.Max(1, height);
-        }
-
-        float screenWorldSize(float pixels, float depth) =>
-            pixels * 2f * Math.Max(1e-4f, depth) * tanHalfFov / Math.Max(1, height);
-
         var spriteCount = 0;
 
         if (target is not null)
-        {
-            var origin = Gizmo.Origin;
-            var originDepth = Math.Max(1e-4f, Vector3.Dot(camera.Forward, origin - camera.Position));
-            var widgetScale = WidgetPixelSize * 2f * originDepth * tanHalfFov
-                              / (Math.Max(1, height) * Gizmo.AxisLength);
-            var hovered = (float)Gizmo.HoveredAxis;
-            var active = (float)Gizmo.ActiveAxis;
-
-            // Selection ring around the widget origin.
-            AddSprite(ref spriteCount, origin, SelectionColor, screenHalfSize(origin, 28f), SpriteKind.Ring);
-
-            // Thick shafts (screen-space quads) and true 3D cone heads, colored
-            // by axis state. The first three elements are shafts; the last three
-            // are cones and are uploaded to separate storage buffers below.
-            for (var axis = TranslationGizmo.Axis.X; axis <= TranslationGizmo.Axis.Z; axis++)
-            {
-                var direction = Gizmo.AxisDirection(axis);
-                var tip = origin + direction * widgetScale;
-                var tipDepth = Math.Max(1e-4f, Vector3.Dot(camera.Forward, tip - camera.Position));
-                var coneLength = screenWorldSize(HeadLengthPx, tipDepth);
-                var shaftTip = tip - direction * coneLength;
-                _widgetElements[(int)axis] = new GizmoWidgetElement
-                {
-                    Start = new Vector4(origin, 1f),
-                    End = new Vector4(shaftTip, 1f),
-                    Color = AxisStateColor(axis, hovered, active),
-                    Sizes = new Vector4(0f, ShaftHalfWidthPx, 0f, 0f),
-                    Viewport = new Vector4(width, height, 0f, 0f)
-                };
-            }
-            for (var axis = TranslationGizmo.Axis.X; axis <= TranslationGizmo.Axis.Z; axis++)
-            {
-                var tip = origin + Gizmo.AxisDirection(axis) * widgetScale;
-                var tipDepth = Math.Max(1e-4f, Vector3.Dot(camera.Forward, tip - camera.Position));
-                var coneLength = screenWorldSize(HeadLengthPx, tipDepth);
-                var coneRadius = screenWorldSize(HeadHalfWidthPx, tipDepth);
-                _widgetElements[(int)axis + 3] = new GizmoWidgetElement
-                {
-                    Start = new Vector4(origin, 1f),
-                    End = new Vector4(tip, 1f),
-                    Color = AxisStateColor(axis, hovered, active),
-                    Sizes = new Vector4(1f, 0f, coneLength, coneRadius),
-                    Viewport = new Vector4(width, height, 0f, 0f)
-                };
-            }
-
-            // Queue writes happen before command execution, so separate buffers
-            // ensure the shaft draw cannot observe the cone upload.
-            WriteWidgetElements(_shaftElementsBuffer, 0, 3);
-            WriteWidgetElements(_coneElementsBuffer, 3, 3);
-
-            pass.SetPipeline(_widgetPipeline);
-            pass.SetBindGroup(_shaftBindGroup, 0);
-            pass.SetVertexBuffer(_shaftVertexBuffer, _shaftVertexBuffer.Size);
-            pass.DrawInstanced(6, 3);
-            pass.SetBindGroup(_coneBindGroup, 0);
-            pass.SetVertexBuffer(_coneVertexBuffer, _coneVertexBuffer.Size);
-            pass.DrawInstanced((uint)ConeVertexCount, 3);
-        }
+            DrawWidget(pass, ref spriteCount, camera, width, height);
 
         if (world is not null && ShowLightSprites)
         {
@@ -261,7 +237,7 @@ public sealed class GizmoRenderer : IDisposable
 
                 var position = light.World.Position;
                 AddIconSprite(ref spriteCount, position, new Vector4(light.Color, 0.95f),
-                    screenHalfSize(position, SpritePixelSize * 0.5f), lightIcon.Value);
+                    ScreenHalfSize(position, SpritePixelSize * 0.5f, camera, height), lightIcon.Value);
             }
         }
 
@@ -278,7 +254,7 @@ public sealed class GizmoRenderer : IDisposable
 
                 var position = meshRenderer.World.Position;
                 AddIconSprite(ref spriteCount, position, new Vector4(1f, 1f, 1f, 0.85f),
-                    screenHalfSize(position, SpritePixelSize * 0.5f), meshIcon.Value);
+                    ScreenHalfSize(position, SpritePixelSize * 0.5f, camera, height), meshIcon.Value);
             }
         }
 
@@ -302,6 +278,153 @@ public sealed class GizmoRenderer : IDisposable
         pass.SetVertexBuffer(_spriteVertexBuffer, _spriteVertexBuffer.Size);
         pass.DrawInstanced(6, (uint)spriteCount);
     }
+
+    /// <summary>Draws the active widget (translate/rotate/scale) around the selection.</summary>
+    private void DrawWidget(IRenderPass pass, ref int spriteCount, Camera camera, int width, int height)
+    {
+        var gizmo = ActiveGizmo;
+        var origin = gizmo.Origin;
+        var aspect = Math.Max(1, width) / (float)Math.Max(1, height);
+        var widgetScale = Gizmo.ScreenConstantWorldSize(origin, camera.ViewMatrix,
+            camera.ProjectionMatrix(aspect), height, gizmo.ScreenSizePx);
+        var hovered = (float)gizmo.HoveredAxis;
+        var active = (float)gizmo.ActiveAxis;
+
+        // Selection ring around the widget origin.
+        AddSprite(ref spriteCount, origin, SelectionColor, ScreenHalfSize(origin, 28f, camera, height), SpriteKind.Ring);
+
+        switch (Mode)
+        {
+            case GizmoMode.Rotate:
+                DrawRotationWidget(pass, gizmo, origin, widgetScale, hovered, active, camera, width, height);
+                break;
+            case GizmoMode.Scale:
+                DrawScaleWidget(pass, ref spriteCount, gizmo, origin, widgetScale, hovered, active, camera, width, height);
+                break;
+            default:
+                DrawTranslationWidget(pass, gizmo, origin, widgetScale, hovered, active, camera, width, height);
+                break;
+        }
+    }
+
+    /// <summary>Draws the translate widget: three screen-space shafts with 3D cone heads.</summary>
+    private void DrawTranslationWidget(IRenderPass pass, Gizmo gizmo, Vector3 origin, float widgetScale, float hovered, float active, Camera camera, int width, int height)
+    {
+        // Thick shafts (screen-space quads) and true 3D cone heads, colored
+        // by axis state. The first three elements are shafts; the last three
+        // are cones and are uploaded to separate storage buffers below.
+        for (var axis = GizmoAxis.X; axis <= GizmoAxis.Z; axis++)
+        {
+            var direction = gizmo.AxisDirection(axis);
+            var tip = origin + direction * widgetScale;
+            var tipDepth = Math.Max(1e-4f, Vector3.Dot(camera.Forward, tip - camera.Position));
+            var coneLength = ScreenWorldSize(HeadLengthPx, tipDepth, camera, height);
+            var shaftTip = tip - direction * coneLength;
+            _widgetElements[(int)axis] = new GizmoWidgetElement
+            {
+                Start = new Vector4(origin, 1f),
+                End = new Vector4(shaftTip, 1f),
+                Color = AxisStateColor(axis, hovered, active),
+                Sizes = new Vector4(0f, ShaftHalfWidthPx, 0f, 0f),
+                Viewport = new Vector4(width, height, 0f, 0f)
+            };
+        }
+        for (var axis = GizmoAxis.X; axis <= GizmoAxis.Z; axis++)
+        {
+            var tip = origin + gizmo.AxisDirection(axis) * widgetScale;
+            var tipDepth = Math.Max(1e-4f, Vector3.Dot(camera.Forward, tip - camera.Position));
+            var coneLength = ScreenWorldSize(HeadLengthPx, tipDepth, camera, height);
+            var coneRadius = ScreenWorldSize(HeadHalfWidthPx, tipDepth, camera, height);
+            _widgetElements[(int)axis + 3] = new GizmoWidgetElement
+            {
+                Start = new Vector4(origin, 1f),
+                End = new Vector4(tip, 1f),
+                Color = AxisStateColor(axis, hovered, active),
+                Sizes = new Vector4(1f, 0f, coneLength, coneRadius),
+                Viewport = new Vector4(width, height, 0f, 0f)
+            };
+        }
+
+        // Queue writes happen before command execution, so separate buffers
+        // ensure the shaft draw cannot observe the cone upload.
+        WriteWidgetElements(_shaftElementsBuffer, 0, 3);
+        WriteWidgetElements(_coneElementsBuffer, 3, 3);
+
+        pass.SetPipeline(_widgetPipeline);
+        pass.SetBindGroup(_shaftBindGroup, 0);
+        pass.SetVertexBuffer(_shaftVertexBuffer, _shaftVertexBuffer.Size);
+        pass.DrawInstanced(6, 3);
+        pass.SetBindGroup(_coneBindGroup, 0);
+        pass.SetVertexBuffer(_coneVertexBuffer, _coneVertexBuffer.Size);
+        pass.DrawInstanced((uint)ConeVertexCount, 3);
+    }
+
+    /// <summary>Draws the scale widget: three shafts with square billboard handles at their tips.</summary>
+    private void DrawScaleWidget(IRenderPass pass, ref int spriteCount, Gizmo gizmo, Vector3 origin, float widgetScale, float hovered, float active, Camera camera, int width, int height)
+    {
+        for (var axis = GizmoAxis.X; axis <= GizmoAxis.Z; axis++)
+        {
+            var tip = origin + gizmo.AxisDirection(axis) * widgetScale;
+            _widgetElements[(int)axis] = new GizmoWidgetElement
+            {
+                Start = new Vector4(origin, 1f),
+                End = new Vector4(tip, 1f),
+                Color = AxisStateColor(axis, hovered, active),
+                Sizes = new Vector4(0f, ShaftHalfWidthPx, 0f, 0f),
+                Viewport = new Vector4(width, height, 0f, 0f)
+            };
+        }
+        WriteWidgetElements(_shaftElementsBuffer, 0, 3);
+
+        pass.SetPipeline(_widgetPipeline);
+        pass.SetBindGroup(_shaftBindGroup, 0);
+        pass.SetVertexBuffer(_shaftVertexBuffer, _shaftVertexBuffer.Size);
+        pass.DrawInstanced(6, 3);
+
+        // Square handles (screen-facing, like the icon sprites) at each tip.
+        for (var axis = GizmoAxis.X; axis <= GizmoAxis.Z; axis++)
+        {
+            var tip = origin + gizmo.AxisDirection(axis) * widgetScale;
+            AddSprite(ref spriteCount, tip, AxisStateColor(axis, hovered, active),
+                ScreenHalfSize(tip, HeadHalfWidthPx, camera, height), SpriteKind.Square);
+        }
+    }
+
+    /// <summary>Draws the rotate widget: one 3D ring per axis, in the plane perpendicular to it.</summary>
+    private void DrawRotationWidget(IRenderPass pass, Gizmo gizmo, Vector3 origin, float widgetScale, float hovered, float active, Camera camera, int width, int height)
+    {
+        for (var axis = GizmoAxis.X; axis <= GizmoAxis.Z; axis++)
+        {
+            var direction = gizmo.AxisDirection(axis);
+            var ringDepth = Math.Max(1e-4f, Vector3.Dot(camera.Forward, origin - camera.Position));
+            var halfThickness = ScreenWorldSize(RingHalfThicknessPx, ringDepth, camera, height);
+            _ringElements[(int)axis] = new GizmoWidgetElement
+            {
+                Start = new Vector4(origin, 1f),
+                End = new Vector4(origin + direction, 1f),
+                Color = AxisStateColor(axis, hovered, active),
+                Sizes = new Vector4(2f, 0f, widgetScale, halfThickness),
+                Viewport = new Vector4(width, height, 0f, 0f)
+            };
+        }
+
+        WriteRingElements();
+        pass.SetPipeline(_widgetPipeline);
+        pass.SetBindGroup(_ringBindGroup, 0);
+        pass.SetVertexBuffer(_ringVertexBuffer, _ringVertexBuffer.Size);
+        pass.DrawInstanced((uint)RingVertexCount, 3);
+    }
+
+    /// <summary>World half-size of an object spanning <paramref name="pixels"/> on screen at <paramref name="position"/>.</summary>
+    private static float ScreenHalfSize(Vector3 position, float pixels, Camera camera, int height)
+    {
+        var depth = Vector3.Dot(camera.Forward, position - camera.Position);
+        return pixels * 2f * Math.Max(1e-4f, depth) * MathF.Tan(camera.FieldOfView * 0.5f) / Math.Max(1, height);
+    }
+
+    /// <summary>World size of an object spanning <paramref name="pixels"/> on screen at the given forward <paramref name="depth"/>.</summary>
+    private static float ScreenWorldSize(float pixels, float depth, Camera camera, int height) =>
+        pixels * 2f * Math.Max(1e-4f, depth) * MathF.Tan(camera.FieldOfView * 0.5f) / Math.Max(1, height);
 
     /// <summary>
     /// Picks a visible light icon by its screen-space billboard first, then
@@ -394,6 +517,31 @@ public sealed class GizmoRenderer : IDisposable
         buffer.Write(bytes);
     }
 
+    /// <summary>Uploads the three rotation ring elements into their storage buffer.</summary>
+    private void WriteRingElements()
+    {
+        var bytes = new byte[3 * sizeof(GizmoWidgetElement)];
+        unsafe
+        {
+            fixed (byte* destination = bytes)
+            {
+                var elements = (GizmoWidgetElement*)destination;
+                for (var i = 0; i < 3; i++)
+                    elements[i] = _ringElements[i];
+            }
+        }
+        _ringElementsBuffer.Write(bytes);
+    }
+
+    /// <summary>Writes one ring vertex: (cos, sin, innerOrOuter, 0).</summary>
+    private static void WriteRingVertex(float[] vertices, int offset, float angle, float innerOrOuter)
+    {
+        vertices[offset] = MathF.Cos(angle);
+        vertices[offset + 1] = MathF.Sin(angle);
+        vertices[offset + 2] = innerOrOuter;
+        vertices[offset + 3] = 0f;
+    }
+
     private void AddSprite(ref int count, Vector3 position, Vector4 color, float halfSize, SpriteKind kind)
     {
         if (count >= MaxSprites)
@@ -435,7 +583,7 @@ public sealed class GizmoRenderer : IDisposable
         };
     }
 
-    private static Vector4 AxisStateColor(TranslationGizmo.Axis axis, float hovered, float active)
+    private static Vector4 AxisStateColor(GizmoAxis axis, float hovered, float active)
     {
         var axisIndex = (float)axis;
         if (active >= 0f && active == axisIndex)
@@ -496,6 +644,30 @@ public sealed class GizmoRenderer : IDisposable
                 _coneVertexBuffer.Write(new ReadOnlySpan<byte>(data, coneVertices.Length * sizeof(float)));
         }
 
+        // Rotation ring: a quad strip swept around the unit circle. Each
+        // vertex is (cos, sin, innerOrOuter, 0); the shader expands it into a
+        // world-space annulus perpendicular to the element axis.
+        var ringVertices = new float[RingVertexCount * 4];
+        for (var segment = 0; segment < RingSegments; segment++)
+        {
+            var angle0 = segment * MathF.Tau / RingSegments;
+            var angle1 = (segment + 1) * MathF.Tau / RingSegments;
+            var offset = segment * 24;
+            // inner(-1) / outer(+1) quad: two triangles.
+            WriteRingVertex(ringVertices, offset, angle0, -1f);
+            WriteRingVertex(ringVertices, offset + 4, angle0, 1f);
+            WriteRingVertex(ringVertices, offset + 8, angle1, -1f);
+            WriteRingVertex(ringVertices, offset + 12, angle1, -1f);
+            WriteRingVertex(ringVertices, offset + 16, angle0, 1f);
+            WriteRingVertex(ringVertices, offset + 20, angle1, 1f);
+        }
+        _ringVertexBuffer = CreateBuffer((ulong)(ringVertices.Length * sizeof(float)), BufferUsage.Vertex | BufferUsage.CopyDst);
+        unsafe
+        {
+            fixed (float* data = ringVertices)
+                _ringVertexBuffer.Write(new ReadOnlySpan<byte>(data, ringVertices.Length * sizeof(float)));
+        }
+
         // Billboard quad: six corner vertices in -1..1.
         float[] quad = [-1f, -1f, 1f, -1f, 1f, 1f, -1f, -1f, 1f, 1f, -1f, 1f];
         _spriteVertexBuffer = CreateBuffer((ulong)(quad.Length * sizeof(float)), BufferUsage.Vertex | BufferUsage.CopyDst);
@@ -509,6 +681,7 @@ public sealed class GizmoRenderer : IDisposable
         // from the gizmo state into separate buffers.
         _shaftElementsBuffer = CreateBuffer((ulong)(3 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
         _coneElementsBuffer = CreateBuffer((ulong)(3 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
+        _ringElementsBuffer = CreateBuffer((ulong)(3 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
         _spriteParamsBuffer = CreateBuffer((ulong)(MaxSprites * sizeof(GizmoSpriteParams)), BufferUsage.Storage | BufferUsage.CopyDst);
         _iconAtlas = GizmoIconAtlas.Load(_device);
 
@@ -550,6 +723,11 @@ public sealed class GizmoRenderer : IDisposable
         [
             new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
             new BindGroupBinding { Slot = 1, Buffer = _coneElementsBuffer, BufferSize = (ulong)(3 * sizeof(GizmoWidgetElement)) }
+        ]);
+        _ringBindGroup = _widgetPipeline.CreateBindGroup(
+        [
+            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
+            new BindGroupBinding { Slot = 1, Buffer = _ringElementsBuffer, BufferSize = (ulong)(3 * sizeof(GizmoWidgetElement)) }
         ]);
 
         _spritePipeline = _device.CreatePipeline(new PipelineDescription
@@ -603,12 +781,15 @@ public sealed class GizmoRenderer : IDisposable
 
         _shaftBindGroup?.Dispose();
         _coneBindGroup?.Dispose();
+        _ringBindGroup?.Dispose();
         _spriteBindGroup?.Dispose();
         _shaftElementsBuffer?.Dispose();
         _coneElementsBuffer?.Dispose();
+        _ringElementsBuffer?.Dispose();
         _spriteParamsBuffer?.Dispose();
         _shaftVertexBuffer?.Dispose();
         _coneVertexBuffer?.Dispose();
+        _ringVertexBuffer?.Dispose();
         _spriteVertexBuffer?.Dispose();
         _iconAtlas?.Dispose();
         _widgetPipeline?.Dispose();

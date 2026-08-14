@@ -66,6 +66,25 @@ public readonly record struct Ray(Vector3 Origin, Vector3 Direction)
     }
 
     /// <summary>
+    /// The point where this ray crosses the plane through <paramref name="planePoint"/>
+    /// with the given <paramref name="planeNormal"/>, or false when the ray runs
+    /// (nearly) parallel to the plane.
+    /// </summary>
+    public bool IntersectsPlane(Vector3 planePoint, Vector3 planeNormal, out Vector3 point)
+    {
+        var denominator = Vector3.Dot(Direction, planeNormal);
+        if (MathF.Abs(denominator) < 1e-6f)
+        {
+            point = default;
+            return false;
+        }
+
+        var t = Vector3.Dot(planePoint - Origin, planeNormal) / denominator;
+        point = Origin + Direction * t;
+        return true;
+    }
+
+    /// <summary>
     /// Slab-based AABB intersection. Returns the entry distance along the ray
     /// (negative when the origin is inside the box).
     /// </summary>

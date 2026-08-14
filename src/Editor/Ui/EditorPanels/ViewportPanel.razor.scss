@@ -50,6 +50,12 @@ root {
     }
 }
 
+.vt-btn-active,
+.vt-btn-active:hover {
+    background-color: $accent;
+    color: $text-bright;
+}
+
 .vt-sep {
     width: 1px;
     height: 16px;

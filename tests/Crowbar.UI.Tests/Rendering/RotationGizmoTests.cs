@@ -3,20 +3,21 @@ using Crowbar.Engine.Rendering;
 
 namespace Crowbar.Engine.Tests;
 
-public class TranslationGizmoTests
+public class RotationGizmoTests
 {
     private const int Width = 1280;
     private const int Height = 720;
 
     [Fact]
-    public void Hover_DetectsTheAxisUnderTheMouse()
+    public void Hover_DetectsTheAxisRingUnderTheMouse()
     {
         var transform = CreateTarget();
-        var gizmo = new TranslationGizmo();
+        var gizmo = new RotationGizmo();
         gizmo.SetTarget(transform);
 
         var camera = new Camera();
-        var (ray, pixels) = RayThroughPoint(new Vector3(ShaftLength(gizmo, camera) * 0.8f, 0f, 0f), camera);
+        // (0, r, 0) lies on the X ring (the circle of radius r in the YZ plane).
+        var (ray, pixels) = RayThroughPoint(new Vector3(0f, RingRadius(gizmo, camera), 0f), camera);
 
         gizmo.UpdateHover(ray, pixels, camera.ViewMatrix, camera.ProjectionMatrix(Aspect), Width, Height);
 
@@ -24,15 +25,15 @@ public class TranslationGizmoTests
     }
 
     [Fact]
-    public void Hover_IgnoresPointsBeyondTheShaft()
+    public void Hover_IgnoresPointsFarFromEveryRing()
     {
         var transform = CreateTarget();
-        var gizmo = new TranslationGizmo();
+        var gizmo = new RotationGizmo();
         gizmo.SetTarget(transform);
 
         var camera = new Camera();
-        // On the X axis line but far beyond the drawn shaft.
-        var (ray, pixels) = RayThroughPoint(new Vector3(ShaftLength(gizmo, camera) * 5f, 0f, 0f), camera);
+        // 3× the drawn radius is far outside every ring.
+        var (ray, pixels) = RayThroughPoint(new Vector3(RingRadius(gizmo, camera) * 3f, 0f, 0f), camera);
 
         gizmo.UpdateHover(ray, pixels, camera.ViewMatrix, camera.ProjectionMatrix(Aspect), Width, Height);
 
@@ -40,82 +41,91 @@ public class TranslationGizmoTests
     }
 
     [Fact]
-    public void Drag_MovesTheTargetAlongTheActiveAxis()
+    public void Drag_RotatesTheTargetAroundTheActiveAxis()
     {
         var transform = CreateTarget();
-        var gizmo = new TranslationGizmo();
+        var gizmo = new RotationGizmo();
         gizmo.SetTarget(transform);
 
         var camera = new Camera();
         var view = camera.ViewMatrix;
         var projection = camera.ProjectionMatrix(Aspect);
 
-        var (startRay, startPixels) = RayThroughPoint(new Vector3(ShaftLength(gizmo, camera) * 0.6f, 0f, 0f), camera);
+        var (startRay, startPixels) = RayThroughPoint(new Vector3(0f, RingRadius(gizmo, camera), 0f), camera);
         gizmo.UpdateHover(startRay, startPixels, view, projection, Width, Height);
         Assert.Equal(GizmoAxis.X, gizmo.HoveredAxis);
         gizmo.BeginDrag(startRay);
 
-        var (dragRay, _) = RayThroughPoint(new Vector3(ShaftLength(gizmo, camera) * 0.6f + 0.8f, 0f, 0f), camera);
+        // Dragging from +Y to +Z sweeps +90° around the X axis (right-hand rule).
+        var (dragRay, _) = RayThroughPoint(new Vector3(0f, 0f, RingRadius(gizmo, camera)), camera);
         gizmo.Drag(dragRay);
 
-        // The anchor moved 0.8 units along +X; the entity follows exactly.
-        Assert.Equal(0.8f, transform.World.Position.X, 3);
-        Assert.Equal(0f, transform.World.Position.Y, 3);
-        Assert.Equal(0f, transform.World.Position.Z, 3);
+        Assert.Equal(90f, transform.World.Rotation.Pitch(), 3);
+        Assert.Equal(0f, transform.World.Rotation.Yaw(), 3);
+        Assert.Equal(0f, transform.World.Rotation.Roll(), 3);
     }
 
     [Fact]
-    public void Drag_SnapsTheMovementToTheSnapSize()
+    public void Drag_SnapsTheAngleToTheDegreeStep()
     {
         var transform = CreateTarget();
-        var gizmo = new TranslationGizmo { SnapSize = 1f };
+        var gizmo = new RotationGizmo { SnapSize = 100f };
         gizmo.SetTarget(transform);
 
         var camera = new Camera();
         var view = camera.ViewMatrix;
         var projection = camera.ProjectionMatrix(Aspect);
 
-        var (startRay, startPixels) = RayThroughPoint(new Vector3(ShaftLength(gizmo, camera) * 0.6f, 0f, 0f), camera);
+        var (startRay, startPixels) = RayThroughPoint(new Vector3(0f, RingRadius(gizmo, camera), 0f), camera);
         gizmo.UpdateHover(startRay, startPixels, view, projection, Width, Height);
         gizmo.BeginDrag(startRay);
 
-        // 0.6 world units of movement rounds up to the 1-unit cell.
-        var (dragRay, _) = RayThroughPoint(new Vector3(ShaftLength(gizmo, camera) * 0.6f + 0.6f, 0f, 0f), camera);
+        // 90° of rotation rounds up to the 100° step.
+        var (dragRay, _) = RayThroughPoint(new Vector3(0f, 0f, RingRadius(gizmo, camera)), camera);
         gizmo.Drag(dragRay);
 
-        Assert.Equal(1f, transform.World.Position.X, 3);
-        Assert.Equal(0f, transform.World.Position.Y, 3);
-        Assert.Equal(0f, transform.World.Position.Z, 3);
+        Assert.Equal(100f, transform.World.Rotation.Pitch(), 3);
     }
 
     [Fact]
-    public void LocalAxes_FollowTheTargetRotation()
+    public void Hover_FollowsTheDrawnRingSizeInsteadOfAFixedWorldRadius()
     {
         var transform = CreateTarget();
-        transform.Local = new Transform(Vector3.Zero, Rotation.FromYaw(90f), Vector3.One);
-
-        var gizmo = new TranslationGizmo();
+        var gizmo = new RotationGizmo();
         gizmo.SetTarget(transform);
-        AssertEqual(gizmo.AxisDirection(GizmoAxis.X), 1f, 0f, 0f);
 
-        // With local axes, a 90 degree yaw maps +X to -Z and +Z to +X.
-        gizmo.LocalAxes = true;
-        gizmo.SetTarget(transform);
-        AssertEqual(gizmo.AxisDirection(GizmoAxis.X), 0f, 0f, -1f);
-        AssertEqual(gizmo.AxisDirection(GizmoAxis.Z), 1f, 0f, 0f);
+        // The drawn ring spans a constant screen size (100 px), so its world
+        // radius shrinks as the camera closes in. With the camera closer than
+        // the default, the drawn radius is well under the 1-unit radius the
+        // hover used to test against (regression: the highlight lit up beside
+        // the ring). A mouse on the drawn ring must hover...
+        var camera = new Camera { Position = new Vector3(2.12f, 1.5f, 2.12f) };
+        var view = camera.ViewMatrix;
+        var projection = camera.ProjectionMatrix(Aspect);
+        var radius = RingRadius(gizmo, camera);
+        Assert.True(radius < 1f, $"Drawn ring radius {radius} should be under 1 unit at this distance.");
+
+        var (onRing, onRingPixels) = RayThroughPoint(new Vector3(0f, radius, 0f), camera);
+        gizmo.UpdateHover(onRing, onRingPixels, view, projection, Width, Height);
+        Assert.Equal(GizmoAxis.X, gizmo.HoveredAxis);
+
+        // ...while a mouse on the old fixed 1-unit ring must not.
+        var (oldRing, oldRingPixels) = RayThroughPoint(new Vector3(0f, 1f, 0f), camera);
+        gizmo.UpdateHover(oldRing, oldRingPixels, view, projection, Width, Height);
+        Assert.Equal(GizmoAxis.None, gizmo.HoveredAxis);
     }
 
     [Fact]
     public void EndDrag_ReleasesTheActiveAxis()
     {
         var transform = CreateTarget();
-        var gizmo = new TranslationGizmo();
+        var gizmo = new RotationGizmo();
         gizmo.SetTarget(transform);
 
         var camera = new Camera();
         var view = camera.ViewMatrix;
         var projection = camera.ProjectionMatrix(Aspect);
-        var (ray, pixels) = RayThroughPoint(new Vector3(ShaftLength(gizmo, camera) * 0.6f, 0f, 0f), camera);
+        var (ray, pixels) = RayThroughPoint(new Vector3(0f, RingRadius(gizmo, camera), 0f), camera);
         gizmo.UpdateHover(ray, pixels, view, projection, Width, Height);
         gizmo.BeginDrag(ray);
 
@@ -127,8 +137,8 @@ public class TranslationGizmoTests
 
     private static float Aspect => Width / (float)Height;
 
-    /// <summary>The world-space shaft length the renderer draws for this camera (constant screen size).</summary>
-    private static float ShaftLength(TranslationGizmo gizmo, Camera camera) =>
+    /// <summary>The world-space ring radius the renderer draws for this camera (constant screen size).</summary>
+    private static float RingRadius(RotationGizmo gizmo, Camera camera) =>
         Gizmo.ScreenConstantWorldSize(Vector3.Zero, camera.ViewMatrix, camera.ProjectionMatrix(Aspect), Height, gizmo.ScreenSizePx);
 
     private static MeshRenderer CreateTarget()
@@ -139,13 +149,6 @@ public class TranslationGizmoTests
         var renderer = entity.AddComponent<MeshRenderer>();
         renderer.Local = new Transform(Vector3.Zero, Rotation.Identity, Vector3.One);
         return renderer;
-    }
-
-    private static void AssertEqual(Vector3 actual, float x, float y, float z)
-    {
-        Assert.Equal(x, actual.X, 3);
-        Assert.Equal(y, actual.Y, 3);
-        Assert.Equal(z, actual.Z, 3);
     }
 
     /// <summary>Builds the mouse ray whose pixel lies exactly on the given world point's projection.</summary>

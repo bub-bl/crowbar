@@ -3,7 +3,7 @@ using Crowbar.Engine.Rendering;
 
 namespace Crowbar.Engine.Tests;
 
-public class TranslationGizmoTests
+public class ScaleGizmoTests
 {
     private const int Width = 1280;
     private const int Height = 720;
@@ -12,7 +12,7 @@ public class TranslationGizmoTests
     public void Hover_DetectsTheAxisUnderTheMouse()
     {
         var transform = CreateTarget();
-        var gizmo = new TranslationGizmo();
+        var gizmo = new ScaleGizmo();
         gizmo.SetTarget(transform);
 
         var camera = new Camera();
@@ -24,26 +24,10 @@ public class TranslationGizmoTests
     }
 
     [Fact]
-    public void Hover_IgnoresPointsBeyondTheShaft()
+    public void Drag_ScalesTheTargetAlongTheActiveAxis()
     {
         var transform = CreateTarget();
-        var gizmo = new TranslationGizmo();
-        gizmo.SetTarget(transform);
-
-        var camera = new Camera();
-        // On the X axis line but far beyond the drawn shaft.
-        var (ray, pixels) = RayThroughPoint(new Vector3(ShaftLength(gizmo, camera) * 5f, 0f, 0f), camera);
-
-        gizmo.UpdateHover(ray, pixels, camera.ViewMatrix, camera.ProjectionMatrix(Aspect), Width, Height);
-
-        Assert.Equal(GizmoAxis.None, gizmo.HoveredAxis);
-    }
-
-    [Fact]
-    public void Drag_MovesTheTargetAlongTheActiveAxis()
-    {
-        var transform = CreateTarget();
-        var gizmo = new TranslationGizmo();
+        var gizmo = new ScaleGizmo();
         gizmo.SetTarget(transform);
 
         var camera = new Camera();
@@ -58,17 +42,17 @@ public class TranslationGizmoTests
         var (dragRay, _) = RayThroughPoint(new Vector3(ShaftLength(gizmo, camera) * 0.6f + 0.8f, 0f, 0f), camera);
         gizmo.Drag(dragRay);
 
-        // The anchor moved 0.8 units along +X; the entity follows exactly.
-        Assert.Equal(0.8f, transform.World.Position.X, 3);
-        Assert.Equal(0f, transform.World.Position.Y, 3);
-        Assert.Equal(0f, transform.World.Position.Z, 3);
+        // The anchor moved 0.8 units along +X; the scale follows exactly.
+        Assert.Equal(1.8f, transform.World.Scale.X, 3);
+        Assert.Equal(1f, transform.World.Scale.Y, 3);
+        Assert.Equal(1f, transform.World.Scale.Z, 3);
     }
 
     [Fact]
-    public void Drag_SnapsTheMovementToTheSnapSize()
+    public void Drag_SnapsTheScaleToTheSnapSize()
     {
         var transform = CreateTarget();
-        var gizmo = new TranslationGizmo { SnapSize = 1f };
+        var gizmo = new ScaleGizmo { SnapSize = 1f };
         gizmo.SetTarget(transform);
 
         var camera = new Camera();
@@ -83,33 +67,16 @@ public class TranslationGizmoTests
         var (dragRay, _) = RayThroughPoint(new Vector3(ShaftLength(gizmo, camera) * 0.6f + 0.6f, 0f, 0f), camera);
         gizmo.Drag(dragRay);
 
-        Assert.Equal(1f, transform.World.Position.X, 3);
-        Assert.Equal(0f, transform.World.Position.Y, 3);
-        Assert.Equal(0f, transform.World.Position.Z, 3);
-    }
-
-    [Fact]
-    public void LocalAxes_FollowTheTargetRotation()
-    {
-        var transform = CreateTarget();
-        transform.Local = new Transform(Vector3.Zero, Rotation.FromYaw(90f), Vector3.One);
-
-        var gizmo = new TranslationGizmo();
-        gizmo.SetTarget(transform);
-        AssertEqual(gizmo.AxisDirection(GizmoAxis.X), 1f, 0f, 0f);
-
-        // With local axes, a 90 degree yaw maps +X to -Z and +Z to +X.
-        gizmo.LocalAxes = true;
-        gizmo.SetTarget(transform);
-        AssertEqual(gizmo.AxisDirection(GizmoAxis.X), 0f, 0f, -1f);
-        AssertEqual(gizmo.AxisDirection(GizmoAxis.Z), 1f, 0f, 0f);
+        Assert.Equal(2f, transform.World.Scale.X, 3);
+        Assert.Equal(1f, transform.World.Scale.Y, 3);
+        Assert.Equal(1f, transform.World.Scale.Z, 3);
     }
 
     [Fact]
     public void EndDrag_ReleasesTheActiveAxis()
     {
         var transform = CreateTarget();
-        var gizmo = new TranslationGizmo();
+        var gizmo = new ScaleGizmo();
         gizmo.SetTarget(transform);
 
         var camera = new Camera();
@@ -128,7 +95,7 @@ public class TranslationGizmoTests
     private static float Aspect => Width / (float)Height;
 
     /// <summary>The world-space shaft length the renderer draws for this camera (constant screen size).</summary>
-    private static float ShaftLength(TranslationGizmo gizmo, Camera camera) =>
+    private static float ShaftLength(ScaleGizmo gizmo, Camera camera) =>
         Gizmo.ScreenConstantWorldSize(Vector3.Zero, camera.ViewMatrix, camera.ProjectionMatrix(Aspect), Height, gizmo.ScreenSizePx);
 
     private static MeshRenderer CreateTarget()
@@ -139,13 +106,6 @@ public class TranslationGizmoTests
         var renderer = entity.AddComponent<MeshRenderer>();
         renderer.Local = new Transform(Vector3.Zero, Rotation.Identity, Vector3.One);
         return renderer;
-    }
-
-    private static void AssertEqual(Vector3 actual, float x, float y, float z)
-    {
-        Assert.Equal(x, actual.X, 3);
-        Assert.Equal(y, actual.Y, 3);
-        Assert.Equal(z, actual.Z, 3);
     }
 
     /// <summary>Builds the mouse ray whose pixel lies exactly on the given world point's projection.</summary>

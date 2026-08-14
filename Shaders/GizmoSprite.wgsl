@@ -4,7 +4,7 @@
 struct GizmoSpriteParams {
     center: vec4<f32>,        // xyz = world position
     color: vec4<f32>,
-    scaleKind: vec4<f32>,     // x = half-size (world), y = kind (0 circle, 1 diamond, 2 ring, 3 icon)
+    scaleKind: vec4<f32>,     // x = half-size (world), y = kind (0 circle, 1 diamond, 2 ring, 3 icon, 4 square)
     uvRect: vec4<f32>,        // atlas rectangle (u0, v0, u1, v1)
 };
 
@@ -46,6 +46,16 @@ fn vs_main(input: SpriteInput, @builtin(instance_index) instance: u32) -> Sprite
 
 @fragment
 fn fs_main(input: SpriteOutput) -> @location(0) vec4<f32> {
+    // Filled square (scale handles).
+    if (input.kind > 3.5) {
+        let square = max(abs(input.uv.x), abs(input.uv.y));
+        let alpha = 1.0 - smoothstep(0.45, 0.5, square);
+        if (alpha <= 0.003) {
+            discard;
+        }
+        return vec4<f32>(input.color.rgb, input.color.a * alpha);
+    }
+
     // Icon sprites use the supplied SVG atlas. The source SVGs are rasterized
     // white and tinted here, so light/entity colors remain dynamic.
     if (input.kind > 2.5) {

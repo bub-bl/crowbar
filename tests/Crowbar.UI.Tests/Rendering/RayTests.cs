@@ -40,6 +40,25 @@ public class RayTests
     }
 
     [Fact]
+    public void Ray_IntersectsPlaneAtTheCrossingPoint()
+    {
+        var ray = new Ray(new Vector3(0f, 0f, 5f), new Vector3(0f, 0f, -1f));
+
+        Assert.True(ray.IntersectsPlane(Vector3.Zero, Vector3.UnitZ, out var point));
+        Assert.Equal(0f, point.X, 4);
+        Assert.Equal(0f, point.Y, 4);
+        Assert.Equal(0f, point.Z, 4);
+    }
+
+    [Fact]
+    public void Ray_DoesNotIntersectPlaneWhenParallel()
+    {
+        var ray = new Ray(new Vector3(0f, 1f, 5f), Vector3.UnitX);
+
+        Assert.False(ray.IntersectsPlane(Vector3.Zero, Vector3.UnitZ, out _));
+    }
+
+    [Fact]
     public void CubeModel_HasUnitBounds()
     {
         var model = Model.CreateCube();

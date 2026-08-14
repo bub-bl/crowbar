@@ -1,13 +1,32 @@
 @inherits Crowbar.UI.RazorPanel
 @namespace Crowbar.Editor.Ui.EditorPanels
+@using Crowbar.UI
 
 <div class="viewport-toolbar">
-    <div class="vt-btn" title="Translation" tooltip="Déplacer (W)"><icon name="translate" /></div>
-    <div class="vt-btn" title="Rotation" tooltip="Rotation (E)"><icon name="Solar/arrows/Bold/restart" /></div>
-    <div class="vt-btn" title="Échelle" tooltip="Échelle (R)"><icon name="Solar/arrows-action/Bold/maximize-square-2" /></div>
+    <div class="vt-btn @ToolClass("translate")" title="Translation" tooltip="Déplacer (W)" @onclick="ToolTranslate"><icon name="translate" /></div>
+    <div class="vt-btn @ToolClass("rotate")" title="Rotation" tooltip="Rotation (E)" @onclick="ToolRotate"><icon name="Solar/arrows/Bold/restart" /></div>
+    <div class="vt-btn @ToolClass("scale")" title="Échelle" tooltip="Échelle (R)" @onclick="ToolScale"><icon name="Solar/arrows-action/Bold/maximize-square-2" /></div>
     <div class="vt-btn" title="Grille" tooltip="Afficher la grille (G)"><icon name="Solar/tools/Bold/three-squares" /></div>
     <div class="vt-btn" title="Lumière" tooltip="Ajouter une lumière"><icon name="Solar/devices/Bold/lightbulb" /></div>
     <div class="vt-btn" title="Caméra" tooltip="Ajouter une caméra"><icon name="Solar/video/Bold/camera" /></div>
     <div class="vt-sep"></div>
     <div class="vt-local" tooltip="Système de coordonnées">Local&#160;<span class="caret">▾</span></div>
 </div>
+
+@code {
+    // Rebuilds the toolbar when the active tool changes so the selected button
+    // gets its highlight (mirrors the TopBar tab pattern).
+    protected override int BuildHash() => GizmoToolState.Mode;
+
+    private void ToolTranslate() => GizmoToolState.Mode = 0;
+    private void ToolRotate() => GizmoToolState.Mode = 1;
+    private void ToolScale() => GizmoToolState.Mode = 2;
+
+    private string ToolClass(string tool) => GizmoToolState.Mode switch
+    {
+        0 when tool == "translate" => "vt-btn-active",
+        1 when tool == "rotate" => "vt-btn-active",
+        2 when tool == "scale" => "vt-btn-active",
+        _ => ""
+    };
+}

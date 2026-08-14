@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Reflection;
 using Crowbar.Engine;
 using Crowbar.Engine.InputSystem;
+using Crowbar.Engine.Rendering;
 using Crowbar.Engine.Scripting;
 using Crowbar.UI;
 
@@ -163,6 +164,15 @@ internal sealed class DemoApplication : Application
         if (renderer is null)
             return;
 
+        // L'outil de gizmo choisi dans la toolbar du viewport est appliqué ici,
+        // chaque frame : le rendu et l'interaction suivent le même mode.
+        renderer.Gizmos.Mode = GizmoToolState.Mode switch
+        {
+            1 => GizmoMode.Rotate,
+            2 => GizmoMode.Scale,
+            _ => GizmoMode.Translate
+        };
+
         // La scène 3D est rendue dans le viewport docké (pas dans toute la
         // fenêtre) : le DockArea publie son rectangle via Ui.SceneViewport, et
         // on le donne au renderer, qui ajuste l'aspect de la caméra et limite
@@ -182,13 +192,13 @@ internal sealed class DemoApplication : Application
         // ni commencer un drag de gizmo, ni sélectionner la scène en dessous.
         // Un drag déjà engagé continue même si le curseur passe sur l'UI.
         var matrices = CameraMatrices.Compute(Camera, width, height);
-        if (!Ui.PointerPressConsumed || renderer.Gizmos.Gizmo.IsDragging)
+        if (!Ui.PointerPressConsumed || renderer.Gizmos.IsDragging)
             renderer.Gizmos.UpdateInteraction(matrices, localMouse, Mouse.IsDown(MouseButton.Left));
 
         // Sélectionne au clic gauche uniquement si le clic n'a pas commencé un
         // drag de gizmo (sinon déplacer l'entité re-sélectionnerait la scène),
         // uniquement dans le viewport, et pas quand l'UI a consommé le clic.
-        if (insideViewport && !Ui.PointerPressConsumed && Mouse.WasPressed(MouseButton.Left) && !renderer.Gizmos.Gizmo.IsDragging)
+        if (insideViewport && !Ui.PointerPressConsumed && Mouse.WasPressed(MouseButton.Left) && !renderer.Gizmos.IsDragging)
             renderer.Gizmos.Selection = renderer.Gizmos.Pick(World, matrices, localMouse);
     }
 
