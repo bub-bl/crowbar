@@ -168,9 +168,33 @@ public class ApplicationLookTests
     }
 
     [Fact]
-    public void OrbitRotatesAroundThePivot()
+    public void LookRotatesTheCameraInPlaceByDefault()
     {
         using var app = new LookTestApp();
+        var source = app.Source;
+        var position = app.TestCamera.Position;
+        var distance = app.TestCamera.Distance;
+        var yawBefore = app.TestCamera.Yaw;
+
+        source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = RightDown };
+        Input.Poll();
+        app.TickLook(); // démarre le look
+
+        source.Mouse = source.Mouse with { Position = new Vector2(160, 100) };
+        Input.Poll();
+        app.TickLook(); // tourne sur place
+
+        Assert.NotEqual(yawBefore, app.TestCamera.Yaw);
+        Assert.Equal(position, app.TestCamera.Position); // la position ne bouge pas
+        Assert.Equal(distance, app.TestCamera.Distance); // la distance est conservée
+        // Le pivot suit l'axe de visée : plus de rotation autour d'un point fixe.
+        Assert.Equal(distance, Vector3.Distance(app.TestCamera.Position, app.TestCamera.Pivot), precision: 4);
+    }
+
+    [Fact]
+    public void OrbitModeStillRotatesAroundThePivot()
+    {
+        using var app = new LookTestApp { FreeLookEnabled = false };
         var source = app.Source;
         var pivot = app.TestCamera.Pivot;
         var distance = app.TestCamera.Distance;
@@ -339,6 +363,7 @@ public class ApplicationLookTests
         public bool AllowZoom { get; set; } = true;
         public bool AllowPan { get; set; } = true;
         public UiRect? LookClampRect { get; set; }
+        public bool FreeLookEnabled { get; set; } = true;
 
         protected override IPlatform CreatePlatform() => new FakePlatform(_input);
         protected override bool CanMouseLook() => AllowLook;
@@ -346,6 +371,7 @@ public class ApplicationLookTests
         protected override UiRect? MouseLookClampRect => LookClampRect;
         protected override bool CanZoomCamera() => AllowZoom;
         protected override bool CanPan() => AllowPan;
+        protected override bool FreeLook => FreeLookEnabled;
 
         public Camera TestCamera => Camera;
         public UiSystem TestUi => Ui;

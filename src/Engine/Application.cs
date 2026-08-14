@@ -158,10 +158,11 @@ public abstract class Application : IDisposable
     }
 
     /// <summary>
-    /// Default camera controller around an orbit pivot: right-drag orbits (the
-    /// cursor is hidden and clamped, never warped to the center), middle-drag
-    /// pans, the wheel dollies toward/away from the pivot, and ZQSD/space
-    /// translates the pivot via the bound actions.
+    /// Default camera controller: right-drag looks around (a free camera by
+    /// default — the camera rotates in place instead of orbiting a fixed
+    /// point — with the cursor hidden and clamped, never warped to the
+    /// center), middle-drag pans, the wheel dollies along the view axis, and
+    /// ZQSD/space translates the rig via the bound actions.
     /// </summary>
     protected virtual void UpdateCameraControls(float delta)
     {
@@ -254,19 +255,24 @@ public abstract class Application : IDisposable
         var deltaY = position.Y - _lastLookY;
         Camera.Yaw += deltaX * 0.003f;
         Camera.Pitch = Math.Clamp(Camera.Pitch - deltaY * 0.003f, -1.45f, 1.45f);
-        // L'orientation a changé : la caméra se replace sur la sphère d'orbite
-        // autour du pivot (distance conservée).
-        SyncOrbitPosition();
+        // L'orientation a changé : en freemode la caméra tourne sur place (la
+        // position reste fixe, le pivot suit l'axe de visée) ; en mode orbite
+        // elle se replace sur la sphère autour du pivot fixe. La distance est
+        // conservée dans les deux cas.
+        if (FreeLook)
+            SyncFreeLookPivot();
+        else
+            SyncOrbitPosition();
         position = ConfineLookCursor(new Vector2(_lastLookX + deltaX, _lastLookY + deltaY));
         _lastLookX = position.X;
         _lastLookY = position.Y;
     }
 
     /// <summary>
-    /// Translates the orbit pivot (and the camera with it) from a middle-button
-    /// drag, so the scene follows the cursor. The step scales with the orbit
-    /// distance, matching the zoom feel. The cursor stays visible (no clamp),
-    /// but the UI is frozen for the duration of the drag.
+    /// Translates the camera rig (pivot and camera together) from a
+    /// middle-button drag, so the scene follows the cursor. The step scales
+    /// with the view distance, matching the zoom feel. The cursor stays visible
+    /// (no clamp), but the UI is frozen for the duration of the drag.
     /// </summary>
     protected virtual void PanWithMouse()
     {
@@ -313,6 +319,16 @@ public abstract class Application : IDisposable
     private void SyncOrbitPosition() =>
         Camera.Position = Camera.Pivot - Camera.Forward * Camera.Distance;
 
+    /// <summary>
+    /// Free camera : la rotation se fait autour de la caméra elle-même (sa
+    /// position reste fixe), donc le pivot est recalculé sur l'axe de visée à
+    /// la distance courante (<c>Pivot = Position + Forward * Distance</c>).
+    /// L'invariant <c>Position == Pivot - Forward * Distance</c> reste vrai,
+    /// ce qui garde pan/zoom/dolly cohérents avec le mode orbite.
+    /// </summary>
+    private void SyncFreeLookPivot() =>
+        Camera.Pivot = Camera.Position + Camera.Forward * Camera.Distance;
+
     /// <summary>Rend le curseur OS à l'UI s'il avait été masqué par l'orbite.</summary>
     private void RestoreCursorIfHidden()
     {
@@ -357,6 +373,14 @@ public abstract class Application : IDisposable
     }
 
     /// <summary>
+    /// True when the right-drag look rotates the camera around its own position
+    /// (free camera) instead of orbiting the fixed <see cref="Camera.Pivot"/>.
+    /// Defaults to true; override to false for the orbit-around-a-pivot
+    /// behavior. Pan/zoom/dolly stay coherent in both modes.
+    /// </summary>
+    protected virtual bool FreeLook => true;
+
+    /// <summary>
     /// True when a new right-drag mouse-look session may start. Evaluated once
     /// at the moment the right button goes down and latched for the whole
     /// session. Subclasses confine the look to their viewport: e.g. only when
@@ -396,9 +420,9 @@ public abstract class Application : IDisposable
     private const float MinZoomDistance = 0.5f;
 
     /// <summary>
-    /// Dollies the camera toward or away from its orbit pivot from the mouse
-    /// wheel. The step is proportional to the orbit distance (multiplicative),
-    /// so the zoom feels consistent near and far and never crosses the pivot.
+    /// Dollies the camera along its view axis from the mouse wheel. The step is
+    /// proportional to the view distance (multiplicative), so the zoom feels
+    /// consistent near and far and never crosses the pivot.
     /// </summary>
     protected virtual void ZoomWithWheel()
     {
