@@ -51,6 +51,7 @@ internal sealed class FakeInputSource : IInputSource
     public event Action<KeyEvent>? KeyChanged;
 }
 
+[Collection("InputFacade")]
 public class InputSystemTests
 {
     private readonly FakeInputSource _source = new();

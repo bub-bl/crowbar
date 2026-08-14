@@ -176,8 +176,7 @@ internal sealed class DemoApplication : Application
         var height = Math.Max(1, (int)rect.Height);
         var mouse = Mouse.Position;
         var localMouse = mouse - new Vector2(rect.X, rect.Y);
-        var insideViewport = viewport is null ||
-            (mouse.X >= rect.X && mouse.X <= rect.Right && mouse.Y >= rect.Y && mouse.Y <= rect.Bottom);
+        var insideViewport = IsPointerInsideViewport();
 
         // Un clic consommé par l'UI (bouton, onglet, saisie, scrollbar) ne doit
         // ni commencer un drag de gizmo, ni sélectionner la scène en dessous.
@@ -191,6 +190,45 @@ internal sealed class DemoApplication : Application
         // uniquement dans le viewport, et pas quand l'UI a consommé le clic.
         if (insideViewport && !Ui.PointerPressConsumed && Mouse.WasPressed(MouseButton.Left) && !renderer.Gizmos.Gizmo.IsDragging)
             renderer.Gizmos.Selection = renderer.Gizmos.Pick(World, matrices, localMouse);
+    }
+
+    /// <summary>
+    /// L'orbite caméra ne démarre que si l'appui droit commence dans le
+    /// viewport et n'est pas consommé par l'UI (bouton de toolbar, onglet,
+    /// saisie, scrollbar, overlay). La décision est prise à l'appui : un drag
+    /// engagé dans le viewport continue même si le curseur passe sur un
+    /// panneau, et un appui sur l'UI n'orbite jamais.
+    /// </summary>
+    protected override bool CanMouseLook()
+    {
+        if (Ui.PointerPressConsumed)
+            return false;
+        return IsPointerInsideViewport();
+    }
+
+    /// <summary>
+    /// Pendant la saisie dans un champ (TextInput), les touches ZQSD/espace
+    /// reviennent au champ : la caméra ne doit pas bouger en même temps.
+    /// </summary>
+    protected override bool CanMoveCamera() => !Ui.KeyboardConsumed;
+
+    /// <summary>
+    /// Pendant l'orbite, la souris reste confinée dans le viewport : même
+    /// masquée, elle ne doit pas glisser au-dessus des panneaux voisins (elle
+    /// réapparaîtrait hors de la scène à la relâche). Le delta d'orbite reste
+    /// illimité (mesuré avant le confinement) : pousser contre un bord
+    /// continue de tourner, seul le curseur est retenu dans la scène.
+    /// </summary>
+    protected override UiRect? MouseLookClampRect =>
+        Ui.SceneViewport ?? new UiRect(0, 0, ViewportWidth, ViewportHeight);
+
+    /// <summary>True quand le curseur est dans le rectangle du viewport docké (toute la fenêtre avant le premier layout).</summary>
+    private bool IsPointerInsideViewport()
+    {
+        var rect = Ui.SceneViewport ?? new UiRect(0, 0, ViewportWidth, ViewportHeight);
+        var mouse = Mouse.Position;
+        return mouse.X >= rect.X && mouse.X <= rect.Right &&
+               mouse.Y >= rect.Y && mouse.Y <= rect.Bottom;
     }
 
     private string DescribeGamemode()

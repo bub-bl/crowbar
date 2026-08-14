@@ -23,6 +23,8 @@ public abstract class Application : IDisposable
     private IGraphicsDevice? _graphics;
     private Renderer? _renderer;
     private bool _looking;
+    private bool _lookAllowed;
+    private bool _cursorHidden;
     private float _lastLookX;
     private float _lastLookY;
     private bool _disposed;
@@ -153,17 +155,26 @@ public abstract class Application : IDisposable
     protected virtual void UpdateCameraControls(float delta)
     {
         if (!Input.IsWindowFocused)
+        {
+            // La fenêtre perd le focus en plein orbite : le bouton peut ne plus
+            // jamais remonter côté OS, donc on rend le curseur ici aussi pour
+            // ne pas le laisser masqué indéfiniment.
+            RestoreCursorIfHidden();
             return;
+        }
 
         LookWithMouse();
 
         var movement = Vector3.Zero;
-        if (Input.IsPressed("forward")) movement += Camera.Forward;
-        if (Input.IsPressed("backward")) movement -= Camera.Forward;
-        if (Input.IsPressed("right")) movement += Camera.Right;
-        if (Input.IsPressed("left")) movement -= Camera.Right;
-        if (Input.IsPressed("up")) movement += Vector3.UnitY;
-        if (Input.IsPressed("down")) movement -= Vector3.UnitY;
+        if (CanMoveCamera())
+        {
+            if (Input.IsPressed("forward")) movement += Camera.Forward;
+            if (Input.IsPressed("backward")) movement -= Camera.Forward;
+            if (Input.IsPressed("right")) movement += Camera.Right;
+            if (Input.IsPressed("left")) movement -= Camera.Right;
+            if (Input.IsPressed("up")) movement += Vector3.UnitY;
+            if (Input.IsPressed("down")) movement -= Vector3.UnitY;
+        }
 
         if (movement.LengthSquared() > 0f)
             Camera.Position += Vector3.Normalize(movement) * (2.5f * delta);
@@ -179,25 +190,116 @@ public abstract class Application : IDisposable
         if (!Mouse.IsDown(MouseButton.Right))
         {
             _looking = false;
+            Ui.PointerInputSuppressed = false;
+            RestoreCursorIfHidden();
             return;
         }
 
         var position = Mouse.Position;
         if (!_looking)
         {
+            _looking = true;
+            // L'autorisation est tranchée à l'appui : un drag commencé sur
+            // l'UI (ou hors du viewport) ne commence jamais à orbiter, même
+            // si le curseur entre ensuite dans le viewport ; à l'inverse un
+            // drag engagé dans le viewport continue au-dessus des panneaux.
+            _lookAllowed = CanMouseLook();
+            if (!_lookAllowed)
+                return;
+            // L'orbite cache le curseur OS pour la durée du drag.
+            if (HideCursorWhileLooking && !_cursorHidden)
+            {
+                Mouse.SetCursorVisible(false);
+                _cursorHidden = true;
+            }
+            // L'UI est mise en veille pour toute la session : plus aucun
+            // survol, tooltip, curseur ou clic ne peut atteindre les panneaux,
+            // même ceux qui flottent dans le viewport (toolbar, onglets).
+            Ui.PointerInputSuppressed = true;
+            Ui.ResetPointerState();
+            // Point de référence du drag : confiné au rect (normalement no-op,
+            // un appui autorisé est déjà dans le viewport).
+            position = ConfineLookCursor(position);
             _lastLookX = position.X;
             _lastLookY = position.Y;
-            _looking = true;
             return;
         }
 
+        if (!_lookAllowed)
+            return;
+
+        // Le delta est mesuré sur le mouvement brut de la souris, comme avant :
+        // l'orbite reste illimitée même quand le curseur atteint le bord du
+        // viewport. Puis la position affichée (dernière + delta) est confinée
+        // dans le rect : le curseur OS est ramené dans le viewport s'il en
+        // sortirait, sans jamais tronquer le delta d'orbite.
         var deltaX = position.X - _lastLookX;
         var deltaY = position.Y - _lastLookY;
-        _lastLookX = position.X;
-        _lastLookY = position.Y;
         Camera.Yaw += deltaX * 0.003f;
         Camera.Pitch = Math.Clamp(Camera.Pitch - deltaY * 0.003f, -1.45f, 1.45f);
+        position = ConfineLookCursor(new Vector2(_lastLookX + deltaX, _lastLookY + deltaY));
+        _lastLookX = position.X;
+        _lastLookY = position.Y;
     }
+
+    /// <summary>Rend le curseur OS à l'UI s'il avait été masqué par l'orbite.</summary>
+    private void RestoreCursorIfHidden()
+    {
+        if (!_cursorHidden)
+            return;
+        Mouse.SetCursorVisible(true);
+        _cursorHidden = false;
+    }
+
+    /// <summary>
+    /// Confine la position affichée du curseur dans
+    /// <see cref="MouseLookClampRect"/> : s'il en sortirait, il est ramené au
+    /// bord côté OS (warp) et la position renvoyée sert de référence au
+    /// prochain delta. Le delta d'orbite, lui, est mesuré sur le mouvement
+    /// brut avant ce confinement : pousser contre un bord continue de tourner
+    /// pendant que le curseur reste coincé dans le viewport.
+    /// </summary>
+    private Vector2 ConfineLookCursor(Vector2 position)
+    {
+        if (MouseLookClampRect is not { } rect)
+            return position;
+
+        var clampedX = Math.Clamp(position.X, rect.X, rect.Right);
+        var clampedY = Math.Clamp(position.Y, rect.Y, rect.Bottom);
+        if (clampedX != position.X || clampedY != position.Y)
+            Mouse.SetCursorAt(clampedX, clampedY);
+        return new Vector2(clampedX, clampedY);
+    }
+
+    /// <summary>
+    /// True when a new right-drag mouse-look session may start. Evaluated once
+    /// at the moment the right button goes down and latched for the whole
+    /// session. Subclasses confine the look to their viewport: e.g. only when
+    /// the press began inside the docked scene viewport and the UI did not
+    /// consume it (toolbar, tab, input, scrollbar, overlay).
+    /// </summary>
+    protected virtual bool CanMouseLook() => true;
+
+    /// <summary>
+    /// True when the OS cursor is hidden for the duration of a mouse-look
+    /// session (it is restored as soon as the right button is released).
+    /// </summary>
+    protected virtual bool HideCursorWhileLooking => true;
+
+    /// <summary>
+    /// Rectangle (pixels fenêtre, origine en haut à gauche) dans lequel le
+    /// curseur est confiné pour la durée d'une session d'orbite, ou null pour
+    /// le laisser libre. L'éditeur le borne au viewport docké : la souris ne
+    /// peut pas sortir de la scène pendant un drag, même masquée.
+    /// </summary>
+    protected virtual UiRect? MouseLookClampRect => null;
+
+    /// <summary>
+    /// True when the bound movement keys may move the camera. Subclasses
+    /// disable it while the UI is consuming the keyboard (a focused text
+    /// input must not fight the camera for the same keystrokes).
+    /// </summary>
+    protected virtual bool CanMoveCamera() => true;
 
     /// <summary>
     /// Binds the default movement actions to the keys producing Z, Q, S, D

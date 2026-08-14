@@ -24,6 +24,46 @@ public sealed partial class UiSystem
     /// </summary>
     public bool PointerPressConsumed { get; private set; }
 
+    /// <summary>
+    /// When true, the runtime ignores the pointer entirely: no hit-testing, no
+    /// hover states, no tooltips, no cursor resolution, no presses, clicks,
+    /// drags or wheel. The host sets it while a scene interaction (mouse-look
+    /// orbit) owns the pointer, so the cursor — even when it rests over UI
+    /// chrome floating inside the viewport (toolbar, tabs) — can never
+    /// interact with it.
+    /// </summary>
+    public bool PointerInputSuppressed { get; set; }
+
+    /// <summary>
+    /// Forgets every transient pointer state: hover, pressed, tooltip, cursor
+    /// shape, press consumption and any in-flight capture or drag. The host
+    /// calls it when a scene interaction (mouse-look orbit) takes over the
+    /// pointer, leaving the UI visually neutral so no stale hover, pressed or
+    /// tooltip lingers when the interaction ends.
+    /// </summary>
+    public void ResetPointerState()
+    {
+        UpdatePressedPath(_hovered, false);
+        UpdateHoverPath(null);
+        _hovered = null;
+        _captured = null;
+        _pointerCapture = null;
+        _scrollDragPanel = null;
+        _scrollDragVertical = false;
+        _lastClickPanel = null;
+        _lastClickTime = 0;
+        PointerPressConsumed = false;
+        HoveredCursor = "auto";
+        Renderer.SetTooltip(null, 0, 0);
+    }
+
+    /// <summary>
+    /// True when keyboard input is being consumed by the UI (a focused text
+    /// input). The engine host reads this to suppress its global key bindings
+    /// — camera movement, shortcuts — while the user is typing in a field.
+    /// </summary>
+    public bool KeyboardConsumed => FocusedPanel is TextInput;
+
     public event Action<Panel, UiPointerEvent>? PointerMoved;
     public event Action<Panel, UiPointerEvent>? PointerDown;
     public event Action<Panel, UiPointerEvent>? PointerUp;
@@ -32,6 +72,7 @@ public sealed partial class UiSystem
 
     public Panel? ProcessPointerMove(float x, float y)
     {
+        if (PointerInputSuppressed) return null;
         if (_scrollDragPanel is not null)
             ApplyScrollDrag(_scrollDragPanel, x, y, _scrollDragVertical);
         var hit = Screen.HitTest(x / Math.Max(0.01f, Screen.Scale), y / Math.Max(0.01f, Screen.Scale));
@@ -62,6 +103,11 @@ public sealed partial class UiSystem
 
     public Panel? ProcessPointerDown(float x, float y, int button = 0)
     {
+        if (PointerInputSuppressed)
+        {
+            PointerPressConsumed = false;
+            return null;
+        }
         var hit = ProcessPointerMove(x, y);
         PointerPressConsumed = hit is not null && hit.IsEnabled && IsInteractiveHit(hit);
         if (hit is null || !hit.IsEnabled) return null;
@@ -131,6 +177,7 @@ public sealed partial class UiSystem
 
     public Panel? ProcessPointerUp(float x, float y, int button = 0)
     {
+        if (PointerInputSuppressed) return null;
         var hit = _captured ?? Screen.HitTest(x / Math.Max(0.01f, Screen.Scale), y / Math.Max(0.01f, Screen.Scale));
         if (hit is not null) PointerUp?.Invoke(hit, new UiPointerEvent(x, y, button));
         if (hit is not null)
@@ -280,6 +327,7 @@ public sealed partial class UiSystem
 
     public void ProcessPointerWheel(float x, float y, float deltaX, float deltaY)
     {
+        if (PointerInputSuppressed) return;
         var hit = Screen.HitTest(x / Math.Max(0.01f, Screen.Scale), y / Math.Max(0.01f, Screen.Scale));
         if (hit is null) return;
         var wheel = new WheelEvent(deltaX, deltaY);
