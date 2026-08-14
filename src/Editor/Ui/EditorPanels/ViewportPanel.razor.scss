@@ -71,6 +71,9 @@ root {
     text-align: center;
     vertical-align: center;
     line-height: 24px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
 
     &:hover {
         color: $text-bright;

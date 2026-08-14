@@ -119,6 +119,7 @@ root {
     vertical-align: center;
     line-height: 28px;
     display: flex;
+    flex-direction: row;
     align-items: center;
     justify-content: center;
     gap: 5px;
@@ -149,6 +150,7 @@ root {
     line-height: 26px;
     box-sizing: border-box;
     display: flex;
+    flex-direction: row;
     align-items: center;
     justify-content: center;
     gap: 5px;
@@ -192,6 +194,7 @@ root {
     height: 20px;
     color: $text;
     font-size: 11px;
+    line-height: 20px;
 }
 
 .tb-window {

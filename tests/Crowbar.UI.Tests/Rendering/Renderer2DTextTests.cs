@@ -190,6 +190,41 @@ public class Renderer2DTextTests
     }
 
     [Fact]
+    public void DrawText_Centered_CentersTheGlyphRunWithinTheBox()
+    {
+        var renderer = new Renderer2D();
+        renderer.Begin(400, 200);
+        var style = new TextStyle(24f, ColorF.White, align: TextAlign.Center, maxWidth: 300f);
+        renderer.DrawText("ii", new Vector2(0, 10), style);
+        renderer.End();
+
+        Assert.NotEmpty(renderer.TexturedVerts);
+        var minX = renderer.TexturedVerts.Min(v => v.Position.X);
+        var maxX = renderer.TexturedVerts.Max(v => v.Position.X);
+        var center = (minX + maxX) / 2f;
+        // The glyph run must sit around the box midpoint (150). The old path
+        // shifted the origin by the centering offset *and* let SixLabors center
+        // again, pushing narrow text far past the right edge (~292).
+        Assert.InRange(center, 145f, 155f);
+    }
+
+    [Fact]
+    public void DrawText_RightAligned_EndsTheGlyphRunAtTheBoxRightEdge()
+    {
+        var renderer = new Renderer2D();
+        renderer.Begin(400, 200);
+        var style = new TextStyle(24f, ColorF.White, align: TextAlign.Right, maxWidth: 300f);
+        renderer.DrawText("ii", new Vector2(0, 10), style);
+        renderer.End();
+
+        Assert.NotEmpty(renderer.TexturedVerts);
+        var maxX = renderer.TexturedVerts.Max(v => v.Position.X);
+        // Right-aligned text must end near the 300px box edge, not be pushed
+        // past it by a double-applied end offset.
+        Assert.InRange(maxX, 295f, 305f);
+    }
+
+    [Fact]
     public void DrawText_EmptyString_EmitsNothing()
     {
         var renderer = new Renderer2D();

@@ -37,6 +37,8 @@ root {
     font-size: 10px;
     font-weight: bold;
     line-height: 16px;
+    flex-direction: row;
+    align-items: center;
 }
 
 .count {

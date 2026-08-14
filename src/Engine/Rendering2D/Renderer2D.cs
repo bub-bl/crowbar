@@ -338,7 +338,6 @@ public sealed class Renderer2D : IDisposable
         float MaxWidth, float LineHeight, float LetterSpacing, int Align);
     private sealed class ShapedRun
     {
-        public required float OriginOffsetX;
         public required ShapedGlyphPlacement[] Glyphs;
     }
     private readonly struct ShapedGlyphPlacement
@@ -824,21 +823,15 @@ public sealed class Renderer2D : IDisposable
         if (style.LetterSpacing != 0f)
             options.Tracking = style.LetterSpacing / style.FontSize;
 
-        var originOffsetX = 0f;
+        // Horizontal alignment is delegated to SixLabors: TextAlignment centers
+        // (or end-aligns) each line inside WrappingLength, measured from Origin.
+        // Shifting Origin here as well would double-apply the offset (once on the
+        // origin, once on the layout), pushing centered text off to the right.
         if (style.Align != TextAlign.Left)
         {
             options.TextAlignment = style.Align == TextAlign.Center ? TextAlignment.Center : TextAlignment.End;
-            if (style.MaxWidth > 0f)
-            {
-                var advance = TextMeasurer.MeasureAdvance(text, options).Width;
-                originOffsetX = style.Align == TextAlign.Center ? (style.MaxWidth - advance) * 0.5f : style.MaxWidth - advance;
-            }
-            options.Origin = new Vector2(position.X + originOffsetX, position.Y);
         }
-        else
-        {
-            options.Origin = position;
-        }
+        options.Origin = position;
 
         // Record the laid-out quads while shaping (the shadow pass emits the
         // same layout, so record only on the main pass to avoid duplicates).
@@ -861,7 +854,7 @@ public sealed class Renderer2D : IDisposable
         {
             if (_textRunCache.Count >= TextRunCacheCap)
                 _textRunCache.Clear();
-            _textRunCache[runKey] = new ShapedRun { OriginOffsetX = originOffsetX, Glyphs = recorded.ToArray() };
+            _textRunCache[runKey] = new ShapedRun { Glyphs = recorded.ToArray() };
         }
     }
 
@@ -873,7 +866,7 @@ public sealed class Renderer2D : IDisposable
     /// </summary>
     private void ReplayShapedRun(ShapedRun run, Vector2 position, in TextStyle style, string fontKey, int sizeKey)
     {
-        var originX = position.X + run.OriginOffsetX;
+        var originX = position.X;
         var originY = position.Y;
 
         if (style.ShadowColor.A > 0f)

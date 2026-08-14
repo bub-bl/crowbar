@@ -77,6 +77,8 @@ root {
     color: $text-muted;
     font-size: 10px;
     line-height: 22px;
+    flex-direction: row;
+    align-items: center;
 }
 
 .crumb-sep {

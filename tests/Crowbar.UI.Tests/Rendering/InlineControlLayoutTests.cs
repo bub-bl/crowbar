@@ -1,0 +1,93 @@
+using Crowbar.UI;
+
+namespace Crowbar.UI.Tests.Rendering;
+
+/// <summary>
+/// Icon + text and text + caret controls must lay their children out on one
+/// line (side by side), not stacked. The engine defaults a <c>div</c> to a
+/// column flex box, so any control mixing an icon/prefix with its label has to
+/// opt into <c>flex-direction: row</c> — when that is missing the icon ends up
+/// drawn above the text instead of beside it. These tests pin that contract on
+/// the real editor page.
+/// </summary>
+public class InlineControlLayoutTests
+{
+    private static void AssertSameLine(Panel left, Panel right, string context)
+    {
+        var leftCenterY = left.Layout.Y + left.Layout.Height / 2f;
+        var rightCenterY = right.Layout.Y + right.Layout.Height / 2f;
+        Assert.True(MathF.Abs(leftCenterY - rightCenterY) <= 1.5f,
+            $"{context}: vertical centers differ ({leftCenterY} vs {rightCenterY}), so the children are stacked, not inline");
+        Assert.True(left.Layout.X + left.Layout.Width <= right.Layout.X + 1f,
+            $"{context}: first child should sit to the left of the second (left right edge {left.Layout.X + left.Layout.Width}, right left edge {right.Layout.X})");
+    }
+
+    [Fact]
+    public void PlayButtonLaysIconBesideItsLabel()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+
+        var play = TestUi.Find(content, p => p.Classes.Contains("tb-play"));
+        Assert.NotNull(play);
+        var icon = play!.Children.OfType<Icon>().Single();
+        var label = play.Children.Single(c => c.TagName == "text");
+        AssertSameLine(icon, label, "tb-play icon/label");
+    }
+
+    [Fact]
+    public void ModeSelectorLaysIconLabelAndCaretOnOneLine()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+
+        var mode = TestUi.Find(content, p => p.Classes.Contains("tb-mode"));
+        Assert.NotNull(mode);
+        var icons = mode!.Children.OfType<Icon>().ToList();
+        Assert.Equal(2, icons.Count);
+        var label = mode.Children.Single(c => c.TagName == "text");
+        AssertSameLine(icons[0], label, "tb-mode icon/label");
+        AssertSameLine(label, icons[1], "tb-mode label/caret");
+    }
+
+    [Fact]
+    public void VecFieldLaysAxisPrefixBesideTheValue()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+
+        var field = TestUi.Find(content, p => p.Classes.Contains("vec-field"));
+        Assert.NotNull(field);
+        var axis = field!.Children.Single(c => c.Classes.Contains("vec-axis"));
+        var value = field.Children.Single(c => c.TagName == "text");
+        AssertSameLine(axis, value, "vec-field axis/value");
+    }
+
+    [Fact]
+    public void ViewportLocalToggleLaysLabelBesideTheCaret()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+
+        var local = TestUi.Find(content, p => p.Classes.Contains("vt-local"));
+        Assert.NotNull(local);
+        var label = local!.Children.Single(c => c.TagName == "text");
+        var caret = local.Children.Single(c => c.Classes.Contains("caret"));
+        AssertSameLine(label, caret, "vt-local label/caret");
+    }
+
+    [Fact]
+    public void SectionTitleLaysCountBesideTheHeading()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+
+        var title = TestUi.Find(content, p => p.Classes.Contains("section-title") &&
+            TestUi.Texts(p).Any(t => t.Contains("MATÉRIAUX", StringComparison.Ordinal)));
+        Assert.NotNull(title);
+        var heading = title!.Children.Single(c => c.TagName == "text");
+        var count = title.Children.Single(c => c.Classes.Contains("count"));
+        AssertSameLine(heading, count, "section-title heading/count");
+    }
+
+}
