@@ -26,8 +26,13 @@ public abstract class Application : IDisposable
     private bool _lookAllowed;
     private bool _cursorHidden;
     private IDisposable? _pointerModal;
+    private bool _panning;
+    private bool _panAllowed;
+    private IDisposable? _panModal;
     private float _lastLookX;
     private float _lastLookY;
+    private float _lastPanX;
+    private float _lastPanY;
     private bool _disposed;
 
     protected Application()
@@ -150,8 +155,10 @@ public abstract class Application : IDisposable
     }
 
     /// <summary>
-    /// Default camera controller: right-drag mouse look (the cursor is never
-    /// warped to the center) and ZQSD/space movement via the bound actions.
+    /// Default camera controller around an orbit pivot: right-drag orbits (the
+    /// cursor is hidden and clamped, never warped to the center), middle-drag
+    /// pans, the wheel dollies toward/away from the pivot, and ZQSD/space
+    /// translates the pivot via the bound actions.
     /// </summary>
     protected virtual void UpdateCameraControls(float delta)
     {
@@ -165,6 +172,7 @@ public abstract class Application : IDisposable
         }
 
         LookWithMouse();
+        PanWithMouse();
         ZoomWithWheel();
 
         var movement = Vector3.Zero;
@@ -178,8 +186,13 @@ public abstract class Application : IDisposable
             if (Input.IsPressed("down")) movement -= Vector3.UnitY;
         }
 
+        // ZQSD/espace déplace le pivot (et donc la caméra avec lui) : c'est une
+        // translation du « rig » d'orbite, la distance au pivot est conservée.
         if (movement.LengthSquared() > 0f)
-            Camera.Position += Vector3.Normalize(movement) * (2.5f * delta);
+        {
+            Camera.Pivot += Vector3.Normalize(movement) * (2.5f * delta);
+            SyncOrbitPosition();
+        }
     }
 
     /// <summary>
@@ -238,10 +251,64 @@ public abstract class Application : IDisposable
         var deltaY = position.Y - _lastLookY;
         Camera.Yaw += deltaX * 0.003f;
         Camera.Pitch = Math.Clamp(Camera.Pitch - deltaY * 0.003f, -1.45f, 1.45f);
+        // L'orientation a changé : la caméra se replace sur la sphère d'orbite
+        // autour du pivot (distance conservée).
+        SyncOrbitPosition();
         position = ConfineLookCursor(new Vector2(_lastLookX + deltaX, _lastLookY + deltaY));
         _lastLookX = position.X;
         _lastLookY = position.Y;
     }
+
+    /// <summary>
+    /// Translates the orbit pivot (and the camera with it) from a middle-button
+    /// drag, so the scene follows the cursor. The step scales with the orbit
+    /// distance, matching the zoom feel. The cursor stays visible (no clamp),
+    /// but the UI is frozen for the duration of the drag.
+    /// </summary>
+    protected virtual void PanWithMouse()
+    {
+        if (!Mouse.IsDown(MouseButton.Middle))
+        {
+            _panning = false;
+            ReleasePanModal();
+            return;
+        }
+
+        var position = Mouse.Position;
+        if (!_panning)
+        {
+            _panning = true;
+            // Comme l'orbite : la décision est tranchée à l'appui.
+            _panAllowed = CanPan();
+            if (!_panAllowed)
+                return;
+            _panModal = Ui.EnterModal();
+            _lastPanX = position.X;
+            _lastPanY = position.Y;
+            return;
+        }
+
+        if (!_panAllowed)
+            return;
+
+        var deltaX = position.X - _lastPanX;
+        var deltaY = position.Y - _lastPanY;
+        // Attraper la scène : tirer vers la droite déplace le pivot vers la
+        // gauche, tirer vers le bas le déplace vers le haut.
+        var scale = Camera.Distance * PanSpeed;
+        Camera.Pivot += (-Camera.Right * deltaX + Camera.Up * deltaY) * scale;
+        SyncOrbitPosition();
+        _lastPanX = position.X;
+        _lastPanY = position.Y;
+    }
+
+    /// <summary>
+    /// Remet la caméra sur sa sphère d'orbite :
+    /// <c>Position = Pivot - Forward * Distance</c>. Appelée après chaque
+    /// changement d'orientation, de pivot ou de distance.
+    /// </summary>
+    private void SyncOrbitPosition() =>
+        Camera.Position = Camera.Pivot - Camera.Forward * Camera.Distance;
 
     /// <summary>Rend le curseur OS à l'UI s'il avait été masqué par l'orbite.</summary>
     private void RestoreCursorIfHidden()
@@ -257,6 +324,13 @@ public abstract class Application : IDisposable
     {
         _pointerModal?.Dispose();
         _pointerModal = null;
+    }
+
+    /// <summary>Ferme la session modale de pointeur ouverte par le pan, s'il y en a une.</summary>
+    private void ReleasePanModal()
+    {
+        _panModal?.Dispose();
+        _panModal = null;
     }
 
     /// <summary>
@@ -309,26 +383,34 @@ public abstract class Application : IDisposable
     /// </summary>
     protected virtual bool CanMoveCamera() => true;
 
+    /// <summary>
+    /// True when a new middle-drag pan may start. Evaluated once at the press
+    /// and latched for the session, mirroring <see cref="CanMouseLook"/>.
+    /// Subclasses confine it to their viewport and off the UI.
+    /// </summary>
+    protected virtual bool CanPan() => true;
+
     private const float MinZoomDistance = 0.5f;
 
     /// <summary>
-    /// Dollies the camera along its look direction from the mouse wheel. The
-    /// step scales with the camera's distance from the world origin (the
-    /// implicit focus point), so the zoom speed stays proportional to how far
-    /// the camera is: fine up close, fast far away, and it never crosses the
-    /// origin to flip the view.
+    /// Dollies the camera toward or away from its orbit pivot from the mouse
+    /// wheel. The step is proportional to the orbit distance (multiplicative),
+    /// so the zoom feels consistent near and far and never crosses the pivot.
     /// </summary>
     protected virtual void ZoomWithWheel()
     {
         var wheel = Mouse.Wheel.Y;
         if (wheel == 0f || !CanZoomCamera())
             return;
-        var distance = Math.Max(MinZoomDistance, Camera.Position.Length());
-        Camera.Position += Camera.Forward * (wheel * distance * ZoomSpeed);
+        Camera.Distance = Math.Max(MinZoomDistance, Camera.Distance * (1f - wheel * ZoomSpeed));
+        SyncOrbitPosition();
     }
 
-    /// <summary>Fraction of the focus distance dollied per wheel notch.</summary>
+    /// <summary>Fraction of the orbit distance dollied per wheel notch.</summary>
     protected virtual float ZoomSpeed => 0.1f;
+
+    /// <summary>World units per pixel per unit of orbit distance (≈1:1 grab at 60° FOV).</summary>
+    protected virtual float PanSpeed => 0.002f;
 
     /// <summary>
     /// True when the mouse wheel may zoom the camera. Subclasses confine it to
@@ -375,6 +457,7 @@ public abstract class Application : IDisposable
             return;
         _disposed = true;
         ReleasePointerModal();
+        ReleasePanModal();
         Ui.Dispose();
         World.Dispose();
         _renderer?.Dispose();

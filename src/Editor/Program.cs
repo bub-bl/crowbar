@@ -221,6 +221,13 @@ internal sealed class DemoApplication : Application
         IsPointerInsideViewport() && !Ui.WheelConsumed;
 
     /// <summary>
+    /// Le pan (molette du milieu) ne démarre que dans le viewport et hors UI,
+    /// comme l'orbite : un appui sur un panneau ne déplace jamais la scène.
+    /// </summary>
+    protected override bool CanPan() =>
+        IsPointerInsideViewport() && !Ui.PointerPressConsumed;
+
+    /// <summary>
     /// Pendant l'orbite, la souris reste confinée dans le viewport : même
     /// masquée, elle ne doit pas glisser au-dessus des panneaux voisins (elle
     /// réapparaîtrait hors de la scène à la relâche). Le delta d'orbite reste

@@ -168,33 +168,141 @@ public class ApplicationLookTests
     }
 
     [Fact]
-    public void WheelZoomsAlongForwardProportionallyToDistance()
+    public void OrbitRotatesAroundThePivot()
     {
         using var app = new LookTestApp();
         var source = app.Source;
+        var pivot = app.TestCamera.Pivot;
+        var distance = app.TestCamera.Distance;
+        var yawBefore = app.TestCamera.Yaw;
+
+        source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = RightDown };
+        Input.Poll();
+        app.TickLook(); // démarre l'orbite
+
+        source.Mouse = source.Mouse with { Position = new Vector2(160, 100) };
+        Input.Poll();
+        app.TickLook(); // tourne autour du pivot
+
+        Assert.NotEqual(yawBefore, app.TestCamera.Yaw);
+        Assert.Equal(pivot, app.TestCamera.Pivot); // le pivot ne bouge pas
+        Assert.Equal(distance, app.TestCamera.Distance); // la distance est conservée
+        Assert.Equal(distance, Vector3.Distance(app.TestCamera.Position, pivot), precision: 4);
+    }
+
+    [Fact]
+    public void PanMovesThePivotAndCameraTogether()
+    {
+        using var app = new LookTestApp();
+        var source = app.Source;
+        const uint MiddleDown = 1u << (int)MouseButton.Middle;
+
+        var pivotBefore = app.TestCamera.Pivot;
+        var positionBefore = app.TestCamera.Position;
+        var distance = app.TestCamera.Distance;
         var forward = app.TestCamera.Forward;
+        var right = app.TestCamera.Right;
+        var up = app.TestCamera.Up;
 
-        // Caméra proche de l'origine : petit pas.
-        app.TestCamera.Position = forward * 2f;
-        var start = app.TestCamera.Position;
+        source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = MiddleDown };
+        Input.Poll();
+        app.TickPan(); // démarre le pan : pas encore de mouvement
+        Assert.Equal(pivotBefore, app.TestCamera.Pivot);
+
+        source.Mouse = source.Mouse with { Position = new Vector2(150, 120) };
+        Input.Poll();
+        app.TickPan(); // drag (dx=50, dy=20)
+
+        // Le pivot (et la caméra) ont bougé, mais distance et orientation restent.
+        Assert.NotEqual(pivotBefore, app.TestCamera.Pivot);
+        Assert.NotEqual(positionBefore, app.TestCamera.Position);
+        Assert.Equal(distance, app.TestCamera.Distance);
+        Assert.Equal(forward, app.TestCamera.Forward);
+        Assert.Equal(distance, Vector3.Distance(app.TestCamera.Position, app.TestCamera.Pivot), precision: 4);
+
+        // Direction du grab : tirer à droite -> pivot à gauche, tirer vers le
+        // bas -> pivot vers le haut.
+        var pivotDelta = app.TestCamera.Pivot - pivotBefore;
+        Assert.True(Vector3.Dot(pivotDelta, right) < 0f);
+        Assert.True(Vector3.Dot(pivotDelta, up) > 0f);
+    }
+
+    [Fact]
+    public void PanSuppressesUiPointerInputForItsWholeDuration()
+    {
+        using var app = new LookTestApp();
+        var source = app.Source;
+        const uint MiddleDown = 1u << (int)MouseButton.Middle;
+
+        app.TickPan();
+        Assert.False(app.TestUi.PointerInputSuppressed);
+
+        source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = MiddleDown };
+        Input.Poll();
+        app.TickPan(); // le pan démarre : l'UI est mise en veille
+        Assert.True(app.TestUi.PointerInputSuppressed);
+
+        source.Mouse = source.Mouse with { Position = new Vector2(140, 100) };
+        Input.Poll();
+        app.TickPan(); // toujours maintenu : toujours en veille
+        Assert.True(app.TestUi.PointerInputSuppressed);
+
+        source.Mouse = source.Mouse with { Buttons = 0 };
+        Input.Poll();
+        app.TickPan(); // relâché : l'UI revient à la vie
+        Assert.False(app.TestUi.PointerInputSuppressed);
+    }
+
+    [Fact]
+    public void RefusedPanNeverMovesOrSuppressesTheUi()
+    {
+        using var app = new LookTestApp { AllowPan = false };
+        var source = app.Source;
+        const uint MiddleDown = 1u << (int)MouseButton.Middle;
+        var pivotBefore = app.TestCamera.Pivot;
+
+        source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = MiddleDown };
+        Input.Poll();
+        app.TickPan();
+        Assert.False(app.TestUi.PointerInputSuppressed);
+
+        source.Mouse = source.Mouse with { Position = new Vector2(150, 120) };
+        Input.Poll();
+        app.TickPan();
+        Assert.Equal(pivotBefore, app.TestCamera.Pivot);
+        Assert.False(app.TestUi.PointerInputSuppressed);
+
+        source.Mouse = source.Mouse with { Buttons = 0 };
+        Input.Poll();
+        app.TickPan();
+        Assert.False(app.TestUi.PointerInputSuppressed);
+    }
+
+    [Fact]
+    public void WheelZoomsProportionallyToDistanceFromThePivot()
+    {
+        using var app = new LookTestApp();
+        var source = app.Source;
+        var pivotBefore = app.TestCamera.Pivot;
+
+        // Près du pivot : petit pas de distance.
+        app.TestCamera.Distance = 2f;
         source.Mouse = new MouseSnapshot { Wheel = new Vector2(0, 1) };
         Input.Poll();
         app.TickZoom();
-        var near = app.TestCamera.Position - start;
-        Assert.Equal(1f, Vector3.Dot(Vector3.Normalize(near), forward), precision: 3);
+        var nearStep = 2f - app.TestCamera.Distance;
 
-        // Caméra loin : le pas grandit proportionnellement à la distance.
-        app.TestCamera.Position = forward * 8f;
-        start = app.TestCamera.Position;
+        // Loin : le pas grandit proportionnellement à la distance.
+        app.TestCamera.Distance = 8f;
         source.Mouse = new MouseSnapshot { Wheel = new Vector2(0, 1) };
         Input.Poll();
         app.TickZoom();
-        var far = app.TestCamera.Position - start;
-        Assert.Equal(1f, Vector3.Dot(Vector3.Normalize(far), forward), precision: 3);
+        var farStep = 8f - app.TestCamera.Distance;
 
-        // Même facteur de zoom par unité de distance, et plus loin = plus vite.
-        Assert.Equal(near.Length() / 2f, far.Length() / 8f, precision: 4);
-        Assert.True(far.Length() > near.Length());
+        // Même facteur par unité de distance, plus loin = plus vite, pivot fixe.
+        Assert.Equal(nearStep / 2f, farStep / 8f, precision: 4);
+        Assert.True(farStep > nearStep);
+        Assert.Equal(pivotBefore, app.TestCamera.Pivot);
     }
 
     [Fact]
@@ -229,6 +337,7 @@ public class ApplicationLookTests
         public bool AllowLook { get; set; } = true;
         public bool HideCursor { get; set; } = true;
         public bool AllowZoom { get; set; } = true;
+        public bool AllowPan { get; set; } = true;
         public UiRect? LookClampRect { get; set; }
 
         protected override IPlatform CreatePlatform() => new FakePlatform(_input);
@@ -236,11 +345,13 @@ public class ApplicationLookTests
         protected override bool HideCursorWhileLooking => HideCursor;
         protected override UiRect? MouseLookClampRect => LookClampRect;
         protected override bool CanZoomCamera() => AllowZoom;
+        protected override bool CanPan() => AllowPan;
 
         public Camera TestCamera => Camera;
         public UiSystem TestUi => Ui;
         public void TickLook() => LookWithMouse();
         public void TickZoom() => ZoomWithWheel();
+        public void TickPan() => PanWithMouse();
     }
 
     private sealed class FakePlatform : IPlatform

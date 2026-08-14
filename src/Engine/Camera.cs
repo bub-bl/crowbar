@@ -22,10 +22,14 @@ public sealed class Camera : TransformComponent
 
     public Camera()
     {
-        Local = new Transform(
-            new Vector3(4.24f, 3f, 4.24f),
-            RotationFromYawPitch(_yaw, _pitch),
-            Vector3.One);
+        var position = new Vector3(4.24f, 3f, 4.24f);
+        var rotation = RotationFromYawPitch(_yaw, _pitch);
+        // Métadonnées d'orbite cohérentes avec la vue de départ : le pivot est
+        // le point que la caméra regarde, à la distance initiale. Le contrôleur
+        // maintient ensuite Position == Pivot - Forward * Distance.
+        Distance = position.Length();
+        Pivot = position + rotation.Forward * Distance;
+        Local = new Transform(position, rotation, Vector3.One);
     }
 
     /// <summary>
@@ -38,6 +42,17 @@ public sealed class Camera : TransformComponent
         get => World.Position;
         set => World = World with { Position = value };
     }
+
+    /// <summary>
+    /// Point du monde autour duquel la caméra orbite (espace monde), piloté
+    /// par le contrôleur de caméra. Avec <see cref="Distance"/>, il définit la
+    /// sphère d'orbite : le contrôleur maintient
+    /// <c>Position == Pivot - Forward * Distance</c> après chaque contrôle.
+    /// </summary>
+    public Vector3 Pivot { get; set; }
+
+    /// <summary>Distance entre la caméra et <see cref="Pivot"/> (rayon d'orbite).</summary>
+    public float Distance { get; set; }
 
     /// <summary>Look yaw in radians (free-camera convention).</summary>
     public float Yaw
@@ -72,6 +87,9 @@ public sealed class Camera : TransformComponent
 
     /// <summary>World-space right direction (the transform's right).</summary>
     public Vector3 Right => Local.Rotation.Right;
+
+    /// <summary>World-space up direction (the transform's up).</summary>
+    public Vector3 Up => Local.Rotation.Up;
 
     public Matrix4x4 ViewMatrix => Matrix4x4.CreateLookAt(Position, Position + Forward, Vector3.UnitY);
 

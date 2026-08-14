@@ -73,4 +73,15 @@ public class CameraTests
         var toOrigin = Vector3.Normalize(-camera.Position);
         Assert.True(Vector3.Dot(camera.Forward, toOrigin) > 0.99f);
     }
+
+    [Fact]
+    public void Camera_PivotAndDistanceDefineTheOrbitSphere()
+    {
+        var camera = new Camera();
+
+        // Le pivot est le point regardé à la distance initiale : la caméra
+        // repose exactement sur sa sphère d'orbite dès la construction.
+        Assert.Equal(camera.Distance, Vector3.Distance(camera.Position, camera.Pivot), 5);
+        Assert.True(camera.Distance > 1f);
+    }
 }
