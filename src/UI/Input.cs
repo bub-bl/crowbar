@@ -24,22 +24,60 @@ public sealed partial class UiSystem
     /// </summary>
     public bool PointerPressConsumed { get; private set; }
 
+    private int _modalDepth;
+
     /// <summary>
-    /// When true, the runtime ignores the pointer entirely: no hit-testing, no
-    /// hover states, no tooltips, no cursor resolution, no presses, clicks,
-    /// drags or wheel. The host sets it while a scene interaction (mouse-look
-    /// orbit) owns the pointer, so the cursor — even when it rests over UI
-    /// chrome floating inside the viewport (toolbar, tabs) — can never
-    /// interact with it.
+    /// True while at least one modal pointer session is open (see
+    /// <see cref="EnterModal"/>): the runtime ignores the pointer entirely —
+    /// no hit-testing, no hover states, no tooltips, no cursor resolution, no
+    /// presses, clicks, drags or wheel. A scene interaction (mouse-look orbit,
+    /// gizmo drag, box selection) opens a session so the cursor, even when it
+    /// rests over UI chrome floating inside the viewport, can never interact
+    /// with it.
     /// </summary>
-    public bool PointerInputSuppressed { get; set; }
+    public bool PointerInputSuppressed => _modalDepth > 0;
+
+    /// <summary>
+    /// Opens a modal pointer session: the UI freezes until the returned handle
+    /// is disposed. This is how a scene interaction takes exclusive ownership
+    /// of the pointer, so it never leaks into the UI chrome underneath. The
+    /// first session also clears every transient pointer state (hover, pressed,
+    /// tooltip, cursor, capture); sessions are reference-counted, so the
+    /// pointer is released only when the last handle is disposed.
+    /// </summary>
+    public IDisposable EnterModal()
+    {
+        if (_modalDepth++ == 0)
+            ResetPointerState();
+        return new ModalLease(this);
+    }
+
+    private void ExitModal()
+    {
+        if (_modalDepth > 0)
+            _modalDepth--;
+    }
+
+    /// <summary>Handle returned by <see cref="EnterModal"/>; disposing it releases one modal session.</summary>
+    private sealed class ModalLease : IDisposable
+    {
+        private UiSystem? _owner;
+
+        public ModalLease(UiSystem owner) => _owner = owner;
+
+        public void Dispose()
+        {
+            var owner = _owner;
+            _owner = null;
+            owner?.ExitModal();
+        }
+    }
 
     /// <summary>
     /// Forgets every transient pointer state: hover, pressed, tooltip, cursor
-    /// shape, press consumption and any in-flight capture or drag. The host
-    /// calls it when a scene interaction (mouse-look orbit) takes over the
-    /// pointer, leaving the UI visually neutral so no stale hover, pressed or
-    /// tooltip lingers when the interaction ends.
+    /// shape, press consumption and any in-flight capture or drag. Called when
+    /// the first modal session opens so the UI is left visually neutral — no
+    /// stale hover, pressed or tooltip lingers when the interaction ends.
     /// </summary>
     public void ResetPointerState()
     {

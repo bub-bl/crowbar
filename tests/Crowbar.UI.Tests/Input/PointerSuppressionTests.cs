@@ -4,11 +4,13 @@ using Xunit;
 namespace Crowbar.UI.Tests.Input;
 
 /// <summary>
-/// <see cref="UiSystem.PointerInputSuppressed"/> freezes the UI for the
-/// duration of a scene interaction (mouse-look orbit): hover states, tooltips,
-/// cursor resolution, presses, clicks and wheel are all ignored, and
-/// <see cref="UiSystem.ResetPointerState"/> clears every transient state so
-/// nothing lingers when the pointer returns.
+/// <see cref="UiSystem.EnterModal"/> freezes the UI for the duration of a
+/// scene interaction (mouse-look orbit, gizmo drag, box selection): hover
+/// states, tooltips, cursor resolution, presses, clicks and wheel are all
+/// ignored while a session is open, and the first session clears every
+/// transient state so nothing lingers when the pointer returns. Sessions are
+/// reference-counted, so overlapping interactions release the pointer only
+/// once they have all ended.
 /// </summary>
 public class PointerSuppressionTests
 {
@@ -34,15 +36,13 @@ public class PointerSuppressionTests
         var bx = button.Layout.X + 1;
         var by = button.Layout.Y + 1;
 
-        // Survol de référence : hors suppression, le pointeur fonctionne.
+        // Survol de référence : hors session modale, le pointeur fonctionne.
         ui.ProcessPointerMove(bx, by);
         Assert.True(button.IsHovered);
 
-        // Suppression : l'UI est gelée pour la durée de la session. Le host
-        // appelle ResetPointerState au démarrage, ce qui remet l'état à zéro ;
+        // L'ouverture d'une session modale gèle l'UI et remet l'état à zéro ;
         // ensuite aucun événement ne traverse, ni survol, ni clic, ni molette.
-        ui.PointerInputSuppressed = true;
-        ui.ResetPointerState();
+        var modal = ui.EnterModal();
         Assert.False(button.IsHovered);
 
         ui.ProcessPointerMove(bx, by);
@@ -60,8 +60,8 @@ public class PointerSuppressionTests
         ui.ProcessPointerWheel(bx, by, 0, -10);
         Assert.Equal(0, wheeled);
 
-        // Réactivation : le pointeur revient à la vie.
-        ui.PointerInputSuppressed = false;
+        // Fermeture de la session : le pointeur revient à la vie.
+        modal.Dispose();
         ui.ProcessPointerMove(bx, by);
         Assert.True(button.IsHovered);
         ui.ProcessPointerDown(bx, by);
@@ -70,6 +70,27 @@ public class PointerSuppressionTests
         ui.ProcessPointerUp(bx, by);
         ui.ProcessPointerWheel(bx, by, 0, -10);
         Assert.Equal(1, wheeled);
+    }
+
+    [Fact]
+    public void ModalSessionsAreReferenceCountedAndIdempotentToDispose()
+    {
+        using var ui = TestUi.Create();
+        Assert.False(ui.PointerInputSuppressed);
+
+        var outer = ui.EnterModal();
+        var inner = ui.EnterModal();
+        Assert.True(ui.PointerInputSuppressed);
+
+        // Fermer la session intérieure ne rend pas le pointeur : l'extérieure
+        // reste ouverte.
+        inner.Dispose();
+        Assert.True(ui.PointerInputSuppressed);
+
+        // Un double dispose est sans effet : chaque handle ne libère qu'une fois.
+        outer.Dispose();
+        outer.Dispose();
+        Assert.False(ui.PointerInputSuppressed);
     }
 
     [Fact]

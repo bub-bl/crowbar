@@ -25,6 +25,7 @@ public abstract class Application : IDisposable
     private bool _looking;
     private bool _lookAllowed;
     private bool _cursorHidden;
+    private IDisposable? _pointerModal;
     private float _lastLookX;
     private float _lastLookY;
     private bool _disposed;
@@ -190,7 +191,7 @@ public abstract class Application : IDisposable
         if (!Mouse.IsDown(MouseButton.Right))
         {
             _looking = false;
-            Ui.PointerInputSuppressed = false;
+            ReleasePointerModal();
             RestoreCursorIfHidden();
             return;
         }
@@ -215,8 +216,7 @@ public abstract class Application : IDisposable
             // L'UI est mise en veille pour toute la session : plus aucun
             // survol, tooltip, curseur ou clic ne peut atteindre les panneaux,
             // même ceux qui flottent dans le viewport (toolbar, onglets).
-            Ui.PointerInputSuppressed = true;
-            Ui.ResetPointerState();
+            _pointerModal = Ui.EnterModal();
             // Point de référence du drag : confiné au rect (normalement no-op,
             // un appui autorisé est déjà dans le viewport).
             position = ConfineLookCursor(position);
@@ -249,6 +249,13 @@ public abstract class Application : IDisposable
             return;
         Mouse.SetCursorVisible(true);
         _cursorHidden = false;
+    }
+
+    /// <summary>Ferme la session modale de pointeur ouverte par l'orbite, s'il y en a une.</summary>
+    private void ReleasePointerModal()
+    {
+        _pointerModal?.Dispose();
+        _pointerModal = null;
     }
 
     /// <summary>
@@ -338,6 +345,7 @@ public abstract class Application : IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        ReleasePointerModal();
         Ui.Dispose();
         World.Dispose();
         _renderer?.Dispose();
