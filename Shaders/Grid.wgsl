@@ -69,13 +69,13 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     let derivative = fwidth(coord);
     let gridLine = abs(fract(coord - 0.5) - 0.5) / derivative;
     let line = min(gridLine.x, gridLine.y);
-    // Keep the main axes visible as continuous one-pixel lines. Using a tiny
-    // fraction of the pixel footprint here makes the axes hit only occasional
-    // fragments, which shows up as red/blue dots along the grid.
+    // Keep the main axes visible as continuous one-pixel lines. The X axis is
+    // the line along X (z = 0) and the Z axis the line along Z (x = 0), so the
+    // colors line up with the viewport gizmos (X red, Z blue).
     let minimumz = min(derivative.y, 1.0);
     let minimumx = min(derivative.x, 1.0);
-    let onXAxis = abs(fragPos3D.x) <= minimumx;
-    let onZAxis = abs(fragPos3D.z) <= minimumz;
+    let onXAxis = abs(fragPos3D.z) <= minimumz;
+    let onZAxis = abs(fragPos3D.x) <= minimumx;
     // The grid is transparent between its lines. Discarding those pixels is
     // important because the grid is rendered after the meshes and must not
     // cover objects through an otherwise invisible fragment.

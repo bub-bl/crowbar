@@ -77,6 +77,28 @@ public class GridTests
         Assert.Equal(1f, uniforms.Settings.Y); // default cell size
     }
 
+    [Fact]
+    public void AxisColors_MatchTheGizmoConvention()
+    {
+        var grid = new Grid();
+
+        // X = red, Z = blue, comme les gizmos et l'inspecteur (X/Y/Z → RGB).
+        Assert.True(grid.XAxisColor.X > grid.XAxisColor.Z);
+        Assert.True(grid.ZAxisColor.Z > grid.ZAxisColor.X);
+    }
+
+    [Fact]
+    public void GridShader_MapsXToTheLineAlongXAndZToTheLineAlongZ()
+    {
+        var shader = Shader.Load("Shaders/Grid.wgsl");
+
+        // L'axe X est la ligne le long de X (z ≈ 0), l'axe Z la ligne le long
+        // de Z (x ≈ 0). Les inverser désalignait les couleurs de la grille et
+        // celles des gizmos position/scale/rotation.
+        Assert.Contains("onXAxis = abs(fragPos3D.z)", shader.Source);
+        Assert.Contains("onZAxis = abs(fragPos3D.x)", shader.Source);
+    }
+
     private static void AssertIdentity(Matrix4x4 matrix)
     {
         for (var row = 0; row < 4; row++)

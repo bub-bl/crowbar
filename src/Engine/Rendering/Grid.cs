@@ -21,10 +21,10 @@ public sealed class Grid
     public float FadeDistance { get; set; } = 50f;
 
     public Vector4 LineColor { get; set; } = new(0.35f, 0.35f, 0.38f, 1f);
-    public Vector4 XAxisColor { get; set; } = new(0.2f, 0.4f, 0.9f, 1f);
-    public Vector4 ZAxisColor { get; set; } = new(0.9f, 0.2f, 0.2f, 1f);
+    public Vector4 XAxisColor { get; set; } = new(0.9f, 0.2f, 0.2f, 1f);
+    public Vector4 ZAxisColor { get; set; } = new(0.2f, 0.4f, 0.9f, 1f);
 
-    /// <summary>Whether the X (blue) and Z (red) axes are highlighted.</summary>
+    /// <summary>Whether the X (red) and Z (blue) axes are highlighted.</summary>
     public bool ShowAxes { get; set; } = true;
 
     /// <summary>
