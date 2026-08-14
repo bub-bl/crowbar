@@ -884,18 +884,24 @@ public sealed class Renderer2D : IDisposable
                 var u1 = new Vector2(uv.Right, uv.Y);
                 var u2 = new Vector2(uv.Right, uv.Bottom);
                 var u3 = new Vector2(uv.X, uv.Bottom);
-                var x0 = originX + glyph.X0;
-                var y0 = originY + glyph.Y0;
-                var x1 = originX + glyph.X1;
-                var y1 = originY + glyph.Y1;
+                var sx0 = originX + glyph.X0 + ox;
+                var sy0 = originY + glyph.Y0 + oy;
+                var sx1 = originX + glyph.X1 + ox;
+                var sy1 = originY + glyph.Y1 + oy;
+                var su0 = u0;
+                var su1 = u1;
+                var su2 = u2;
+                var su3 = u3;
+                if (!ClipGlyphQuad(ref sx0, ref sy0, ref sx1, ref sy1, ref su0, ref su1, ref su2, ref su3))
+                    continue;
                 var shadowIndex = _glyphShadows.Count;
                 EnsureRun(BatchKind.GlyphShadow);
-                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y0 + oy), Uv = u0, Color = shadowVector, Softness = softness });
-                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y0 + oy), Uv = u1, Color = shadowVector, Softness = softness });
-                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y1 + oy), Uv = u2, Color = shadowVector, Softness = softness });
-                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y0 + oy), Uv = u0, Color = shadowVector, Softness = softness });
-                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y1 + oy), Uv = u2, Color = shadowVector, Softness = softness });
-                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y1 + oy), Uv = u3, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx0, sy0), Uv = su0, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx1, sy0), Uv = su1, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx1, sy1), Uv = su2, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx0, sy0), Uv = su0, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx1, sy1), Uv = su2, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx0, sy1), Uv = su3, Color = shadowVector, Softness = softness });
                 _glyphShadowPatches.Add(new GlyphPatch(shadowIndex, entry.Atlas));
             }
         }
@@ -910,18 +916,24 @@ public sealed class Renderer2D : IDisposable
             var u1 = new Vector2(uv.Right, uv.Y);
             var u2 = new Vector2(uv.Right, uv.Bottom);
             var u3 = new Vector2(uv.X, uv.Bottom);
-            var x0 = originX + glyph.X0;
-            var y0 = originY + glyph.Y0;
-            var x1 = originX + glyph.X1;
-            var y1 = originY + glyph.Y1;
+            var mx0 = originX + glyph.X0;
+            var my0 = originY + glyph.Y0;
+            var mx1 = originX + glyph.X1;
+            var my1 = originY + glyph.Y1;
+            var mu0 = u0;
+            var mu1 = u1;
+            var mu2 = u2;
+            var mu3 = u3;
+            if (!ClipGlyphQuad(ref mx0, ref my0, ref mx1, ref my1, ref mu0, ref mu1, ref mu2, ref mu3))
+                continue;
             var quadIndex = _textured.Count;
             EnsureRun(BatchKind.Glyph);
-            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = u0, Color = colorVector });
-            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y0), Uv = u1, Color = colorVector });
-            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = u2, Color = colorVector });
-            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = u0, Color = colorVector });
-            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = u2, Color = colorVector });
-            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y1), Uv = u3, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(mx0, my0), Uv = mu0, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(mx1, my0), Uv = mu1, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(mx1, my1), Uv = mu2, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(mx0, my0), Uv = mu0, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(mx1, my1), Uv = mu2, Color = colorVector });
+            _textured.Add(new TexturedVertex { Position = new Vector2(mx0, my1), Uv = mu3, Color = colorVector });
             _glyphPatches.Add(new GlyphPatch(quadIndex, entry.Atlas));
         }
     }
@@ -983,31 +995,51 @@ public sealed class Renderer2D : IDisposable
             // In grid units (the shader's SPREAD is also scaled): 0.75 px AA band + blur.
             var softness = (0.75f + MathF.Max(shadowBlur, 0f)) * GlyphRasterizer.Scale;
             var shadowVector = shadowColor.ToVector4();
-            var ox = shadowOffset.X;
-            var oy = shadowOffset.Y;
-            var shadowIndex = _glyphShadows.Count;
-            EnsureRun(BatchKind.GlyphShadow);
-            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y0 + oy), Uv = uv0, Color = shadowVector, Softness = softness });
-            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y0 + oy), Uv = uv1, Color = shadowVector, Softness = softness });
-            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y1 + oy), Uv = uv2, Color = shadowVector, Softness = softness });
-            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y0 + oy), Uv = uv0, Color = shadowVector, Softness = softness });
-            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x1 + ox, y1 + oy), Uv = uv2, Color = shadowVector, Softness = softness });
-            _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(x0 + ox, y1 + oy), Uv = uv3, Color = shadowVector, Softness = softness });
-            _glyphShadowPatches.Add(new GlyphPatch(shadowIndex, entry.Atlas));
+            var sx0 = x0 + shadowOffset.X;
+            var sy0 = y0 + shadowOffset.Y;
+            var sx1 = x1 + shadowOffset.X;
+            var sy1 = y1 + shadowOffset.Y;
+            var su0 = uv0;
+            var su1 = uv1;
+            var su2 = uv2;
+            var su3 = uv3;
+            if (ClipGlyphQuad(ref sx0, ref sy0, ref sx1, ref sy1, ref su0, ref su1, ref su2, ref su3))
+            {
+                var shadowIndex = _glyphShadows.Count;
+                EnsureRun(BatchKind.GlyphShadow);
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx0, sy0), Uv = su0, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx1, sy0), Uv = su1, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx1, sy1), Uv = su2, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx0, sy0), Uv = su0, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx1, sy1), Uv = su2, Color = shadowVector, Softness = softness });
+                _glyphShadows.Add(new GlyphShadowVertex { Position = new Vector2(sx0, sy1), Uv = su3, Color = shadowVector, Softness = softness });
+                _glyphShadowPatches.Add(new GlyphPatch(shadowIndex, entry.Atlas));
+            }
         }
 
         if (emitMain)
         {
             var colorVector = color.ToVector4();
-            var quadIndex = _textured.Count;
-            EnsureRun(BatchKind.Glyph);
-            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = uv0, Color = colorVector });
-            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y0), Uv = uv1, Color = colorVector });
-            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = uv2, Color = colorVector });
-            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y0), Uv = uv0, Color = colorVector });
-            _textured.Add(new TexturedVertex { Position = new Vector2(x1, y1), Uv = uv2, Color = colorVector });
-            _textured.Add(new TexturedVertex { Position = new Vector2(x0, y1), Uv = uv3, Color = colorVector });
-            _glyphPatches.Add(new GlyphPatch(quadIndex, entry.Atlas));
+            var mx0 = x0;
+            var my0 = y0;
+            var mx1 = x1;
+            var my1 = y1;
+            var mu0 = uv0;
+            var mu1 = uv1;
+            var mu2 = uv2;
+            var mu3 = uv3;
+            if (ClipGlyphQuad(ref mx0, ref my0, ref mx1, ref my1, ref mu0, ref mu1, ref mu2, ref mu3))
+            {
+                var quadIndex = _textured.Count;
+                EnsureRun(BatchKind.Glyph);
+                _textured.Add(new TexturedVertex { Position = new Vector2(mx0, my0), Uv = mu0, Color = colorVector });
+                _textured.Add(new TexturedVertex { Position = new Vector2(mx1, my0), Uv = mu1, Color = colorVector });
+                _textured.Add(new TexturedVertex { Position = new Vector2(mx1, my1), Uv = mu2, Color = colorVector });
+                _textured.Add(new TexturedVertex { Position = new Vector2(mx0, my0), Uv = mu0, Color = colorVector });
+                _textured.Add(new TexturedVertex { Position = new Vector2(mx1, my1), Uv = mu2, Color = colorVector });
+                _textured.Add(new TexturedVertex { Position = new Vector2(mx0, my1), Uv = mu3, Color = colorVector });
+                _glyphPatches.Add(new GlyphPatch(quadIndex, entry.Atlas));
+            }
         }
     }
 
@@ -1503,6 +1535,51 @@ public sealed class Renderer2D : IDisposable
         foreach (var clip in _clips)
             result = result.Intersect(clip.Rect);
         return result;
+    }
+
+    /// <summary>
+    /// Clips an axis-aligned screen-space quad against the clip stack, adjusting
+    /// the atlas UVs to the surviving region. Returns false when nothing remains
+    /// visible (the caller skips emission). Rounded clip corners are approximated
+    /// by the rect, matching the SVG polygon clip path.
+    /// </summary>
+    private bool ClipGlyphQuad(
+        ref float x0, ref float y0, ref float x1, ref float y1,
+        ref Vector2 u0, ref Vector2 u1, ref Vector2 u2, ref Vector2 u3)
+    {
+        if (_clips.Count == 0)
+            return true;
+
+        var clip = CurrentScreenClip();
+        var nx0 = MathF.Max(x0, clip.X);
+        var ny0 = MathF.Max(y0, clip.Y);
+        var nx1 = MathF.Min(x1, clip.Right);
+        var ny1 = MathF.Min(y1, clip.Bottom);
+        if (nx0 >= nx1 || ny0 >= ny1)
+            return false;
+
+        var dx = x1 - x0;
+        var dy = y1 - y0;
+        if (dx <= 0f || dy <= 0f)
+            return false;
+
+        // u is linear in x and v is linear in y: the quad maps the atlas rect
+        // onto the screen rect with no rotation.
+        var uLeft = u0.X;
+        var uRight = u1.X;
+        var vTop = u0.Y;
+        var vBottom = u3.Y;
+        var nu0 = uLeft + (nx0 - x0) / dx * (uRight - uLeft);
+        var nu1 = uLeft + (nx1 - x0) / dx * (uRight - uLeft);
+        var nv0 = vTop + (ny0 - y0) / dy * (vBottom - vTop);
+        var nv1 = vTop + (ny1 - y0) / dy * (vBottom - vTop);
+
+        u0 = new Vector2(nu0, nv0);
+        u1 = new Vector2(nu1, nv0);
+        u2 = new Vector2(nu1, nv1);
+        u3 = new Vector2(nu0, nv1);
+        x0 = nx0; y0 = ny0; x1 = nx1; y1 = ny1;
+        return true;
     }
 
     /// <summary>

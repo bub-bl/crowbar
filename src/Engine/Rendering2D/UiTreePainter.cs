@@ -622,6 +622,16 @@ public sealed class UiTreePainter
             _renderer.DrawRect(new RectF(selLeft, y, Math.Max(0, selRight - selLeft), lineHeight), ColorF.FromRgba(50, 120, 220).WithAlpha(alpha));
         }
 
+        // text-overflow: ellipsis truncates the painted line to the content box.
+        // The layout pass measured it the same way (a trailing ellipsis), but
+        // SixLabors only wraps and never ellipsizes, so the raw string would
+        // spill past the clipped box. Truncate before drawing so the glyphs
+        // match the measured layout box.
+        var drawText = singleLine && contentWidth > 0 &&
+            style.TextOverflow.Equals("ellipsis", StringComparison.OrdinalIgnoreCase)
+            ? Ellipsize(transformed, contentWidth, measureStyle)
+            : transformed;
+
         var textStyle = new TextStyle(
             style.FontSize, color, style.FontFamily, style.FontWeight,
             style.LetterSpacing, wrap, lineHeight, align);
@@ -631,7 +641,7 @@ public sealed class UiTreePainter
             textStyle = textStyle.WithShadow(
                 new Vector2(shadow.OffsetX, shadow.OffsetY), shadow.BlurRadius, ToColorF(shadow.Color, alpha));
         }
-        _renderer.DrawText(transformed, new Vector2(left, y), textStyle);
+        _renderer.DrawText(drawText, new Vector2(left, y), textStyle);
 
         if (panel is TextInput caretInput && caretInput.IsFocused && caretInput.CaretVisible && singleLine)
         {
@@ -641,6 +651,22 @@ public sealed class UiTreePainter
                 new Vector2(caretX, top + Math.Max(style.FontSize + 3, contentHeight - 3)),
                 1.5f, color);
         }
+    }
+
+    /// <summary>
+    /// Truncates <paramref name="text"/> to fit <paramref name="maxWidth"/>,
+    /// appending a single ellipsis character — the same truncation the layout
+    /// measure applies, so the painted glyphs and the layout box stay in
+    /// agreement instead of overflowing the clipped box.
+    /// </summary>
+    private string Ellipsize(string text, float maxWidth, in TextStyle measureStyle)
+    {
+        if (_renderer.MeasureText(text, measureStyle) <= maxWidth) return text;
+        const string dots = "\u2026";
+        var truncated = text;
+        while (truncated.Length > 0 && _renderer.MeasureText(truncated + dots, measureStyle) > maxWidth)
+            truncated = truncated[..^1];
+        return truncated + dots;
     }
 
     /// <summary>

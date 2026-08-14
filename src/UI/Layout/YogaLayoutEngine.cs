@@ -223,6 +223,7 @@ public sealed class YogaLayoutEngine
         if (style.LetterSpacing == 0) style.LetterSpacing = inherited.LetterSpacing;
         if (style.TextTransform == "none") style.TextTransform = inherited.TextTransform;
         if (style.WhiteSpace == "normal") style.WhiteSpace = inherited.WhiteSpace;
+        if (style.TextOverflow == "clip") style.TextOverflow = inherited.TextOverflow;
         if (style.TextDecoration == "none") style.TextDecoration = inherited.TextDecoration;
         // text-shadow inherits like color: carry the parent's list down when
         // the child did not declare one of its own.

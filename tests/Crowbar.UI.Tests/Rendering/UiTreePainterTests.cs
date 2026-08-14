@@ -214,6 +214,74 @@ public class UiTreePainterTests
         Assert.Contains(renderer.Commands, c => c.Kind == BatchKind.GlyphShadow);
     }
 
+    [Fact]
+    public void Paint_TextEllipsisTruncatesOverflowingNowrapText()
+    {
+        using var ui = TestUi.Create(320, 200);
+        const string full = "Directional Light Directional Light";
+        var label = new Label(full);
+        label.AddClass("label");
+        ui.Screen.AddChild(label);
+        ui.LoadStyles(".label { position: absolute; left: 10px; top: 10px; width: 70px; color: #ffffff; font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }");
+
+        var (renderer, _) = Paint(ui);
+
+        // Each glyph emits a 6-vertex quad, so TexturedCount / 6 is the glyph
+        // count. The full string would draw one glyph per character; the
+        // ellipsized run must draw fewer (the layout box was measured with a
+        // trailing ellipsis, and the painter must draw the same truncation).
+        var glyphCount = renderer.TexturedCount / 6;
+        Assert.True(glyphCount < full.Length, $"expected ellipsized text, drew {glyphCount} glyphs");
+        Assert.True(glyphCount > 1, "expected at least the ellipsis character");
+    }
+
+    [Fact]
+    public void Paint_TextEllipsisInheritedByDescendantTextNode()
+    {
+        // The real editor tree is <span class="tree-text">Label</span>: the
+        // text lives on a descendant text node, not on the element that
+        // declares text-overflow. The keyword must inherit so the truncation
+        // reaches the glyphs it targets.
+        using var ui = TestUi.Create(320, 200);
+        const string full = "Directional Light Directional Light";
+        var span = new Panel { TagName = "span" };
+        span.AddClass("tree-text");
+        var textNode = new Panel { TagName = "text", Text = full };
+        span.AddChild(textNode);
+        ui.Screen.AddChild(span);
+        ui.LoadStyles(".tree-text { position: absolute; left: 10px; top: 10px; width: 70px; color: #ffffff; font-size: 20px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }");
+
+        Paint(ui);
+
+        // text-overflow flows down to the descendant text node (the panel that
+        // actually carries the glyphs), unlike a hard clip that only culls them.
+        Assert.Equal("ellipsis", textNode.ComputedStyle.TextOverflow);
+    }
+
+    [Fact]
+    public void Paint_OverflowHiddenClipsDescendantTextGlyphs()
+    {
+        using var ui = TestUi.Create(320, 200);
+        const string full = "Directional Light Directional Light";
+        var box = new Panel { TagName = "div" };
+        box.AddClass("box");
+        box.AddChild(new Panel { TagName = "text", Text = full });
+        ui.Screen.AddChild(box);
+        ui.LoadStyles(".box { position: absolute; left: 10px; top: 10px; width: 70px; height: 30px; color: #ffffff; font-size: 20px; overflow: hidden; }");
+
+        var (renderer, _) = Paint(ui);
+
+        // The full string is far wider than the 70px box, so every emitted glyph
+        // quad must stay inside the clip rect (the box's content box) instead of
+        // spilling past its right edge.
+        Assert.NotEmpty(renderer.TexturedVerts);
+        Assert.All(renderer.TexturedVerts, v =>
+        {
+            Assert.InRange(v.Position.X, 9f, 81f);
+            Assert.InRange(v.Position.Y, 9f, 41f);
+        });
+    }
+
     // --- Icons (SVG) ------------------------------------------------------
 
     [Fact]

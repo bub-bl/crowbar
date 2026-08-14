@@ -1,7 +1,9 @@
 @use '../_editor-theme' as *;
 
 .tree-row {
-    width: 226px;
+    width: 100%;
+    min-width: 0;
+    flex-shrink: 1;
     height: 20px;
     color: $text;
     font-size: 11px;
@@ -11,6 +13,7 @@
     flex-direction: row;
     align-items: center;
     gap: 5px;
+    overflow: hidden;
 
     icon {
         width: 12px;
@@ -20,6 +23,15 @@
     &:hover {
         background-color: $panel-hover;
     }
+}
+
+.tree-text {
+    flex-grow: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: clip;
 }
 
 .tree-folder {

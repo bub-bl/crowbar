@@ -211,7 +211,11 @@ public static class CssProperties
         Register(Text("text-transform", s => s.TextTransform, (s, v) => s.TextTransform = v, "none", inherited: true));
         Register(Text("text-decoration", s => s.TextDecoration, (s, v) => s.TextDecoration = v, "none", inherited: true));
         Register(Text("white-space", s => s.WhiteSpace, (s, v) => s.WhiteSpace = v, "normal", inherited: true));
-        Register(Keyword("text-overflow", s => s.TextOverflow, (s, v) => s.TextOverflow = v, "clip", "clip", "ellipsis"));
+        // text-overflow flows to the descendant text node like white-space:
+        // the element that declares it (e.g. a <span>) is not the panel that
+        // carries the text, so a non-inherited keyword would never reach the
+        // glyphs it is meant to truncate.
+        Register(Text("text-overflow", s => s.TextOverflow, (s, v) => s.TextOverflow = v, "clip", inherited: true));
 
         // Box model: shorthand + individual sides.
         Register(new MarginCssProperty());

@@ -50,6 +50,8 @@ root {
 }
 
 .dock-tab {
+    min-width: 0;
+    flex-shrink: 1;
     height: 30px;
     padding: 0 10px;
     color: $text-muted;
@@ -60,6 +62,9 @@ root {
     vertical-align: center;
     border-bottom: 2px solid transparent;
     box-sizing: border-box;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: clip;
     cursor: pointer;
     // Les onglets glissent à côté pendant le drag (le décalage est un
     // transform paint-only, la position de layout reste stable pour le
@@ -102,6 +107,8 @@ root {
     top: 0px;
     right: 0px;
     bottom: 0px;
+    min-width: 0;
+    overflow: hidden;
 }
 
 .dock-pane-hidden {
