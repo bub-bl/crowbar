@@ -44,6 +44,10 @@ root {
     vertical-align: center;
     line-height: 43px;
     box-sizing: border-box;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
     border-bottom: 2px solid transparent;
 
     &:hover {
