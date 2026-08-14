@@ -204,6 +204,22 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void ViewportToolbarIsHorizontallyCentered()
+    {
+        using var ui = CreateEditorUi();
+
+        var toolbar = TestUi.Find(ui.Content!, p => p.Classes.Contains("viewport-toolbar"));
+        Assert.NotNull(toolbar);
+        var viewport = toolbar!.Parent;
+        Assert.NotNull(viewport);
+
+        var toolbarCenter = toolbar.Layout.X + toolbar.Layout.Width / 2;
+        var viewportCenter = viewport!.Layout.X + viewport.Layout.Width / 2;
+        Assert.True(MathF.Abs(toolbarCenter - viewportCenter) < 1f,
+            $"toolbar center {toolbarCenter} is not the viewport center {viewportCenter}");
+    }
+
+    [Fact]
     public void WindowResizeRelayoutsAndRepublishesTheSceneViewport()
     {
         using var ui = CreateEditorUi();

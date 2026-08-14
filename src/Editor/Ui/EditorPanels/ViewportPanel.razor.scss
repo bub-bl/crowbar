@@ -14,9 +14,11 @@ root {
 }
 
 .viewport-toolbar {
-    position: absolute;
-    left: 500px;
-    top: 8px;
+    // Centrée horizontalement dans le viewport (le root est une flex column,
+    // donc align-self centre sur l'axe horizontal) ; margin-top garde le
+    // décalage de 8px depuis le haut.
+    align-self: center;
+    margin-top: 8px;
     width: 292px;
     height: 30px;
     border-radius: 5px;
