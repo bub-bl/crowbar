@@ -43,7 +43,7 @@ public sealed class GizmoRenderer : IDisposable
         public Vector4 Color;
         public Vector4 Sizes;    // shaft: x = kind (0), y = half-width (px);
                                  // cone:  x = kind (1), z = length (world), w = radius (world)
-                                 // ring:  x = kind (2), z = radius (world), w = half-thickness (world)
+                                 // ring:  x = kind (2), z = ring radius (world), w = tube radius (world)
         public Vector4 Viewport; // x = width, y = height in pixels (vec4 keeps the
                                  // element stride a multiple of 16)
     }
@@ -65,9 +65,10 @@ public sealed class GizmoRenderer : IDisposable
     private const float HeadLengthPx = 26f;       // cone length in pixels
     private const float HeadHalfWidthPx = 10f;    // cone radius (20px diameter)
     private const int ConeVertexCount = 16 * 3;  // 16-sided cone, one triangle per side
-    private const int RingSegments = 48;         // rotation ring tessellation
-    private const int RingVertexCount = RingSegments * 6;
-    private const float RingHalfThicknessPx = 2f; // 4px thick rings
+    private const int RingSegments = 48;         // rotation ring tessellation (around the circle)
+    private const int RingTubeSegments = 8;       // tube cross-section tessellation
+    private const int RingVertexCount = RingSegments * RingTubeSegments * 6;
+    private const float RingTubeRadiusPx = 3f;    // 6px thick ring tube, matching the shafts
 
     private readonly IGraphicsDevice _device;
     private readonly IBuffer _sceneBuffer;
@@ -397,13 +398,13 @@ public sealed class GizmoRenderer : IDisposable
         {
             var direction = gizmo.AxisDirection(axis);
             var ringDepth = Math.Max(1e-4f, Vector3.Dot(camera.Forward, origin - camera.Position));
-            var halfThickness = ScreenWorldSize(RingHalfThicknessPx, ringDepth, camera, height);
+            var tubeRadius = ScreenWorldSize(RingTubeRadiusPx, ringDepth, camera, height);
             _ringElements[(int)axis] = new GizmoWidgetElement
             {
                 Start = new Vector4(origin, 1f),
                 End = new Vector4(origin + direction, 1f),
                 Color = AxisStateColor(axis, hovered, active),
-                Sizes = new Vector4(2f, 0f, widgetScale, halfThickness),
+                Sizes = new Vector4(2f, 0f, widgetScale, tubeRadius),
                 Viewport = new Vector4(width, height, 0f, 0f)
             };
         }
@@ -533,13 +534,42 @@ public sealed class GizmoRenderer : IDisposable
         _ringElementsBuffer.Write(bytes);
     }
 
-    /// <summary>Writes one ring vertex: (cos, sin, innerOrOuter, 0).</summary>
-    private static void WriteRingVertex(float[] vertices, int offset, float angle, float innerOrOuter)
+    /// <summary>
+    /// Builds the rotation ring's vertices: a torus swept around the unit
+    /// circle, with a cross-section tube so the ring keeps a constant screen
+    /// thickness instead of collapsing to a hairline when viewed edge-on.
+    /// </summary>
+    internal static float[] BuildRingVertices()
     {
-        vertices[offset] = MathF.Cos(angle);
-        vertices[offset + 1] = MathF.Sin(angle);
-        vertices[offset + 2] = innerOrOuter;
-        vertices[offset + 3] = 0f;
+        var vertices = new float[RingVertexCount * 4];
+        for (var segment = 0; segment < RingSegments; segment++)
+        {
+            var ringAngle0 = segment * MathF.Tau / RingSegments;
+            var ringAngle1 = (segment + 1) * MathF.Tau / RingSegments;
+            for (var tube = 0; tube < RingTubeSegments; tube++)
+            {
+                var tubeAngle0 = tube * MathF.Tau / RingTubeSegments;
+                var tubeAngle1 = (tube + 1) * MathF.Tau / RingTubeSegments;
+                var offset = (segment * RingTubeSegments + tube) * 24;
+                // Tube cross-section quad between (θ,φ) corners: two triangles.
+                WriteRingVertex(vertices, offset, ringAngle0, tubeAngle0);
+                WriteRingVertex(vertices, offset + 4, ringAngle1, tubeAngle0);
+                WriteRingVertex(vertices, offset + 8, ringAngle0, tubeAngle1);
+                WriteRingVertex(vertices, offset + 12, ringAngle1, tubeAngle0);
+                WriteRingVertex(vertices, offset + 16, ringAngle0, tubeAngle1);
+                WriteRingVertex(vertices, offset + 20, ringAngle1, tubeAngle1);
+            }
+        }
+        return vertices;
+    }
+
+    /// <summary>Writes one ring vertex: (cosθ, sinθ, cosφ, sinφ) around the ring and tube.</summary>
+    private static void WriteRingVertex(float[] vertices, int offset, float ringAngle, float tubeAngle)
+    {
+        vertices[offset] = MathF.Cos(ringAngle);
+        vertices[offset + 1] = MathF.Sin(ringAngle);
+        vertices[offset + 2] = MathF.Cos(tubeAngle);
+        vertices[offset + 3] = MathF.Sin(tubeAngle);
     }
 
     private void AddSprite(ref int count, Vector3 position, Vector4 color, float halfSize, SpriteKind kind)
@@ -644,23 +674,11 @@ public sealed class GizmoRenderer : IDisposable
                 _coneVertexBuffer.Write(new ReadOnlySpan<byte>(data, coneVertices.Length * sizeof(float)));
         }
 
-        // Rotation ring: a quad strip swept around the unit circle. Each
-        // vertex is (cos, sin, innerOrOuter, 0); the shader expands it into a
-        // world-space annulus perpendicular to the element axis.
-        var ringVertices = new float[RingVertexCount * 4];
-        for (var segment = 0; segment < RingSegments; segment++)
-        {
-            var angle0 = segment * MathF.Tau / RingSegments;
-            var angle1 = (segment + 1) * MathF.Tau / RingSegments;
-            var offset = segment * 24;
-            // inner(-1) / outer(+1) quad: two triangles.
-            WriteRingVertex(ringVertices, offset, angle0, -1f);
-            WriteRingVertex(ringVertices, offset + 4, angle0, 1f);
-            WriteRingVertex(ringVertices, offset + 8, angle1, -1f);
-            WriteRingVertex(ringVertices, offset + 12, angle1, -1f);
-            WriteRingVertex(ringVertices, offset + 16, angle0, 1f);
-            WriteRingVertex(ringVertices, offset + 20, angle1, 1f);
-        }
+        // Rotation ring: a torus swept around the unit circle. Each vertex is
+        // (cosθ, sinθ, cosφ, sinφ) where θ walks the ring and φ walks the tube
+        // cross-section; the shader expands it into a world-space torus whose
+        // tube keeps a constant screen thickness even when viewed edge-on.
+        var ringVertices = BuildRingVertices();
         _ringVertexBuffer = CreateBuffer((ulong)(ringVertices.Length * sizeof(float)), BufferUsage.Vertex | BufferUsage.CopyDst);
         unsafe
         {

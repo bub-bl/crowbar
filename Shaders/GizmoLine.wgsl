@@ -8,7 +8,7 @@ struct GizmoWidgetElement {
     color: vec4<f32>,
     sizes: vec4<f32>,        // shaft: x = kind (0), y = half-width px;
                              // cone:  x = kind (1), z = length world, w = radius world
-                             // ring:  x = kind (2), z = radius world, w = half-thickness world
+                             // ring:  x = kind (2), z = ring radius world, w = tube radius world
     viewport: vec4<f32>,     // x = width, y = height in pixels
 };
 
@@ -17,7 +17,7 @@ struct GizmoWidgetElement {
 struct LineInput {
     // Shaft vertices: xy = (along, across), z/w unused.
     // Cone vertices: xy = unit-circle position, z = 0 on the base / 1 at apex.
-    // Ring vertices: xy = unit-circle position, z = inner(-1) / outer(+1).
+    // Ring vertices: xy = ring circle (cosθ, sinθ), zw = tube cross-section (cosφ, sinφ).
     @location(0) shape: vec4<f32>,
 };
 
@@ -66,9 +66,12 @@ fn vs_main(input: LineInput, @builtin(instance_index) instance: u32) -> LineOutp
                            + axis * (input.shape.z * element.sizes.z);
         out.clip_position = scene.proj * scene.view * vec4<f32>(worldPosition, 1.0);
     } else {
-        // The rotation ring is a world-space annulus in the plane perpendicular
-        // to the element axis. `end` only carries the axis direction; the radius
-        // and half-thickness come from `sizes` (z and w).
+        // The rotation ring is a torus: a screen-constant tube swept around
+        // the ring circle in the plane perpendicular to the axis. `end` only
+        // carries the axis direction; the ring radius and tube radius come from
+        // `sizes` (z and w). shape.xy = ring circle (cosθ, sinθ); shape.zw = tube
+        // cross-section (cosφ, sinφ), so the tube keeps its thickness even when
+        // the ring is viewed edge-on.
         let axis = normalize(element.end.xyz - element.start.xyz);
         var reference = vec3<f32>(0.0, 1.0, 0.0);
         if (abs(axis.y) > 0.99) {
@@ -76,10 +79,11 @@ fn vs_main(input: LineInput, @builtin(instance_index) instance: u32) -> LineOutp
         }
         let side = normalize(cross(axis, reference));
         let up = normalize(cross(axis, side));
+        let ringRadial = side * input.shape.x + up * input.shape.y;
         let radius = element.sizes.z + input.shape.z * element.sizes.w;
         let worldPosition = element.start.xyz
-                           + side * (input.shape.x * radius)
-                           + up * (input.shape.y * radius);
+                           + ringRadial * radius
+                           + axis * (input.shape.w * element.sizes.w);
         out.clip_position = scene.proj * scene.view * vec4<f32>(worldPosition, 1.0);
     }
 

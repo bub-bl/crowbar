@@ -23,6 +23,11 @@ public class GizmoShaderTests
         Assert.Contains("cross(axis, reference)", shader.Source);
         Assert.Contains("element.sizes.z", shader.Source);
 
+        // The rotation rings sweep a torus tube (axial component via shape.w),
+        // not a flat annulus that collapses to a hairline edge-on.
+        Assert.Contains("ringRadial", shader.Source);
+        Assert.Contains("input.shape.w", shader.Source);
+
         // A viewport overlay: no material struct, no textures.
         Assert.Empty(shader.MaterialFields);
     }
