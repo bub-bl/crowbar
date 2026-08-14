@@ -102,6 +102,14 @@ public sealed partial class UiSystem
     /// </summary>
     public bool KeyboardConsumed => FocusedPanel is TextInput;
 
+    /// <summary>
+    /// True when the most recent wheel event landed on an interactive UI
+    /// element (scrollable panel, button, input or any panel with a handler or
+    /// explicit cursor). The engine host reads this to keep the camera zoom
+    /// from reacting to wheel scrolls the UI owns.
+    /// </summary>
+    public bool WheelConsumed { get; private set; }
+
     public event Action<Panel, UiPointerEvent>? PointerMoved;
     public event Action<Panel, UiPointerEvent>? PointerDown;
     public event Action<Panel, UiPointerEvent>? PointerUp;
@@ -365,8 +373,14 @@ public sealed partial class UiSystem
 
     public void ProcessPointerWheel(float x, float y, float deltaX, float deltaY)
     {
-        if (PointerInputSuppressed) return;
+        if (PointerInputSuppressed)
+        {
+            // La scène possède le pointeur : la molette n'est pas de l'input UI.
+            WheelConsumed = false;
+            return;
+        }
         var hit = Screen.HitTest(x / Math.Max(0.01f, Screen.Scale), y / Math.Max(0.01f, Screen.Scale));
+        WheelConsumed = hit is not null && hit.IsEnabled && IsInteractiveHit(hit);
         if (hit is null) return;
         var wheel = new WheelEvent(deltaX, deltaY);
         PointerWheelChanged?.Invoke(hit, deltaX, deltaY);

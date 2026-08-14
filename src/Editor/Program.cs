@@ -213,6 +213,14 @@ internal sealed class DemoApplication : Application
     protected override bool CanMoveCamera() => !Ui.KeyboardConsumed;
 
     /// <summary>
+    /// La molette zoome la caméra seulement quand le curseur est dans le
+    /// viewport et hors UI : au-dessus d'un panneau scrollable ou d'un élément
+    /// interactif (toolbar, onglet), la molette reste à l'UI.
+    /// </summary>
+    protected override bool CanZoomCamera() =>
+        IsPointerInsideViewport() && !Ui.WheelConsumed;
+
+    /// <summary>
     /// Pendant l'orbite, la souris reste confinée dans le viewport : même
     /// masquée, elle ne doit pas glisser au-dessus des panneaux voisins (elle
     /// réapparaîtrait hors de la scène à la relâche). Le delta d'orbite reste

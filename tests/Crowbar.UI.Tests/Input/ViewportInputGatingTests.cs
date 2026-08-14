@@ -9,7 +9,8 @@ namespace Crowbar.UI.Tests.Input;
 /// viewport and the UI did not consume it (toolbar buttons, dock tabs,
 /// splitters, inputs). These tests pin the consumption contract the engine
 /// gates on (<see cref="UiSystem.PointerPressConsumed"/>,
-/// <see cref="UiSystem.KeyboardConsumed"/>).
+/// <see cref="UiSystem.KeyboardConsumed"/>,
+/// <see cref="UiSystem.WheelConsumed"/>).
 /// </summary>
 public class ViewportInputGatingTests
 {
@@ -78,5 +79,30 @@ public class ViewportInputGatingTests
 
         ui.ProcessPointerDown(button.Layout.X + 1, button.Layout.Y + 1);
         Assert.False(ui.KeyboardConsumed);
+    }
+
+    [Fact]
+    public void WheelOverViewportContentIsNotConsumed()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var rect = ui.SceneViewport!.Value;
+
+        // Centre du viewport, loin de la toolbar : la molette ici appartient à
+        // la scène (zoom caméra), pas à l'UI.
+        ui.ProcessPointerWheel(rect.X + rect.Width / 2, rect.Y + rect.Height / 2, 0, -1);
+
+        Assert.False(ui.WheelConsumed);
+    }
+
+    [Fact]
+    public void WheelOverViewportToolbarIsConsumed()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var btn = TestUi.Find(ui.Content!, p => p.Classes.Contains("vt-btn"));
+        Assert.NotNull(btn);
+
+        ui.ProcessPointerWheel(btn!.Layout.X + btn.Layout.Width / 2, btn.Layout.Y + btn.Layout.Height / 2, 0, -1);
+
+        Assert.True(ui.WheelConsumed);
     }
 }

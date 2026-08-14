@@ -165,6 +165,7 @@ public abstract class Application : IDisposable
         }
 
         LookWithMouse();
+        ZoomWithWheel();
 
         var movement = Vector3.Zero;
         if (CanMoveCamera())
@@ -307,6 +308,34 @@ public abstract class Application : IDisposable
     /// input must not fight the camera for the same keystrokes).
     /// </summary>
     protected virtual bool CanMoveCamera() => true;
+
+    private const float MinZoomDistance = 0.5f;
+
+    /// <summary>
+    /// Dollies the camera along its look direction from the mouse wheel. The
+    /// step scales with the camera's distance from the world origin (the
+    /// implicit focus point), so the zoom speed stays proportional to how far
+    /// the camera is: fine up close, fast far away, and it never crosses the
+    /// origin to flip the view.
+    /// </summary>
+    protected virtual void ZoomWithWheel()
+    {
+        var wheel = Mouse.Wheel.Y;
+        if (wheel == 0f || !CanZoomCamera())
+            return;
+        var distance = Math.Max(MinZoomDistance, Camera.Position.Length());
+        Camera.Position += Camera.Forward * (wheel * distance * ZoomSpeed);
+    }
+
+    /// <summary>Fraction of the focus distance dollied per wheel notch.</summary>
+    protected virtual float ZoomSpeed => 0.1f;
+
+    /// <summary>
+    /// True when the mouse wheel may zoom the camera. Subclasses confine it to
+    /// their viewport: only when the cursor is over the scene and not over UI
+    /// (a scrollable panel or an interactive element owns the wheel).
+    /// </summary>
+    protected virtual bool CanZoomCamera() => true;
 
     /// <summary>
     /// Binds the default movement actions to the keys producing Z, Q, S, D

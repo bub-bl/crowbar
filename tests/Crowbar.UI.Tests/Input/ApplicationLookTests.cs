@@ -167,6 +167,55 @@ public class ApplicationLookTests
         Assert.Null(source.LastCursorVisible); // ni restauré (rien à restaurer)
     }
 
+    [Fact]
+    public void WheelZoomsAlongForwardProportionallyToDistance()
+    {
+        using var app = new LookTestApp();
+        var source = app.Source;
+        var forward = app.TestCamera.Forward;
+
+        // Caméra proche de l'origine : petit pas.
+        app.TestCamera.Position = forward * 2f;
+        var start = app.TestCamera.Position;
+        source.Mouse = new MouseSnapshot { Wheel = new Vector2(0, 1) };
+        Input.Poll();
+        app.TickZoom();
+        var near = app.TestCamera.Position - start;
+        Assert.Equal(1f, Vector3.Dot(Vector3.Normalize(near), forward), precision: 3);
+
+        // Caméra loin : le pas grandit proportionnellement à la distance.
+        app.TestCamera.Position = forward * 8f;
+        start = app.TestCamera.Position;
+        source.Mouse = new MouseSnapshot { Wheel = new Vector2(0, 1) };
+        Input.Poll();
+        app.TickZoom();
+        var far = app.TestCamera.Position - start;
+        Assert.Equal(1f, Vector3.Dot(Vector3.Normalize(far), forward), precision: 3);
+
+        // Même facteur de zoom par unité de distance, et plus loin = plus vite.
+        Assert.Equal(near.Length() / 2f, far.Length() / 8f, precision: 4);
+        Assert.True(far.Length() > near.Length());
+    }
+
+    [Fact]
+    public void WheelDoesNotZoomWhenNotAllowedOrZero()
+    {
+        using var app = new LookTestApp { AllowZoom = false };
+        var source = app.Source;
+        var start = app.TestCamera.Position;
+
+        source.Mouse = new MouseSnapshot { Wheel = new Vector2(0, 1) };
+        Input.Poll();
+        app.TickZoom();
+        Assert.Equal(start, app.TestCamera.Position); // interdit : pas de zoom
+
+        app.AllowZoom = true;
+        source.Mouse = new MouseSnapshot { Wheel = Vector2.Zero };
+        Input.Poll();
+        app.TickZoom();
+        Assert.Equal(start, app.TestCamera.Position); // delta nul : pas de zoom
+    }
+
     private sealed class LookTestApp : Application
     {
         private readonly FakeInputSource _input = new();
@@ -179,16 +228,19 @@ public class ApplicationLookTests
         public FakeInputSource Source => _input;
         public bool AllowLook { get; set; } = true;
         public bool HideCursor { get; set; } = true;
+        public bool AllowZoom { get; set; } = true;
         public UiRect? LookClampRect { get; set; }
 
         protected override IPlatform CreatePlatform() => new FakePlatform(_input);
         protected override bool CanMouseLook() => AllowLook;
         protected override bool HideCursorWhileLooking => HideCursor;
         protected override UiRect? MouseLookClampRect => LookClampRect;
+        protected override bool CanZoomCamera() => AllowZoom;
 
         public Camera TestCamera => Camera;
         public UiSystem TestUi => Ui;
         public void TickLook() => LookWithMouse();
+        public void TickZoom() => ZoomWithWheel();
     }
 
     private sealed class FakePlatform : IPlatform
