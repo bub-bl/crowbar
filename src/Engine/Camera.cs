@@ -24,9 +24,9 @@ public sealed class Camera : TransformComponent
     {
         var position = new Vector3(4.24f, 3f, -4.24f);
         var rotation = RotationFromYawPitch(_yaw, _pitch);
-        // Métadonnées d'orbite cohérentes avec la vue de départ : le pivot est
-        // le point que la caméra regarde, à la distance initiale. Le contrôleur
-        // maintient ensuite Position == Pivot - Forward * Distance.
+        // Orbit metadata coherent with the starting view: the pivot is the
+        // point the camera looks at, at the initial distance. The controller
+        // then keeps Position == Pivot - Forward * Distance.
         Distance = position.Length();
         Pivot = position + rotation.Forward * Distance;
         Local = new Transform(position, rotation, Vector3.One);
@@ -44,14 +44,14 @@ public sealed class Camera : TransformComponent
     }
 
     /// <summary>
-    /// Point du monde autour duquel la caméra orbite (espace monde), piloté
-    /// par le contrôleur de caméra. Avec <see cref="Distance"/>, il définit la
-    /// sphère d'orbite : le contrôleur maintient
-    /// <c>Position == Pivot - Forward * Distance</c> après chaque contrôle.
+    /// World-space point the camera orbits around, driven by the camera
+    /// controller. With <see cref="Distance"/> it defines the orbit sphere:
+    /// the controller keeps
+    /// <c>Position == Pivot - Forward * Distance</c> after every control.
     /// </summary>
     public Vector3 Pivot { get; set; }
 
-    /// <summary>Distance entre la caméra et <see cref="Pivot"/> (rayon d'orbite).</summary>
+    /// <summary>Distance between the camera and <see cref="Pivot"/> (orbit radius).</summary>
     public float Distance { get; set; }
 
     /// <summary>Look yaw in radians (free-camera convention).</summary>

@@ -168,9 +168,9 @@ public abstract class Application : IDisposable
     {
         if (!Input.IsWindowFocused)
         {
-            // La fenêtre perd le focus en plein orbite : le bouton peut ne plus
-            // jamais remonter côté OS, donc on rend le curseur ici aussi pour
-            // ne pas le laisser masqué indéfiniment.
+            // The window loses focus mid-orbit: the button may never come
+            // back up on the OS side, so we also restore the cursor here so it
+            // is not left hidden indefinitely.
             RestoreCursorIfHidden();
             return;
         }
@@ -190,8 +190,8 @@ public abstract class Application : IDisposable
             if (Input.IsPressed("down")) movement -= Vector3.UnitY;
         }
 
-        // ZQSD/espace déplace le pivot (et donc la caméra avec lui) : c'est une
-        // translation du « rig » d'orbite, la distance au pivot est conservée.
+        // ZQSD/space moves the pivot (and therefore the camera with it): this
+        // is a translation of the orbit rig, the pivot distance is preserved.
         if (movement.LengthSquared() > 0f)
         {
             Camera.Pivot += Vector3.Normalize(movement) * (2.5f * delta);
@@ -218,25 +218,25 @@ public abstract class Application : IDisposable
         if (!_looking)
         {
             _looking = true;
-            // L'autorisation est tranchée à l'appui : un drag commencé sur
-            // l'UI (ou hors du viewport) ne commence jamais à orbiter, même
-            // si le curseur entre ensuite dans le viewport ; à l'inverse un
-            // drag engagé dans le viewport continue au-dessus des panneaux.
+            // The authorization is decided at the press: a drag started on
+            // the UI (or outside the viewport) never begins orbiting, even
+            // if the cursor then enters the viewport; conversely, a drag
+            // engaged inside the viewport continues over the panels.
             _lookAllowed = CanMouseLook();
             if (!_lookAllowed)
                 return;
-            // L'orbite cache le curseur OS pour la durée du drag.
+            // The orbit hides the OS cursor for the duration of the drag.
             if (HideCursorWhileLooking && !_cursorHidden)
             {
                 Mouse.SetCursorVisible(false);
                 _cursorHidden = true;
             }
-            // L'UI est mise en veille pour toute la session : plus aucun
-            // survol, tooltip, curseur ou clic ne peut atteindre les panneaux,
-            // même ceux qui flottent dans le viewport (toolbar, onglets).
+            // The UI is put to sleep for the whole session: no more hover,
+            // tooltip, cursor or click can reach the panels, even those
+            // floating inside the viewport (toolbar, tabs).
             _pointerModal = Ui.EnterModal();
-            // Point de référence du drag : confiné au rect (normalement no-op,
-            // un appui autorisé est déjà dans le viewport).
+            // Drag reference point: confined to the rect (normally a no-op,
+            // an authorized press is already inside the viewport).
             position = ConfineLookCursor(position);
             _lastLookX = position.X;
             _lastLookY = position.Y;
@@ -246,19 +246,19 @@ public abstract class Application : IDisposable
         if (!_lookAllowed)
             return;
 
-        // Le delta est mesuré sur le mouvement brut de la souris, comme avant :
-        // l'orbite reste illimitée même quand le curseur atteint le bord du
-        // viewport. Puis la position affichée (dernière + delta) est confinée
-        // dans le rect : le curseur OS est ramené dans le viewport s'il en
-        // sortirait, sans jamais tronquer le delta d'orbite.
+        // The delta is measured on the raw mouse movement, as before: the
+        // orbit stays unlimited even when the cursor reaches the viewport
+        // edge. Then the displayed position (last + delta) is confined to the
+        // rect: the OS cursor is brought back into the viewport if it would
+        // leave it, without ever truncating the orbit delta.
         var deltaX = position.X - _lastLookX;
         var deltaY = position.Y - _lastLookY;
         Camera.Yaw += deltaX * 0.003f;
         Camera.Pitch = Math.Clamp(Camera.Pitch - deltaY * 0.003f, -1.45f, 1.45f);
-        // L'orientation a changé : en freemode la caméra tourne sur place (la
-        // position reste fixe, le pivot suit l'axe de visée) ; en mode orbite
-        // elle se replace sur la sphère autour du pivot fixe. La distance est
-        // conservée dans les deux cas.
+        // The orientation changed: in freemode the camera rotates in place
+        // (its position stays fixed, the pivot follows the view axis); in
+        // orbit mode it moves back onto the sphere around the fixed pivot.
+        // The distance is preserved in both cases.
         if (FreeLook)
             SyncFreeLookPivot();
         else
@@ -287,7 +287,7 @@ public abstract class Application : IDisposable
         if (!_panning)
         {
             _panning = true;
-            // Comme l'orbite : la décision est tranchée à l'appui.
+            // Like the orbit: the decision is made at the press.
             _panAllowed = CanPan();
             if (!_panAllowed)
                 return;
@@ -302,8 +302,8 @@ public abstract class Application : IDisposable
 
         var deltaX = position.X - _lastPanX;
         var deltaY = position.Y - _lastPanY;
-        // Attraper la scène : tirer vers la droite déplace le pivot vers la
-        // gauche, tirer vers le bas le déplace vers le haut.
+        // Grabbing the scene: dragging right moves the pivot left, dragging
+        // down moves it up.
         var scale = Camera.Distance * PanSpeed;
         Camera.Pivot += (-Camera.Right * deltaX + Camera.Up * deltaY) * scale;
         SyncOrbitPosition();
@@ -312,24 +312,24 @@ public abstract class Application : IDisposable
     }
 
     /// <summary>
-    /// Remet la caméra sur sa sphère d'orbite :
-    /// <c>Position = Pivot - Forward * Distance</c>. Appelée après chaque
-    /// changement d'orientation, de pivot ou de distance.
+    /// Puts the camera back on its orbit sphere:
+    /// <c>Position = Pivot - Forward * Distance</c>. Called after every
+    /// change of orientation, pivot or distance.
     /// </summary>
     private void SyncOrbitPosition() =>
         Camera.Position = Camera.Pivot - Camera.Forward * Camera.Distance;
 
     /// <summary>
-    /// Free camera : la rotation se fait autour de la caméra elle-même (sa
-    /// position reste fixe), donc le pivot est recalculé sur l'axe de visée à
-    /// la distance courante (<c>Pivot = Position + Forward * Distance</c>).
-    /// L'invariant <c>Position == Pivot - Forward * Distance</c> reste vrai,
-    /// ce qui garde pan/zoom/dolly cohérents avec le mode orbite.
+    /// Free camera: the rotation happens around the camera itself (its
+    /// position stays fixed), so the pivot is recomputed on the view axis at
+    /// the current distance (<c>Pivot = Position + Forward * Distance</c>).
+    /// The invariant <c>Position == Pivot - Forward * Distance</c> still
+    /// holds, which keeps pan/zoom/dolly coherent with the orbit mode.
     /// </summary>
     private void SyncFreeLookPivot() =>
         Camera.Pivot = Camera.Position + Camera.Forward * Camera.Distance;
 
-    /// <summary>Rend le curseur OS à l'UI s'il avait été masqué par l'orbite.</summary>
+    /// <summary>Restores the OS cursor to the UI if it was hidden by the orbit.</summary>
     private void RestoreCursorIfHidden()
     {
         if (!_cursorHidden)
@@ -338,14 +338,14 @@ public abstract class Application : IDisposable
         _cursorHidden = false;
     }
 
-    /// <summary>Ferme la session modale de pointeur ouverte par l'orbite, s'il y en a une.</summary>
+    /// <summary>Closes the pointer modal session opened by the orbit, if any.</summary>
     private void ReleasePointerModal()
     {
         _pointerModal?.Dispose();
         _pointerModal = null;
     }
 
-    /// <summary>Ferme la session modale de pointeur ouverte par le pan, s'il y en a une.</summary>
+    /// <summary>Closes the pointer modal session opened by the pan, if any.</summary>
     private void ReleasePanModal()
     {
         _panModal?.Dispose();
@@ -353,12 +353,13 @@ public abstract class Application : IDisposable
     }
 
     /// <summary>
-    /// Confine la position affichée du curseur dans
-    /// <see cref="MouseLookClampRect"/> : s'il en sortirait, il est ramené au
-    /// bord côté OS (warp) et la position renvoyée sert de référence au
-    /// prochain delta. Le delta d'orbite, lui, est mesuré sur le mouvement
-    /// brut avant ce confinement : pousser contre un bord continue de tourner
-    /// pendant que le curseur reste coincé dans le viewport.
+    /// Confines the displayed cursor position into
+    /// <see cref="MouseLookClampRect"/>: if it would leave it, the cursor is
+    /// brought back to the edge on the OS side (warp) and the returned
+    /// position serves as the reference for the next delta. The orbit delta,
+    /// on the other hand, is measured on the raw movement before this
+    /// confinement: pushing against an edge keeps turning while the cursor
+    /// stays stuck inside the viewport.
     /// </summary>
     private Vector2 ConfineLookCursor(Vector2 position)
     {
@@ -396,10 +397,10 @@ public abstract class Application : IDisposable
     protected virtual bool HideCursorWhileLooking => true;
 
     /// <summary>
-    /// Rectangle (pixels fenêtre, origine en haut à gauche) dans lequel le
-    /// curseur est confiné pour la durée d'une session d'orbite, ou null pour
-    /// le laisser libre. L'éditeur le borne au viewport docké : la souris ne
-    /// peut pas sortir de la scène pendant un drag, même masquée.
+    /// Rectangle (window pixels, origin top-left) in which the cursor is
+    /// confined for the duration of an orbit session, or null to leave it
+    /// free. The editor bounds it to the docked viewport: the mouse cannot
+    /// leave the scene during a drag, even hidden.
     /// </summary>
     protected virtual UiRect? MouseLookClampRect => null;
 

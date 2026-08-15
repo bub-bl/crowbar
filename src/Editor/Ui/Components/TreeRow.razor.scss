@@ -1,8 +1,8 @@
 @use '../_editor-theme' as *;
 
-// La racine du composant est l'élément flex de la liste .tree : elle doit
-// garder la hauteur de son contenu (20px) quand le panneau rétrécit, sinon le
-// texte des lignes s'écrase sur lui-même au lieu de faire défiler la liste.
+// The component root is the flex item of the .tree list: it must
+// keep its content height (20px) when the panel shrinks, otherwise the
+// row text crushes onto itself instead of scrolling the list.
 root {
     flex-shrink: 0;
 }
@@ -10,8 +10,8 @@ root {
 .tree-row {
     width: 100%;
     min-width: 0;
-    // La ligne garde sa hauteur quand le panneau rétrécit : c'est le conteneur
-    // .tree (overflow: auto) qui défile, pas les lignes qui s'écrasent.
+    // The row keeps its height when the panel shrinks: the .tree container
+    // (overflow: auto) scrolls, the rows do not crush.
     flex-shrink: 0;
     height: 20px;
     color: $text;

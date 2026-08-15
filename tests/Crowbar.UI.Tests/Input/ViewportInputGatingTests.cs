@@ -20,8 +20,8 @@ public class ViewportInputGatingTests
         using var ui = EditorPageCompositionTests.CreateEditorUi();
         var rect = ui.SceneViewport!.Value;
 
-        // Centre du viewport, loin de la toolbar (haut du panneau) : un appui
-        // droit ici doit rester de l'input scène (orbite), pas de l'input UI.
+        // Center of the viewport, away from the toolbar (top of the panel): a
+        // right press here must remain scene input (orbit), not UI input.
         ui.ProcessPointerDown(rect.X + rect.Width / 2, rect.Y + rect.Height / 2, button: 1);
 
         Assert.False(ui.PointerPressConsumed);
@@ -67,7 +67,7 @@ public class ViewportInputGatingTests
         ui.ProcessPointerDown(edit.Layout.X + 1, edit.Layout.Y + 1);
         Assert.True(ui.KeyboardConsumed);
 
-        // Un focus ailleurs (bouton simple) rend le clavier à l'hôte.
+        // Focusing elsewhere (a plain button) returns the keyboard to the host.
         var button = new Button("Click");
         button.SetInlineStyle("width", "80px");
         button.SetInlineStyle("height", "32px");
@@ -87,8 +87,8 @@ public class ViewportInputGatingTests
         using var ui = EditorPageCompositionTests.CreateEditorUi();
         var rect = ui.SceneViewport!.Value;
 
-        // Centre du viewport, loin de la toolbar : la molette ici appartient à
-        // la scène (zoom caméra), pas à l'UI.
+        // Center of the viewport, away from the toolbar: the wheel here
+        // belongs to the scene (camera zoom), not the UI.
         ui.ProcessPointerWheel(rect.X + rect.Width / 2, rect.Y + rect.Height / 2, 0, -1);
 
         Assert.False(ui.WheelConsumed);

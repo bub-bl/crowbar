@@ -2,8 +2,8 @@
 
 .search {
     align-self: stretch;
-    // La barre garde sa hauteur quand le panneau rétrécit verticalement :
-    // c'est le conteneur (arbre, liste) qui défile, pas la barre qui s'écrase.
+    // The bar keeps its height when the panel shrinks vertically:
+    // the container (tree, list) scrolls, the bar does not crush.
     flex-shrink: 0;
     height: 26px;
     margin: 8px 8px 6px 8px;

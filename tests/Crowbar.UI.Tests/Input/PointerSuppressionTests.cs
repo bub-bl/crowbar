@@ -36,12 +36,12 @@ public class PointerSuppressionTests
         var bx = button.Layout.X + 1;
         var by = button.Layout.Y + 1;
 
-        // Survol de référence : hors session modale, le pointeur fonctionne.
+        // Reference hover: outside a modal session, the pointer works.
         ui.ProcessPointerMove(bx, by);
         Assert.True(button.IsHovered);
 
-        // L'ouverture d'une session modale gèle l'UI et remet l'état à zéro ;
-        // ensuite aucun événement ne traverse, ni survol, ni clic, ni molette.
+        // Opening a modal session freezes the UI and resets the state;
+        // afterwards no event gets through: no hover, no click, no wheel.
         var modal = ui.EnterModal();
         Assert.False(button.IsHovered);
 
@@ -60,7 +60,7 @@ public class PointerSuppressionTests
         ui.ProcessPointerWheel(bx, by, 0, -10);
         Assert.Equal(0, wheeled);
 
-        // Fermeture de la session : le pointeur revient à la vie.
+        // Closing the session: the pointer comes back to life.
         modal.Dispose();
         ui.ProcessPointerMove(bx, by);
         Assert.True(button.IsHovered);
@@ -82,12 +82,12 @@ public class PointerSuppressionTests
         var inner = ui.EnterModal();
         Assert.True(ui.PointerInputSuppressed);
 
-        // Fermer la session intérieure ne rend pas le pointeur : l'extérieure
-        // reste ouverte.
+        // Closing the inner session does not release the pointer: the outer
+        // one stays open.
         inner.Dispose();
         Assert.True(ui.PointerInputSuppressed);
 
-        // Un double dispose est sans effet : chaque handle ne libère qu'une fois.
+        // A double dispose has no effect: each handle releases only once.
         outer.Dispose();
         outer.Dispose();
         Assert.False(ui.PointerInputSuppressed);

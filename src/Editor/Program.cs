@@ -27,13 +27,13 @@ internal sealed class DemoApplication : Application
 
     protected override void OnInitialize()
     {
-        // Le snapping du gizmo de translation suit la taille de cellule de la grille.
+        // The translation gizmo snap follows the grid cell size.
         if (Renderer is { } renderer)
             renderer.Gizmos.SnapSize = renderer.Grid.CellSize;
 
-        // Scène de démonstration : un level avec une lumière directionnelle
-        // (key), une lumière ponctuelle (fill) et deux cubes rendus par des
-        // MeshRenderer via le système de monde (World).
+        // Demo scene: a level with a directional light (key), a point light
+        // (fill) and two cubes rendered by MeshRenderers through the world
+        // system (World).
         var level = World.CreateLevel("Demo");
 
         var sun = level.SpawnEntity("Sun");
@@ -69,8 +69,8 @@ internal sealed class DemoApplication : Application
             Rotation.FromYaw(30f) * Rotation.FromPitch(15f),
             Vector3.One);
 
-        // Un second cube plus petit, shader Unlit (3 lignes grâce aux
-        // includes) : prouve la réutilisabilité de l'API shaders.
+        // A second, smaller cube with the Unlit shader (3 lines thanks to the
+        // includes): proves the shader API is reusable.
         var accent = level.SpawnEntity("Accent");
         var accentMesh = accent.AddComponent<MeshRenderer>();
         accentMesh.Model = Model.CreateCube();
@@ -81,8 +81,8 @@ internal sealed class DemoApplication : Application
             Rotation.FromYaw(-20f) * Rotation.FromPitch(10f),
             new Vector3(0.5f));
 
-        // Un dernier cube sans material : il prend le material par défaut
-        // (Mesh.wgsl), le chemin de repli du renderer.
+        // A last cube without a material: it picks up the default material
+        // (Mesh.wgsl), the renderer's fallback path.
         var fallback = level.SpawnEntity("DefaultCube");
         var fallbackMesh = fallback.AddComponent<MeshRenderer>();
         fallbackMesh.Model = Model.CreateCube();
@@ -94,20 +94,20 @@ internal sealed class DemoApplication : Application
         World.Start();
         Console.WriteLine($"World: {level.Entities.Count} entité(s) dans le level '{level.Name}'.");
 
-        // Sélection initiale : le cube principal, pour montrer le widget.
+        // Initial selection: the main cube, to show the widget.
         Renderer?.Gizmos.Selection = cube;
 
-        // Publie la hiérarchie réelle du monde pour le panneau Explorateur :
-        // la page la lit via EditorExplorerState à chaque rendu.
+        // Publish the real world hierarchy for the Explorer panel: the page
+        // reads it through EditorExplorerState on every render.
         ExplorerTreeBuilder.Publish(World, Renderer?.Gizmos.Selection);
 
-        // Enregistrement automatique de tout le dossier Ui/ : les fichiers avec
-        // @page deviennent des pages routables, les autres des composants.
+        // Automatic registration of the whole Ui/ folder: files with @page
+        // become routable pages, the others become components.
         var uiDirectory = ResolveUiDirectory("");
         var registeredCount = Ui.RegisterRazorComponentsFromDirectory(uiDirectory);
         Console.WriteLine($"Razor UI: registered {registeredCount} file(s) from {uiDirectory}");
-        // Pré-compilation parallèle : le premier rendu (Navigate) ne fait plus
-        // que des cache hits. Mesuré pour valider les gains.
+        // Parallel precompilation: the first render (Navigate) is only cache
+        // hits. Timed to validate the gains.
         var precompileWatch = Stopwatch.StartNew();
         Ui.PrecompileAll();
         Console.WriteLine($"Razor UI: precompiled in {precompileWatch.ElapsedMilliseconds} ms");
@@ -117,9 +117,9 @@ internal sealed class DemoApplication : Application
         Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
         Ui.WatchDirectory(uiDirectory);
 
-        // Gamemode de démo : le dossier Game/ est compilé par un ScriptHost et
-        // rechargé à chaud à chaque édition (fast path IL si seuls les corps de
-        // méthodes changent, sinon full reload avec migration d'état).
+        // Demo gamemode: the Game/ folder is compiled by a ScriptHost and
+        // hot-reloaded on every edit (IL fast path when only method bodies
+        // change, otherwise a full reload with state migration).
         _scriptHost = new ScriptHost();
         _scriptHost.Reloaded += OnScriptReloaded;
         _scriptHost.ReloadFailed += OnScriptReloadFailed;
@@ -140,10 +140,10 @@ internal sealed class DemoApplication : Application
     }
 
     /// <summary>
-    /// Pilote les gizmos du viewport : le clic gauche sélectionne l'entité sous
-    /// le curseur (rayon CPU contre les AABB des mesh renderers), puis le drag
-    /// sur un axe du widget déplace l'entité le long de cet axe, avec snapping
-    /// à la grille. Le clic droit garde son rôle d'orbite caméra.
+    /// Drives the viewport gizmos: left-click selects the entity under the
+    /// cursor (CPU ray against the mesh renderers' AABBs), then dragging a
+    /// widget axis moves the entity along that axis with grid snapping. The
+    /// right button keeps its camera-orbit role.
     /// </summary>
     protected override void OnUpdate(float deltaTime)
     {
@@ -157,16 +157,16 @@ internal sealed class DemoApplication : Application
         // so native/GPU allocations are included as well.
         UiDiagnostics.UsedMemoryBytes = Environment.WorkingSet;
         UiDiagnostics.TotalMemoryBytes = GC.GetGCMemoryInfo().TotalAvailableMemoryBytes;
-        UiDiagnostics.PingMs = 15f; // démo : pas encore de réseau
+        UiDiagnostics.PingMs = 15f; // demo: no networking yet
 
-        // Script host : applique les hot reloads détectés et nettoie les toasts.
+        // Script host: applies detected hot reloads and prunes the toasts.
         _scriptHost?.Update();
         UiNotifications.PruneExpired();
         UiDiagnostics.ScriptStatus = DescribeGamemode();
 
-        // Sélection demandée depuis l'Explorateur (UI → host) : appliquée aux
-        // gizmos du viewport, puis la hiérarchie réelle est republiée pour que
-        // le panneau reflète l'état courant (niveaux, entités, attachements).
+        // Selection requested from the Explorer (UI → host): applied to the
+        // viewport gizmos, then the real hierarchy is republished so the panel
+        // reflects the current state (levels, entities, attachments).
         if (EditorExplorerState.ConsumeRequestedSelection() is { } requestedId &&
             World.FindEntity(requestedId) is { } requested)
             Renderer?.Gizmos.Selection = requested;
@@ -176,8 +176,8 @@ internal sealed class DemoApplication : Application
         if (renderer is null)
             return;
 
-        // L'outil de gizmo choisi dans la toolbar du viewport est appliqué ici,
-        // chaque frame : le rendu et l'interaction suivent le même mode.
+        // The gizmo tool chosen in the viewport toolbar is applied here every
+        // frame: rendering and interaction follow the same mode.
         renderer.Gizmos.Mode = GizmoToolState.Mode switch
         {
             1 => GizmoMode.Rotate,
@@ -185,11 +185,11 @@ internal sealed class DemoApplication : Application
             _ => GizmoMode.Translate
         };
 
-        // La scène 3D est rendue dans le viewport docké (pas dans toute la
-        // fenêtre) : le DockArea publie son rectangle via Ui.SceneViewport, et
-        // on le donne au renderer, qui ajuste l'aspect de la caméra et limite
-        // la scène à ce rectangle. Avant le premier layout, on retombe sur
-        // toute la fenêtre.
+        // The 3D scene is rendered in the docked viewport (not the whole
+        // window): the DockArea publishes its rectangle through
+        // Ui.SceneViewport, and we hand it to the renderer, which adjusts the
+        // camera aspect and clips the scene to that rectangle. Before the
+        // first layout, it falls back to the whole window.
         var viewport = Ui.SceneViewport;
         renderer.SetSceneViewport(viewport);
 
@@ -200,26 +200,26 @@ internal sealed class DemoApplication : Application
         var localMouse = mouse - new Vector2(rect.X, rect.Y);
         var insideViewport = IsPointerInsideViewport();
 
-        // Un clic consommé par l'UI (bouton, onglet, saisie, scrollbar) ne doit
-        // ni commencer un drag de gizmo, ni sélectionner la scène en dessous.
-        // Un drag déjà engagé continue même si le curseur passe sur l'UI.
+        // A click consumed by the UI (button, tab, input, scrollbar) must
+        // neither start a gizmo drag nor select the scene underneath. A drag
+        // already engaged continues even if the cursor moves over the UI.
         var matrices = CameraMatrices.Compute(Camera, width, height);
         if (!Ui.PointerPressConsumed || renderer.Gizmos.IsDragging)
             renderer.Gizmos.UpdateInteraction(matrices, localMouse, Mouse.IsDown(MouseButton.Left));
 
-        // Sélectionne au clic gauche uniquement si le clic n'a pas commencé un
-        // drag de gizmo (sinon déplacer l'entité re-sélectionnerait la scène),
-        // uniquement dans le viewport, et pas quand l'UI a consommé le clic.
+        // Selects on left-click only when the click did not start a gizmo drag
+        // (otherwise moving the entity would re-select the scene), only inside
+        // the viewport, and not when the UI consumed the click.
         if (insideViewport && !Ui.PointerPressConsumed && Mouse.WasPressed(MouseButton.Left) && !renderer.Gizmos.IsDragging)
             renderer.Gizmos.Selection = renderer.Gizmos.Pick(World, matrices, localMouse);
     }
 
     /// <summary>
-    /// L'orbite caméra ne démarre que si l'appui droit commence dans le
-    /// viewport et n'est pas consommé par l'UI (bouton de toolbar, onglet,
-    /// saisie, scrollbar, overlay). La décision est prise à l'appui : un drag
-    /// engagé dans le viewport continue même si le curseur passe sur un
-    /// panneau, et un appui sur l'UI n'orbite jamais.
+    /// The camera orbit only starts when the right press begins inside the
+    /// viewport and is not consumed by the UI (toolbar button, tab, input,
+    /// scrollbar, overlay). The decision is made at press time: a drag
+    /// engaged in the viewport continues even if the cursor moves over a
+    /// panel, and a press on the UI never orbits.
     /// </summary>
     protected override bool CanMouseLook()
     {
@@ -229,37 +229,37 @@ internal sealed class DemoApplication : Application
     }
 
     /// <summary>
-    /// Pendant la saisie dans un champ (TextInput), les touches ZQSD/espace
-    /// reviennent au champ : la caméra ne doit pas bouger en même temps.
+    /// While typing in a field (TextInput), the ZQSD/space keys go back to
+    /// the field: the camera must not move at the same time.
     /// </summary>
     protected override bool CanMoveCamera() => !Ui.KeyboardConsumed;
 
     /// <summary>
-    /// La molette zoome la caméra seulement quand le curseur est dans le
-    /// viewport et hors UI : au-dessus d'un panneau scrollable ou d'un élément
-    /// interactif (toolbar, onglet), la molette reste à l'UI.
+    /// The wheel zooms the camera only when the cursor is inside the viewport
+    /// and off the UI: over a scrollable panel or an interactive element
+    /// (toolbar, tab), the wheel stays with the UI.
     /// </summary>
     protected override bool CanZoomCamera() =>
         IsPointerInsideViewport() && !Ui.WheelConsumed;
 
     /// <summary>
-    /// Le pan (molette du milieu) ne démarre que dans le viewport et hors UI,
-    /// comme l'orbite : un appui sur un panneau ne déplace jamais la scène.
+    /// Pan (middle mouse) only starts inside the viewport and off the UI,
+    /// like the orbit: a press on a panel never moves the scene.
     /// </summary>
     protected override bool CanPan() =>
         IsPointerInsideViewport() && !Ui.PointerPressConsumed;
 
     /// <summary>
-    /// Pendant l'orbite, la souris reste confinée dans le viewport : même
-    /// masquée, elle ne doit pas glisser au-dessus des panneaux voisins (elle
-    /// réapparaîtrait hors de la scène à la relâche). Le delta d'orbite reste
-    /// illimité (mesuré avant le confinement) : pousser contre un bord
-    /// continue de tourner, seul le curseur est retenu dans la scène.
+    /// While orbiting, the mouse stays confined inside the viewport: even
+    /// hidden, it must not slide over the neighbouring panels (it would
+    /// reappear off-scene on release). The orbit delta stays unlimited
+    /// (measured before the confinement): pushing against an edge keeps
+    /// rotating, only the cursor is held inside the scene.
     /// </summary>
     protected override UiRect? MouseLookClampRect =>
         Ui.SceneViewport ?? new UiRect(0, 0, ViewportWidth, ViewportHeight);
 
-    /// <summary>True quand le curseur est dans le rectangle du viewport docké (toute la fenêtre avant le premier layout).</summary>
+    /// <summary>True when the cursor is inside the docked viewport rectangle (the whole window before the first layout).</summary>
     private bool IsPointerInsideViewport()
     {
         var rect = Ui.SceneViewport ?? new UiRect(0, 0, ViewportWidth, ViewportHeight);
@@ -316,7 +316,7 @@ internal sealed class DemoApplication : Application
 
     private static string ResolveGameDirectory()
     {
-        // src/Editor/bin/Debug/net11.0 + 5× .. = racine du repo (dossier Game/).
+        // src/Editor/bin/Debug/net11.0 + 5× .. = repo root (the Game/ folder).
         var outputPath = Path.Combine(AppContext.BaseDirectory, "Game");
         var sourcePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Game"));
         return Directory.Exists(sourcePath) ? sourcePath : outputPath;
@@ -334,9 +334,10 @@ internal sealed class DemoApplication : Application
 }
 
 /// <summary>
-/// Maintient la référence au gamemode de démo côté éditeur : le ScriptHost
-/// migre le champ Current à chaque full reload (comme un objet moteur), donc
-/// l'éditeur observe toujours la dernière génération sans se ré-attacher.
+/// Keeps the reference to the demo gamemode on the editor side: the
+/// ScriptHost migrates the Current field on every full reload (like an engine
+/// object), so the editor always observes the latest generation without
+/// re-attaching.
 /// </summary>
 internal sealed class GamemodeHolder
 {

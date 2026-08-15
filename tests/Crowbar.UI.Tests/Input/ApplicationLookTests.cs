@@ -28,22 +28,22 @@ public class ApplicationLookTests
         var source = app.Source;
 
         app.TickLook();
-        Assert.Null(source.LastCursorVisible); // rien de pressé : pas touché
+        Assert.Null(source.LastCursorVisible); // nothing pressed: untouched
 
         source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = RightDown };
         Input.Poll();
-        app.TickLook(); // l'orbite démarre : le curseur est masqué
+        app.TickLook(); // the orbit starts: the cursor is hidden
         Assert.False(source.LastCursorVisible);
 
         source.Mouse = source.Mouse with { Position = new Vector2(140, 100) };
         Input.Poll();
-        app.TickLook(); // toujours maintenu : toujours masqué, et la caméra tourne
+        app.TickLook(); // still held: still hidden, and the camera rotates
         Assert.False(source.LastCursorVisible);
         Assert.NotEqual(0, app.TestCamera.Yaw);
 
         source.Mouse = source.Mouse with { Buttons = 0 };
         Input.Poll();
-        app.TickLook(); // relâché : le curseur revient
+        app.TickLook(); // released: the cursor comes back
         Assert.True(source.LastCursorVisible);
     }
 
@@ -61,7 +61,7 @@ public class ApplicationLookTests
         Assert.Null(source.LastCursorVisible);
         Assert.Equal(yawBefore, app.TestCamera.Yaw);
 
-        // Relâché : toujours rien à restaurer.
+        // Released: still nothing to restore.
         source.Mouse = source.Mouse with { Buttons = 0 };
         Input.Poll();
         app.TickLook();
@@ -75,32 +75,32 @@ public class ApplicationLookTests
         var source = app.Source;
         var yawBefore = app.TestCamera.Yaw;
 
-        // L'orbite démarre à l'intérieur du rect : pas de warp.
+        // The orbit starts inside the rect: no warp.
         source.Mouse = new MouseSnapshot { Position = new Vector2(150, 150), Buttons = RightDown };
         Input.Poll();
         app.TickLook();
         Assert.False(source.LastCursorVisible);
         Assert.Null(source.LastWarp);
 
-        // Le mouvement brut est compté en entier (orbite illimitée comme
-        // avant : 250 px), et le curseur affiché est ramené au bord du rect
-        // (300 = X+W, Y+H) au lieu de déborder dans l'UI.
+        // The raw movement is counted in full (unlimited orbit as before:
+        // 250 px), and the displayed cursor is brought back to the rect edge
+        // (300 = X+W, Y+H) instead of overflowing into the UI.
         source.Mouse = source.Mouse with { Position = new Vector2(400, 400) };
         Input.Poll();
         app.TickLook();
         Assert.Equal(250 * 0.003f, app.TestCamera.Yaw - yawBefore, precision: 4);
         Assert.Equal(new Vector2(300, 300), source.LastWarp);
 
-        // Le drag continue après le bord : le delta est mesuré depuis la
-        // position affichée retenue (300), donc la rotation poursuit au même
-        // rythme et le curseur reste coincé au bord.
+        // The drag continues past the edge: the delta is measured from the
+        // retained displayed position (300), so the rotation keeps the same
+        // pace and the cursor stays stuck at the edge.
         source.Mouse = source.Mouse with { Position = new Vector2(450, 450) };
         Input.Poll();
         app.TickLook();
         Assert.Equal((250 + 150) * 0.003f, app.TestCamera.Yaw - yawBefore, precision: 4);
         Assert.Equal(new Vector2(300, 300), source.LastWarp);
 
-        // Relâché : le curseur réapparaît là où il a été retenu, dans le rect.
+        // Released: the cursor reappears where it was held, inside the rect.
         source.Mouse = source.Mouse with { Buttons = 0 };
         Input.Poll();
         app.TickLook();
@@ -118,17 +118,17 @@ public class ApplicationLookTests
 
         source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = RightDown };
         Input.Poll();
-        app.TickLook(); // l'orbite démarre : l'UI est mise en veille
+        app.TickLook(); // the orbit starts: the UI is put to sleep
         Assert.True(app.TestUi.PointerInputSuppressed);
 
         source.Mouse = source.Mouse with { Position = new Vector2(140, 100) };
         Input.Poll();
-        app.TickLook(); // toujours maintenu : toujours en veille
+        app.TickLook(); // still held: still asleep
         Assert.True(app.TestUi.PointerInputSuppressed);
 
         source.Mouse = source.Mouse with { Buttons = 0 };
         Input.Poll();
-        app.TickLook(); // relâché : l'UI revient à la vie
+        app.TickLook(); // released: the UI comes back to life
         Assert.False(app.TestUi.PointerInputSuppressed);
     }
 
@@ -143,7 +143,7 @@ public class ApplicationLookTests
         app.TickLook();
         Assert.False(app.TestUi.PointerInputSuppressed);
 
-        // Relâché : toujours rien à restaurer ni à débloquer.
+        // Released: still nothing to restore or unlock.
         source.Mouse = source.Mouse with { Buttons = 0 };
         Input.Poll();
         app.TickLook();
@@ -159,12 +159,12 @@ public class ApplicationLookTests
         source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = RightDown };
         Input.Poll();
         app.TickLook();
-        Assert.Null(source.LastCursorVisible); // jamais masqué
+        Assert.Null(source.LastCursorVisible); // never hidden
 
         source.Mouse = source.Mouse with { Buttons = 0 };
         Input.Poll();
         app.TickLook();
-        Assert.Null(source.LastCursorVisible); // ni restauré (rien à restaurer)
+        Assert.Null(source.LastCursorVisible); // nor restored (nothing to restore)
     }
 
     [Fact]
@@ -178,16 +178,16 @@ public class ApplicationLookTests
 
         source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = RightDown };
         Input.Poll();
-        app.TickLook(); // démarre le look
+        app.TickLook(); // starts the look
 
         source.Mouse = source.Mouse with { Position = new Vector2(160, 100) };
         Input.Poll();
-        app.TickLook(); // tourne sur place
+        app.TickLook(); // rotates in place
 
         Assert.NotEqual(yawBefore, app.TestCamera.Yaw);
-        Assert.Equal(position, app.TestCamera.Position); // la position ne bouge pas
-        Assert.Equal(distance, app.TestCamera.Distance); // la distance est conservée
-        // Le pivot suit l'axe de visée : plus de rotation autour d'un point fixe.
+        Assert.Equal(position, app.TestCamera.Position); // the position does not move
+        Assert.Equal(distance, app.TestCamera.Distance); // the distance is preserved
+        // The pivot follows the view axis: no more rotation around a fixed point.
         Assert.Equal(distance, Vector3.Distance(app.TestCamera.Position, app.TestCamera.Pivot), precision: 4);
     }
 
@@ -202,15 +202,15 @@ public class ApplicationLookTests
 
         source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = RightDown };
         Input.Poll();
-        app.TickLook(); // démarre l'orbite
+        app.TickLook(); // starts the orbit
 
         source.Mouse = source.Mouse with { Position = new Vector2(160, 100) };
         Input.Poll();
-        app.TickLook(); // tourne autour du pivot
+        app.TickLook(); // rotates around the pivot
 
         Assert.NotEqual(yawBefore, app.TestCamera.Yaw);
-        Assert.Equal(pivot, app.TestCamera.Pivot); // le pivot ne bouge pas
-        Assert.Equal(distance, app.TestCamera.Distance); // la distance est conservée
+        Assert.Equal(pivot, app.TestCamera.Pivot); // the pivot does not move
+        Assert.Equal(distance, app.TestCamera.Distance); // the distance is preserved
         Assert.Equal(distance, Vector3.Distance(app.TestCamera.Position, pivot), precision: 4);
     }
 
@@ -230,22 +230,22 @@ public class ApplicationLookTests
 
         source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = MiddleDown };
         Input.Poll();
-        app.TickPan(); // démarre le pan : pas encore de mouvement
+        app.TickPan(); // starts the pan: not moving yet
         Assert.Equal(pivotBefore, app.TestCamera.Pivot);
 
         source.Mouse = source.Mouse with { Position = new Vector2(150, 120) };
         Input.Poll();
         app.TickPan(); // drag (dx=50, dy=20)
 
-        // Le pivot (et la caméra) ont bougé, mais distance et orientation restent.
+        // The pivot (and the camera) moved, but distance and orientation remain.
         Assert.NotEqual(pivotBefore, app.TestCamera.Pivot);
         Assert.NotEqual(positionBefore, app.TestCamera.Position);
         Assert.Equal(distance, app.TestCamera.Distance);
         Assert.Equal(forward, app.TestCamera.Forward);
         Assert.Equal(distance, Vector3.Distance(app.TestCamera.Position, app.TestCamera.Pivot), precision: 4);
 
-        // Direction du grab : tirer à droite -> pivot à gauche, tirer vers le
-        // bas -> pivot vers le haut.
+        // Grab direction: dragging right -> pivot left, dragging down -> pivot
+        // up.
         var pivotDelta = app.TestCamera.Pivot - pivotBefore;
         Assert.True(Vector3.Dot(pivotDelta, right) < 0f);
         Assert.True(Vector3.Dot(pivotDelta, up) > 0f);
@@ -263,17 +263,17 @@ public class ApplicationLookTests
 
         source.Mouse = new MouseSnapshot { Position = new Vector2(100, 100), Buttons = MiddleDown };
         Input.Poll();
-        app.TickPan(); // le pan démarre : l'UI est mise en veille
+        app.TickPan(); // the pan starts: the UI is put to sleep
         Assert.True(app.TestUi.PointerInputSuppressed);
 
         source.Mouse = source.Mouse with { Position = new Vector2(140, 100) };
         Input.Poll();
-        app.TickPan(); // toujours maintenu : toujours en veille
+        app.TickPan(); // still held: still asleep
         Assert.True(app.TestUi.PointerInputSuppressed);
 
         source.Mouse = source.Mouse with { Buttons = 0 };
         Input.Poll();
-        app.TickPan(); // relâché : l'UI revient à la vie
+        app.TickPan(); // released: the UI comes back to life
         Assert.False(app.TestUi.PointerInputSuppressed);
     }
 
@@ -309,21 +309,21 @@ public class ApplicationLookTests
         var source = app.Source;
         var pivotBefore = app.TestCamera.Pivot;
 
-        // Près du pivot : petit pas de distance.
+        // Near the pivot: small distance step.
         app.TestCamera.Distance = 2f;
         source.Mouse = new MouseSnapshot { Wheel = new Vector2(0, 1) };
         Input.Poll();
         app.TickZoom();
         var nearStep = 2f - app.TestCamera.Distance;
 
-        // Loin : le pas grandit proportionnellement à la distance.
+        // Far away: the step grows proportionally to the distance.
         app.TestCamera.Distance = 8f;
         source.Mouse = new MouseSnapshot { Wheel = new Vector2(0, 1) };
         Input.Poll();
         app.TickZoom();
         var farStep = 8f - app.TestCamera.Distance;
 
-        // Même facteur par unité de distance, plus loin = plus vite, pivot fixe.
+        // Same factor per unit of distance, farther = faster, fixed pivot.
         Assert.Equal(nearStep / 2f, farStep / 8f, precision: 4);
         Assert.True(farStep > nearStep);
         Assert.Equal(pivotBefore, app.TestCamera.Pivot);
@@ -339,13 +339,13 @@ public class ApplicationLookTests
         source.Mouse = new MouseSnapshot { Wheel = new Vector2(0, 1) };
         Input.Poll();
         app.TickZoom();
-        Assert.Equal(start, app.TestCamera.Position); // interdit : pas de zoom
+        Assert.Equal(start, app.TestCamera.Position); // forbidden: no zoom
 
         app.AllowZoom = true;
         source.Mouse = new MouseSnapshot { Wheel = Vector2.Zero };
         Input.Poll();
         app.TickZoom();
-        Assert.Equal(start, app.TestCamera.Position); // delta nul : pas de zoom
+        Assert.Equal(start, app.TestCamera.Position); // zero delta: no zoom
     }
 
     private sealed class LookTestApp : Application

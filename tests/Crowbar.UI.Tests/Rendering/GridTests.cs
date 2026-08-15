@@ -82,7 +82,7 @@ public class GridTests
     {
         var grid = new Grid();
 
-        // X = red, Z = blue, comme les gizmos et l'inspecteur (X/Y/Z → RGB).
+        // X = red, Z = blue, like the gizmos and the inspector (X/Y/Z → RGB).
         Assert.True(grid.XAxisColor.X > grid.XAxisColor.Z);
         Assert.True(grid.ZAxisColor.Z > grid.ZAxisColor.X);
     }
@@ -92,9 +92,9 @@ public class GridTests
     {
         var shader = Shader.Load("Shaders/Grid.wgsl");
 
-        // L'axe X est la ligne le long de X (z ≈ 0), l'axe Z la ligne le long
-        // de Z (x ≈ 0). Les inverser désalignait les couleurs de la grille et
-        // celles des gizmos position/scale/rotation.
+        // The X axis is the line along X (z ≈ 0), the Z axis the line along
+        // Z (x ≈ 0). Swapping them misaligned the grid colors with those of
+        // the position/scale/rotation gizmos.
         Assert.Contains("onXAxis = abs(fragPos3D.z)", shader.Source);
         Assert.Contains("onZAxis = abs(fragPos3D.x)", shader.Source);
     }

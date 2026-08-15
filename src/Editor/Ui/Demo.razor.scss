@@ -1,9 +1,9 @@
 @use 'variables' as *;
 
-// Animations custom : définies via @keyframes et pilotées par la propriété
-// `animation`. Toutes les propriétés animables (opacity, transform, couleurs,
-// bordures...) peuvent être interpolées entre les keyframes ; le timing est
-// contrôlé par animation-timing-function (ease, linear, cubic-bezier, steps).
+// Custom animations: defined with @keyframes and driven by the `animation`
+// property. Every animatable property (opacity, transform, colors, borders...)
+// can be interpolated between keyframes; the timing is controlled by
+// animation-timing-function (ease, linear, cubic-bezier, steps).
 @keyframes title-in {
     from {
         opacity: 0;
@@ -15,8 +15,8 @@
     }
 }
 
-// Les transitions restent actives sur les propriétés que l'animation ne pilote
-// pas : le bouton pulse en continu tout en gardant son fade de couleur au survol.
+// Transitions stay active on the properties the animation does not drive: the
+// button pulses continuously while keeping its hover color fade.
 @keyframes action-pulse {
     0%, 100% {
         transform: scale(1);
@@ -26,7 +26,7 @@
     }
 }
 
-// Un halo doux porté par text-shadow (interpolable comme box-shadow).
+// A soft halo carried by text-shadow (interpolable like box-shadow).
 @keyframes title-glow {
     from {
         text-shadow: 0px 0px 0px rgba(255, 255, 255, 0);
@@ -36,9 +36,9 @@
     }
 }
 
-// Plusieurs animations peuvent coexister sur un même élément (listes séparées
-// par des virgules), chacune sur sa propre horloge : le sous-titre se déploie
-// en biais (skew) puis enchaîne sur une dérive lente de la position.
+// Several animations can coexist on the same element (comma-separated
+// lists), each on its own clock: the subtitle unfolds with a skew and then
+// transitions into a slow position drift.
 @keyframes subtitle-skew {
     from {
         opacity: 0;
@@ -69,12 +69,12 @@ root {
     height: 720px;
     flex-direction: row;
     align-items: flex-start;
-    // Les quatre colonnes dépassent 1280px ; le conteneur défile
-    // horizontalement (drag de la barre ou shift + molette) au lieu de
-    // rétrécir les colonnes (leurs enfants à largeur fixe déborderaient).
+    // The four columns exceed 1280px; the container scrolls horizontally
+    // (bar drag or shift + wheel) instead of shrinking the columns (their
+    // fixed-width children would overflow).
     overflow: auto;
-    // Opaque : la scène 3D WebGPU (cube) tourne toujours derrière l'UI pour la
-    // page Filters (backdrop-filter) ; ici elle ne doit pas transparaître.
+    // Opaque: the WebGPU 3D scene (cube) always runs behind the UI for the
+    // Filters page (backdrop-filter); here it must not show through.
     background-color: $surface;
 }
 
@@ -91,16 +91,16 @@ root {
 .title {
     height: 32px;
     color: $text;
-    // Deux animations sur le même élément : l'entrée (une fois, `both` garde
-    // l'état final) et le halo infini. Chacune a sa propre horloge.
+    // Two animations on the same element: the entrance (once, `both` keeps
+    // the final state) and the infinite halo. Each has its own clock.
     animation: title-in 0.6s ease-out both, title-glow 2s ease-in-out infinite alternate;
 }
 
 .subtitle {
     height: 24px;
     color: $text-secondary;
-    // Une animation d'entrée (skew) puis une dérive continue : les listes de
-    // fonctions de transform différentes sont interpolées par décomposition.
+    // An entrance animation (skew) then a continuous drift: lists of
+    // different transform functions are interpolated by decomposition.
     animation: subtitle-skew 0.5s ease-out both, subtitle-drift 3s ease-in-out 0.5s infinite;
 }
 
@@ -131,9 +131,9 @@ root {
     vertical-align: center;
     line-height: 34px;
     transition: background-color 180ms ease, box-shadow 180ms ease;
-    // Pulse infini (alternate) : les transitions au survol continuent de
-    // fonctionner car elles portent sur des propriétés différentes de
-    // l'animation (couleur et ombre portée).
+    // Infinite pulse (alternate): the hover transitions keep working because
+    // they target properties the animation does not drive (color and drop
+    // shadow).
     animation: action-pulse 1.2s ease-in-out infinite alternate;
 
     &:hover {
@@ -225,7 +225,7 @@ root {
     overflow: auto;
     background-color: $surface-deep;
     border-radius: 6px;
-    // Les scrollbars sont stylées par élément via le CSS.
+    // Scrollbars are styled per element via CSS.
     scrollbar-color: $scrollbar-thumb $scrollbar-track;
     scrollbar-width: 8px;
     scrollbar-radius: 4px;
@@ -268,9 +268,9 @@ root {
     box-sizing: border-box;
 }
 
-// Galerie des transforms : une tuile par fonction. La boîte est transformée
-// (paint-only, le layout ne bouge pas) et le point blanc suit la déformation,
-// ce qui rend la rotation / l'inclinaison / la mise à l'échelle lisibles.
+// Transform gallery: one tile per function. The box is transformed
+// (paint-only, the layout does not move) and the white dot follows the
+// deformation, making rotation / skew / scale readable.
 .transform-grid {
     width: 360px;
     gap: 6px;
@@ -369,9 +369,9 @@ root {
     transform-origin: 0% 0%;
 }
 
-// Galerie des images : le logo (carré 1:1, fond transparent) montre la
-// différence entre object-fit contain (lettre-boisé) et cover (recadré), puis
-// background-image couvre la taille, la position et la répétition.
+// Image gallery: the logo (1:1 square, transparent background) shows the
+// difference between object-fit contain (letterboxed) and cover (cropped),
+// then background-image covers size, position and repetition.
 .image-demo {
     width: 220px;
     margin: 32px 32px 32px 0;
@@ -379,8 +379,8 @@ root {
     flex-shrink: 0;
 }
 
-// Les titres et hints partagés avec la colonne de démo sont prévus pour une
-// largeur de 360px ; on les rétrécit ici pour tenir dans la colonne.
+// The titles and hints shared with the demo column are designed for a
+// 360px width; they are narrowed here to fit the column.
 .image-demo .demo-title {
     width: 220px;
 }
@@ -443,10 +443,10 @@ root {
     border-radius: 8px;
 }
 
-// Colonne « features » : événements clavier/souris, checkbox/radio,
-// typographie (font-weight, letter-spacing, text-transform, text-decoration,
-// white-space + ellipsis), pseudo-éléments ::before/::after, pseudo-classes et
-// @media queries.
+// "Features" column: keyboard/mouse events, checkbox/radio, typography
+// (font-weight, letter-spacing, text-transform, text-decoration,
+// white-space + ellipsis), ::before/::after pseudo-elements, pseudo-classes
+// and @media queries.
 .feature-demo {
     width: 220px;
     margin: 32px 32px 32px 0;
@@ -529,7 +529,7 @@ root {
     line-height: 26px;
 }
 
-// Contenu généré : un chevron avant, une étoile après.
+// Generated content: a chevron before, a star after.
 .pseudo-badge::before {
     content: "▸ ";
     color: #7aa2f7;
@@ -576,7 +576,7 @@ root {
     line-height: 26px;
 }
 
-// La boîte media passe au bleu au-delà de 900px de largeur de fenêtre.
+// The media box turns blue beyond a 900px window width.
 @media (min-width: 900px) {
     .media-box {
         background-color: #2a3f5f;

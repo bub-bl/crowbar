@@ -1,10 +1,10 @@
-// Palette du thème charbon de l'éditeur (fidèle à la maquette) : surfaces
-// #111..#1e1e1e, texte gris clair, accent bleu. Partiel SCSS (préfixe _) :
-// importé par les feuilles .razor.scss des composants de l'éditeur via @use,
-// jamais compilé seul par DartSassBuilder.
+// Charcoal editor theme palette (faithful to the mock-up): surfaces
+// #111..#1e1e1e, light gray text, blue accent. SCSS partial (underscore prefix):
+// imported by the editor components' .razor.scss sheets via @use,
+// never compiled on its own by DartSassBuilder.
 //
-// Les règles partagées (.caret, .field-label) vivent ici aussi : chaque
-// composant qui @use ce thème reçoit sa propre copie, scopée à son scope CSS.
+// Shared rules (.caret, .field-label) also live here: each component that
+// @use this theme gets its own copy, scoped to its CSS scope.
 
 // Surfaces
 $bg: #111111;
@@ -25,14 +25,14 @@ $accent-hover: #3d7fee;
 $green: #2ea043;
 $green-hover: #37b04c;
 
-// Petite flèche déroulante (▾ / ▸), utilisée par la top bar, les arbres, les
-// dropdowns et la barre d'outils du viewport.
+// Small dropdown arrow (▾ / ▸), used by the top bar, the trees, the
+// dropdowns and the viewport toolbar.
 .caret {
     color: $text-muted;
     font-size: 9px;
 }
 
-// Libellé de champ des lignes de l'inspecteur.
+// Field label for the inspector rows.
 .field-label {
     width: 74px;
     height: 18px;
@@ -41,9 +41,9 @@ $green-hover: #37b04c;
     line-height: 18px;
 }
 
-// Icône SVG (<icon name="...">) : rasterisée depuis Assets/Icons et teintée
-// par la couleur calculée, comme du texte. La taille par défaut est reprise
-// par chaque bouton via `.xx-btn icon { ... }`.
+// SVG icon (<icon name="...">): rasterized from Assets/Icons and tinted
+// by the computed color, like text. The default size is picked up
+// by each button via `.xx-btn icon { ... }`.
 icon {
     width: 14px;
     height: 14px;

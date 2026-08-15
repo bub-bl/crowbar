@@ -1,6 +1,6 @@
-// Le DockArea remplit la zone éditable : entre la top bar (44 px) et la
-// status bar (32 px). Fond transparent : la scène 3D du viewport transparaît
-// là où aucun panneau opaque ne la couvre.
+// The DockArea fills the editable area: between the top bar (44 px) and the
+// status bar (32 px). Transparent background: the viewport's 3D scene shows
+// through wherever no opaque panel covers it.
 @use '_editor-theme' as *;
 
 root {
@@ -24,9 +24,9 @@ root {
     background-color: transparent;
 }
 
-// Chaque groupe est positionné en absolu avec un rect calculé par l'arbre de
-// docking. Le conteneur reste transparent : ce sont les panneaux dockés qui
-// peignent leur propre fond (le viewport, lui, reste transparent).
+// Each group is absolutely positioned with a rect computed by the docking
+// tree. The container stays transparent: the docked panels paint their own
+// background (the viewport itself stays transparent).
 .dock-group {
     position: absolute;
     background-color: transparent;
@@ -66,9 +66,9 @@ root {
     white-space: nowrap;
     text-overflow: clip;
     cursor: pointer;
-    // Les onglets glissent à côté pendant le drag (le décalage est un
-    // transform paint-only, la position de layout reste stable pour le
-    // hit-testing) et le tab dragué s'estompe sur place.
+    // Tabs slide aside during a drag (the shift is a paint-only transform,
+    // the layout position stays stable for hit-testing) and the dragged tab
+    // fades in place.
     transition: transform 140ms ease-out, opacity 140ms ease-out;
 
     &:hover {
@@ -86,8 +86,8 @@ root {
     }
 }
 
-// L'onglet en cours de drag reste dans la barre (pour garder sa place dans le
-// layout) mais s'estompe pendant que le fantôme suit la souris.
+// The dragged tab stays in the bar (to keep its layout slot) but fades out
+// while the ghost follows the mouse.
 .dock-tab-dragging {
     opacity: 0.35;
 }
@@ -115,8 +115,8 @@ root {
     display: none;
 }
 
-// Fantôme suivant le curseur pendant le drag d'un onglet : petite entrée en
-// zoom/fondu quand on attrape l'onglet.
+// Ghost following the cursor during a tab drag: a small zoom/fade entrance
+// when the tab is grabbed.
 .dock-ghost {
     position: absolute;
     height: 26px;
@@ -145,7 +145,7 @@ root {
     }
 }
 
-// Indicateur de position d'insertion dans la barre d'onglets.
+// Insertion-position indicator in the tab bar.
 .dock-tab-drop-indicator {
     position: absolute;
     background-color: $accent;
@@ -153,8 +153,8 @@ root {
     z-index: 110;
 }
 
-// Prévisualisation de la zone de drop : surbrillance bleutée dans le groupe
-// cible (pleine pour l'onglet central, bande pour les bords).
+// Drop-zone preview: a blue highlight in the target group (full for the
+// center tab, a band for the edges).
 .dock-preview {
     position: absolute;
     border-radius: 4px;
@@ -180,7 +180,7 @@ root {
     border-bottom: 2px solid $accent;
 }
 
-// Poignées de redimensionnement entre les groupes (sur les coutures de 1 px).
+// Resize handles between the groups (on the 1 px seams).
 .dock-splitter {
     position: absolute;
     z-index: 20;

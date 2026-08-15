@@ -1,7 +1,7 @@
-// La page remplit toujours la fenêtre : root/.editor suivent la taille du
-// viewport. Chaque panneau (top bar, hiérarchie, viewport, inspecteur,
-// contenu, status bar) est un composant réutilisable qui porte ses propres
-// styles scopés dans Ui/EditorPanels/.
+// The page always fills the window: root/.editor follow the size of the
+// viewport. Each panel (top bar, hierarchy, viewport, inspector,
+// content, status bar) is a reusable component carrying its own
+// scoped styles in Ui/EditorPanels/.
 
 root {
     width: 100%;
@@ -11,7 +11,7 @@ root {
 .editor {
     width: 100%;
     height: 100%;
-    // Transparent : la scène 3D se voit dans le viewport, les panneaux opaques
-    // couvrent tout le reste.
+    // Transparent: the 3D scene shows through in the viewport, the opaque
+    // panels cover everything else.
     background-color: transparent;
 }
