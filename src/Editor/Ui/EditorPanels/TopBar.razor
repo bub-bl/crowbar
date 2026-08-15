@@ -1,5 +1,14 @@
 @inherits Crowbar.UI.RazorPanel
 @namespace Crowbar.Editor.Ui.EditorPanels
+@using Crowbar.UI
+
+@* Publie la géométrie de la barre de titre custom (boutons fenêtre, zones
+   interactives, hauteur) après chaque layout, pour que la fenêtre native
+   puisse répondre à WM_NCHITTEST et reproduire le comportement natif de la
+   barre de titre (drag, minimize/maximize/close, snap layouts). *@
+@{
+    PublishChrome();
+}
 
 <div class="logo">Crowbar</div>
 
@@ -30,20 +39,82 @@
     <div class="username">JohnDoe</div>
 </div>
 
+@* Les boutons fenêtre ne reçoivent pas de @onclick : leur zone répond à
+   WM_NCHITTEST (HTMINBUTTON/HTMAXBUTTON/HTCLOSE), donc Windows les gère
+   nativement — y compris le flyout snap layouts au survol de Agrandir. L'état
+   hover (résolu côté OS) pilote ici la surbrillance. *@
 <div class="tb-window">
-    <div class="tb-win-btn" title="Réduire"><icon name="Solar/arrows-action/Bold/minimize" /></div>
-    <div class="tb-win-btn" title="Agrandir"><icon name="Solar/arrows-action/Bold/maximize-square-2" /></div>
-    <div class="tb-win-btn tb-close" title="Fermer"><icon name="Solar/ui/Bold/close-square" /></div>
+    <div class="tb-win-btn @(WindowChromeState.HoveredButton == WindowChromeButton.Minimize ? "hover" : "")" title="Réduire"><icon name="Solar/arrows-action/Bold/minimize" /></div>
+    <div class="tb-win-btn @(WindowChromeState.HoveredButton == WindowChromeButton.Maximize ? "hover" : "")" title="Agrandir"><icon name="@(WindowChromeState.IsMaximized ? "Solar/video/Bold/quit-full-screen-square" : "Solar/arrows-action/Bold/maximize-square-2")" /></div>
+    <div class="tb-win-btn tb-close @(WindowChromeState.HoveredButton == WindowChromeButton.Close ? "hover" : "")" title="Fermer"><icon name="Solar/ui/Bold/close-square" /></div>
 </div>
 
 @code {
     private string _tab = "creer";
+    private bool _initialChromePublishRequested;
 
-    protected override int BuildHash() => HashCode.Combine(_tab);
+    protected override int BuildHash() =>
+        HashCode.Combine(_tab, (int)WindowChromeState.HoveredButton, WindowChromeState.IsMaximized);
 
     private void TabJouer() => _tab = "jouer";
     private void TabCreer() => _tab = "creer";
     private void TabDevelopper() => _tab = "developper";
 
     private string TabClass(string tab) => _tab == tab ? "tab-active" : "";
+
+    /// <summary>
+    /// Republie la géométrie après le premier layout (les rects des enfants ne
+    /// sont connus qu'une fois le layout passé) et à chaque redimensionnement.
+    /// Le re-render déclenche <see cref="PublishChrome"/> dans le bloc @{ }.
+    /// OnTreeBuilt est appelé à chaque rebuild : le garde évite une boucle.
+    /// </summary>
+    protected override void OnTreeBuilt()
+    {
+        if (_initialChromePublishRequested) return;
+        _initialChromePublishRequested = true;
+        StateHasChanged();
+    }
+
+    protected override void OnLayoutChanged() => StateHasChanged();
+
+    private void PublishChrome()
+    {
+        if (Layout.Width <= 0 || Layout.Height <= 0)
+        {
+            PublishWindowChrome(null);
+            return;
+        }
+
+        // Les trois .tb-win-btn sont dans l'ordre DOM : réduire, agrandir, fermer.
+        var windowButtons = FindAllByClass(this, "tb-win-btn");
+        var minimize = windowButtons.Count > 0 ? windowButtons[0].Layout : default;
+        var maximize = windowButtons.Count > 1 ? windowButtons[1].Layout : default;
+        var close = windowButtons.Count > 2 ? windowButtons[2].Layout : default;
+
+        // Les zones interactives restent dans la zone client (clics reçus par l'UI).
+        var interactive = new List<UiRect>();
+        foreach (var className in new[] { "tabs", "topbar-tools", "tb-play", "tb-mode", "tb-user" })
+        {
+            foreach (var panel in FindAllByClass(this, className))
+            {
+                if (panel.Layout.Width > 0 && panel.Layout.Height > 0)
+                    interactive.Add(panel.Layout);
+            }
+        }
+
+        PublishWindowChrome(new WindowChromeLayout(Layout.Height, minimize, maximize, close, interactive));
+    }
+
+    private static List<Panel> FindAllByClass(Panel root, string className)
+    {
+        var result = new List<Panel>();
+        Collect(root, className, result);
+        return result;
+
+        static void Collect(Panel panel, string className, List<Panel> result)
+        {
+            if (panel.Classes.Contains(className)) result.Add(panel);
+            foreach (var child in panel.Children) Collect(child, className, result);
+        }
+    }
 }

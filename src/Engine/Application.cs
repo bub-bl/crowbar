@@ -119,6 +119,12 @@ public abstract class Application : IDisposable
         Input.Poll();
         var clamped = Math.Clamp((float)delta, 0f, 0.1f);
         OnUpdate(clamped);
+        // Custom title bar: hand the UI's geometry to the platform window and
+        // mirror the OS-side caption state (hovered button, maximized) back to
+        // the UI before it updates/re-renders.
+        _window.SetChromeLayout(Ui.WindowChrome);
+        WindowChromeState.HoveredButton = _window.HoveredChromeButton;
+        WindowChromeState.IsMaximized = _window.IsMaximized;
         World.Update(clamped);
         Ui.Update(clamped);
         // The hover cursor can change without a pointer move (a re-render, a

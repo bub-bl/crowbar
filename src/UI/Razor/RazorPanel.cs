@@ -408,6 +408,18 @@ public abstract class RazorPanel : PanelComponent, IComponent
     /// <summary>Publishes the on-surface rectangle of the docked 3D viewport (null when absent).</summary>
     protected void PublishViewport(UiRect? rect) => ViewportPublishRequested?.Invoke(rect);
 
+    /// <summary>
+    /// Sink for the custom title-bar geometry, wired to the hosting
+    /// <see cref="UiSystem"/> (like <see cref="NavigationRequested"/> and
+    /// <see cref="ViewportPublishRequested"/>) and propagated to child
+    /// components. The TopBar publishes its caption layout so the platform can
+    /// answer WM_NCHITTEST for the native caption behavior.
+    /// </summary>
+    internal Action<WindowChromeLayout?>? WindowChromePublishRequested { get; set; }
+
+    /// <summary>Publishes the custom title-bar geometry (null when there is no title bar).</summary>
+    protected void PublishWindowChrome(WindowChromeLayout? layout) => WindowChromePublishRequested?.Invoke(layout);
+
     // The Razor SDK generates a design-time declaration for .razor files.
     // That declaration contains the component shape but not the generated
     // ExecuteAsync body, so the base must remain instantiable from the IDE's

@@ -45,6 +45,13 @@ public sealed partial class UiSystem : IDisposable
     /// to confine the 3D scene to the viewport instead of the whole window.
     /// </summary>
     public UiRect? SceneViewport { get; private set; }
+    /// <summary>
+    /// Geometry of the custom title bar (framebuffer pixels), published by the
+    /// TopBar after layout. Null before the first layout or on pages without a
+    /// title bar. The engine host reads it and hands it to the platform window
+    /// so WM_NCHITTEST can reproduce the native caption behavior.
+    /// </summary>
+    public WindowChromeLayout? WindowChrome { get; private set; }
     /// <summary>Raised after a navigation, with the new URL.</summary>
     public event Action<string>? NavigationChanged;
     /// <summary>All routes discovered from <c>@page</c> directives.</summary>
@@ -217,8 +224,10 @@ public sealed partial class UiSystem : IDisposable
         _razorRoot.StateChanged = () => _razorRenderPending = true;
         _razorRoot.NavigationRequested = Navigate;
         _razorRoot.ViewportPublishRequested = rect => SceneViewport = rect;
+        _razorRoot.WindowChromePublishRequested = chrome => WindowChrome = chrome;
         _currentRoute = null;
         SceneViewport = null;
+        WindowChrome = null;
         SetContent(_razorFactory.BuildTree(_razorRoot));
     }
 
@@ -373,11 +382,13 @@ public sealed partial class UiSystem : IDisposable
             template.StateChanged = () => _razorRenderPending = true;
             template.NavigationRequested = Navigate;
             template.ViewportPublishRequested = rect => SceneViewport = rect;
+            template.WindowChromePublishRequested = chrome => WindowChrome = chrome;
             _razorFactory = factory;
             _razorRoot = template;
             _currentRoute = route;
             CurrentUrl = url;
             SceneViewport = null;
+            WindowChrome = null;
             SetContent(factory.BuildTree(template));
         }
         else

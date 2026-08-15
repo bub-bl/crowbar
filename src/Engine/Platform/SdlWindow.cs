@@ -22,6 +22,7 @@ internal sealed unsafe class SdlWindow : IWindow
     private readonly Sdl _sdl;
     private readonly Window* _window;
     private readonly SdlInputSource _input;
+    private Win32WindowChrome? _chrome;
     private string _title;
     private int _width;
     private int _height;
@@ -51,6 +52,15 @@ internal sealed unsafe class SdlWindow : IWindow
         // (accents, IME), which the UI's TextInput widgets consume.
         sdl.StartTextInput();
         _input = new SdlInputSource(sdl, _window);
+        if (OperatingSystem.IsWindows())
+        {
+            // Replace the native caption with the custom title bar (drag,
+            // minimize/maximize/close and the Windows 11 snap layouts are all
+            // answered by the OS through WM_NCHITTEST).
+            _chrome = new Win32WindowChrome(NativeHandle, _drawableWidth, _drawableHeight);
+            // The caption is now part of the client area: re-read the sizes.
+            RefreshSizes();
+        }
         _input.SetViewportScale(ScaleX, ScaleY);
         Crowbar.Engine.InputSystem.Input.Bind(_input);
         _lastTick = Stopwatch.GetTimestamp();
@@ -74,6 +84,15 @@ internal sealed unsafe class SdlWindow : IWindow
     public int FramebufferWidth => _drawableWidth;
     public int FramebufferHeight => _drawableHeight;
     public bool IsClosing => _closing;
+
+    public bool IsMaximized =>
+        (_sdl.GetWindowFlags(_window) & (uint)WindowFlags.Maximized) != 0;
+
+    public WindowChromeButton HoveredChromeButton =>
+        _chrome?.HoveredButton ?? WindowChromeButton.None;
+
+    public void SetChromeLayout(WindowChromeLayout? layout) =>
+        _chrome?.SetLayout(layout);
 
     /// <summary>
     /// The Windows HWND backing this SDL window, or 0 on other platforms. The
@@ -302,6 +321,7 @@ internal sealed unsafe class SdlWindow : IWindow
         _height = Math.Max(1, _height);
         _drawableWidth = Math.Max(1, _drawableWidth);
         _drawableHeight = Math.Max(1, _drawableHeight);
+        _chrome?.SetDrawableSize(_drawableWidth, _drawableHeight);
     }
 
     private void RequestClose()
@@ -318,6 +338,8 @@ internal sealed unsafe class SdlWindow : IWindow
             return;
         _disposed = true;
         _closing = true;
+        _chrome?.Dispose();
+        _chrome = null;
         if (_window != null)
             _sdl.DestroyWindow(_window);
     }

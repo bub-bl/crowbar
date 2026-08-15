@@ -229,13 +229,15 @@ root {
         height: 15px;
     }
 
-    &:hover {
+    &:hover,
+    &.hover {
         background-color: $panel-hover;
         color: $text;
     }
 }
 
-.tb-close:hover {
+.tb-close:hover,
+.tb-close.hover {
     background-color: #e81123;
     color: $text-bright;
 }
