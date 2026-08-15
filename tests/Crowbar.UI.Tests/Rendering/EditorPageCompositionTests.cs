@@ -12,12 +12,14 @@ namespace Crowbar.UI.Tests.Rendering;
 /// </summary>
 public class EditorPageCompositionTests
 {
-    internal static UiSystem CreateEditorUi()
+    internal static UiSystem CreateEditorUi() => CreateEditorUi(1280, 720);
+
+    internal static UiSystem CreateEditorUi(int width, int height)
     {
         var uiDir = Path.GetFullPath(Path.Combine("..", "..", "..", "..", "..", "src", "Editor", "Ui"));
         Assert.True(Directory.Exists(uiDir), $"Ui directory not found: {uiDir}");
         var ui = new UiSystem();
-        ui.SetViewport(1280, 720);
+        ui.SetViewport(width, height);
         ui.RegisterRazorComponentsFromDirectory(uiDir);
         ui.Navigate("/editor");
         // The DockArea positions its dock groups from the rect of its own root,
@@ -245,5 +247,48 @@ public class EditorPageCompositionTests
         Assert.NotNull(after);
         Assert.True(after.Value.Width > before.Value.Width, $"viewport width did not grow ({before.Value.Width} -> {after.Value.Width})");
         Assert.True(after.Value.Height > before.Value.Height, $"viewport height did not grow ({before.Value.Height} -> {after.Value.Height})");
+    }
+
+    [Fact]
+    public void ExplorerTreeScrollsInsteadOfCrushingRows()
+    {
+        // A short window makes the docked explorer panel shorter than its
+        // tree: the rows must keep their natural height (flex-shrink: 0) and
+        // the .tree container must scroll instead of squeezing the rows.
+        using var ui = CreateEditorUi(width: 1280, height: 420);
+        var content = ui.Content!;
+
+        var tree = TestUi.Find(content, p => p.Classes.Contains("tree"));
+        Assert.NotNull(tree);
+        Assert.True(tree!.CanScrollVertically, "the explorer tree must scroll instead of crushing its rows");
+
+        var treeRows = TestUi.FindAll(content, p => p.Classes.Contains("tree-row")).ToList();
+        Assert.NotEmpty(treeRows);
+        Assert.All(treeRows, row => Assert.Equal(20f, row.Layout.Height, 3));
+    }
+
+    [Fact]
+    public void InspectorBodyScrollsInsteadOfCrushingRows()
+    {
+        // Same short window: every inspector section/row must keep its natural
+        // height (flex-shrink: 0) and the .insp-body must scroll.
+        using var ui = CreateEditorUi(width: 1280, height: 420);
+        var content = ui.Content!;
+
+        var body = TestUi.Find(content, p => p.Classes.Contains("insp-body"));
+        Assert.NotNull(body);
+        Assert.True(body!.CanScrollVertically, "the inspector body must scroll instead of crushing its rows");
+
+        var sections = TestUi.FindAll(content, p => p.Classes.Contains("section-title")).ToList();
+        Assert.NotEmpty(sections);
+        Assert.All(sections, section => Assert.Equal(16f, section.Layout.Height, 3));
+
+        var vecRows = TestUi.FindAll(content, p => p.Classes.Contains("vec-row")).ToList();
+        Assert.NotEmpty(vecRows);
+        Assert.All(vecRows, row => Assert.Equal(20f, row.Layout.Height, 3));
+
+        var matRows = TestUi.FindAll(content, p => p.Classes.Contains("mat-row")).ToList();
+        Assert.NotEmpty(matRows);
+        Assert.All(matRows, row => Assert.Equal(24f, row.Layout.Height, 3));
     }
 }

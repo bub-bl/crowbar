@@ -1,8 +1,16 @@
 @use '../_editor-theme' as *;
 
+// La racine du composant est l'item flex du corps défilable de l'inspecteur :
+// elle garde sa hauteur, c'est le corps qui défile au lieu d'écraser la ligne.
+root {
+    flex-shrink: 0;
+}
+
 .mat-row {
     width: 260px;
     height: 24px;
+    // La ligne garde sa hauteur dans le corps défilable de l'inspecteur.
+    flex-shrink: 0;
     flex-direction: row;
     align-items: center;
     gap: 7px;

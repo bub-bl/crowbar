@@ -1,9 +1,17 @@
 @use '../_editor-theme' as *;
 
+// La racine du composant est l'item flex de la liste (.tree, overflow: auto) :
+// elle garde sa hauteur de contenu, c'est la liste qui défile.
+root {
+    flex-shrink: 0;
+}
+
 .tree-row {
     width: 100%;
     min-width: 0;
-    flex-shrink: 1;
+    // La ligne garde sa hauteur : c'est le conteneur (.tree, overflow: auto)
+    // qui défile quand la liste dépasse le panneau, au lieu d'écraser les rangs.
+    flex-shrink: 0;
     height: 20px;
     color: $text;
     font-size: 11px;
