@@ -30,6 +30,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Files\Crowbar.Files.csproj" />
+    <ProjectReference Include="..\FileSystem\Crowbar.FileSystem.csproj" />
   </ItemGroup>
 </Project>

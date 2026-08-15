@@ -1,6 +1,4 @@
-using Crowbar.Files;
-
-namespace Crowbar.Files.Zio;
+namespace Crowbar.FileSystems;
 
 /// <summary>Adapts a Zio watcher to Crowbar's <see cref="IFileWatcher"/>.</summary>
 internal sealed class ZioFileWatcher : IFileWatcher

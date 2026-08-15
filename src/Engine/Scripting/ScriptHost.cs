@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
-using Crowbar.Files;
+using Crowbar.FileSystems;
 
 namespace Crowbar.Engine.Scripting;
 
@@ -153,7 +153,7 @@ public sealed class ScriptHost : IDisposable
     public ScriptAssembly WatchDirectory(string directory, string assemblyName = "GameScripts")
     {
         _assemblyName = assemblyName;
-        var dir = FileSystem.Content.ToFilePath(directory);
+        var dir = FileSystem.Project.ToFilePath(directory);
         _directory = dir;
 
         DisposeGenerations();
@@ -396,11 +396,11 @@ public sealed class ScriptHost : IDisposable
 
     private void StartWatcher()
     {
-        if (_directory is not { } directory || !FileSystem.Content.DirectoryExists(directory))
+        if (_directory is not { } directory || !FileSystem.Project.DirectoryExists(directory))
             return;
         try
         {
-            _watcher = FileSystem.Content.Watch(directory);
+            _watcher = FileSystem.Project.Watch(directory);
             _watcher.Filter = "*.cs";
             _watcher.IncludeSubdirectories = true;
             _watcher.NotifyFilter = FileChangeFilters.LastWrite | FileChangeFilters.FileName | FileChangeFilters.Size | FileChangeFilters.CreationTime;
@@ -442,7 +442,7 @@ public sealed class ScriptHost : IDisposable
         var snapshot = new Dictionary<string, DateTime>(StringComparer.Ordinal);
         if (_directory is not { } directory)
             return snapshot;
-        var fs = FileSystem.Content;
+        var fs = FileSystem.Project;
         if (!fs.DirectoryExists(directory))
             return snapshot;
         foreach (var path in fs.EnumerateFiles(directory, "*.cs", recursive: true))

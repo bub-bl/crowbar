@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Crowbar.FileSystem</AssemblyName>
+    <RootNamespace>Crowbar.FileSystems</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Zio is an implementation detail of the physical/memory backends. The
+         compile asset is private, so no consumer can write `using Zio`; only the
+         runtime asset flows transitively so Zio.dll is deployed next to this
+         assembly. -->
+    <PackageReference Include="Zio" Version="0.24.0" PrivateAssets="compile;contentfiles;analyzers;build" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The host (editor) and the engine/editor tooling wire the internal
+         backend, path helpers and ZioFileSystem; game scripts see only the
+         public FileSystem.Content + FileSystem.Project accessors. -->
+    <InternalsVisibleTo Include="Crowbar.Editor" />
+    <InternalsVisibleTo Include="Crowbar.Engine" />
+    <InternalsVisibleTo Include="Crowbar.UI" />
+    <InternalsVisibleTo Include="Crowbar.UI.Tests" />
+  </ItemGroup>
+</Project>

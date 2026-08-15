@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace Crowbar.Files;
+namespace Crowbar.FileSystems;
 
 /// <summary>
 /// OS-agnostic string path helpers, built on <see cref="FilePath"/>. They
@@ -10,7 +10,7 @@ namespace Crowbar.Files;
 /// <see cref="FileSystemService"/> (which re-normalizes them through
 /// <see cref="Path.GetFullPath"/>).
 /// </summary>
-public static class PathUtil
+internal static class PathUtil
 {
     /// <summary>Combines two path segments with the uniform separator.</summary>
     public static string Combine(string left, string right) => (new FilePath(left) / new FilePath(right)).FullName;

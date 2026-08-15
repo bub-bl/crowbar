@@ -24,6 +24,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\UI\Crowbar.UI.csproj" />
     <ProjectReference Include="..\..\src\Engine\Engine.csproj" />
-    <ProjectReference Include="..\..\src\Files.Zio\Crowbar.Files.Zio.csproj" />
+    <ProjectReference Include="..\..\src\FileSystem\Crowbar.FileSystem.csproj" />
   </ItemGroup>
 </Project>

@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace Crowbar.Files;
+namespace Crowbar.FileSystems;
 
 /// <summary>
 /// Convenience read/write helpers shared by every <see cref="IFileSystem"/>
@@ -8,7 +8,7 @@ namespace Crowbar.Files;
 /// these composition helpers (read-all, write-all, shared-read open) are
 /// available to all of them for free.
 /// </summary>
-public static class FileSystemExtensions
+internal static class FileSystemExtensions
 {
     /// <summary>Reads a whole text file (UTF-8 with BOM detection).</summary>
     public static string ReadAllText(this IFileSystem fs, FilePath path)

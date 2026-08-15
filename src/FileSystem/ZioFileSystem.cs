@@ -1,17 +1,16 @@
 using System.IO;
-using Crowbar.Files;
 using Zio;
 
-namespace Crowbar.Files.Zio;
+namespace Crowbar.FileSystems;
 
 /// <summary>
 /// Adapts a Zio filesystem to Crowbar's <see cref="IFileSystem"/>. This is the
 /// only place the Zio library is referenced (and the only place a concrete
-/// filesystem is created): every other project codes against Crowbar.Files'
-/// own contracts and supplies this backend to <see cref="FileSystemService"/>
-/// at startup.
+/// filesystem is created): every other project codes against Crowbar.FileSystems's
+/// own contracts and supplies this backend through <see cref="FileSystem.Configure"/>
+/// at startup. Internal so the Zio backend never leaks into the public API.
 /// </summary>
-public sealed class ZioFileSystem : Crowbar.Files.IFileSystem
+internal sealed class ZioFileSystem : IFileSystem
 {
     private readonly global::Zio.IFileSystem _inner;
 

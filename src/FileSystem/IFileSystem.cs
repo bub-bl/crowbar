@@ -1,17 +1,17 @@
 using System.IO;
 
-namespace Crowbar.Files;
+namespace Crowbar.FileSystems;
 
 /// <summary>
 /// The filesystem contract the engine and editor code against. A backend is a
 /// coordinate space of <see cref="FilePath"/>s plus the primitive operations on
 /// it (existence, enumeration, open/read/write, watch). The physical-disk
-/// implementation lives in <c>Crowbar.Files.Zio</c>; a host or test provides
+/// implementation lives in the internal <c>ZioFileSystem</c> adapter; a host or test provides
 /// whichever backend it needs (disk, memory, archive, ...). Nothing in this
 /// project creates a backend — backends are supplied to
 /// <see cref="FileSystemService"/> at startup.
 /// </summary>
-public interface IFileSystem : IDisposable
+internal interface IFileSystem : IDisposable
 {
     /// <summary>Maps an operating-system path into this filesystem's coordinate space.</summary>
     FilePath ConvertPathFromInternal(string systemPath);

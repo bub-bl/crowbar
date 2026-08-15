@@ -31,7 +31,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Files\Crowbar.Files.csproj" />
+    <ProjectReference Include="..\FileSystem\Crowbar.FileSystem.csproj" />
     <ProjectReference Include="..\UI\Crowbar.UI.csproj" />
   </ItemGroup>
 </Project>

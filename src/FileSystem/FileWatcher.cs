@@ -1,4 +1,4 @@
-namespace Crowbar.Files;
+namespace Crowbar.FileSystems;
 
 /// <summary>The kind of filesystem change reported by <see cref="IFileWatcher"/>.</summary>
 public enum FileChangeType

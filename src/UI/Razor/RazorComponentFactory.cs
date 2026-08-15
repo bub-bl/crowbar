@@ -3,7 +3,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
-using Crowbar.Files;
+using Crowbar.FileSystems;
 using Microsoft.AspNetCore.Razor.Language;
 using Microsoft.AspNetCore.Razor.Language.Intermediate;
 using Microsoft.CodeAnalysis;
@@ -216,12 +216,17 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
 
     private static string RazorCacheFile(string hash) => PathUtil.Combine(RazorCacheDirectory, hash + ".dll");
 
+    // The compiled-component cache is host scratch data (not base content nor the
+    // gamemode project), so it reads and writes through the raw mounted backend.
+    private static FilePath CachePath(string path) => FileSystem.Mounted.ConvertPathFromInternal(Path.GetFullPath(path));
+
     private static Assembly? TryLoadFromDisk(string path)
     {
-        if (!FileSystem.Content.FileExists(path)) return null;
+        var cachePath = CachePath(path);
+        if (!FileSystem.Mounted.FileExists(cachePath)) return null;
         try
         {
-            return Assembly.Load(FileSystem.Content.ReadAllBytes(path));
+            return Assembly.Load(FileSystem.Mounted.ReadAllBytes(cachePath));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException)
         {
@@ -234,8 +239,8 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     {
         try
         {
-            FileSystem.Content.CreateDirectory(RazorCacheDirectory);
-            FileSystem.Content.WriteAllBytes(path, il);
+            FileSystem.Mounted.CreateDirectory(CachePath(RazorCacheDirectory));
+            FileSystem.Mounted.WriteAllBytes(CachePath(path), il);
             PruneRazorCache();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -251,10 +256,9 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         if (Interlocked.Exchange(ref _pruneStarted, 1) == 1) return;
         try
         {
-            var fs = FileSystem.Content;
             var cutoff = DateTime.UtcNow.AddDays(-30);
-            foreach (var file in fs.EnumerateFiles(RazorCacheDirectory, "*.dll"))
-                if (fs.GetLastWriteTimeUtc(file) < cutoff) fs.DeleteFile(file);
+            foreach (var file in FileSystem.Mounted.EnumerateFiles(CachePath(RazorCacheDirectory), "*.dll"))
+                if (FileSystem.Mounted.GetLastWriteTime(file) < cutoff) FileSystem.Mounted.DeleteFile(file);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {

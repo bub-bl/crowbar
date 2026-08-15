@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace Crowbar.Files;
+namespace Crowbar.FileSystems;
 
 /// <summary>
 /// The engine's and editor's single point of access to the filesystem. Every
@@ -8,8 +8,8 @@ namespace Crowbar.Files;
 /// storage backing the content (physical disk, in-memory, zip archive, ...) can
 /// be swapped without touching the call sites.
 ///
-/// This class is the public boundary of Crowbar.Files: its surface only uses
-/// Crowbar.Files' own types (<see cref="FilePath"/>, <see cref="IFileWatcher"/>,
+/// This class is the public boundary of Crowbar.FileSystems: its surface only uses
+/// Crowbar.FileSystems's own types (<see cref="FilePath"/>, <see cref="IFileWatcher"/>,
 /// <see cref="IFileSystem"/>) and the BCL, so consumers never reference a
 /// concrete backend. There is no dependency injection — the engine and editor
 /// reach the service through the static <see cref="FileSystem.Content"/>, which
@@ -30,8 +30,8 @@ namespace Crowbar.Files;
 /// </summary>
 public sealed class FileSystemService
 {
-    /// <summary>The backend filesystem all I/O is delegated to.</summary>
-    public IFileSystem Backend { get; }
+    /// <summary>The backend filesystem all I/O is delegated to. Host/tooling only.</summary>
+    internal IFileSystem Backend { get; }
 
     /// <summary>Physical directory non-rooted logical paths resolve against.</summary>
     public string ContentRoot { get; }
@@ -43,7 +43,7 @@ public sealed class FileSystemService
     /// Composes the service over a backend. This is called once by the host's
     /// startup code (and by tests); consumers never construct it themselves.
     /// </summary>
-    public FileSystemService(IFileSystem backend, string contentRoot, IReadOnlyDictionary<FilePath, string>? mounts = null)
+    internal FileSystemService(IFileSystem backend, string contentRoot, IReadOnlyDictionary<FilePath, string>? mounts = null)
     {
         Backend = backend ?? throw new ArgumentNullException(nameof(backend));
         ContentRoot = string.IsNullOrWhiteSpace(contentRoot) ? AppContext.BaseDirectory : contentRoot;

@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
-using Crowbar.Files;
+using Crowbar.FileSystems;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -44,12 +44,12 @@ public sealed class ScriptCompiler
 
     /// <summary>Compiles every *.cs file under <paramref name="directory"/> (recursively).</summary>
     public ScriptAssembly CompileDirectory(string directory, string assemblyName)
-        => CompileDirectory(FileSystem.Content.ToFilePath(directory), assemblyName);
+        => CompileDirectory(FileSystem.Project.ToFilePath(directory), assemblyName);
 
     public ScriptAssembly CompileDirectory(FilePath directory, string assemblyName)
     {
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
-        var fs = FileSystem.Content;
+        var fs = FileSystem.Project;
         if (!fs.DirectoryExists(directory))
             throw new DirectoryNotFoundException($"Script directory not found: {directory}");
         var files = fs.EnumerateFiles(directory, "*.cs", recursive: true).ToArray();
@@ -60,7 +60,7 @@ public sealed class ScriptCompiler
     public ScriptAssembly Compile(IEnumerable<string> sourceFiles, string assemblyName)
     {
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
-        var fs = FileSystem.Content;
+        var fs = FileSystem.Project;
         var files = sourceFiles.Select(fs.ToFilePath).ToArray();
         return CompileCore(files, assemblyName);
     }
@@ -152,7 +152,7 @@ public sealed class ScriptCompiler
         {
             lock (_gate)
             {
-                var fs = FileSystem.Content;
+                var fs = FileSystem.Project;
                 var fileSet = files.Select(file => file.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
                 // Drop trees for files that no longer exist.

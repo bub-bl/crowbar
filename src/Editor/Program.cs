@@ -5,8 +5,8 @@ using Crowbar.Engine;
 using Crowbar.Engine.InputSystem;
 using Crowbar.Engine.Rendering;
 using Crowbar.Engine.Scripting;
-using Crowbar.Files;
-using Crowbar.Files.Zio;
+using Crowbar.FileSystems;
+
 using Crowbar.UI;
 
 namespace Crowbar.Editor;
@@ -127,12 +127,13 @@ internal sealed class DemoApplication : Application
         _scriptHost.ReloadFailed += OnScriptReloadFailed;
         try
         {
-            const string gameDirectory = "/Game";
+            // Le gamemode est tout le projet (FileSystem.Project) : "." désigne sa racine.
+            const string gameDirectory = ".";
             _scriptHost.WatchDirectory(gameDirectory, "DemoGamemode");
             ((GamemodeHolder)_gamemodeHolder!).Current = _scriptHost.Current!.CreateInstance("Game.DemoGamemode");
             _scriptHost.WatchInstance(_gamemodeHolder!);
             ResolveDescribe();
-            Console.WriteLine($"[Scripting] Gamemode chargé : {_scriptHost.Current!.TypesByFullName.Count} type(s) depuis {gameDirectory}");
+            Console.WriteLine($"[Scripting] Gamemode chargé : {_scriptHost.Current!.TypesByFullName.Count} type(s) depuis le projet gamemode");
         }
         catch (Exception ex)
         {
@@ -309,25 +310,29 @@ internal sealed class DemoApplication : Application
         Math.Max(1, Window.FramebufferHeight > 0 ? Window.FramebufferHeight : Window.Height);
 
     /// <summary>
-    /// Composes the editor's filesystem: the output directory is the content
-    /// root (shaders, assets, icons), while the repo's <c>Game/</c> and
-    /// <c>Ui/</c> source directories are mounted at <c>/Game</c> and <c>/Ui</c>
-    /// in dev builds so their edits hot reload. Published builds fall back to
-    /// the copies next to the executable.
+    /// Composes the editor's filesystems: <see cref="FileSystem.Content"/> is the
+    /// read-only base content (the output directory's shaders/assets plus the
+    /// repo's <c>Editor/Ui</c> mounted at <c>/Ui</c> for hot reload), and
+    /// <see cref="FileSystem.Project"/> is the read-write gamemode project rooted
+    /// at the repo's <c>Game/</c> directory (falling back to the copy next to the
+    /// executable in published builds).
     /// </summary>
     internal static void ConfigureFileSystem()
     {
-        FileSystem.Mounted = ZioFileSystem.Physical();
+        var backend = ZioFileSystem.Physical();
 
-        var probe = new FileSystemService(FileSystem.Mounted, AppContext.BaseDirectory);
+        var probe = new FileSystemService(backend, AppContext.BaseDirectory);
         var gameSource = probe.ResolveSystemDirectory(PathUtil.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Game"));
         var uiSource = probe.ResolveSystemDirectory(PathUtil.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Editor", "Ui"));
 
-        var mounts = new Dictionary<FilePath, string>();
-        if (gameSource is not null) mounts["/Game"] = gameSource;
-        if (uiSource is not null) mounts["/Ui"] = uiSource;
+        var contentMounts = new Dictionary<FilePath, string>();
+        if (uiSource is not null) contentMounts["/Ui"] = uiSource;
 
-        FileSystem.Content = new FileSystemService(FileSystem.Mounted, AppContext.BaseDirectory, mounts);
+        var content = new FileSystemService(new ReadOnlyFileSystem(backend), AppContext.BaseDirectory, contentMounts);
+        var projectRoot = gameSource ?? PathUtil.Combine(AppContext.BaseDirectory, "Game");
+        var project = new FileSystemService(backend, projectRoot);
+
+        FileSystem.Configure(backend, content, project);
     }
 }
 

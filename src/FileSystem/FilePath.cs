@@ -1,6 +1,6 @@
 using System.Text;
 
-namespace Crowbar.Files;
+namespace Crowbar.FileSystems;
 
 /// <summary>
 /// A normalized, uniform path used by the engine and editor to address content.
@@ -9,7 +9,7 @@ namespace Crowbar.Files;
 /// collapsed), so they are stable dictionary keys and behave identically across
 /// operating systems.
 ///
-/// This is Crowbar.Files' own path type with no dependency on a backing
+/// This is Crowbar.FileSystems's own path type with no dependency on a backing
 /// filesystem library: the engine and editor code against this type, and each
 /// <see cref="IFileSystem"/> implementation maps it onto its own coordinate
 /// space.
