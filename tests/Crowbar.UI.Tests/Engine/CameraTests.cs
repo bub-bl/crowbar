@@ -48,7 +48,7 @@ public class CameraTests
 
         camera.Yaw = 0f;
         camera.Pitch = 0f;
-        Assert.Equal(new Vector3(0f, 0f, -1f), camera.Forward);
+        Assert.Equal(new Vector3(0f, 0f, 1f), camera.Forward);
 
         camera.Yaw = MathF.PI / 2f;
         camera.Pitch = 0f;
@@ -68,7 +68,7 @@ public class CameraTests
     {
         var camera = new Camera();
 
-        // Position (4.24, 3, 4.24) with the default yaw/pitch looks toward the
+        // Position (4.24, 3, -4.24) with the default yaw/pitch looks toward the
         // scene origin (the default free camera of the editor).
         var toOrigin = Vector3.Normalize(-camera.Position);
         Assert.True(Vector3.Dot(camera.Forward, toOrigin) > 0.99f);
@@ -83,5 +83,30 @@ public class CameraTests
         // repose exactement sur sa sphère d'orbite dès la construction.
         Assert.Equal(camera.Distance, Vector3.Distance(camera.Position, camera.Pivot), 5);
         Assert.True(camera.Distance > 1f);
+    }
+
+    [Fact]
+    public void Camera_UsesTheUnityDirectXBasisConvention()
+    {
+        var camera = new Camera();
+        camera.Yaw = 0f;
+        camera.Pitch = 0f;
+        camera.Position = Vector3.Zero;
+
+        // X = droite, Y = haut, Z = avant (Unity/DirectX).
+        Assert.Equal(Vector3.UnitX, camera.Right);
+        Assert.Equal(Vector3.UnitY, camera.Up);
+        Assert.Equal(Vector3.UnitZ, camera.Forward);
+
+        // La droite de la caméra (screen +X) est bien l'axe X du monde : un
+        // point à droite (devant la caméra) projette à droite de l'écran
+        // (NDC.x positif), et un point devant (avant) tombe dans la profondeur
+        // [0, 1] de WebGPU.
+        var view = camera.ViewMatrix;
+        var proj = camera.ProjectionMatrix(16f / 9f);
+        var right = Vector4.Transform(new Vector4(2f, 0f, 5f, 1f), view * proj);
+        var ahead = Vector4.Transform(new Vector4(0f, 0f, 5f, 1f), view * proj);
+        Assert.True(right.X / right.W > 0f, "world +X must project to the right side of the screen");
+        Assert.InRange(ahead.Z / ahead.W, 0f, 1f);
     }
 }

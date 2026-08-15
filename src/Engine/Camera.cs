@@ -22,7 +22,7 @@ public sealed class Camera : TransformComponent
 
     public Camera()
     {
-        var position = new Vector3(4.24f, 3f, 4.24f);
+        var position = new Vector3(4.24f, 3f, -4.24f);
         var rotation = RotationFromYawPitch(_yaw, _pitch);
         // Métadonnées d'orbite cohérentes avec la vue de départ : le pivot est
         // le point que la caméra regarde, à la distance initiale. Le contrôleur
@@ -91,18 +91,50 @@ public sealed class Camera : TransformComponent
     /// <summary>World-space up direction (the transform's up).</summary>
     public Vector3 Up => Local.Rotation.Up;
 
-    public Matrix4x4 ViewMatrix => Matrix4x4.CreateLookAt(Position, Position + Forward, Vector3.UnitY);
+    public Matrix4x4 ViewMatrix
+    {
+        get
+        {
+            // Left-handed view (Unity/DirectX): the camera looks down +Z, with
+            // +X on the right of the screen, +Y up and +Z into it. Built by
+            // hand (System.Numerics' CreateLookAt is right-handed); row-vector
+            // layout, so view = world * ViewMatrix like every other matrix here.
+            var eye = Position;
+            var forward = Forward;
+            var up = Up;
+            var right = Vector3.Normalize(Vector3.Cross(up, forward));
+            var upVector = Vector3.Cross(forward, right);
+            return new Matrix4x4(
+                right.X, upVector.X, forward.X, 0f,
+                right.Y, upVector.Y, forward.Y, 0f,
+                right.Z, upVector.Z, forward.Z, 0f,
+                -Vector3.Dot(right, eye), -Vector3.Dot(upVector, eye), -Vector3.Dot(forward, eye), 1f);
+        }
+    }
 
-    public Matrix4x4 ProjectionMatrix(float aspect) =>
-        Matrix4x4.CreatePerspectiveFieldOfView(FieldOfView, aspect, NearPlane, FarPlane);
+    public Matrix4x4 ProjectionMatrix(float aspect)
+    {
+        // Left-handed perspective (Unity/DirectX): view +Z (forward) maps to
+        // NDC z in [0, 1], WebGPU's depth range. Row-vector layout.
+        var yScale = 1f / MathF.Tan(FieldOfView * 0.5f);
+        var xScale = yScale / Math.Max(1e-6f, aspect);
+        var zScale = FarPlane / (FarPlane - NearPlane);
+        var zOffset = -(NearPlane * FarPlane) / (FarPlane - NearPlane);
+        return new Matrix4x4(
+            xScale, 0f, 0f, 0f,
+            0f, yScale, 0f, 0f,
+            0f, 0f, zScale, 1f,
+            0f, 0f, zOffset, 0f);
+    }
 
     private void SyncRotation() => Local = Local with { Rotation = RotationFromYawPitch(_yaw, _pitch) };
 
     /// <summary>
-    /// Composes yaw/pitch (radians) into the transform rotation: yaw around the
-    /// world up axis, then pitch around the camera's right axis. This yields
-    /// forward = (sin(yaw)·cos(pitch), sin(pitch), -cos(yaw)·cos(pitch)).
+    /// Composes yaw/pitch (radians) into the transform rotation under the
+    /// Unity/DirectX convention (X right, Y up, Z forward): yaw turns around
+    /// the world up axis and pitch around the camera's right axis. This yields
+    /// forward = (sin(yaw)·cos(pitch), sin(pitch), cos(yaw)·cos(pitch)).
     /// </summary>
     private static Rotation RotationFromYawPitch(float yaw, float pitch) =>
-        Rotation.FromYaw(-yaw * RadiansToDegrees) * Rotation.FromPitch(pitch * RadiansToDegrees);
+        Rotation.FromYaw(yaw * RadiansToDegrees) * Rotation.FromPitch(-pitch * RadiansToDegrees);
 }

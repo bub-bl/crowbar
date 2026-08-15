@@ -69,7 +69,14 @@ public sealed class RotationGizmo : Gizmo
         if (SnapSize is { } snap && snap > 0f)
             degrees = MathF.Round(degrees / snap) * snap;
 
-        Target.World = Target.World with { Rotation = _dragStartRotation * Rotation.FromAxis(normal, degrees) };
+        // The delta is a world-space rotation around the ring's axis (the
+        // angle comes from world-space radials). It must be composed on the
+        // LEFT: FromAxis * start keeps the object's already-rotated frame
+        // intact and rotates it around the world axis the ring represents.
+        // Composing on the right (start * FromAxis) would rotate around the
+        // object's own local axis instead, so the drag would no longer follow
+        // the ring once the target is rotated.
+        Target.World = Target.World with { Rotation = Rotation.FromAxis(normal, degrees) * _dragStartRotation };
     }
 
     /// <summary>Projects <paramref name="point"/> onto the rotation plane and returns its unit direction from the origin.</summary>

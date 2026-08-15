@@ -49,15 +49,16 @@ public abstract class Gizmo
     /// World-space extent that spans <paramref name="pixels"/> on screen at
     /// <paramref name="origin"/>'s depth — the exact size the renderer draws
     /// the widget at. Derived from the camera matrices so hover and rendering
-    /// can never drift apart: depth comes from the view matrix (System.Numerics
-    /// <c>CreateLookAt</c> is a row-vector look-at whose third <em>column</em>
-    /// is -forward), FOV from the projection (M22 = 1 / tan(fov/2)).
+    /// can never drift apart: depth comes from the view matrix (whose third
+    /// row is the forward axis, view +Z), FOV from the projection
+    /// (M22 = 1 / tan(fov/2)).
     /// </summary>
     public static float ScreenConstantWorldSize(Vector3 origin, Matrix4x4 view, Matrix4x4 projection, int height, float pixels)
     {
-        // Third column is zaxis = normalize(position - target) = -forward.
-        var back = new Vector3(view.M13, view.M23, view.M33);
-        var depth = Math.Max(1e-4f, -(Vector3.Dot(back, origin) + view.M43));
+        // Row-vector view: the third output column is the forward axis and
+        // M43 is -dot(forward, eye); depth = dot(forward, origin - eye).
+        var forward = new Vector3(view.M13, view.M23, view.M33);
+        var depth = Math.Max(1e-4f, Vector3.Dot(forward, origin) + view.M43);
         var tanHalfFov = 1f / Math.Max(1e-6f, projection.M22);
         return pixels * 2f * depth * tanHalfFov / Math.Max(1, height);
     }

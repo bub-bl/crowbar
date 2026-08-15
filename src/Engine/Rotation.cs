@@ -33,8 +33,8 @@ public record struct Rotation
     public Rotation Conjugate => From(Quaternion.Conjugate(Quaternion));
     public Rotation Inverse => From(Quaternion.Inverse(Quaternion));
 
-    public Vector3 Forward => Vector3.Transform(-Vector3.UnitZ, Quaternion);
-    public Vector3 Backward => Vector3.Transform(Vector3.UnitZ, Quaternion);
+    public Vector3 Forward => Vector3.Transform(Vector3.UnitZ, Quaternion);
+    public Vector3 Backward => Vector3.Transform(-Vector3.UnitZ, Quaternion);
     public Vector3 Up => Vector3.Transform(Vector3.UnitY, Quaternion);
     public Vector3 Down => Vector3.Transform(-Vector3.UnitY, Quaternion);
     public Vector3 Right => Vector3.Transform(Vector3.UnitX, Quaternion);

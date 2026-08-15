@@ -8,6 +8,12 @@ public class RotationGizmoTests
     private const int Width = 1280;
     private const int Height = 720;
 
+    // Points on the X ring (the circle of radius r in the YZ plane) but off
+    // the world axes, where the X, Y and Z rings cross and the hover becomes
+    // ambiguous: (0, r/√2, r/√2).
+    private static Vector3 OnXRing(float radius) =>
+        new(0f, radius * 0.70710678f, radius * 0.70710678f);
+
     [Fact]
     public void Hover_DetectsTheAxisRingUnderTheMouse()
     {
@@ -16,8 +22,7 @@ public class RotationGizmoTests
         gizmo.SetTarget(transform);
 
         var camera = new Camera();
-        // (0, r, 0) lies on the X ring (the circle of radius r in the YZ plane).
-        var (ray, pixels) = RayThroughPoint(new Vector3(0f, RingRadius(gizmo, camera), 0f), camera);
+        var (ray, pixels) = RayThroughPoint(OnXRing(RingRadius(gizmo, camera)), camera);
 
         gizmo.UpdateHover(ray, pixels, camera.ViewMatrix, camera.ProjectionMatrix(Aspect), Width, Height);
 
@@ -51,18 +56,52 @@ public class RotationGizmoTests
         var view = camera.ViewMatrix;
         var projection = camera.ProjectionMatrix(Aspect);
 
-        var (startRay, startPixels) = RayThroughPoint(new Vector3(0f, RingRadius(gizmo, camera), 0f), camera);
+        var (startRay, startPixels) = RayThroughPoint(OnXRing(RingRadius(gizmo, camera)), camera);
         gizmo.UpdateHover(startRay, startPixels, view, projection, Width, Height);
         Assert.Equal(GizmoAxis.X, gizmo.HoveredAxis);
         gizmo.BeginDrag(startRay);
 
-        // Dragging from +Y to +Z sweeps +90° around the X axis (right-hand rule).
-        var (dragRay, _) = RayThroughPoint(new Vector3(0f, 0f, RingRadius(gizmo, camera)), camera);
+        // Sweeping the radial from +Y/+Z to -Y/+Z turns +90° around the X axis.
+        var (dragRay, _) = RayThroughPoint(new Vector3(0f, -RingRadius(gizmo, camera) * 0.70710678f,
+            RingRadius(gizmo, camera) * 0.70710678f), camera);
         gizmo.Drag(dragRay);
 
         Assert.Equal(90f, transform.World.Rotation.Pitch(), 3);
         Assert.Equal(0f, transform.World.Rotation.Yaw(), 3);
         Assert.Equal(0f, transform.World.Rotation.Roll(), 3);
+    }
+
+    [Fact]
+    public void Drag_RotatesAroundTheWorldAxisWhenTheTargetIsAlreadyRotated()
+    {
+        var transform = CreateTarget();
+        // A yawed object's local X axis is no longer the world X axis, so a
+        // world-mode drag on the X ring must still rotate around the WORLD X.
+        transform.Local = new Transform(Vector3.Zero, Rotation.FromYaw(30f), Vector3.One);
+        var gizmo = new RotationGizmo();
+        gizmo.SetTarget(transform);
+
+        var camera = new Camera();
+        var view = camera.ViewMatrix;
+        var projection = camera.ProjectionMatrix(Aspect);
+
+        var (startRay, startPixels) = RayThroughPoint(OnXRing(RingRadius(gizmo, camera)), camera);
+        gizmo.UpdateHover(startRay, startPixels, view, projection, Width, Height);
+        Assert.Equal(GizmoAxis.X, gizmo.HoveredAxis);
+        gizmo.BeginDrag(startRay);
+
+        // Sweep the radial +90° around the world X axis, as the other drag tests do.
+        var (dragRay, _) = RayThroughPoint(new Vector3(0f, -RingRadius(gizmo, camera) * 0.70710678f,
+            RingRadius(gizmo, camera) * 0.70710678f), camera);
+        gizmo.Drag(dragRay);
+
+        // Yaw(30) maps the local X to (cos30, 0, -sin30); rotating +90° around
+        // the WORLD X sends it to (cos30, sin30, 0). A local-frame bug would
+        // leave the local X unchanged instead.
+        var localX = Vector3.Transform(Vector3.UnitX, transform.World.Rotation.Quaternion);
+        Assert.Equal(0.866f, localX.X, 2);
+        Assert.Equal(0.5f, localX.Y, 2);
+        Assert.Equal(0f, localX.Z, 2);
     }
 
     [Fact]
@@ -76,12 +115,13 @@ public class RotationGizmoTests
         var view = camera.ViewMatrix;
         var projection = camera.ProjectionMatrix(Aspect);
 
-        var (startRay, startPixels) = RayThroughPoint(new Vector3(0f, RingRadius(gizmo, camera), 0f), camera);
+        var (startRay, startPixels) = RayThroughPoint(OnXRing(RingRadius(gizmo, camera)), camera);
         gizmo.UpdateHover(startRay, startPixels, view, projection, Width, Height);
         gizmo.BeginDrag(startRay);
 
         // 90° of rotation rounds up to the 100° step.
-        var (dragRay, _) = RayThroughPoint(new Vector3(0f, 0f, RingRadius(gizmo, camera)), camera);
+        var (dragRay, _) = RayThroughPoint(new Vector3(0f, -RingRadius(gizmo, camera) * 0.70710678f,
+            RingRadius(gizmo, camera) * 0.70710678f), camera);
         gizmo.Drag(dragRay);
 
         Assert.Equal(100f, transform.World.Rotation.Pitch(), 3);
@@ -99,18 +139,18 @@ public class RotationGizmoTests
         // the default, the drawn radius is well under the 1-unit radius the
         // hover used to test against (regression: the highlight lit up beside
         // the ring). A mouse on the drawn ring must hover...
-        var camera = new Camera { Position = new Vector3(2.12f, 1.5f, 2.12f) };
+        var camera = new Camera { Position = new Vector3(2.12f, 1.5f, -2.12f) };
         var view = camera.ViewMatrix;
         var projection = camera.ProjectionMatrix(Aspect);
         var radius = RingRadius(gizmo, camera);
         Assert.True(radius < 1f, $"Drawn ring radius {radius} should be under 1 unit at this distance.");
 
-        var (onRing, onRingPixels) = RayThroughPoint(new Vector3(0f, radius, 0f), camera);
+        var (onRing, onRingPixels) = RayThroughPoint(OnXRing(radius), camera);
         gizmo.UpdateHover(onRing, onRingPixels, view, projection, Width, Height);
         Assert.Equal(GizmoAxis.X, gizmo.HoveredAxis);
 
         // ...while a mouse on the old fixed 1-unit ring must not.
-        var (oldRing, oldRingPixels) = RayThroughPoint(new Vector3(0f, 1f, 0f), camera);
+        var (oldRing, oldRingPixels) = RayThroughPoint(OnXRing(1f), camera);
         gizmo.UpdateHover(oldRing, oldRingPixels, view, projection, Width, Height);
         Assert.Equal(GizmoAxis.None, gizmo.HoveredAxis);
     }
@@ -125,7 +165,7 @@ public class RotationGizmoTests
         var camera = new Camera();
         var view = camera.ViewMatrix;
         var projection = camera.ProjectionMatrix(Aspect);
-        var (ray, pixels) = RayThroughPoint(new Vector3(0f, RingRadius(gizmo, camera), 0f), camera);
+        var (ray, pixels) = RayThroughPoint(OnXRing(RingRadius(gizmo, camera)), camera);
         gizmo.UpdateHover(ray, pixels, view, projection, Width, Height);
         gizmo.BeginDrag(ray);
 
