@@ -54,14 +54,19 @@ public sealed class FileSystemService
     // Path bridge
     // ------------------------------------------------------------------
 
-    /// <summary>True when <paramref name="path"/> is an operating-system path (drive letter, UNC, rooted).</summary>
-    public static bool IsRooted(string path) => Path.IsPathRooted(path);
+    /// <summary>
+    /// True when <paramref name="path"/> is a fully-qualified operating-system
+    /// path (drive letter or UNC). A leading <c>/</c> alone is a <em>logical</em>
+    /// absolute path (e.g. a <see cref="Mounts"/> point like <c>/Ui</c>), not an
+    /// OS path, so it is deliberately excluded.
+    /// </summary>
+    public static bool IsRooted(string path) => Path.IsPathFullyQualified(path);
 
     /// <summary>Converts a user path (OS or logical) into a backend <see cref="FilePath"/>.</summary>
     public FilePath ToFilePath(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (Path.IsPathRooted(path))
+        if (IsRooted(path))
             return Backend.ConvertPathFromInternal(Path.GetFullPath(path));
 
         var logical = new FilePath(path).ToAbsolute();
