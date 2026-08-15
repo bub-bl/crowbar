@@ -1,7 +1,10 @@
+using Crowbar.Files;
+using Zio;
+
 namespace Crowbar.UI;
 
 /// <summary>A routable Razor page declared with the <c>@page</c> directive.</summary>
-public sealed record PageRoute(string Template, string TagName, string RazorPath, string ClassName);
+public sealed record PageRoute(string Template, string TagName, UPath RazorPath, string ClassName);
 
 public sealed partial class UiSystem : IDisposable
 {
@@ -18,7 +21,7 @@ public sealed partial class UiSystem : IDisposable
     private readonly Dictionary<string, RazorComponentSource> _razorComponents = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PageRoute> _pages = [];
     private readonly List<PageRoute> _manualPages = [];
-    private readonly Dictionary<string, string> _directoryTags = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, UPath> _directoryTags = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (DateTime WriteTime, string Text)> _textCache = new(StringComparer.Ordinal);
     private PageRoute? _currentRoute;
     /// <summary>True once the tree has been laid out at least once. Before that, the
@@ -69,23 +72,24 @@ public sealed partial class UiSystem : IDisposable
 
     public void RegisterRazorComponentFromFile(string tagName, string razorPath, string className)
     {
-        razorPath = Path.GetFullPath(razorPath);
-        RegisterRazorComponentFromFileCore(tagName, razorPath, className);
-        foreach (var route in RazorComponentFactory.ExtractPages(ReadStableTextCached(razorPath)))
+        var upath = FileSystemService.Default.ToUPath(razorPath);
+        RegisterRazorComponentFromFileCore(tagName, upath, className);
+        foreach (var route in RazorComponentFactory.ExtractPages(ReadStableTextCached(upath)))
         {
-            var page = new PageRoute(route, tagName, razorPath, className);
+            var page = new PageRoute(route, tagName, upath, className);
             if (_manualPages.All(existing => existing != page)) _manualPages.Add(page);
         }
         RebuildPages();
     }
 
-    private void RegisterRazorComponentFromFileCore(string tagName, string razorPath, string className)
+    private void RegisterRazorComponentFromFileCore(string tagName, UPath razorPath, string className)
     {
         var scopeId = $"b-{className.ToLowerInvariant()}";
+        var fs = FileSystemService.Default;
         var cssPath = GetAssociatedCssPath(razorPath);
-        if (File.Exists(cssPath)) LoadScopedStyles(tagName, ReadStableTextCached(cssPath), scopeId);
+        if (fs.FileExists(cssPath)) LoadScopedStyles(tagName, ReadStableTextCached(cssPath), scopeId);
         var fileFactory = new RazorComponentFactory();
-        var typeParameters = RazorComponentFactory.TypeParamNamesFromSource(File.Exists(razorPath) ? ReadStableTextCached(razorPath) : string.Empty);
+        var typeParameters = RazorComponentFactory.TypeParamNamesFromSource(fs.FileExists(razorPath) ? ReadStableTextCached(razorPath) : string.Empty);
         _razorComponents[tagName] = new RazorComponentSource(typeParameters, typeArguments =>
         {
             var template = fileFactory.CompileTemplateFromFile(razorPath, className, typeof(PanelComponent),
@@ -105,17 +109,20 @@ public sealed partial class UiSystem : IDisposable
     /// can be re-run on every file change for hot reload.
     /// </summary>
     public int RegisterRazorComponentsFromDirectory(string directory, bool recursive = true)
+        => RegisterRazorComponentsFromDirectory(FileSystemService.Default.ToUPath(directory), recursive);
+
+    public int RegisterRazorComponentsFromDirectory(UPath directory, bool recursive = true)
     {
-        directory = Path.GetFullPath(directory);
-        var files = Directory.Exists(directory)
-            ? Directory.EnumerateFiles(directory, "*.razor", recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly).ToArray()
+        var fs = FileSystemService.Default;
+        var files = fs.FileSystem.DirectoryExists(directory)
+            ? fs.EnumerateFiles(directory, "*.razor", recursive).ToArray()
             : [];
-        var seen = new List<(string Tag, string Path)>();
+        var seen = new List<(string Tag, UPath Path)>();
         foreach (var razorPath in files)
         {
-            var fileName = Path.GetFileName(razorPath);
+            var fileName = razorPath.GetName();
             if (fileName.StartsWith("_", StringComparison.Ordinal)) continue;
-            seen.Add((Path.GetFileNameWithoutExtension(fileName), Path.GetFullPath(razorPath)));
+            seen.Add((razorPath.GetNameWithoutExtension() ?? string.Empty, razorPath));
         }
         foreach (var collision in seen.GroupBy(item => item.Tag, StringComparer.OrdinalIgnoreCase).Where(group => group.Count() > 1))
             throw new InvalidOperationException($"Duplicate Razor component tag '{collision.Key}' (files differ only by case): {string.Join(", ", collision.Select(item => item.Path))}.");
@@ -188,15 +195,18 @@ public sealed partial class UiSystem : IDisposable
     }
 
     public void LoadRazorFromFile(string razorPath, string className = "Root")
+        => LoadRazorFromFile(FileSystemService.Default.ToUPath(razorPath), className);
+
+    public void LoadRazorFromFile(UPath razorPath, string className = "Root")
     {
-        razorPath = Path.GetFullPath(razorPath);
-        var source = File.ReadAllText(razorPath);
+        var fs = FileSystemService.Default;
+        var source = fs.ReadAllText(razorPath);
         var scopeId = $"b-{className.ToLowerInvariant()}";
         var scopedCssPath = GetAssociatedCssPath(razorPath);
-        if (File.Exists(scopedCssPath))
+        if (fs.FileExists(scopedCssPath))
         {
-            var css = File.ReadAllText(scopedCssPath);
-            LoadScopedStyles(scopedCssPath, css, scopeId);
+            var css = fs.ReadAllText(scopedCssPath);
+            LoadScopedStyles(scopedCssPath.FullName, css, scopeId);
         }
         LoadRazor(source, className);
     }
@@ -255,7 +265,14 @@ public sealed partial class UiSystem : IDisposable
     {
         if (razorPath.EndsWith(".razor", StringComparison.OrdinalIgnoreCase))
             return razorPath + ".css";
-        return Path.ChangeExtension(razorPath, ".razor.css");
+        return PathUtil.ChangeExtension(razorPath, ".razor.css");
+    }
+
+    public static UPath GetAssociatedCssPath(UPath razorPath)
+    {
+        if (razorPath.FullName.EndsWith(".razor", StringComparison.OrdinalIgnoreCase))
+            return razorPath.FullName + ".css";
+        return razorPath.ChangeExtension(".razor.css");
     }
 
     /// <summary>
@@ -470,13 +487,12 @@ public sealed partial class UiSystem : IDisposable
         return url.Length == 0 ? "/" : url;
     }
 
-    private string ReadStableTextCached(string path)
+    private string ReadStableTextCached(UPath path)
     {
-        path = Path.GetFullPath(path);
         var writeTime = GetWriteTime(path);
-        if (_textCache.TryGetValue(path, out var entry) && entry.WriteTime == writeTime) return entry.Text;
+        if (_textCache.TryGetValue(path.FullName, out var entry) && entry.WriteTime == writeTime) return entry.Text;
         var text = ReadStableText(path);
-        _textCache[path] = (writeTime, text);
+        _textCache[path.FullName] = (writeTime, text);
         return text;
     }
 

@@ -1,4 +1,5 @@
 using System.Numerics;
+using Crowbar.Files;
 using Crowbar.UI;
 
 namespace Crowbar.Engine.Rendering2D;
@@ -830,7 +831,7 @@ public sealed class UiTreePainter
         return resolved;
     }
 
-    private static string _iconRoot = Path.Combine(AppContext.BaseDirectory, "Assets", "Icons");
+    private static string _iconRoot = PathUtil.Combine("Assets", "Icons");
 
     /// <summary>Directory icon names are resolved against (defaults to <c>Assets/Icons</c>).</summary>
     public static string IconRoot
@@ -844,8 +845,9 @@ public sealed class UiTreePainter
         var normalized = name.Replace('\\', '/');
         if (normalized.StartsWith('/') || normalized.Contains("..", StringComparison.Ordinal))
             return null;
-        var path = Path.Combine(IconRoot, normalized + ".svg");
-        if (!File.Exists(path))
+        var path = PathUtil.Combine(IconRoot, normalized + ".svg");
+        var fs = FileSystemService.Default;
+        if (!fs.FileExists(path))
             return null;
         try
         {
@@ -853,7 +855,7 @@ public sealed class UiTreePainter
             // normalize them to currentColor so the whole pack tints through
             // the computed color, exactly like SvgIconCache did with Skia.
             var source = System.Text.RegularExpressions.Regex.Replace(
-                    File.ReadAllText(path), "(fill|stroke)=\"#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?\"", "$1=\"currentColor\"");
+                    fs.ReadAllText(path), "(fill|stroke)=\"#[0-9A-Fa-f]{6}([0-9A-Fa-f]{2})?\"", "$1=\"currentColor\"");
             return SvgDocumentParser.Parse(source);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Xml.XmlException or FormatException)

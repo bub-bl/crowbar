@@ -1,5 +1,7 @@
 using System.Numerics;
 using Crowbar.Engine.Rendering2D;
+using Crowbar.Files;
+using Zio;
 
 namespace Crowbar.Engine.Rendering;
 
@@ -68,13 +70,14 @@ public sealed class GizmoIconAtlas : IDisposable
     {
         ArgumentNullException.ThrowIfNull(device);
 
-        var assetsDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", "Gizmos");
-        if (!Directory.Exists(assetsDirectory))
+        var fs = FileSystemService.Default;
+        var assetsDirectory = PathUtil.Combine("Assets", "Gizmos");
+        if (!fs.DirectoryExists(assetsDirectory))
             throw new DirectoryNotFoundException(
                 $"The gizmo icon directory '{assetsDirectory}' was not found.");
 
-        var files = Directory.EnumerateFiles(assetsDirectory, "*.svg")
-            .OrderBy(path => path, StringComparer.Ordinal)
+        var files = fs.EnumerateFiles(assetsDirectory, "*.svg")
+            .OrderBy(path => path.FullName, StringComparer.Ordinal)
             .ToList();
         if (files.Count == 0)
             throw new InvalidOperationException(
@@ -86,7 +89,7 @@ public sealed class GizmoIconAtlas : IDisposable
 
         for (var index = 0; index < files.Count; index++)
         {
-            var fileName = Path.GetFileNameWithoutExtension(files[index]);
+            var fileName = files[index].GetNameWithoutExtension() ?? string.Empty;
             var iconPixels = RasterizeSvg(files[index], IconSize);
             for (var row = 0; row < IconSize; row++)
             {
@@ -126,12 +129,12 @@ public sealed class GizmoIconAtlas : IDisposable
         return new GizmoIconAtlas(texture, sampler, uvByName);
     }
 
-    private static byte[] RasterizeSvg(string path, int size)
+    private static byte[] RasterizeSvg(UPath path, int size)
     {
         // The supplied icons use currentColor: the engine's parser treats it as
         // a caller tint, so rasterize white and let the sprite shader multiply
         // the sampled RGB by the light/entity tint.
-        var shape = SvgDocumentParser.Parse(File.ReadAllText(path));
+        var shape = SvgDocumentParser.Parse(FileSystemService.Default.ReadAllText(path));
         if (shape.ViewBox.Width <= 0f || shape.ViewBox.Height <= 0f)
             throw new InvalidDataException($"SVG gizmo icon '{path}' has no drawable bounds.");
 

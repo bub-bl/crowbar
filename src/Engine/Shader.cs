@@ -1,4 +1,6 @@
 using System.Numerics;
+using Crowbar.Files;
+using Zio;
 
 namespace Crowbar.Engine;
 
@@ -88,12 +90,12 @@ public sealed class Shader
     /// <summary>The material fields mapped to CLR types, for parameter validation.</summary>
     public IReadOnlyList<ShaderParameterDefinition> Parameters { get; }
 
-    private Shader(string requestedPath, string filePath, string source)
+    private Shader(string requestedPath, UPath filePath, string source)
     {
         Path = requestedPath;
-        FilePath = filePath;
+        FilePath = filePath.FullName;
         Source = source;
-        Name = System.IO.Path.GetFileNameWithoutExtension(filePath);
+        Name = filePath.GetNameWithoutExtension() ?? string.Empty;
         EntryPoints = ShaderReflection.DetectEntryPoints(source);
         Bindings = ShaderReflection.DetectBindings(source);
         Structs = ShaderReflection.DetectStructs(source);
@@ -129,19 +131,16 @@ public sealed class Shader
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        var candidates = System.IO.Path.IsPathRooted(path)
-            ? [path]
-            : new[]
-            {
-                System.IO.Path.Combine(AppContext.BaseDirectory, path),
-                System.IO.Path.GetFullPath(path)
-            };
+        var fs = FileSystemService.Default;
+        var candidates = FileSystemService.IsRooted(path)
+            ? [fs.ToUPath(path)]
+            : new[] { fs.ToUPath(path), fs.ToWorkingDirectoryPath(path) };
 
         foreach (var candidate in candidates)
         {
-            if (File.Exists(candidate))
+            if (fs.FileExists(candidate))
             {
-                var source = ShaderPreprocessor.Preprocess(candidate);
+                var source = ShaderPreprocessor.Preprocess(fs, candidate);
                 return new Shader(path, candidate, source);
             }
         }

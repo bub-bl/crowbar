@@ -1,15 +1,17 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using Crowbar.Files;
+using Zio;
 
 namespace Crowbar.UI;
 
 public sealed partial class UiSystem
 {
-    private string? _razorPath;
-    private string? _stylePath;
-    private string? _watchDirectory;
+    private UPath? _razorPath;
+    private UPath? _stylePath;
+    private UPath? _watchDirectory;
     private Dictionary<string, DateTime>? _watchSnapshot;
-    private FileSystemWatcher? _watcher;
+    private IFileSystemWatcher? _watcher;
     private string _razorClassName = "Root";
     private volatile bool _reloadRequested;
     private DateTime _reloadNotBeforeUtc;
@@ -23,17 +25,19 @@ public sealed partial class UiSystem
     public void WatchFiles(string razorPath, string? stylePath = null, string className = "Root")
     {
         StopWatching();
-        _razorPath = Path.GetFullPath(razorPath);
+        var fs = FileSystemService.Default;
+        var razor = fs.ToUPath(razorPath);
+        _razorPath = razor;
         _razorClassName = className;
         if (stylePath is not null)
         {
-            _stylePath = Path.GetFullPath(stylePath);
+            _stylePath = fs.ToUPath(stylePath);
             _styleIsScoped = false;
         }
         else
         {
-            var associatedCss = GetAssociatedCssPath(_razorPath);
-            if (File.Exists(associatedCss))
+            var associatedCss = GetAssociatedCssPath(razor);
+            if (fs.FileExists(associatedCss))
             {
                 _stylePath = associatedCss;
                 _styleIsScoped = true;
@@ -44,10 +48,9 @@ public sealed partial class UiSystem
                 _styleIsScoped = false;
             }
         }
-        _lastRazorWriteUtc = GetWriteTime(_razorPath);
-        _lastStyleWriteUtc = _stylePath is null ? DateTime.MinValue : GetWriteTime(_stylePath);
-        var directory = Path.GetDirectoryName(_razorPath);
-        if (directory is not null) StartWatcher(directory, Path.GetFileName(_razorPath), includeSubdirectories: false);
+        _lastRazorWriteUtc = GetWriteTime(razor);
+        _lastStyleWriteUtc = _stylePath is { } style ? GetWriteTime(style) : DateTime.MinValue;
+        StartWatcher(razor.GetDirectory(), razor.GetName(), includeSubdirectories: false);
     }
 
     /// <summary>Watches every .razor / .razor.css / .razor.scss file under <paramref name="directory"/>.
@@ -57,28 +60,29 @@ public sealed partial class UiSystem
     public void WatchDirectory(string directory)
     {
         StopWatching();
-        _watchDirectory = Path.GetFullPath(directory);
-        _watchSnapshot = TakeDirectorySnapshot(_watchDirectory);
-        StartWatcher(_watchDirectory, "*.razor*", includeSubdirectories: true);
+        var dir = FileSystemService.Default.ToUPath(directory);
+        _watchDirectory = dir;
+        _watchSnapshot = TakeDirectorySnapshot(dir);
+        StartWatcher(dir, "*.razor*", includeSubdirectories: true);
     }
 
     /// <summary>
-    /// Installs a <see cref="FileSystemWatcher"/> as the primary change source.
+    /// Installs an <see cref="IFileSystemWatcher"/> as the primary change source.
     /// Events are debounced in <see cref="ProcessFileReload"/>; a throttled
     /// directory snapshot (every <see cref="PollInterval"/>) remains as a safety
     /// net for changes the watcher misses (network drives, editors that replace
     /// files without events, ...).
     /// </summary>
-    private void StartWatcher(string directory, string filter, bool includeSubdirectories)
+    private void StartWatcher(UPath directory, string filter, bool includeSubdirectories)
     {
-        if (!Directory.Exists(directory)) return;
+        var fs = FileSystemService.Default;
+        if (!fs.FileSystem.DirectoryExists(directory)) return;
         try
         {
-            _watcher = new FileSystemWatcher(directory, filter)
-            {
-                IncludeSubdirectories = includeSubdirectories,
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.CreationTime
-            };
+            _watcher = fs.Watch(directory);
+            _watcher.Filter = filter;
+            _watcher.IncludeSubdirectories = includeSubdirectories;
+            _watcher.NotifyFilter = Zio.NotifyFilters.LastWrite | Zio.NotifyFilters.FileName | Zio.NotifyFilters.Size | Zio.NotifyFilters.CreationTime;
             _watcher.Changed += OnFileSystemEvent;
             _watcher.Created += OnFileSystemEvent;
             _watcher.Deleted += OnFileSystemEvent;
@@ -95,7 +99,7 @@ public sealed partial class UiSystem
         }
     }
 
-    private void OnFileSystemEvent(object sender, FileSystemEventArgs e)
+    private void OnFileSystemEvent(object? sender, FileChangedEventArgs e)
     {
         _reloadRequested = true;
         _reloadNotBeforeUtc = DateTime.UtcNow.AddMilliseconds(200);
@@ -106,7 +110,7 @@ public sealed partial class UiSystem
 
     public void Update(float deltaTime = 1f / 60f)
     {
-        // The FileSystemWatcher is the primary change source; the snapshot poll
+        // The watcher is the primary change source; the snapshot poll
         // is only a safety net, so it runs at a fraction of the frame rate.
         if (DateTime.UtcNow - _lastPollUtc >= PollInterval)
         {
@@ -124,40 +128,39 @@ public sealed partial class UiSystem
         if (!_reloadRequested || DateTime.UtcNow < _reloadNotBeforeUtc) return;
         try
         {
-            if (_watchDirectory is not null)
+            if (_watchDirectory is { } watchDirectory)
             {
                 // Sass startup is expensive and must never run on the render
                 // thread. Compile all entry points in one tool invocation, then
                 // apply the resulting CSS on the next UI update.
                 if (_scssCompileTask is null)
                 {
-                    var directory = _watchDirectory;
-                    _scssCompileTask = Task.Run(() => CompileScssFiles(directory));
+                    _scssCompileTask = Task.Run(() => CompileScssFiles(watchDirectory));
                     return;
                 }
                 if (!_scssCompileTask.IsCompleted) return;
                 _scssCompileTask.GetAwaiter().GetResult();
                 _scssCompileTask = null;
-                RegisterRazorComponentsFromDirectory(_watchDirectory);
+                RegisterRazorComponentsFromDirectory(watchDirectory);
                 if (_currentRoute is not null && _pages.Contains(_currentRoute)) Navigate(CurrentUrl);
                 else if (_currentRoute is not null) { _currentRoute = null; ShowNotFound(CurrentUrl); }
                 else if (_razorRoot is not null) _razorRenderPending = true;
                 else if (_pages.Count > 0) Navigate(CurrentUrl);
             }
-            else if (_razorPath is not null && File.Exists(_razorPath))
+            else if (_razorPath is { } razorPath && FileSystemService.Default.FileExists(razorPath))
             {
-                LoadRazorFromFile(_razorPath, _razorClassName);
+                LoadRazorFromFile(razorPath, _razorClassName);
             }
-            else if (_stylePath is not null && File.Exists(_stylePath))
+            else if (_stylePath is { } stylePath && FileSystemService.Default.FileExists(stylePath))
             {
                 if (_styleIsScoped)
                 {
                     var scopeId = $"b-{_razorClassName.ToLowerInvariant()}";
-                    LoadScopedStyles(_stylePath, ReadStableText(_stylePath), scopeId);
+                    LoadScopedStyles(stylePath.FullName, ReadStableText(stylePath), scopeId);
                 }
                 else
                 {
-                    LoadStyles(ReadStableText(_stylePath));
+                    LoadStyles(ReadStableText(stylePath));
                 }
             }
             _reloadRequested = false;
@@ -181,44 +184,45 @@ public sealed partial class UiSystem
 
     private void DetectFileChanges()
     {
-        if (_watchDirectory is not null)
+        if (_watchDirectory is { } watchDirectory)
         {
-            var snapshot = TakeDirectorySnapshot(_watchDirectory);
+            var snapshot = TakeDirectorySnapshot(watchDirectory);
             if (_watchSnapshot is null || !SnapshotEqual(_watchSnapshot, snapshot))
             {
                 _watchSnapshot = snapshot;
-                RequestReload(_watchDirectory);
+                RequestReload(watchDirectory.GetName());
             }
             return;
         }
-        if (_razorPath is not null)
+        if (_razorPath is { } razorPath)
         {
-            var writeTime = GetWriteTime(_razorPath);
+            var writeTime = GetWriteTime(razorPath);
             if (writeTime != _lastRazorWriteUtc)
             {
                 _lastRazorWriteUtc = writeTime;
-                RequestReload(_razorPath);
+                RequestReload(razorPath.GetName());
             }
         }
-        if (_stylePath is not null)
+        if (_stylePath is { } stylePath)
         {
-            var writeTime = GetWriteTime(_stylePath);
+            var writeTime = GetWriteTime(stylePath);
             if (writeTime != _lastStyleWriteUtc)
             {
                 _lastStyleWriteUtc = writeTime;
-                RequestReload(_stylePath);
+                RequestReload(stylePath.GetName());
             }
         }
     }
 
-    private void RequestReload(string path)
+    private void RequestReload(string name)
     {
         _reloadRequested = true;
         _reloadNotBeforeUtc = DateTime.UtcNow.AddMilliseconds(200);
-        Console.WriteLine($"[UI] Change detected: {Path.GetFileName(path)}");
+        Console.WriteLine($"[UI] Change detected: {name}");
     }
 
-    private static DateTime GetWriteTime(string path) => File.Exists(path) ? File.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+    private static DateTime GetWriteTime(UPath path) =>
+        FileSystemService.Default.FileExists(path) ? FileSystemService.Default.GetLastWriteTimeUtc(path) : DateTime.MinValue;
 
     /// <summary>
     /// Rebuilds the non-partial SCSS entry points before the directory reload.
@@ -226,18 +230,19 @@ public sealed partial class UiSystem
     /// used here so runtime compilation has exactly the same Sass semantics as a
     /// normal build (including @use imports and nesting).
     /// </summary>
-    private static void CompileScssFiles(string directory)
+    private static void CompileScssFiles(UPath directory)
     {
-        var scssPaths = Directory.EnumerateFiles(directory, "*.scss", SearchOption.AllDirectories)
-            .Where(path => !Path.GetFileName(path).StartsWith('_', StringComparison.Ordinal))
+        var scssPaths = FileSystemService.Default.EnumerateFiles(directory, "*.scss", recursive: true)
+            .Where(path => !path.GetName().StartsWith("_", StringComparison.Ordinal))
             .ToArray();
         if (scssPaths.Length == 0) return;
         if (!TryCompileScss(scssPaths))
             Console.WriteLine($"[UI] SCSS hot reload skipped: compiler unavailable for {scssPaths.Length} file(s).");
     }
 
-    private static bool TryCompileScss(IReadOnlyList<string> scssPaths)
+    private static bool TryCompileScss(IReadOnlyList<UPath> scssPaths)
     {
+        var fs = FileSystemService.Default;
         var compiler = FindSassCompiler();
         if (compiler is null) return false;
 
@@ -250,11 +255,11 @@ public sealed partial class UiSystem
             return true;
         }
 
-        var outputPaths = scssPaths.Select(path => Path.ChangeExtension(path, ".css")).ToArray();
+        var outputPaths = scssPaths.Select(path => path.ChangeExtension(".css")).ToArray();
         var startInfo = new ProcessStartInfo
         {
             FileName = compiler.FileName,
-            WorkingDirectory = Path.GetDirectoryName(scssPaths[0]) ?? AppContext.BaseDirectory,
+            WorkingDirectory = fs.ToSystemPath(scssPaths[0].GetDirectory()),
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
@@ -266,7 +271,7 @@ public sealed partial class UiSystem
         {
             startInfo.ArgumentList.Add("files");
             foreach (var scssPath in scssPaths)
-                startInfo.ArgumentList.Add(scssPath);
+                startInfo.ArgumentList.Add(fs.ToSystemPath(scssPath));
             startInfo.ArgumentList.Add("--outputstyle");
             startInfo.ArgumentList.Add("expanded");
         }
@@ -277,8 +282,8 @@ public sealed partial class UiSystem
             // compile every entry point in one process.
             foreach (var pair in scssPaths.Zip(outputPaths))
             {
-                startInfo.ArgumentList.Add(pair.First);
-                startInfo.ArgumentList.Add(pair.Second);
+                startInfo.ArgumentList.Add(fs.ToSystemPath(pair.First));
+                startInfo.ArgumentList.Add(fs.ToSystemPath(pair.Second));
             }
         }
 
@@ -292,7 +297,7 @@ public sealed partial class UiSystem
             if (!process.HasExited)
             {
                 try { process.Kill(entireProcessTree: true); } catch (InvalidOperationException) { }
-                Console.WriteLine($"[UI] SCSS compiler timed out for {Path.GetFileName(scssPaths[0])}.");
+                Console.WriteLine($"[UI] SCSS compiler timed out for {scssPaths[0].GetName()}.");
                 return false;
             }
 
@@ -300,31 +305,32 @@ public sealed partial class UiSystem
             {
                 _ = outputTask.GetAwaiter().GetResult();
                 var error = errorTask.GetAwaiter().GetResult().Trim();
-                Console.WriteLine($"[UI] SCSS compile failed for {Path.GetFileName(scssPaths[0])}: {error}");
+                Console.WriteLine($"[UI] SCSS compile failed for {scssPaths[0].GetName()}: {error}");
                 return false;
             }
             _ = outputTask.GetAwaiter().GetResult();
             _ = errorTask.GetAwaiter().GetResult();
-            return outputPaths.All(File.Exists);
+            return outputPaths.All(fs.FileExists);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Win32Exception)
         {
-            Console.WriteLine($"[UI] SCSS compiler failed for {Path.GetFileName(scssPaths[0])}: {ex.Message}");
+            Console.WriteLine($"[UI] SCSS compiler failed for {scssPaths[0].GetName()}: {ex.Message}");
             return false;
         }
     }
 
     private static SassCompilerCommand? FindSassCompiler()
     {
+        var fs = FileSystemService.Default;
         var packageRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
-            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
-        var toolDirectory = Path.Combine(packageRoot, "dartsassbuilder", "1.1.0", "tool");
+            ?? PathUtil.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
+        var toolDirectory = PathUtil.Combine(packageRoot, "dartsassbuilder", "1.1.0", "tool");
         var executable = OperatingSystem.IsWindows() ? "DartSassBuilder.exe" : "DartSassBuilder";
-        var toolPath = Path.Combine(toolDirectory, executable);
-        if (File.Exists(toolPath)) return new SassCompilerCommand(toolPath, [], true);
+        var toolPath = PathUtil.Combine(toolDirectory, executable);
+        if (fs.FileExists(toolPath)) return new SassCompilerCommand(toolPath, [], true);
 
-        var toolDll = Path.Combine(toolDirectory, "DartSassBuilder.dll");
-        if (File.Exists(toolDll)) return new SassCompilerCommand("dotnet", [toolDll], true);
+        var toolDll = PathUtil.Combine(toolDirectory, "DartSassBuilder.dll");
+        if (fs.FileExists(toolDll)) return new SassCompilerCommand("dotnet", [toolDll], true);
 
         // A globally installed Dart Sass CLI remains a useful fallback for
         // published builds where the NuGet package cache is not available.
@@ -370,14 +376,15 @@ public sealed partial class UiSystem
         return animated;
     }
 
-    private static string ReadStableText(string path)
+    private static string ReadStableText(UPath path)
     {
+        var fs = FileSystemService.Default;
         string? previous = null;
         for (var attempt = 0; attempt < 6; attempt++)
         {
             try
             {
-                using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var stream = fs.OpenRead(path);
                 using var reader = new StreamReader(stream);
                 var text = reader.ReadToEnd();
                 if (previous is not null && previous == text) return text;
@@ -389,7 +396,7 @@ public sealed partial class UiSystem
                 Thread.Sleep(25);
             }
         }
-        return previous ?? File.ReadAllText(path);
+        return previous ?? fs.ReadAllText(path);
     }
 
     public void StopWatching()
@@ -402,12 +409,13 @@ public sealed partial class UiSystem
         _watchSnapshot = null;
     }
 
-    private static Dictionary<string, DateTime> TakeDirectorySnapshot(string directory)
+    private static Dictionary<string, DateTime> TakeDirectorySnapshot(UPath directory)
     {
         var snapshot = new Dictionary<string, DateTime>(StringComparer.Ordinal);
-        if (!Directory.Exists(directory)) return snapshot;
-        foreach (var path in Directory.EnumerateFiles(directory, "*.razor*", SearchOption.AllDirectories))
-            snapshot[Path.GetFullPath(path)] = GetWriteTime(path);
+        var fs = FileSystemService.Default;
+        if (!fs.FileSystem.DirectoryExists(directory)) return snapshot;
+        foreach (var path in fs.EnumerateFiles(directory, "*.razor*", recursive: true))
+            snapshot[path.FullName] = GetWriteTime(path);
         return snapshot;
     }
 

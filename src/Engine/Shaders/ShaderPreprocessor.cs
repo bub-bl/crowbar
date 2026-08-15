@@ -1,4 +1,6 @@
 using System.Text;
+using Crowbar.Files;
+using Zio;
 
 namespace Crowbar.Engine;
 
@@ -14,17 +16,15 @@ internal static class ShaderPreprocessor
 {
     private const int MaxIncludeDepth = 32;
 
-    public static string Preprocess(string filePath)
+    public static string Preprocess(FileSystemService fs, UPath filePath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
-
         var builder = new StringBuilder();
-        var stack = new Stack<string>();
-        Resolve(Path.GetFullPath(filePath), builder, stack);
+        var stack = new Stack<UPath>();
+        Resolve(fs, filePath, builder, stack);
         return builder.ToString();
     }
 
-    private static void Resolve(string filePath, StringBuilder builder, Stack<string> stack)
+    private static void Resolve(FileSystemService fs, UPath filePath, StringBuilder builder, Stack<UPath> stack)
     {
         if (stack.Count >= MaxIncludeDepth)
             throw new InvalidOperationException($"Shader include depth exceeded at '{filePath}'.");
@@ -36,7 +36,7 @@ internal static class ShaderPreprocessor
         stack.Push(filePath);
         try
         {
-            foreach (var rawLine in File.ReadLines(filePath))
+            foreach (var rawLine in fs.FileSystem.ReadAllLines(filePath))
             {
                 var line = rawLine.Trim();
                 if (!line.StartsWith("#include", StringComparison.Ordinal))
@@ -46,12 +46,11 @@ internal static class ShaderPreprocessor
                 }
 
                 var include = ParseInclude(line, filePath);
-                var directory = Path.GetDirectoryName(filePath)!;
-                var candidate = Path.Combine(directory, include);
-                if (!File.Exists(candidate))
+                var candidate = filePath.GetDirectory() / include;
+                if (!fs.FileExists(candidate))
                 {
-                    candidate = Path.Combine(AppContext.BaseDirectory, "Shaders", include);
-                    if (!File.Exists(candidate))
+                    candidate = fs.ToUPath(PathUtil.Combine("Shaders", include));
+                    if (!fs.FileExists(candidate))
                     {
                         throw new FileNotFoundException(
                             $"Shader '{filePath}' includes '{include}', which was not found next to it or in the Shaders directory.",
@@ -59,7 +58,7 @@ internal static class ShaderPreprocessor
                     }
                 }
 
-                Resolve(Path.GetFullPath(candidate), builder, stack);
+                Resolve(fs, candidate, builder, stack);
             }
         }
         finally
@@ -68,7 +67,7 @@ internal static class ShaderPreprocessor
         }
     }
 
-    private static string ParseInclude(string line, string filePath)
+    private static string ParseInclude(string line, UPath filePath)
     {
         var start = line.IndexOf('"');
         var end = line.LastIndexOf('"');

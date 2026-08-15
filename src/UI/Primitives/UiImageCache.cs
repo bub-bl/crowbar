@@ -1,3 +1,4 @@
+using Crowbar.Files;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -104,9 +105,11 @@ public sealed class UiImageCache
                 return (image.Width, image.Height);
             }
 
-            var path = Path.IsPathRooted(source) ? source : Path.Combine(ContentRoot, source);
-            if (!File.Exists(path)) return null;
-            using var loaded = SixLabors.ImageSharp.Image.Load<Rgba32>(path);
+            var fs = FileSystemService.Default;
+            var path = fs.ToUPath(FileSystemService.IsRooted(source) ? source : PathUtil.Combine(ContentRoot, source));
+            if (!fs.FileExists(path)) return null;
+            using var imageStream = fs.OpenRead(path);
+            using var loaded = SixLabors.ImageSharp.Image.Load<Rgba32>(imageStream);
             return (loaded.Width, loaded.Height);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)

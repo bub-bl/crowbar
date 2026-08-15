@@ -1,4 +1,6 @@
-﻿namespace Crowbar.Engine;
+﻿using Crowbar.Files;
+
+namespace Crowbar.Engine;
 
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class AssetTypeAttribute(string extension) : Attribute
@@ -9,14 +11,16 @@ public sealed class AssetTypeAttribute(string extension) : Attribute
 public abstract class ResourceFile : IValid, IDisposable
 {
     public string Path { get; internal set; } = string.Empty;
-    public FileStream? Data { get; private set; }
+    public Stream? Data { get; private set; }
     public bool IsValid { get; private set; }
 
     public void Load()
     {
-        if (File.Exists(Path))
+        if (FileSystemService.Default.FileExists(Path))
         {
-            Data = File.OpenRead(Path);
+            // Opened with shared write access so an external tool (or the editor
+            // itself) can overwrite the asset while it is loaded.
+            Data = FileSystemService.Default.OpenRead(Path);
             IsValid = true;
         }
         else
@@ -29,6 +33,7 @@ public abstract class ResourceFile : IValid, IDisposable
     public void Unload()
     {
         Data?.Dispose();
+        Data = null;
         IsValid = false;
     }
 

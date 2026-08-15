@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="src/Files/Crowbar.Files.csproj" />
   <Project Path="src/Editor/Editor.csproj" />
   <Project Path="src/Engine/Engine.csproj" />
   <Project Path="src/UI/Crowbar.UI.csproj" />

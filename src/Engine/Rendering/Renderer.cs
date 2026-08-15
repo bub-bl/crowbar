@@ -3,6 +3,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Crowbar.Engine;
 using Crowbar.Engine.Rendering2D;
+using Crowbar.Files;
 using Crowbar.UI;
 
 namespace Crowbar.Engine.Rendering;
@@ -556,7 +557,7 @@ public sealed class Renderer : IDisposable
         _defaultBlackTexture = CreateSolidTexture(0, 0, 0, 255, srgb: true);
         _defaultNormalTexture = CreateSolidTexture(128, 128, 255, 255, srgb: false);
 
-        _defaultMaterial = Material.CreateDefault(Shader.Load(Path.Combine("Shaders", "Mesh.wgsl")));
+        _defaultMaterial = Material.CreateDefault(Shader.Load(PathUtil.Combine("Shaders", "Mesh.wgsl")));
     }
 
     /// <summary>Creates a 1x1 texture with a single RGBA pixel.</summary>
@@ -610,7 +611,7 @@ public sealed class Renderer : IDisposable
             Usage = BufferUsage.Uniform | BufferUsage.CopyDst
         });
 
-        string shaderSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Grid.wgsl"));
+        string shaderSource = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Grid.wgsl"));
         _gridPipeline = _device.CreatePipeline(new PipelineDescription
         {
             ShaderSource = shaderSource,
@@ -1040,7 +1041,7 @@ public sealed class Renderer : IDisposable
     {
         _uiSampler ??= _device.CreateSampler(new SamplerDescription());
 
-        string shaderSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Ui.wgsl"));
+        string shaderSource = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Ui.wgsl"));
         _uiPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
             ShaderSource = shaderSource,
@@ -1090,7 +1091,7 @@ public sealed class Renderer : IDisposable
     /// </summary>
     private void CreateUi2DResources()
     {
-        string shaderSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Ui2D.wgsl"));
+        string shaderSource = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Ui2D.wgsl"));
         _ui2dSampler ??= _device.CreateSampler(new SamplerDescription());
         _ui2dPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
@@ -1121,7 +1122,7 @@ public sealed class Renderer : IDisposable
 
     private void CreateBackdropResources()
     {
-        string shaderSource = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Backdrop.wgsl"));
+        string shaderSource = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Backdrop.wgsl"));
         _backdropParamsBuffer = _device.CreateBuffer(new BufferDescription
         {
             Size = (ulong)(MaxBackdropRegions * sizeof(BackdropGpuParams)),
@@ -1263,7 +1264,7 @@ public sealed class Renderer : IDisposable
         // uniform is per-renderable.
         _selectionMaskPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = Shader.Load(Path.Combine("Shaders", "SelectionMask.wgsl")).Source,
+            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "SelectionMask.wgsl")).Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = TextureFormat.Rgba8Unorm,
@@ -1293,7 +1294,7 @@ public sealed class Renderer : IDisposable
 
         _outlinePipeline ??= _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = Shader.Load(Path.Combine("Shaders", "SelectionOutline.wgsl")).Source,
+            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "SelectionOutline.wgsl")).Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,

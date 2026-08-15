@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Crowbar.Engine.Rendering;
+using Crowbar.Files;
 using SixLabors.Fonts;
 using SixLabors.Fonts.Rendering;
 
@@ -1897,7 +1898,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateSdfPipeline()
     {
-        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "SdfShape.wgsl"));
+        var source = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "SdfShape.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -1930,7 +1931,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateTrianglePipeline()
     {
-        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "TriMesh.wgsl"));
+        var source = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "TriMesh.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -1962,7 +1963,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateTexturedPipeline()
     {
-        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Textured.wgsl"));
+        var source = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Textured.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -1997,7 +1998,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateGlyphPipeline()
     {
-        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Glyph.wgsl"));
+        var source = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Glyph.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -2032,7 +2033,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateShadowPipeline()
     {
-        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Shadow.wgsl"));
+        var source = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Shadow.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -2064,7 +2065,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateFilterPipeline()
     {
-        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "Filter.wgsl"));
+        var source = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Filter.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -2112,7 +2113,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateGlyphShadowPipeline()
     {
-        var source = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Shaders", "GlyphShadow.wgsl"));
+        var source = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "GlyphShadow.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,

@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.Reflection;
 using System.Runtime.Loader;
+using Crowbar.Files;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Zio;
 
 namespace Crowbar.Engine.Scripting;
 
@@ -43,24 +45,36 @@ public sealed class ScriptCompiler
 
     /// <summary>Compiles every *.cs file under <paramref name="directory"/> (recursively).</summary>
     public ScriptAssembly CompileDirectory(string directory, string assemblyName)
+        => CompileDirectory(FileSystemService.Default.ToUPath(directory), assemblyName);
+
+    public ScriptAssembly CompileDirectory(UPath directory, string assemblyName)
     {
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
-        if (!Directory.Exists(directory))
+        var fs = FileSystemService.Default;
+        if (!fs.DirectoryExists(directory))
             throw new DirectoryNotFoundException($"Script directory not found: {directory}");
-        var files = Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories)
-            .OrderBy(f => f, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        return Compile(files, assemblyName);
+        var files = fs.EnumerateFiles(directory, "*.cs", recursive: true).ToArray();
+        return CompileCore(files, assemblyName);
     }
 
     /// <summary>Compiles the given source files. Recompiling with the same assembly name is incremental.</summary>
     public ScriptAssembly Compile(IEnumerable<string> sourceFiles, string assemblyName)
     {
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
-        var files = sourceFiles.Select(Path.GetFullPath).OrderBy(f => f, StringComparer.OrdinalIgnoreCase).ToArray();
+        var fs = FileSystemService.Default;
+        var files = sourceFiles.Select(fs.ToUPath).ToArray();
+        return CompileCore(files, assemblyName);
+    }
+
+    private ScriptAssembly CompileCore(IReadOnlyList<UPath> files, string assemblyName)
+    {
+        var ordered = files
+            .DistinctBy(file => file.FullName, StringComparer.OrdinalIgnoreCase)
+            .OrderBy(file => file.FullName, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
         var project = _projects.GetOrAdd(assemblyName, name => new ProjectCompilation(name, _references));
-        var il = project.Emit(files);
-        return LoadAssembly(assemblyName, il, files);
+        var il = project.Emit(ordered);
+        return LoadAssembly(assemblyName, il, ordered);
     }
 
     /// <summary>
@@ -77,13 +91,13 @@ public sealed class ScriptCompiler
         return false;
     }
 
-    private static ScriptAssembly LoadAssembly(string assemblyName, byte[] il, IReadOnlyList<string> files)
+    private static ScriptAssembly LoadAssembly(string assemblyName, byte[] il, IReadOnlyList<UPath> files)
     {
         var loadContext = new AssemblyLoadContext($"Crowbar.Script.{assemblyName}.{Guid.NewGuid():N}", isCollectible: true);
         using var stream = new MemoryStream(il);
         var assembly = loadContext.LoadFromStream(stream);
-        var directory = files.Count > 0 ? Path.GetDirectoryName(files[0]) : null;
-        return new ScriptAssembly(loadContext, assembly, directory, files);
+        var directory = files.Count > 0 ? files[0].GetDirectory().FullName : null;
+        return new ScriptAssembly(loadContext, assembly, directory, files.Select(file => file.FullName).ToArray());
     }
 
     private static IReadOnlyList<PortableExecutableReference> PlatformReferences
@@ -93,8 +107,8 @@ public sealed class ScriptCompiler
             lock (PlatformReferencesLock)
             {
                 return _platformReferences ??= ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? string.Empty)
-                    .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
-                    .Where(File.Exists)
+                    .Split(PathUtil.PathListSeparator, StringSplitOptions.RemoveEmptyEntries)
+                    .Where(FileSystemService.Default.FileExists)
                     .Select(path => MetadataReference.CreateFromFile(path))
                     .ToArray();
             }
@@ -135,25 +149,27 @@ public sealed class ScriptCompiler
             }
         }
 
-        public byte[] Emit(IReadOnlyList<string> files)
+        public byte[] Emit(IReadOnlyList<UPath> files)
         {
             lock (_gate)
             {
-                var fileSet = files.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var fs = FileSystemService.Default;
+                var fileSet = files.Select(file => file.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
                 // Drop trees for files that no longer exist.
                 foreach (var gone in _trees.Keys.Where(k => !fileSet.Contains(k)).ToArray())
                     _trees.Remove(gone);
 
                 // Re-parse only the files whose content may have changed.
-                foreach (var file in fileSet)
+                foreach (var file in files)
                 {
-                    var writeTime = File.GetLastWriteTimeUtc(file).Ticks;
-                    if (_trees.TryGetValue(file, out var existing) && existing.WriteTime == writeTime)
+                    var key = file.FullName;
+                    var writeTime = fs.GetLastWriteTimeUtc(file).Ticks;
+                    if (_trees.TryGetValue(key, out var existing) && existing.WriteTime == writeTime)
                         continue;
-                    var text = File.ReadAllText(file);
-                    var tree = CSharpSyntaxTree.ParseText(text, ParseOptions, path: file);
-                    _trees[file] = (writeTime, tree);
+                    var text = fs.ReadAllText(file);
+                    var tree = CSharpSyntaxTree.ParseText(text, ParseOptions, path: key);
+                    _trees[key] = (writeTime, tree);
                 }
 
                 if (_compilation is null)

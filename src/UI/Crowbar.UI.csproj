@@ -28,4 +28,8 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Crowbar.UI.Tests" />
   </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Files\Crowbar.Files.csproj" />
+  </ItemGroup>
 </Project>

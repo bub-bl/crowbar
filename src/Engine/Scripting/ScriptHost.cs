@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
+using Crowbar.Files;
+using Zio;
 
 namespace Crowbar.Engine.Scripting;
 
@@ -99,8 +101,8 @@ public sealed class ScriptHost : IDisposable
     private readonly List<ScriptAssembly> _codeTargets = [];
     private readonly object _gate = new();
 
-    private FileSystemWatcher? _watcher;
-    private string? _directory;
+    private IFileSystemWatcher? _watcher;
+    private UPath? _directory;
     private string _assemblyName = "GameScripts";
     private Dictionary<string, DateTime>? _snapshot;
     private DateTime _lastPollUtc = DateTime.MinValue;
@@ -152,10 +154,11 @@ public sealed class ScriptHost : IDisposable
     public ScriptAssembly WatchDirectory(string directory, string assemblyName = "GameScripts")
     {
         _assemblyName = assemblyName;
-        _directory = Path.GetFullPath(directory);
+        var dir = FileSystemService.Default.ToUPath(directory);
+        _directory = dir;
 
         DisposeGenerations();
-        Current = _compiler.CompileDirectory(_directory, _assemblyName);
+        Current = _compiler.CompileDirectory(dir, _assemblyName);
 
         _snapshot = TakeSnapshot();
         StopWatcher();
@@ -183,7 +186,7 @@ public sealed class ScriptHost : IDisposable
         ScriptAssembly next;
         try
         {
-            next = _compiler.CompileDirectory(_directory, _assemblyName);
+            next = _compiler.CompileDirectory(_directory.Value, _assemblyName);
         }
         catch (IOException)
         {
@@ -394,15 +397,14 @@ public sealed class ScriptHost : IDisposable
 
     private void StartWatcher()
     {
-        if (_directory is null || !Directory.Exists(_directory))
+        if (_directory is not { } directory || !FileSystemService.Default.DirectoryExists(directory))
             return;
         try
         {
-            _watcher = new FileSystemWatcher(_directory, "*.cs")
-            {
-                IncludeSubdirectories = true,
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size | NotifyFilters.CreationTime
-            };
+            _watcher = FileSystemService.Default.Watch(directory);
+            _watcher.Filter = "*.cs";
+            _watcher.IncludeSubdirectories = true;
+            _watcher.NotifyFilter = Zio.NotifyFilters.LastWrite | Zio.NotifyFilters.FileName | Zio.NotifyFilters.Size | Zio.NotifyFilters.CreationTime;
             _watcher.Changed += OnFileSystemEvent;
             _watcher.Created += OnFileSystemEvent;
             _watcher.Deleted += OnFileSystemEvent;
@@ -424,7 +426,7 @@ public sealed class ScriptHost : IDisposable
         _watcher = null;
     }
 
-    private void OnFileSystemEvent(object sender, FileSystemEventArgs e)
+    private void OnFileSystemEvent(object? sender, FileChangedEventArgs e)
     {
         _reloadRequested = true;
         _reloadNotBeforeUtc = DateTime.UtcNow.AddMilliseconds(200);
@@ -436,17 +438,18 @@ public sealed class ScriptHost : IDisposable
         _reloadNotBeforeUtc = DateTime.UtcNow.AddMilliseconds(200);
     }
 
-    private static Dictionary<string, DateTime> TakeSnapshot(string directory)
+    private Dictionary<string, DateTime> TakeSnapshot()
     {
         var snapshot = new Dictionary<string, DateTime>(StringComparer.Ordinal);
-        if (!Directory.Exists(directory))
+        if (_directory is not { } directory)
             return snapshot;
-        foreach (var path in Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories))
-            snapshot[Path.GetFullPath(path)] = File.GetLastWriteTimeUtc(path);
+        var fs = FileSystemService.Default;
+        if (!fs.DirectoryExists(directory))
+            return snapshot;
+        foreach (var path in fs.EnumerateFiles(directory, "*.cs", recursive: true))
+            snapshot[path.FullName] = fs.GetLastWriteTimeUtc(path);
         return snapshot;
     }
-
-    private Dictionary<string, DateTime> TakeSnapshot() => TakeSnapshot(_directory ?? string.Empty);
 
     private static bool SnapshotEqual(Dictionary<string, DateTime> a, Dictionary<string, DateTime> b)
     {

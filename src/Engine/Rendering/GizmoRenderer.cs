@@ -1,6 +1,7 @@
 using System.Numerics;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using Crowbar.Files;
 
 namespace Crowbar.Engine.Rendering;
 
@@ -705,7 +706,7 @@ public sealed class GizmoRenderer : IDisposable
 
         // Both gizmo shaders #include Common/Transform.wgsl: load through
         // Shader.Load so the preprocessor flattens the includes.
-        string ReadShader(string name) => Shader.Load(Path.Combine("Shaders", name)).Source;
+        string ReadShader(string name) => Shader.Load(PathUtil.Combine("Shaders", name)).Source;
 
         _widgetPipeline = _device.CreatePipeline(new PipelineDescription
         {

@@ -25,6 +25,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Files\Crowbar.Files.csproj" />
     <ProjectReference Include="..\Engine\Engine.csproj" />
     <Content Update="Ui\**\*.razor" CopyToOutputDirectory="PreserveNewest" />
     <!-- Images referenced by the SCSS/CSS url() resolve against the app base

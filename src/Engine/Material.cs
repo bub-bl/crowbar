@@ -1,4 +1,5 @@
 using System.Numerics;
+using Crowbar.Files;
 
 namespace Crowbar.Engine;
 
@@ -38,11 +39,11 @@ public sealed class Material
 
         var shaderPath = shaderName;
 
-        if (!Path.HasExtension(shaderPath))
+        if (!PathUtil.HasExtension(shaderPath))
         {
             shaderPath += ".wgsl";
-            if (!shaderPath.Contains(Path.DirectorySeparatorChar) && !shaderPath.Contains(Path.AltDirectorySeparatorChar))
-                shaderPath = Path.Combine("Shaders", shaderPath);
+            if (!shaderPath.Contains('/'))
+                shaderPath = PathUtil.Combine("Shaders", shaderPath);
         }
 
         var shader = Shader.Load(shaderPath);

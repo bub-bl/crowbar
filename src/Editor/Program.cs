@@ -5,7 +5,9 @@ using Crowbar.Engine;
 using Crowbar.Engine.InputSystem;
 using Crowbar.Engine.Rendering;
 using Crowbar.Engine.Scripting;
+using Crowbar.Files;
 using Crowbar.UI;
+using Zio;
 
 namespace Crowbar.Editor;
 
@@ -27,6 +29,8 @@ internal sealed class DemoApplication : Application
 
     protected override void OnInitialize()
     {
+        ConfigureFileSystem();
+
         // Le snapping du gizmo de translation suit la taille de cellule de la grille.
         if (Renderer is { } renderer)
             renderer.Gizmos.SnapSize = renderer.Grid.CellSize;
@@ -99,7 +103,7 @@ internal sealed class DemoApplication : Application
 
         // Enregistrement automatique de tout le dossier Ui/ : les fichiers avec
         // @page deviennent des pages routables, les autres des composants.
-        var uiDirectory = ResolveUiDirectory("");
+        const string uiDirectory = "/Ui";
         var registeredCount = Ui.RegisterRazorComponentsFromDirectory(uiDirectory);
         Console.WriteLine($"Razor UI: registered {registeredCount} file(s) from {uiDirectory}");
         // Pré-compilation parallèle : le premier rendu (Navigate) ne fait plus
@@ -121,7 +125,7 @@ internal sealed class DemoApplication : Application
         _scriptHost.ReloadFailed += OnScriptReloadFailed;
         try
         {
-            var gameDirectory = ResolveGameDirectory();
+            const string gameDirectory = "/Game";
             _scriptHost.WatchDirectory(gameDirectory, "DemoGamemode");
             ((GamemodeHolder)_gamemodeHolder!).Current = _scriptHost.Current!.CreateInstance("Game.DemoGamemode");
             _scriptHost.WatchInstance(_gamemodeHolder!);
@@ -302,22 +306,24 @@ internal sealed class DemoApplication : Application
     private int ViewportHeight =>
         Math.Max(1, Window.FramebufferHeight > 0 ? Window.FramebufferHeight : Window.Height);
 
-    private static string ResolveGameDirectory()
+    /// <summary>
+    /// Composes the editor's filesystem: the output directory is the content
+    /// root (shaders, assets, icons), while the repo's <c>Game/</c> and
+    /// <c>Ui/</c> source directories are mounted at <c>/Game</c> and <c>/Ui</c>
+    /// in dev builds so their edits hot reload. Published builds fall back to
+    /// the copies next to the executable.
+    /// </summary>
+    private static void ConfigureFileSystem()
     {
-        // src/Editor/bin/Debug/net11.0 + 5× .. = racine du repo (dossier Game/).
-        var outputPath = Path.Combine(AppContext.BaseDirectory, "Game");
-        var sourcePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Game"));
-        return Directory.Exists(sourcePath) ? sourcePath : outputPath;
-    }
+        var fs = FileSystemService.Default;
+        var gameSource = fs.ResolveSystemDirectory(PathUtil.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Game"));
+        var uiSource = fs.ResolveSystemDirectory(PathUtil.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Editor", "Ui"));
 
-    private static string ResolveUiDirectory(string directory) =>
-        ResolveUiPath(Path.Combine("Ui", directory), Directory.Exists);
+        var mounts = new Dictionary<UPath, string>();
+        if (gameSource is not null) mounts["/Game"] = gameSource;
+        if (uiSource is not null) mounts["/Ui"] = uiSource;
 
-    private static string ResolveUiPath(string relativePath, Func<string, bool> sourceExists)
-    {
-        var outputPath = Path.Combine(AppContext.BaseDirectory, relativePath);
-        var sourcePath = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Editor", relativePath));
-        return sourceExists(sourcePath) ? sourcePath : outputPath;
+        FileSystemService.Default = FileSystemService.CreatePhysical(AppContext.BaseDirectory, mounts);
     }
 }
 

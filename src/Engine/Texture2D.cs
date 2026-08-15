@@ -1,3 +1,4 @@
+using Crowbar.Files;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -30,12 +31,13 @@ public sealed class Texture2D
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        using var image = Image.Load<Rgba32>(path);
+        using var stream = FileSystemService.Default.OpenRead(path);
+        using var image = Image.Load<Rgba32>(stream);
         var width = image.Width;
         var height = image.Height;
         var pixels = new byte[checked(width * height * 4)];
         image.CopyPixelDataTo(pixels);
-        return new Texture2D(Path.GetFileNameWithoutExtension(path), width, height, pixels);
+        return new Texture2D(PathUtil.GetFileNameWithoutExtension(path), width, height, pixels);
     }
 
     /// <summary>

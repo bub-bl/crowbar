@@ -3,10 +3,12 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Crowbar.Files;
 using Microsoft.AspNetCore.Razor.Language;
 using Microsoft.AspNetCore.Razor.Language.Intermediate;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Zio;
 
 namespace Crowbar.UI;
 
@@ -74,11 +76,21 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     /// </summary>
     public RazorPanel CompileTemplateFromFile(string razorPath, string className, Type baseType,
         IReadOnlyDictionary<string, string>? typeArguments, params Assembly[] references)
+        => CompileTemplateFromFile(FileSystemService.Default.ToUPath(razorPath), className, baseType, typeArguments, references);
+
+    /// <summary>
+    /// Compiles the component from a file, caching the emitted assembly by
+    /// (path, className, write time, type arguments) so hot reloads of
+    /// unchanged files skip the Roslyn emit. A fresh template instance is
+    /// created on every call.
+    /// </summary>
+    public RazorPanel CompileTemplateFromFile(UPath razorPath, string className, Type baseType,
+        IReadOnlyDictionary<string, string>? typeArguments, params Assembly[] references)
     {
-        razorPath = Path.GetFullPath(razorPath);
-        var writeTime = File.GetLastWriteTimeUtc(razorPath).Ticks;
+        var pathKey = razorPath.FullName;
+        var writeTime = FileSystemService.Default.GetLastWriteTimeUtc(razorPath).Ticks;
         var typeArgsKey = typeArguments is null ? string.Empty : string.Join(",", typeArguments.Values);
-        var cacheKey = razorPath + "|" + className + "|" + (baseType.FullName ?? baseType.Name) + "|" + typeArgsKey;
+        var cacheKey = pathKey + "|" + className + "|" + (baseType.FullName ?? baseType.Name) + "|" + typeArgsKey;
         var assembly = TemplateAssemblyCache.Get(cacheKey, writeTime);
         if (assembly is null)
         {
@@ -122,6 +134,9 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     /// simpler call shape for non-generic components.
     /// </summary>
     public RazorPanel CompileTemplateFromFile(string razorPath, string className, Type baseType,
+        params Assembly[] references) => CompileTemplateFromFile(razorPath, className, baseType, null, references);
+
+    public RazorPanel CompileTemplateFromFile(UPath razorPath, string className, Type baseType,
         params Assembly[] references) => CompileTemplateFromFile(razorPath, className, baseType, null, references);
 
     private static byte[] CompileAssembly(string razorSource, string className, Type baseType,
@@ -200,14 +215,14 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
     }
 
-    private static string RazorCacheFile(string hash) => Path.Combine(RazorCacheDirectory, hash + ".dll");
+    private static string RazorCacheFile(string hash) => PathUtil.Combine(RazorCacheDirectory, hash + ".dll");
 
     private static Assembly? TryLoadFromDisk(string path)
     {
-        if (!File.Exists(path)) return null;
+        if (!FileSystemService.Default.FileExists(path)) return null;
         try
         {
-            return Assembly.Load(File.ReadAllBytes(path));
+            return Assembly.Load(FileSystemService.Default.ReadAllBytes(path));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException)
         {
@@ -220,8 +235,8 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     {
         try
         {
-            Directory.CreateDirectory(RazorCacheDirectory);
-            File.WriteAllBytes(path, il);
+            FileSystemService.Default.CreateDirectory(RazorCacheDirectory);
+            FileSystemService.Default.WriteAllBytes(path, il);
             PruneRazorCache();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -237,9 +252,10 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         if (Interlocked.Exchange(ref _pruneStarted, 1) == 1) return;
         try
         {
+            var fs = FileSystemService.Default;
             var cutoff = DateTime.UtcNow.AddDays(-30);
-            foreach (var file in Directory.EnumerateFiles(RazorCacheDirectory, "*.dll"))
-                if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file);
+            foreach (var file in fs.EnumerateFiles(RazorCacheDirectory, "*.dll"))
+                if (fs.GetLastWriteTimeUtc(file) < cutoff) fs.DeleteFile(file);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -285,24 +301,26 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         new(StringComparer.Ordinal);
 
     // File text served on the component-instantiation hot path, keyed by
-    // (path, write time). On an unchanged file this is a single File.ReadAllText
+    // (path, write time). On an unchanged file this is a single filesystem read
     // (the write time changes on edit, which invalidates the entry); hot reload
     // change detection itself lives in HotReload.cs and is not affected.
     private static readonly ConcurrentDictionary<string, (long WriteTime, string Text)> FileTextCache =
         new(StringComparer.Ordinal);
 
     /// <summary>Fast file read for the hot path; changes invalidate the entry via their write time.</summary>
-    private static string ReadFileTextCached(string path)
+    private static string ReadFileTextCached(UPath path)
     {
-        var writeTime = File.GetLastWriteTimeUtc(path).Ticks;
-        if (FileTextCache.TryGetValue(path, out var entry) && entry.WriteTime == writeTime)
+        var fs = FileSystemService.Default;
+        var key = path.FullName;
+        var writeTime = fs.GetLastWriteTimeUtc(path).Ticks;
+        if (FileTextCache.TryGetValue(key, out var entry) && entry.WriteTime == writeTime)
             return entry.Text;
-        var text = File.ReadAllText(path);
-        FileTextCache[path] = (writeTime, text);
+        var text = fs.ReadAllText(path);
+        FileTextCache[key] = (writeTime, text);
         return text;
     }
 
-    private static string _razorCacheDirectory = Path.Combine(
+    private static string _razorCacheDirectory = PathUtil.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Crowbar", "RazorCache");
 
@@ -330,7 +348,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
             lock (PlatformReferencesLock)
             {
                 return _platformReferences ??= ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? string.Empty)
-                    .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+                    .Split(PathUtil.PathListSeparator, StringSplitOptions.RemoveEmptyEntries)
                     .Select(path => MetadataReference.CreateFromFile(path))
                     .ToArray();
             }

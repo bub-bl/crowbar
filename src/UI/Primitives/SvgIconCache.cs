@@ -1,4 +1,5 @@
 using System.Xml.Linq;
+using Crowbar.Files;
 
 namespace Crowbar.UI;
 
@@ -18,7 +19,7 @@ public sealed class SvgIconCache
     public static SvgIconCache Shared { get; } = new();
 
     /// <summary>Directory icon names are resolved against (defaults to <c>Assets/Icons</c> in the app base directory).</summary>
-    private string _contentRoot = Path.Combine(AppContext.BaseDirectory, "Assets", "Icons");
+    private string _contentRoot = PathUtil.Combine("Assets", "Icons");
     public string ContentRoot
     {
         get => _contentRoot;
@@ -31,7 +32,7 @@ public sealed class SvgIconCache
     }
 
     private readonly Dictionary<string, (float Width, float Height)> _intrinsic = new(StringComparer.OrdinalIgnoreCase);
-    // Resolving an icon currently requires File.Exists. Cache both successful
+    // Resolving an icon requires a filesystem existence check. Cache both successful
     // and missing resolutions so the layout pass does not hit the filesystem on
     // every frame. Clear() invalidates this when assets are reloaded.
     private readonly Dictionary<string, string?> _resolved = new(StringComparer.OrdinalIgnoreCase);
@@ -86,7 +87,8 @@ public sealed class SvgIconCache
     {
         try
         {
-            var root = XDocument.Load(path).Root;
+            var text = FileSystemService.Default.ReadAllText(path);
+            var root = XDocument.Parse(text).Root;
             if (root is null || !root.Name.LocalName.Equals("svg", StringComparison.OrdinalIgnoreCase))
                 return null;
 
@@ -128,7 +130,7 @@ public sealed class SvgIconCache
     // Assets/Icons/Solar/&lt;category&gt;/Bold/&lt;name&gt;.svg), so '/' is a valid name
     // char; every other file-name-invalid char (and '..' / leading '/') is
     // rejected so a name can never escape the icon directory.
-    private static readonly char[] InvalidNameChars = Path.GetInvalidFileNameChars()
+    private static readonly char[] InvalidNameChars = PathUtil.InvalidFileNameChars
         .Where(c => c is not '/' and not '\\')
         .ToArray();
 
@@ -141,8 +143,8 @@ public sealed class SvgIconCache
         lock (_lock)
         {
             if (_resolved.TryGetValue(normalized, out var cached)) return cached;
-            var path = Path.Combine(_contentRoot, normalized + ".svg");
-            var resolved = File.Exists(path) ? path : null;
+            var path = PathUtil.Combine(_contentRoot, normalized + ".svg");
+            var resolved = FileSystemService.Default.FileExists(path) ? path : null;
             _resolved[normalized] = resolved;
             return resolved;
         }

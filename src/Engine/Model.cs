@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using Crowbar.Files;
 using Silk.NET.Assimp;
 using AssimpMesh = Silk.NET.Assimp.Mesh;
 
@@ -95,7 +96,8 @@ public sealed class Model
     public static unsafe Model Load(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (!System.IO.File.Exists(path))
+        var fs = FileSystemService.Default;
+        if (!fs.FileExists(path))
             throw new FileNotFoundException("Model file not found.", path);
 
         const uint postProcess =
@@ -106,7 +108,8 @@ public sealed class Model
                    | PostProcessSteps.JoinIdenticalVertices
                    | PostProcessSteps.OptimizeMeshes);
 
-        Scene* scene = Api.ImportFile(path, postProcess);
+        var systemPath = fs.ToSystemPath(path);
+        Scene* scene = Api.ImportFile(systemPath, postProcess);
         if (scene == null)
         {
             nint error = (nint)Api.GetErrorString();
@@ -124,7 +127,7 @@ public sealed class Model
                 meshes.Add(ConvertMesh(source));
             }
 
-            return new Model(Path.GetFileNameWithoutExtension(path), meshes);
+            return new Model(PathUtil.GetFileNameWithoutExtension(path), meshes);
         }
         finally
         {
