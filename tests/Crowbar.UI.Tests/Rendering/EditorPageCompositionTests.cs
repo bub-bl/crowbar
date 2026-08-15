@@ -100,7 +100,7 @@ public class EditorPageCompositionTests
         // Every dockable panel is composed through the DockArea: its tab bar
         // shows the titles the panels used to carry as headers.
         Assert.NotNull(FindText(content, "dock-tab", t => t == "OUTILS"));
-        Assert.NotNull(FindText(content, "dock-tab", t => t == "EXPLORATEUR"));
+        Assert.NotNull(FindText(content, "dock-tab", t => t == "HIÉRARCHIE"));
         Assert.NotNull(FindText(content, "dock-tab", t => t == "VIEWPORT"));
         Assert.NotNull(FindText(content, "dock-tab", t => t == "INSPECTEUR"));
         Assert.NotNull(FindText(content, "dock-tab", t => t == "MONDE"));

@@ -25,7 +25,7 @@ public class DockAreaInteractionTests
         ui.Update();
         ui.Prepare();
 
-        Assert.NotNull(FindDockTab(ui.Content!, "EXPLORATEUR"));
+        Assert.NotNull(FindDockTab(ui.Content!, "HIÉRARCHIE"));
         Assert.NotNull(FindDockTab(ui.Content!, "VIEWPORT"));
     }
 
@@ -35,9 +35,9 @@ public class DockAreaInteractionTests
         using var ui = EditorPageCompositionTests.CreateEditorUi();
         var content = ui.Content!;
 
-        // Grab the EXPLORATEUR tab and drag it onto the middle of the
+        // Grab the HIÉRARCHIE tab and drag it onto the middle of the
         // VIEWPORT group (the center drop zone docks as a tab).
-        var explorerTab = FindDockTab(content, "EXPLORATEUR");
+        var explorerTab = FindDockTab(content, "HIÉRARCHIE");
         Assert.NotNull(explorerTab);
         var viewportGroup = TestUi.FindAll(content, p => p.Classes.Contains("dock-group"))
             .Single(group => TestUi.Texts(group).Any(text => text.Contains("VIEWPORT", StringComparison.Ordinal)));
@@ -59,13 +59,13 @@ public class DockAreaInteractionTests
         ui.Update();
         ui.Prepare();
 
-        // EXPLORATEUR is now a tab of the same group as VIEWPORT, and the
+        // HIÉRARCHIE is now a tab of the same group as VIEWPORT, and the
         // emptied explorer group collapsed out of the layout.
         var tabs = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab"));
-        var explorer = Assert.Single(tabs, tab => TestUi.Texts(tab).Any(text => text.Contains("EXPLORATEUR", StringComparison.Ordinal)));
+        var explorer = Assert.Single(tabs, tab => TestUi.Texts(tab).Any(text => text.Contains("HIÉRARCHIE", StringComparison.Ordinal)));
         var viewport = Assert.Single(tabs, tab => TestUi.Texts(tab).Any(text => text.Contains("VIEWPORT", StringComparison.Ordinal)));
         Assert.Same(explorer.Parent, viewport.Parent);
-        Assert.Single(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab") && TestUi.Texts(p).Any(t => t.Contains("EXPLORATEUR", StringComparison.Ordinal))));
+        Assert.Single(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab") && TestUi.Texts(p).Any(t => t.Contains("HIÉRARCHIE", StringComparison.Ordinal))));
         Assert.Contains(TestUi.Texts(ui.Content!), text => text.Contains("Rechercher", StringComparison.Ordinal));
     }
 
@@ -75,10 +75,10 @@ public class DockAreaInteractionTests
         using var ui = EditorPageCompositionTests.CreateEditorUi();
         var content = ui.Content!;
 
-        // Drag EXPLORATEUR onto the right edge of the VIEWPORT group: the
+        // Drag HIÉRARCHIE onto the right edge of the VIEWPORT group: the
         // target group must be wrapped in a split with a fresh group holding
-        // EXPLORATEUR on the right side.
-        var explorerTab = FindDockTab(content, "EXPLORATEUR");
+        // HIÉRARCHIE on the right side.
+        var explorerTab = FindDockTab(content, "HIÉRARCHIE");
         Assert.NotNull(explorerTab);
         var viewportGroup = TestUi.FindAll(content, p => p.Classes.Contains("dock-group"))
             .Single(group => TestUi.Texts(group).Any(text => text.Contains("VIEWPORT", StringComparison.Ordinal)));
@@ -100,8 +100,8 @@ public class DockAreaInteractionTests
         ui.Update();
         ui.Prepare();
 
-        // EXPLORATEUR sits in its own group now, next to (not inside) VIEWPORT.
-        var explorerTabAfter = FindDockTab(ui.Content!, "EXPLORATEUR");
+        // HIÉRARCHIE sits in its own group now, next to (not inside) VIEWPORT.
+        var explorerTabAfter = FindDockTab(ui.Content!, "HIÉRARCHIE");
         Assert.NotNull(explorerTabAfter);
         Assert.NotSame(explorerTabAfter!.Parent, FindDockTab(ui.Content!, "VIEWPORT")?.Parent);
         var explorerPane = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-pane-active"))
@@ -116,7 +116,7 @@ public class DockAreaInteractionTests
     {
         using var ui = EditorPageCompositionTests.CreateEditorUi();
         var content = ui.Content!;
-        var explorerTab = FindDockTab(content, "EXPLORATEUR");
+        var explorerTab = FindDockTab(content, "HIÉRARCHIE");
         Assert.NotNull(explorerTab);
         var viewportGroup = TestUi.FindAll(content, p => p.Classes.Contains("dock-group"))
             .Single(group => TestUi.Texts(group).Any(text => text.Contains("VIEWPORT", StringComparison.Ordinal)));
@@ -137,7 +137,7 @@ public class DockAreaInteractionTests
         ui.Prepare();
 
         var tabs = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab"));
-        Assert.NotNull(FindDockTab(ui.Content!, "EXPLORATEUR"));
+        Assert.NotNull(FindDockTab(ui.Content!, "HIÉRARCHIE"));
         Assert.NotNull(FindDockTab(ui.Content!, "VIEWPORT"));
         Assert.Equal(6, tabs.Count);
         Assert.Empty(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-ghost")));
