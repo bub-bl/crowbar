@@ -2,6 +2,10 @@ using Crowbar.UI;
 
 namespace Crowbar.UI.Tests.Rendering;
 
+// Shares the process-global EditorExplorerState with EditorPageCompositionTests
+// (both render the editor page through CreateEditorUi).
+[Collection("EditorPage")]
+
 /// <summary>
 /// Guards the vertical text-squashing fix. The editor's list rows (Explorer
 /// tree, Inspector rows) are Razor components whose <em>root wrapper</em> is

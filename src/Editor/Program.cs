@@ -97,6 +97,10 @@ internal sealed class DemoApplication : Application
         // Sélection initiale : le cube principal, pour montrer le widget.
         Renderer?.Gizmos.Selection = cube;
 
+        // Publie la hiérarchie réelle du monde pour le panneau Explorateur :
+        // la page la lit via EditorExplorerState à chaque rendu.
+        ExplorerTreeBuilder.Publish(World, Renderer?.Gizmos.Selection);
+
         // Enregistrement automatique de tout le dossier Ui/ : les fichiers avec
         // @page deviennent des pages routables, les autres des composants.
         var uiDirectory = ResolveUiDirectory("");
@@ -159,6 +163,14 @@ internal sealed class DemoApplication : Application
         _scriptHost?.Update();
         UiNotifications.PruneExpired();
         UiDiagnostics.ScriptStatus = DescribeGamemode();
+
+        // Sélection demandée depuis l'Explorateur (UI → host) : appliquée aux
+        // gizmos du viewport, puis la hiérarchie réelle est republiée pour que
+        // le panneau reflète l'état courant (niveaux, entités, attachements).
+        if (EditorExplorerState.ConsumeRequestedSelection() is { } requestedId &&
+            World.FindEntity(requestedId) is { } requested)
+            Renderer?.Gizmos.Selection = requested;
+        ExplorerTreeBuilder.Publish(World, Renderer?.Gizmos.Selection);
 
         var renderer = Renderer;
         if (renderer is null)

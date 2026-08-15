@@ -2,6 +2,12 @@ using Crowbar.UI;
 
 namespace Crowbar.UI.Tests.Rendering;
 
+// The editor page's Explorer panel reads the process-global
+// EditorExplorerState (published by the editor host in the real app). The
+// tests that render the page serialize on this collection so their shared
+// publishes never interleave.
+[Collection("EditorPage")]
+
 /// <summary>
 /// Renders the real editor page (Editor.razor composed of the reusable panels
 /// in Ui/EditorPanels and primitives in Ui/Components) through the full
@@ -20,6 +26,10 @@ public class EditorPageCompositionTests
         ui.SetViewport(1280, 720);
         ui.RegisterRazorComponentsFromDirectory(uiDir);
         ui.Navigate("/editor");
+        // The Explorer tree is no longer hard-coded: it mirrors the state the
+        // editor host publishes from the live world. Publish a demo hierarchy
+        // so the tree assertions see the same rows the old fake tree showed.
+        PublishDemoExplorerState();
         // The DockArea positions its dock groups from the rect of its own root,
         // which is only known after a layout pass: run one full frame like the
         // app loop (render to lay out, update to rebuild, render to paint) so
@@ -28,6 +38,52 @@ public class EditorPageCompositionTests
         ui.Update();
         ui.Prepare();
         return ui;
+    }
+
+    /// <summary>
+    /// Publishes a hierarchy shaped like the historical demo tree (world root,
+    /// environment/lights/structures folders, props and spawn points) with
+    /// Maison_Bois selected and the Props/Joueurs folders collapsed, so the
+    /// tree assertions exercise folders, entity icons and the selection state.
+    /// </summary>
+    internal static void PublishDemoExplorerState()
+    {
+        var monde = Guid.NewGuid();
+        var environnement = Guid.NewGuid();
+        var lumiere = Guid.NewGuid();
+        var structures = Guid.NewGuid();
+        var props = Guid.NewGuid();
+        var joueurs = Guid.NewGuid();
+        var maison = Guid.NewGuid();
+        var nodes = new List<EditorExplorerState.TreeNode>
+        {
+            new("Monde", monde, null, "Solar/map/Bold/globe", IsFolder: true),
+            new("Environnement", environnement, monde, string.Empty, IsFolder: true),
+            new("Terrain", Guid.NewGuid(), environnement, "terrain", IsFolder: false),
+            new("Eau", Guid.NewGuid(), environnement, "Solar/sports/Bold/water", IsFolder: false),
+            new("Ciel", Guid.NewGuid(), environnement, "Solar/weather/Bold/cloud", IsFolder: false),
+            new("Lumière", lumiere, monde, string.Empty, IsFolder: true),
+            new("Directional Light", Guid.NewGuid(), lumiere, "Solar/devices/Bold/lightbulb", IsFolder: false),
+            new("Exponential Fog", Guid.NewGuid(), lumiere, "Solar/weather/Bold/fog", IsFolder: false),
+            new("Structures", structures, monde, string.Empty, IsFolder: true),
+            new("Maison_Bois", maison, structures, string.Empty, IsFolder: true),
+            new("Sol", Guid.NewGuid(), maison, "terrain", IsFolder: false),
+            new("Murs", Guid.NewGuid(), maison, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
+            new("Toit", Guid.NewGuid(), maison, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
+            new("Porte", Guid.NewGuid(), maison, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
+            new("Fenetre", Guid.NewGuid(), maison, "Solar/it/Bold/window-frame", IsFolder: false),
+            new("Hangar_Metal", Guid.NewGuid(), structures, "Solar/building/Bold/buildings", IsFolder: false),
+            new("Tour_Eau", Guid.NewGuid(), structures, "Solar/sports/Bold/water", IsFolder: false),
+            new("Props", props, monde, string.Empty, IsFolder: true),
+            new("Caisse_01", Guid.NewGuid(), props, "Solar/ui/Bold/box", IsFolder: false),
+            new("Baril", Guid.NewGuid(), props, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
+            new("Palette", Guid.NewGuid(), props, "Solar/tools/Bold/palette", IsFolder: false),
+            new("Joueurs", joueurs, monde, string.Empty, IsFolder: true),
+            new("Points_Spawn", Guid.NewGuid(), joueurs, "Solar/ui/Bold/flag", IsFolder: false)
+        };
+        EditorExplorerState.Publish(nodes, maison);
+        EditorExplorerState.ToggleCollapsed(props);
+        EditorExplorerState.ToggleCollapsed(joueurs);
     }
 
     /// <summary>Text lives on child text panels, so match against the descendant text.</summary>
