@@ -79,8 +79,8 @@ public class CameraTests
     {
         var camera = new Camera();
 
-        // Le pivot est le point regardé à la distance initiale : la caméra
-        // repose exactement sur sa sphère d'orbite dès la construction.
+        // The pivot is the point looked at at the initial distance: the camera
+        // rests exactly on its orbit sphere from construction.
         Assert.Equal(camera.Distance, Vector3.Distance(camera.Position, camera.Pivot), 5);
         Assert.True(camera.Distance > 1f);
     }
@@ -93,15 +93,15 @@ public class CameraTests
         camera.Pitch = 0f;
         camera.Position = Vector3.Zero;
 
-        // X = droite, Y = haut, Z = avant (Unity/DirectX).
+        // X = right, Y = up, Z = forward (Unity/DirectX).
         Assert.Equal(Vector3.UnitX, camera.Right);
         Assert.Equal(Vector3.UnitY, camera.Up);
         Assert.Equal(Vector3.UnitZ, camera.Forward);
 
-        // La droite de la caméra (screen +X) est bien l'axe X du monde : un
-        // point à droite (devant la caméra) projette à droite de l'écran
-        // (NDC.x positif), et un point devant (avant) tombe dans la profondeur
-        // [0, 1] de WebGPU.
+        // The camera's right (screen +X) is indeed the world X axis: a point
+        // to the right (in front of the camera) projects to the right side of
+        // the screen (positive NDC.x), and a point ahead falls within WebGPU's
+        // depth range [0, 1].
         var view = camera.ViewMatrix;
         var proj = camera.ProjectionMatrix(16f / 9f);
         var right = Vector4.Transform(new Vector4(2f, 0f, 5f, 1f), view * proj);

@@ -1,27 +1,27 @@
-// Palette du thème sombre de l'éditeur Crowbar.
-// Partiel SCSS (préfixe _) : importé par les feuilles .razor.scss via @use,
-// jamais compilé seul par DartSassBuilder.
+// Crowbar editor dark theme palette.
+// SCSS partial (underscore prefix): imported by the .razor.scss sheets via
+// @use, never compiled alone by DartSassBuilder.
 
 // Surfaces
-$surface: #0d1524ff;        // fond principal (Panel)
-$surface-deep: #0d1420ff;   // champs, zones de défilement / clip
-$surface-raised: #1b2942ff; // cartes, entêtes et pieds de panneau
-$surface-card: #18253aff;   // carte de démo
-$surface-focus: #172840ff;  // champ au focus
+$surface: #0d1524ff;        // main background (Panel)
+$surface-deep: #0d1420ff;   // fields, scroll/clip areas
+$surface-raised: #1b2942ff; // cards, panel headers and footers
+$surface-card: #18253aff;   // demo card
+$surface-focus: #172840ff;  // focused field
 
-// Texte
+// Text
 $text: #ffffffff;
 $text-secondary: #9cc8ffff;
 $text-muted: #71829bff;
 $text-success: #7ee0a5ff;
 $text-list: #d7e3f4ff;
 
-// Accent (boutons d'action)
+// Accent (action buttons)
 $accent: #3478d4ff;
 $accent-hover: #4c9df0ff;
 $accent-active: #245da8ff;
 
-// Divers
+// Misc
 $border: #ccc;
 $separator: #466080ff;
 $danger: #b3541eff;

@@ -1,6 +1,6 @@
 @use '../_editor-theme' as *;
 
-// Docké : le panneau remplit le groupe (le DockArea positionne les groupes).
+// Docked: the panel fills the group (the DockArea positions the groups).
 root {
     position: absolute;
     left: 0px;
@@ -9,14 +9,14 @@ root {
     bottom: 0px;
     width: auto;
     height: auto;
-    // Transparent : la scène 3D rendue par WebGPU transparaît ici.
+    // Transparent: the WebGPU 3D scene shows through here.
     background-color: transparent;
 }
 
 .viewport-toolbar {
-    // Centrée horizontalement dans le viewport (le root est une flex column,
-    // donc align-self centre sur l'axe horizontal) ; margin-top garde le
-    // décalage de 8px depuis le haut.
+    // Centered horizontally in the viewport (the root is a flex column, so
+    // align-self centers on the horizontal axis); margin-top keeps the 8px
+    // offset from the top.
     align-self: center;
     margin-top: 8px;
     width: 292px;

@@ -40,11 +40,7 @@
                     {
                         var visible = tab == active;
                         <div class="dock-pane @(visible ? "dock-pane-active" : "dock-pane-hidden")">
-                            @if (tab == "outils")
-                            {
-                                <ToolsPanel @key="outils" />
-                            }
-                            else if (tab == "explorer")
+                            @if (tab == "explorer")
                             {
                                 <ExplorerPanel @key="explorer" />
                             }
@@ -55,10 +51,6 @@
                             else if (tab == "inspector")
                             {
                                 <InspectorPanel @key="inspector" />
-                            }
-                            else if (tab == "world")
-                            {
-                                <WorldPanel @key="world" />
                             }
                             else if (tab == "content")
                             {
@@ -174,30 +166,25 @@
     /// </summary>
     protected override void OnLayoutChanged() => StateHasChanged();
 
-    /// <summary>Disposition initiale : outils / explorateur / (viewport + bas) / inspecteur.</summary>
+    /// <summary>Initial layout: hierarchy / (viewport + content) / inspector.</summary>
     private static DockTree CreateInitialTree()
     {
-        var outils = new DockGroupNode("outils");
-        outils.Tabs.Add("outils");
         var explorer = new DockGroupNode("explorer");
         explorer.Tabs.Add("explorer");
         var viewport = new DockGroupNode("viewport");
         viewport.Tabs.Add("viewport");
         var bottom = new DockGroupNode("bottom");
-        bottom.Tabs.Add("world");
         bottom.Tabs.Add("content");
         var inspector = new DockGroupNode("inspector");
         inspector.Tabs.Add("inspector");
 
         var center = new DockSplitNode(horizontal: false);
         center.Children.Add(viewport);
-        center.Weights.Add(0f); // flexible : prend tout l'espace restant
+        center.Weights.Add(0f); // flexible: takes all remaining space
         center.Children.Add(bottom);
-        center.Weights.Add(232f); // bande inférieure fixe
+        center.Weights.Add(232f); // fixed bottom band
 
         var root = new DockSplitNode(horizontal: true);
-        root.Children.Add(outils);
-        root.Weights.Add(100f);
         root.Children.Add(explorer);
         root.Weights.Add(230f);
         root.Children.Add(center);
@@ -211,11 +198,9 @@
 
     private string Title(string itemId) => itemId switch
     {
-        "outils" => "OUTILS",
-        "explorer" => "EXPLORATEUR",
+        "explorer" => "HIÉRARCHIE",
         "viewport" => "VIEWPORT",
         "inspector" => "INSPECTEUR",
-        "world" => "MONDE",
         "content" => "CONTENU",
         _ => itemId
     };
@@ -231,7 +216,7 @@
             return;
         }
 
-        // Rects locaux (origine 0,0 = coin supérieur gauche de la zone).
+        // Local rects (origin 0,0 = top-left corner of the area).
         var area = new UiRect(0, 0, _areaRect.Width, _areaRect.Height);
         _tree.ComputeRects(area, _rects);
         _tree.ComputeSplitters(area, _splitters);
@@ -239,10 +224,10 @@
     }
 
     /// <summary>
-    /// Publie le rectangle (en pixels fenêtre) de la zone de contenu du groupe
-    /// <c>viewport</c> — la zone 3D sous la barre d'onglets. C'est ce que le
-    /// moteur lit pour y confiner le rendu de la scène. Les rects du dock étant
-    /// locaux à la zone, on les translate vers l'espace fenêtre.
+    /// Publishes the window-pixel rect of the <c>viewport</c> group's content
+    /// area — the 3D region below the tab bar. This is what the engine reads
+    /// to confine the scene rendering. Since the dock rects are local to the
+    /// area, they are translated into window space.
     /// </summary>
     private void PublishViewportRect()
     {
@@ -259,7 +244,7 @@
             rect.Height - TabBarHeight));
     }
 
-    // ---- Drag d'un onglet -------------------------------------------------
+    // ---- Tab drag -----------------------------------------------------------
 
     private bool BeginTabDrag(UiPointerEvent e)
     {
@@ -471,7 +456,7 @@
 
     private static string PreviewClass(DockZone zone) => "dock-preview-" + zone.ToString().ToLowerInvariant();
 
-    // ---- Redimensionnement des groupes -----------------------------------
+    // ---- Group resizing -----------------------------------------------------
 
     private bool BeginSplitterDrag(UiPointerEvent e)
     {
@@ -531,12 +516,12 @@
         StateHasChanged();
     }
 
-    // ---- Hit-test sur l'arbre de panneaux vivant ---------------------------
+    // ---- Hit test against the live panel tree -------------------------------
 
     /// <summary>
-    /// Retrouve l'onglet sous le curseur en hit-testant l'arbre de panneaux
-    /// actuellement monté (les rects de Layout y sont à jour jusqu'au prochain
-    /// rendu), puis en remontant jusqu'à un élément de classe <c>dock-tab</c>.
+    /// Finds the tab under the cursor by hit-testing the currently mounted
+    /// panel tree (whose Layout rects are up to date until the next render),
+    /// then walking up to an element of class <c>dock-tab</c>.
     /// </summary>
     private Panel? FindDockTabPanel(string itemId) =>
         FindPanel(this, panel => panel.Classes.Contains("dock-tab") &&
@@ -579,7 +564,7 @@
         return null;
     }
 
-    /// <summary>Panneau le plus profond contenant le point (miroir simplifié du hit-test du runtime).</summary>
+    /// <summary>Deepest panel containing the point (simplified mirror of the runtime hit test).</summary>
     private static Panel? HitTestPanel(Panel panel, float x, float y)
     {
         if (!panel.IsVisible) return null;

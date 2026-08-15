@@ -375,7 +375,7 @@ public sealed partial class UiSystem
     {
         if (PointerInputSuppressed)
         {
-            // La scène possède le pointeur : la molette n'est pas de l'input UI.
+            // The scene holds the pointer: the wheel is not UI input.
             WheelConsumed = false;
             return;
         }

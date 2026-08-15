@@ -57,7 +57,7 @@ public class ViewportContractTests
 
         // The splitter between the explorer and the central viewport group.
         // Dragging it left widens the flexible viewport group.
-        var splitter = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-splitter-v"))[1];
+        var splitter = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-splitter-v"))[0];
         var startX = splitter.Layout.X + splitter.Layout.Width / 2;
         var startY = splitter.Layout.Y + splitter.Layout.Height / 2;
 

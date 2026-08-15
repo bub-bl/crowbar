@@ -2,6 +2,9 @@
 
 .search {
     align-self: stretch;
+    // The bar keeps its height when the panel shrinks vertically:
+    // the container (tree, list) scrolls, the bar does not crush.
+    flex-shrink: 0;
     height: 26px;
     margin: 8px 8px 6px 8px;
     padding: 0 8px;

@@ -1,15 +1,14 @@
-// Gamemode de démonstration : un script hébergé par Crowbar.Engine.Scripting.ScriptHost
-// et surveillé depuis le dossier Game/. Éditez ce fichier pendant que l'éditeur
-// tourne :
-//   - changer le corps d'une méthode → hot reload IL (fast path), l'instance
-//     conserve son identité et ses états ;
-//   - ajouter/retirer un champ ou une méthode → full reload, états migrés.
-// La barre de statut affiche Describe() en direct et une notification apparaît
-// à chaque rechargement.
+// Demo gamemode: a script hosted by Crowbar.Engine.Scripting.ScriptHost and
+// watched from the Game/ folder. Edit this file while the editor is running:
+//   - changing a method body → IL hot reload (fast path), the instance keeps
+//     its identity and its state;
+//   - adding/removing a field or method → full reload, state is migrated.
+// The status bar shows Describe() live and a notification appears on every
+// reload.
 
 namespace Game;
 
-/// <summary>État du gamemode de démo ; les champs survivent aux rechargements.</summary>
+/// <summary>State of the demo gamemode; fields survive reloads.</summary>
 public sealed class DemoGamemode
 {
     public static int ReloadCount;
@@ -17,7 +16,7 @@ public sealed class DemoGamemode
     public int Score = 5;
     public string? Name = "Démo";
 
-    /// <summary>Ligne d'état affichée dans la barre de statut de l'éditeur.</summary>
+    /// <summary>Status line shown in the editor's status bar.</summary>
     public string Describe() => $"Gamemode {Name} : {Score} points, {ReloadCount} recharges";
 
     public void Bump() => Score++;

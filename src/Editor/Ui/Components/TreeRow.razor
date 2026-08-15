@@ -1,8 +1,9 @@
 @inherits Crowbar.UI.RazorPanel
 @namespace Crowbar.Editor.Ui.Components
 @using Microsoft.AspNetCore.Components
+@using Crowbar.UI
 
-<div class="tree-row @(Folder ? "tree-folder" : "") @(Selected ? "tree-selected" : "")" style="padding-left: @(Indent * 12 + 6)px">
+<div class="tree-row @(Folder ? "tree-folder" : "") @(Selected ? "tree-selected" : "")" style="padding-left: @(Indent * 12 + 6)px" @onclick="OnClick">
     @if (Folder)
     {
         <span class="caret">@(Open ? "▾" : "▸")</span>
@@ -40,5 +41,17 @@
     [Parameter]
     public string Icon { get; set; } = string.Empty;
 
-    protected override int BuildHash() => HashCode.Combine(Text, Indent, Folder, Open, Selected, Icon);
+    /// <summary>Stable id of the entity/folder this row represents; the click handler routes on it.</summary>
+    [Parameter]
+    public string Id { get; set; } = string.Empty;
+
+    protected override int BuildHash() => HashCode.Combine(Text, Indent, Folder, Open, Selected, Icon, Id);
+
+    /// <summary>Folders toggle their subtree; entities request selection in the viewport.</summary>
+    private void OnClick()
+    {
+        if (!Guid.TryParse(Id, out var id)) return;
+        if (Folder) EditorExplorerState.ToggleCollapsed(id);
+        else EditorExplorerState.RequestSelection(id);
+    }
 }

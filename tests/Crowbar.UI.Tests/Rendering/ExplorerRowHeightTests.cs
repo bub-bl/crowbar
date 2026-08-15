@@ -2,6 +2,10 @@ using Crowbar.UI;
 
 namespace Crowbar.UI.Tests.Rendering;
 
+// Shares the process-global EditorExplorerState with EditorPageCompositionTests
+// (both render the editor page through CreateEditorUi).
+[Collection("EditorPage")]
+
 /// <summary>
 /// Guards the vertical text-squashing fix. The editor's list rows (Explorer
 /// tree, Inspector rows) are Razor components whose <em>root wrapper</em> is
@@ -24,6 +28,27 @@ public class ExplorerRowHeightTests
         Assert.True(ui.Prepare(), "the resized frame must trigger a repaint");
 
         AssertRowsStackWithoutOverlap(ui, "tree-row", expectedGap: 1f);
+    }
+
+    [Fact]
+    public void SearchBoxKeepsItsHeightWhenThePanelShrinksVertically()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var search = TestUi.Find(ui.Content!, p => p.Classes.Contains("search") && !p.Classes.Contains("small"));
+        Assert.NotNull(search);
+        Assert.Equal(26f, search!.Layout.Height, 1);
+
+        // Shrink the window so the explorer content area is far shorter than
+        // the search box (44px top bar + 32px status bar + 31px tab bar leave
+        // roughly 23px). The box must keep its full height and let the tree
+        // scroll, not crush its label onto itself.
+        ui.SetViewport(1280, 130);
+        ui.Update();
+        Assert.True(ui.Prepare(), "the resized frame must trigger a repaint");
+
+        search = TestUi.Find(ui.Content!, p => p.Classes.Contains("search") && !p.Classes.Contains("small"));
+        Assert.NotNull(search);
+        Assert.Equal(26f, search!.Layout.Height, 1);
     }
 
     [Fact]

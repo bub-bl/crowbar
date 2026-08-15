@@ -1,30 +1,69 @@
 @inherits Crowbar.UI.RazorPanel
 @namespace Crowbar.Editor.Ui.EditorPanels
+@using Crowbar.UI
 
 <SearchBox Placeholder="Rechercher..." />
 
+@* L'arbre reflète la hiérarchie réelle du monde : les lignes sont publiées
+   chaque frame par l'hôte (ExplorerTreeBuilder) depuis les niveaux, les
+   entités et leurs attachements de transform. Sélection et pliage sont
+   synchronisés via EditorExplorerState. *@
 <div class="tree">
-    <TreeRow Text="Monde" Folder="true" Open="true" Indent="0" Icon="Solar/map/Bold/globe" />
-    <TreeRow Text="Environnement" Folder="true" Open="true" Indent="1" />
-    <TreeRow Text="Terrain" Indent="2" Icon="terrain" />
-    <TreeRow Text="Eau" Indent="2" Icon="Solar/sports/Bold/water" />
-    <TreeRow Text="Ciel" Indent="2" Icon="Solar/weather/Bold/cloud" />
-    <TreeRow Text="Lumière" Folder="true" Open="true" Indent="1" />
-    <TreeRow Text="Directional Light" Indent="2" Icon="Solar/devices/Bold/lightbulb" />
-    <TreeRow Text="Exponential Fog" Indent="2" Icon="Solar/weather/Bold/fog" />
-    <TreeRow Text="Structures" Folder="true" Open="true" Indent="1" />
-    <TreeRow Text="Maison_Bois" Folder="true" Open="true" Selected="true" Indent="2" />
-    <TreeRow Text="Sol" Indent="3" Icon="terrain" />
-    <TreeRow Text="Murs" Indent="3" Icon="Solar/ui/Bold/box-minimalistic" />
-    <TreeRow Text="Toit" Indent="3" Icon="Solar/ui/Bold/box-minimalistic" />
-    <TreeRow Text="Porte" Indent="3" Icon="Solar/ui/Bold/box-minimalistic" />
-    <TreeRow Text="Fenetre" Indent="3" Icon="Solar/it/Bold/window-frame" />
-    <TreeRow Text="Hangar_Metal" Indent="2" Icon="Solar/building/Bold/buildings" />
-    <TreeRow Text="Tour_Eau" Indent="2" Icon="Solar/sports/Bold/water" />
-    <TreeRow Text="Props" Folder="true" Indent="1" />
-    <TreeRow Text="Caisse_01" Indent="2" Icon="Solar/ui/Bold/box" />
-    <TreeRow Text="Baril" Indent="2" Icon="Solar/ui/Bold/box-minimalistic" />
-    <TreeRow Text="Palette" Indent="2" Icon="Solar/tools/Bold/palette" />
-    <TreeRow Text="Joueurs" Folder="true" Indent="1" />
-    <TreeRow Text="Points_Spawn" Indent="2" Icon="Solar/ui/Bold/flag" />
+    @foreach (var row in Rows)
+    {
+        <TreeRow Text="@row.Node.Name" Folder="@row.Node.IsFolder"
+                 Open="@(!EditorExplorerState.IsCollapsed(row.Node.Id))"
+                 Selected="@(EditorExplorerState.SelectionId == row.Node.Id)"
+                 Indent="@row.Depth" Icon="@row.Node.Icon" Id="@row.Node.Id.ToString()" />
+    }
 </div>
+
+@code {
+    private readonly record struct Row(EditorExplorerState.TreeNode Node, int Depth);
+
+    private int _rowsVersion = -1;
+    private IReadOnlyList<Row> _rows = [];
+
+    // Re-renders only when the host republishes the world hierarchy, the
+    // selection changes, or a folder is collapsed.
+    protected override int BuildHash() => EditorExplorerState.Version;
+
+    /// <summary>Pre-order rows, minus the subtrees hidden under collapsed folders.</summary>
+    private IReadOnlyList<Row> Rows
+    {
+        get
+        {
+            if (_rowsVersion == EditorExplorerState.Version) return _rows;
+            _rows = BuildRows();
+            _rowsVersion = EditorExplorerState.Version;
+            return _rows;
+        }
+    }
+
+    private List<Row> BuildRows()
+    {
+        var rows = new List<Row>();
+        var depths = new Dictionary<Guid, int>();
+        // Depths of the currently collapsed ancestor folders: while the pre-order
+        // walk is inside one of them, the following rows are hidden.
+        var collapsedDepths = new List<int>();
+        foreach (var node in EditorExplorerState.Nodes)
+        {
+            var depth = node.ParentId is { } parentId && depths.TryGetValue(parentId, out var parentDepth)
+                ? parentDepth + 1
+                : 0;
+            depths[node.Id] = depth;
+
+            while (collapsedDepths.Count > 0 && collapsedDepths[^1] >= depth)
+                collapsedDepths.RemoveAt(collapsedDepths.Count - 1);
+            if (collapsedDepths.Count > 0)
+                continue; // under a collapsed ancestor
+
+            rows.Add(new Row(node, depth));
+            if (node.IsFolder && EditorExplorerState.IsCollapsed(node.Id))
+                collapsedDepths.Add(depth);
+        }
+
+        return rows;
+    }
+}

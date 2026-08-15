@@ -1,6 +1,6 @@
 @use '../_editor-theme' as *;
 
-// Racine du composant = élément flex du conteneur défilant : ne pas l'écraser.
+// Component root = flex item of the scrolling container: do not crush it.
 root {
     flex-shrink: 0;
 }
