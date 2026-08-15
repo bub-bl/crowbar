@@ -1,17 +1,16 @@
 using System.ComponentModel;
 using System.Diagnostics;
 using Crowbar.Files;
-using Zio;
 
 namespace Crowbar.UI;
 
 public sealed partial class UiSystem
 {
-    private UPath? _razorPath;
-    private UPath? _stylePath;
-    private UPath? _watchDirectory;
+    private FilePath? _razorPath;
+    private FilePath? _stylePath;
+    private FilePath? _watchDirectory;
     private Dictionary<string, DateTime>? _watchSnapshot;
-    private IFileSystemWatcher? _watcher;
+    private IFileWatcher? _watcher;
     private string _razorClassName = "Root";
     private volatile bool _reloadRequested;
     private DateTime _reloadNotBeforeUtc;
@@ -26,12 +25,12 @@ public sealed partial class UiSystem
     {
         StopWatching();
         var fs = FileSystemService.Default;
-        var razor = fs.ToUPath(razorPath);
+        var razor = fs.ToFilePath(razorPath);
         _razorPath = razor;
         _razorClassName = className;
         if (stylePath is not null)
         {
-            _stylePath = fs.ToUPath(stylePath);
+            _stylePath = fs.ToFilePath(stylePath);
             _styleIsScoped = false;
         }
         else
@@ -60,29 +59,29 @@ public sealed partial class UiSystem
     public void WatchDirectory(string directory)
     {
         StopWatching();
-        var dir = FileSystemService.Default.ToUPath(directory);
+        var dir = FileSystemService.Default.ToFilePath(directory);
         _watchDirectory = dir;
         _watchSnapshot = TakeDirectorySnapshot(dir);
         StartWatcher(dir, "*.razor*", includeSubdirectories: true);
     }
 
     /// <summary>
-    /// Installs an <see cref="IFileSystemWatcher"/> as the primary change source.
+    /// Installs an <see cref="IFileWatcher"/> as the primary change source.
     /// Events are debounced in <see cref="ProcessFileReload"/>; a throttled
     /// directory snapshot (every <see cref="PollInterval"/>) remains as a safety
     /// net for changes the watcher misses (network drives, editors that replace
     /// files without events, ...).
     /// </summary>
-    private void StartWatcher(UPath directory, string filter, bool includeSubdirectories)
+    private void StartWatcher(FilePath directory, string filter, bool includeSubdirectories)
     {
         var fs = FileSystemService.Default;
-        if (!fs.FileSystem.DirectoryExists(directory)) return;
+        if (!fs.DirectoryExists(directory)) return;
         try
         {
             _watcher = fs.Watch(directory);
             _watcher.Filter = filter;
             _watcher.IncludeSubdirectories = includeSubdirectories;
-            _watcher.NotifyFilter = Zio.NotifyFilters.LastWrite | Zio.NotifyFilters.FileName | Zio.NotifyFilters.Size | Zio.NotifyFilters.CreationTime;
+            _watcher.NotifyFilter = FileChangeFilters.LastWrite | FileChangeFilters.FileName | FileChangeFilters.Size | FileChangeFilters.CreationTime;
             _watcher.Changed += OnFileSystemEvent;
             _watcher.Created += OnFileSystemEvent;
             _watcher.Deleted += OnFileSystemEvent;
@@ -221,7 +220,7 @@ public sealed partial class UiSystem
         Console.WriteLine($"[UI] Change detected: {name}");
     }
 
-    private static DateTime GetWriteTime(UPath path) =>
+    private static DateTime GetWriteTime(FilePath path) =>
         FileSystemService.Default.FileExists(path) ? FileSystemService.Default.GetLastWriteTimeUtc(path) : DateTime.MinValue;
 
     /// <summary>
@@ -230,7 +229,7 @@ public sealed partial class UiSystem
     /// used here so runtime compilation has exactly the same Sass semantics as a
     /// normal build (including @use imports and nesting).
     /// </summary>
-    private static void CompileScssFiles(UPath directory)
+    private static void CompileScssFiles(FilePath directory)
     {
         var scssPaths = FileSystemService.Default.EnumerateFiles(directory, "*.scss", recursive: true)
             .Where(path => !path.GetName().StartsWith("_", StringComparison.Ordinal))
@@ -240,7 +239,7 @@ public sealed partial class UiSystem
             Console.WriteLine($"[UI] SCSS hot reload skipped: compiler unavailable for {scssPaths.Length} file(s).");
     }
 
-    private static bool TryCompileScss(IReadOnlyList<UPath> scssPaths)
+    private static bool TryCompileScss(IReadOnlyList<FilePath> scssPaths)
     {
         var fs = FileSystemService.Default;
         var compiler = FindSassCompiler();
@@ -376,7 +375,7 @@ public sealed partial class UiSystem
         return animated;
     }
 
-    private static string ReadStableText(UPath path)
+    private static string ReadStableText(FilePath path)
     {
         var fs = FileSystemService.Default;
         string? previous = null;
@@ -409,11 +408,11 @@ public sealed partial class UiSystem
         _watchSnapshot = null;
     }
 
-    private static Dictionary<string, DateTime> TakeDirectorySnapshot(UPath directory)
+    private static Dictionary<string, DateTime> TakeDirectorySnapshot(FilePath directory)
     {
         var snapshot = new Dictionary<string, DateTime>(StringComparer.Ordinal);
         var fs = FileSystemService.Default;
-        if (!fs.FileSystem.DirectoryExists(directory)) return snapshot;
+        if (!fs.DirectoryExists(directory)) return snapshot;
         foreach (var path in fs.EnumerateFiles(directory, "*.razor*", recursive: true))
             snapshot[path.FullName] = GetWriteTime(path);
         return snapshot;

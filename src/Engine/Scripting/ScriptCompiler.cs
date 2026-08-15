@@ -4,7 +4,6 @@ using System.Runtime.Loader;
 using Crowbar.Files;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Zio;
 
 namespace Crowbar.Engine.Scripting;
 
@@ -45,9 +44,9 @@ public sealed class ScriptCompiler
 
     /// <summary>Compiles every *.cs file under <paramref name="directory"/> (recursively).</summary>
     public ScriptAssembly CompileDirectory(string directory, string assemblyName)
-        => CompileDirectory(FileSystemService.Default.ToUPath(directory), assemblyName);
+        => CompileDirectory(FileSystemService.Default.ToFilePath(directory), assemblyName);
 
-    public ScriptAssembly CompileDirectory(UPath directory, string assemblyName)
+    public ScriptAssembly CompileDirectory(FilePath directory, string assemblyName)
     {
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
         var fs = FileSystemService.Default;
@@ -62,11 +61,11 @@ public sealed class ScriptCompiler
     {
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
         var fs = FileSystemService.Default;
-        var files = sourceFiles.Select(fs.ToUPath).ToArray();
+        var files = sourceFiles.Select(fs.ToFilePath).ToArray();
         return CompileCore(files, assemblyName);
     }
 
-    private ScriptAssembly CompileCore(IReadOnlyList<UPath> files, string assemblyName)
+    private ScriptAssembly CompileCore(IReadOnlyList<FilePath> files, string assemblyName)
     {
         var ordered = files
             .DistinctBy(file => file.FullName, StringComparer.OrdinalIgnoreCase)
@@ -91,7 +90,7 @@ public sealed class ScriptCompiler
         return false;
     }
 
-    private static ScriptAssembly LoadAssembly(string assemblyName, byte[] il, IReadOnlyList<UPath> files)
+    private static ScriptAssembly LoadAssembly(string assemblyName, byte[] il, IReadOnlyList<FilePath> files)
     {
         var loadContext = new AssemblyLoadContext($"Crowbar.Script.{assemblyName}.{Guid.NewGuid():N}", isCollectible: true);
         using var stream = new MemoryStream(il);
@@ -149,7 +148,7 @@ public sealed class ScriptCompiler
             }
         }
 
-        public byte[] Emit(IReadOnlyList<UPath> files)
+        public byte[] Emit(IReadOnlyList<FilePath> files)
         {
             lock (_gate)
             {

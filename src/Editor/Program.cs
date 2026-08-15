@@ -7,7 +7,6 @@ using Crowbar.Engine.Rendering;
 using Crowbar.Engine.Scripting;
 using Crowbar.Files;
 using Crowbar.UI;
-using Zio;
 
 namespace Crowbar.Editor;
 
@@ -319,7 +318,7 @@ internal sealed class DemoApplication : Application
         var gameSource = fs.ResolveSystemDirectory(PathUtil.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Game"));
         var uiSource = fs.ResolveSystemDirectory(PathUtil.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Editor", "Ui"));
 
-        var mounts = new Dictionary<UPath, string>();
+        var mounts = new Dictionary<FilePath, string>();
         if (gameSource is not null) mounts["/Game"] = gameSource;
         if (uiSource is not null) mounts["/Ui"] = uiSource;
 

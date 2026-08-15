@@ -1,6 +1,5 @@
 using System.Numerics;
 using Crowbar.Files;
-using Zio;
 
 namespace Crowbar.Engine;
 
@@ -90,7 +89,7 @@ public sealed class Shader
     /// <summary>The material fields mapped to CLR types, for parameter validation.</summary>
     public IReadOnlyList<ShaderParameterDefinition> Parameters { get; }
 
-    private Shader(string requestedPath, UPath filePath, string source)
+    private Shader(string requestedPath, FilePath filePath, string source)
     {
         Path = requestedPath;
         FilePath = filePath.FullName;
@@ -133,8 +132,8 @@ public sealed class Shader
 
         var fs = FileSystemService.Default;
         var candidates = FileSystemService.IsRooted(path)
-            ? [fs.ToUPath(path)]
-            : new[] { fs.ToUPath(path), fs.ToWorkingDirectoryPath(path) };
+            ? [fs.ToFilePath(path)]
+            : new[] { fs.ToFilePath(path), fs.ToWorkingDirectoryPath(path) };
 
         foreach (var candidate in candidates)
         {

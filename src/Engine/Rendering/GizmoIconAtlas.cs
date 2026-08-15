@@ -1,7 +1,6 @@
 using System.Numerics;
 using Crowbar.Engine.Rendering2D;
 using Crowbar.Files;
-using Zio;
 
 namespace Crowbar.Engine.Rendering;
 
@@ -129,7 +128,7 @@ public sealed class GizmoIconAtlas : IDisposable
         return new GizmoIconAtlas(texture, sampler, uvByName);
     }
 
-    private static byte[] RasterizeSvg(UPath path, int size)
+    private static byte[] RasterizeSvg(FilePath path, int size)
     {
         // The supplied icons use currentColor: the engine's parser treats it as
         // a caller tint, so rasterize white and let the sprite shader multiply

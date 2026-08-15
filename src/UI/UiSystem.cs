@@ -1,10 +1,9 @@
 using Crowbar.Files;
-using Zio;
 
 namespace Crowbar.UI;
 
 /// <summary>A routable Razor page declared with the <c>@page</c> directive.</summary>
-public sealed record PageRoute(string Template, string TagName, UPath RazorPath, string ClassName);
+public sealed record PageRoute(string Template, string TagName, FilePath RazorPath, string ClassName);
 
 public sealed partial class UiSystem : IDisposable
 {
@@ -21,7 +20,7 @@ public sealed partial class UiSystem : IDisposable
     private readonly Dictionary<string, RazorComponentSource> _razorComponents = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<PageRoute> _pages = [];
     private readonly List<PageRoute> _manualPages = [];
-    private readonly Dictionary<string, UPath> _directoryTags = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, FilePath> _directoryTags = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (DateTime WriteTime, string Text)> _textCache = new(StringComparer.Ordinal);
     private PageRoute? _currentRoute;
     /// <summary>True once the tree has been laid out at least once. Before that, the
@@ -72,7 +71,7 @@ public sealed partial class UiSystem : IDisposable
 
     public void RegisterRazorComponentFromFile(string tagName, string razorPath, string className)
     {
-        var upath = FileSystemService.Default.ToUPath(razorPath);
+        var upath = FileSystemService.Default.ToFilePath(razorPath);
         RegisterRazorComponentFromFileCore(tagName, upath, className);
         foreach (var route in RazorComponentFactory.ExtractPages(ReadStableTextCached(upath)))
         {
@@ -82,7 +81,7 @@ public sealed partial class UiSystem : IDisposable
         RebuildPages();
     }
 
-    private void RegisterRazorComponentFromFileCore(string tagName, UPath razorPath, string className)
+    private void RegisterRazorComponentFromFileCore(string tagName, FilePath razorPath, string className)
     {
         var scopeId = $"b-{className.ToLowerInvariant()}";
         var fs = FileSystemService.Default;
@@ -109,15 +108,15 @@ public sealed partial class UiSystem : IDisposable
     /// can be re-run on every file change for hot reload.
     /// </summary>
     public int RegisterRazorComponentsFromDirectory(string directory, bool recursive = true)
-        => RegisterRazorComponentsFromDirectory(FileSystemService.Default.ToUPath(directory), recursive);
+        => RegisterRazorComponentsFromDirectory(FileSystemService.Default.ToFilePath(directory), recursive);
 
-    public int RegisterRazorComponentsFromDirectory(UPath directory, bool recursive = true)
+    public int RegisterRazorComponentsFromDirectory(FilePath directory, bool recursive = true)
     {
         var fs = FileSystemService.Default;
-        var files = fs.FileSystem.DirectoryExists(directory)
+        var files = fs.DirectoryExists(directory)
             ? fs.EnumerateFiles(directory, "*.razor", recursive).ToArray()
             : [];
-        var seen = new List<(string Tag, UPath Path)>();
+        var seen = new List<(string Tag, FilePath Path)>();
         foreach (var razorPath in files)
         {
             var fileName = razorPath.GetName();
@@ -195,9 +194,9 @@ public sealed partial class UiSystem : IDisposable
     }
 
     public void LoadRazorFromFile(string razorPath, string className = "Root")
-        => LoadRazorFromFile(FileSystemService.Default.ToUPath(razorPath), className);
+        => LoadRazorFromFile(FileSystemService.Default.ToFilePath(razorPath), className);
 
-    public void LoadRazorFromFile(UPath razorPath, string className = "Root")
+    public void LoadRazorFromFile(FilePath razorPath, string className = "Root")
     {
         var fs = FileSystemService.Default;
         var source = fs.ReadAllText(razorPath);
@@ -268,7 +267,7 @@ public sealed partial class UiSystem : IDisposable
         return PathUtil.ChangeExtension(razorPath, ".razor.css");
     }
 
-    public static UPath GetAssociatedCssPath(UPath razorPath)
+    public static FilePath GetAssociatedCssPath(FilePath razorPath)
     {
         if (razorPath.FullName.EndsWith(".razor", StringComparison.OrdinalIgnoreCase))
             return razorPath.FullName + ".css";
@@ -487,7 +486,7 @@ public sealed partial class UiSystem : IDisposable
         return url.Length == 0 ? "/" : url;
     }
 
-    private string ReadStableTextCached(UPath path)
+    private string ReadStableTextCached(FilePath path)
     {
         var writeTime = GetWriteTime(path);
         if (_textCache.TryGetValue(path.FullName, out var entry) && entry.WriteTime == writeTime) return entry.Text;

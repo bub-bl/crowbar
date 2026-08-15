@@ -1,6 +1,5 @@
 using System.Text;
 using Crowbar.Files;
-using Zio;
 
 namespace Crowbar.Engine;
 
@@ -16,15 +15,15 @@ internal static class ShaderPreprocessor
 {
     private const int MaxIncludeDepth = 32;
 
-    public static string Preprocess(FileSystemService fs, UPath filePath)
+    public static string Preprocess(FileSystemService fs, FilePath filePath)
     {
         var builder = new StringBuilder();
-        var stack = new Stack<UPath>();
+        var stack = new Stack<FilePath>();
         Resolve(fs, filePath, builder, stack);
         return builder.ToString();
     }
 
-    private static void Resolve(FileSystemService fs, UPath filePath, StringBuilder builder, Stack<UPath> stack)
+    private static void Resolve(FileSystemService fs, FilePath filePath, StringBuilder builder, Stack<FilePath> stack)
     {
         if (stack.Count >= MaxIncludeDepth)
             throw new InvalidOperationException($"Shader include depth exceeded at '{filePath}'.");
@@ -36,7 +35,7 @@ internal static class ShaderPreprocessor
         stack.Push(filePath);
         try
         {
-            foreach (var rawLine in fs.FileSystem.ReadAllLines(filePath))
+            foreach (var rawLine in fs.ReadAllLines(filePath))
             {
                 var line = rawLine.Trim();
                 if (!line.StartsWith("#include", StringComparison.Ordinal))
@@ -49,7 +48,7 @@ internal static class ShaderPreprocessor
                 var candidate = filePath.GetDirectory() / include;
                 if (!fs.FileExists(candidate))
                 {
-                    candidate = fs.ToUPath(PathUtil.Combine("Shaders", include));
+                    candidate = fs.ToFilePath(PathUtil.Combine("Shaders", include));
                     if (!fs.FileExists(candidate))
                     {
                         throw new FileNotFoundException(
@@ -67,7 +66,7 @@ internal static class ShaderPreprocessor
         }
     }
 
-    private static string ParseInclude(string line, UPath filePath)
+    private static string ParseInclude(string line, FilePath filePath)
     {
         var start = line.IndexOf('"');
         var end = line.LastIndexOf('"');

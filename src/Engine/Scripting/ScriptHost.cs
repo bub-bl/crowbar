@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
 using Crowbar.Files;
-using Zio;
 
 namespace Crowbar.Engine.Scripting;
 
@@ -101,8 +100,8 @@ public sealed class ScriptHost : IDisposable
     private readonly List<ScriptAssembly> _codeTargets = [];
     private readonly object _gate = new();
 
-    private IFileSystemWatcher? _watcher;
-    private UPath? _directory;
+    private IFileWatcher? _watcher;
+    private FilePath? _directory;
     private string _assemblyName = "GameScripts";
     private Dictionary<string, DateTime>? _snapshot;
     private DateTime _lastPollUtc = DateTime.MinValue;
@@ -154,7 +153,7 @@ public sealed class ScriptHost : IDisposable
     public ScriptAssembly WatchDirectory(string directory, string assemblyName = "GameScripts")
     {
         _assemblyName = assemblyName;
-        var dir = FileSystemService.Default.ToUPath(directory);
+        var dir = FileSystemService.Default.ToFilePath(directory);
         _directory = dir;
 
         DisposeGenerations();
@@ -404,7 +403,7 @@ public sealed class ScriptHost : IDisposable
             _watcher = FileSystemService.Default.Watch(directory);
             _watcher.Filter = "*.cs";
             _watcher.IncludeSubdirectories = true;
-            _watcher.NotifyFilter = Zio.NotifyFilters.LastWrite | Zio.NotifyFilters.FileName | Zio.NotifyFilters.Size | Zio.NotifyFilters.CreationTime;
+            _watcher.NotifyFilter = FileChangeFilters.LastWrite | FileChangeFilters.FileName | FileChangeFilters.Size | FileChangeFilters.CreationTime;
             _watcher.Changed += OnFileSystemEvent;
             _watcher.Created += OnFileSystemEvent;
             _watcher.Deleted += OnFileSystemEvent;

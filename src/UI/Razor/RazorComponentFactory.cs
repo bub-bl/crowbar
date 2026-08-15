@@ -8,7 +8,6 @@ using Microsoft.AspNetCore.Razor.Language;
 using Microsoft.AspNetCore.Razor.Language.Intermediate;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Zio;
 
 namespace Crowbar.UI;
 
@@ -76,7 +75,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     /// </summary>
     public RazorPanel CompileTemplateFromFile(string razorPath, string className, Type baseType,
         IReadOnlyDictionary<string, string>? typeArguments, params Assembly[] references)
-        => CompileTemplateFromFile(FileSystemService.Default.ToUPath(razorPath), className, baseType, typeArguments, references);
+        => CompileTemplateFromFile(FileSystemService.Default.ToFilePath(razorPath), className, baseType, typeArguments, references);
 
     /// <summary>
     /// Compiles the component from a file, caching the emitted assembly by
@@ -84,7 +83,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     /// unchanged files skip the Roslyn emit. A fresh template instance is
     /// created on every call.
     /// </summary>
-    public RazorPanel CompileTemplateFromFile(UPath razorPath, string className, Type baseType,
+    public RazorPanel CompileTemplateFromFile(FilePath razorPath, string className, Type baseType,
         IReadOnlyDictionary<string, string>? typeArguments, params Assembly[] references)
     {
         var pathKey = razorPath.FullName;
@@ -136,7 +135,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     public RazorPanel CompileTemplateFromFile(string razorPath, string className, Type baseType,
         params Assembly[] references) => CompileTemplateFromFile(razorPath, className, baseType, null, references);
 
-    public RazorPanel CompileTemplateFromFile(UPath razorPath, string className, Type baseType,
+    public RazorPanel CompileTemplateFromFile(FilePath razorPath, string className, Type baseType,
         params Assembly[] references) => CompileTemplateFromFile(razorPath, className, baseType, null, references);
 
     private static byte[] CompileAssembly(string razorSource, string className, Type baseType,
@@ -308,7 +307,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         new(StringComparer.Ordinal);
 
     /// <summary>Fast file read for the hot path; changes invalidate the entry via their write time.</summary>
-    private static string ReadFileTextCached(UPath path)
+    private static string ReadFileTextCached(FilePath path)
     {
         var fs = FileSystemService.Default;
         var key = path.FullName;
