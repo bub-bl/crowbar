@@ -22,7 +22,7 @@ public class PanelTextOverflowTests
         var initialWidth = pane!.Layout.Width;
 
         // Narrow the Explorer group by dragging the explorer|centre seam left.
-        var splitter = TestUi.FindAll(content, p => p.Classes.Contains("dock-splitter-v"))[1];
+        var splitter = TestUi.FindAll(content, p => p.Classes.Contains("dock-splitter-v"))[0];
         var startX = splitter.Layout.X + splitter.Layout.Width / 2;
         var startY = splitter.Layout.Y + splitter.Layout.Height / 2;
 

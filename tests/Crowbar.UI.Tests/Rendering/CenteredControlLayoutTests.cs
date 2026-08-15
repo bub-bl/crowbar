@@ -30,16 +30,13 @@ public class CenteredControlLayoutTests
     }
 
     [Fact]
-    public void InspectorAndToolsActionsCenterTheirLabels()
+    public void InspectorActionCentersItsLabel()
     {
         using var ui = EditorPageCompositionTests.CreateEditorUi();
         var content = ui.Content!;
         var addComponent = TestUi.Find(content, p => p.Classes.Contains("add-component"));
-        var moreTools = TestUi.Find(content, p => p.Classes.Contains("more-tools"));
 
         Assert.NotNull(addComponent);
-        Assert.NotNull(moreTools);
         AssertTextCentered(addComponent!, "add-component");
-        AssertTextCentered(moreTools!, "more-tools");
     }
 }

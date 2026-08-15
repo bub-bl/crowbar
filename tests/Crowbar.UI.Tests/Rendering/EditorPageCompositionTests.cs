@@ -81,9 +81,11 @@ public class EditorPageCompositionTests
             new("Joueurs", joueurs, monde, string.Empty, IsFolder: true),
             new("Points_Spawn", Guid.NewGuid(), joueurs, "Solar/ui/Bold/flag", IsFolder: false)
         };
+        // Only Props is collapsed: a collapsed folder must still render the
+        // closed-folder glyph (folder-2) while the open Joueurs folder keeps
+        // its Points_Spawn leaf (flag) visible.
         EditorExplorerState.Publish(nodes, maison);
         EditorExplorerState.ToggleCollapsed(props);
-        EditorExplorerState.ToggleCollapsed(joueurs);
     }
 
     /// <summary>Text lives on child text panels, so match against the descendant text.</summary>
@@ -91,7 +93,7 @@ public class EditorPageCompositionTests
         TestUi.FindAll(root, p => p.Classes.Contains(className)).FirstOrDefault(p => TestUi.Texts(p).Any(match));
 
     [Fact]
-    public void EditorPageComposesAllEightPanels()
+    public void EditorPageComposesAllDockablePanels()
     {
         using var ui = CreateEditorUi();
         var content = ui.Content!;
@@ -99,11 +101,9 @@ public class EditorPageCompositionTests
         Assert.NotNull(FindText(content, "logo", t => t == "Crowbar"));
         // Every dockable panel is composed through the DockArea: its tab bar
         // shows the titles the panels used to carry as headers.
-        Assert.NotNull(FindText(content, "dock-tab", t => t == "OUTILS"));
         Assert.NotNull(FindText(content, "dock-tab", t => t == "HIÉRARCHIE"));
         Assert.NotNull(FindText(content, "dock-tab", t => t == "VIEWPORT"));
         Assert.NotNull(FindText(content, "dock-tab", t => t == "INSPECTEUR"));
-        Assert.NotNull(FindText(content, "dock-tab", t => t == "MONDE"));
         Assert.NotNull(FindText(content, "dock-tab", t => t == "CONTENU"));
         Assert.NotNull(TestUi.Find(content, p => p.Classes.Contains("viewport-toolbar")));
         var csActive = TestUi.Find(content, p => p.Classes.Contains("cs-active"));
@@ -237,10 +237,10 @@ public class EditorPageCompositionTests
         using var ui = CreateEditorUi();
         var content = ui.Content!;
 
-        // Three checkboxes: Actif (inspector head), Générer Collision
-        // (inspector body), Brouillard (world panel). All start checked.
+        // Two checkboxes: Actif (inspector head) and Générer Collision
+        // (inspector body). Both start checked.
         var toggles = TestUi.FindAll(content, p => p is ToggleInput).Cast<ToggleInput>().ToList();
-        Assert.Equal(3, toggles.Count);
+        Assert.Equal(2, toggles.Count);
         Assert.All(toggles, t => Assert.True(t.IsChecked));
 
         // Toggle "Générer Collision" (located by its row label: the docked
@@ -254,8 +254,8 @@ public class EditorPageCompositionTests
         ui.Prepare();
 
         toggles = TestUi.FindAll(ui.Content!, p => p is ToggleInput).Cast<ToggleInput>().ToList();
-        Assert.Equal(3, toggles.Count);
-        Assert.Equal(2, toggles.Count(t => t.IsChecked));
+        Assert.Equal(2, toggles.Count);
+        Assert.Equal(1, toggles.Count(t => t.IsChecked));
         Assert.False(toggles.Single(t => TestUi.Texts(t.Parent!).Any(text => text.Contains("Générer Collision", StringComparison.Ordinal))).IsChecked);
     }
 

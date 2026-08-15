@@ -1,7 +1,7 @@
 // La page remplit toujours la fenêtre : root/.editor suivent la taille du
-// viewport. Chaque panneau (top bar, outils, explorateur, viewport,
-// inspecteur, monde, contenu, status bar) est un composant réutilisable qui
-// porte ses propres styles scopés dans Ui/EditorPanels/.
+// viewport. Chaque panneau (top bar, hiérarchie, viewport, inspecteur,
+// contenu, status bar) est un composant réutilisable qui porte ses propres
+// styles scopés dans Ui/EditorPanels/.
 
 root {
     width: 100%;

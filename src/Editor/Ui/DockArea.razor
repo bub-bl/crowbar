@@ -40,11 +40,7 @@
                     {
                         var visible = tab == active;
                         <div class="dock-pane @(visible ? "dock-pane-active" : "dock-pane-hidden")">
-                            @if (tab == "outils")
-                            {
-                                <ToolsPanel @key="outils" />
-                            }
-                            else if (tab == "explorer")
+                            @if (tab == "explorer")
                             {
                                 <ExplorerPanel @key="explorer" />
                             }
@@ -55,10 +51,6 @@
                             else if (tab == "inspector")
                             {
                                 <InspectorPanel @key="inspector" />
-                            }
-                            else if (tab == "world")
-                            {
-                                <WorldPanel @key="world" />
                             }
                             else if (tab == "content")
                             {
@@ -174,17 +166,14 @@
     /// </summary>
     protected override void OnLayoutChanged() => StateHasChanged();
 
-    /// <summary>Disposition initiale : outils / explorateur / (viewport + bas) / inspecteur.</summary>
+    /// <summary>Disposition initiale : hiérarchie / (viewport + contenu) / inspecteur.</summary>
     private static DockTree CreateInitialTree()
     {
-        var outils = new DockGroupNode("outils");
-        outils.Tabs.Add("outils");
         var explorer = new DockGroupNode("explorer");
         explorer.Tabs.Add("explorer");
         var viewport = new DockGroupNode("viewport");
         viewport.Tabs.Add("viewport");
         var bottom = new DockGroupNode("bottom");
-        bottom.Tabs.Add("world");
         bottom.Tabs.Add("content");
         var inspector = new DockGroupNode("inspector");
         inspector.Tabs.Add("inspector");
@@ -196,8 +185,6 @@
         center.Weights.Add(232f); // bande inférieure fixe
 
         var root = new DockSplitNode(horizontal: true);
-        root.Children.Add(outils);
-        root.Weights.Add(100f);
         root.Children.Add(explorer);
         root.Weights.Add(230f);
         root.Children.Add(center);
@@ -211,11 +198,9 @@
 
     private string Title(string itemId) => itemId switch
     {
-        "outils" => "OUTILS",
         "explorer" => "HIÉRARCHIE",
         "viewport" => "VIEWPORT",
         "inspector" => "INSPECTEUR",
-        "world" => "MONDE",
         "content" => "CONTENU",
         _ => itemId
     };
