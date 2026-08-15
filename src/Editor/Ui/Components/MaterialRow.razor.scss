@@ -1,7 +1,13 @@
 @use '../_editor-theme' as *;
 
+// Racine du composant = élément flex du conteneur défilant : ne pas l'écraser.
+root {
+    flex-shrink: 0;
+}
+
 .mat-row {
     width: 260px;
+    flex-shrink: 0;
     height: 24px;
     flex-direction: row;
     align-items: center;

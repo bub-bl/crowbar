@@ -24,6 +24,7 @@ root {
 
 .more-tools {
     width: 100%;
+    flex-shrink: 0;
     height: 24px;
     margin-top: 2px;
     border-radius: 3px;

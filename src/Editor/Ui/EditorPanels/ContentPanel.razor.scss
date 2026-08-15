@@ -119,6 +119,7 @@ root {
 
 .cs-item {
     width: 130px;
+    flex-shrink: 0;
     height: 20px;
     padding-left: 12px;
     color: $text-muted;
@@ -152,6 +153,7 @@ root {
 
 .grid-row-title {
     width: 100%;
+    flex-shrink: 0;
     height: 14px;
     color: $text-muted;
     font-size: 9px;
@@ -161,6 +163,7 @@ root {
 
 .asset-row {
     width: 100%;
+    flex-shrink: 0;
     flex-direction: row;
     gap: 7px;
 }

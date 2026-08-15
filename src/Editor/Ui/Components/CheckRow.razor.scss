@@ -1,6 +1,12 @@
 @use '../_editor-theme' as *;
 
+// Racine du composant = élément flex du conteneur défilant : ne pas l'écraser.
+root {
+    flex-shrink: 0;
+}
+
 .check-row {
+    flex-shrink: 0;
     height: 20px;
     flex-direction: row;
     align-items: center;

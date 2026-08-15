@@ -1,7 +1,13 @@
 @use '../_editor-theme' as *;
 
+// Racine du composant = élément flex du conteneur défilant : ne pas l'écraser.
+root {
+    flex-shrink: 0;
+}
+
 .tool-section {
     width: 84px;
+    flex-shrink: 0;
     gap: 4px;
 }
 
