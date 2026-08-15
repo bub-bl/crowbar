@@ -44,12 +44,12 @@ public sealed class ScriptCompiler
 
     /// <summary>Compiles every *.cs file under <paramref name="directory"/> (recursively).</summary>
     public ScriptAssembly CompileDirectory(string directory, string assemblyName)
-        => CompileDirectory(FileSystemService.Default.ToFilePath(directory), assemblyName);
+        => CompileDirectory(FileSystem.Content.ToFilePath(directory), assemblyName);
 
     public ScriptAssembly CompileDirectory(FilePath directory, string assemblyName)
     {
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         if (!fs.DirectoryExists(directory))
             throw new DirectoryNotFoundException($"Script directory not found: {directory}");
         var files = fs.EnumerateFiles(directory, "*.cs", recursive: true).ToArray();
@@ -60,7 +60,7 @@ public sealed class ScriptCompiler
     public ScriptAssembly Compile(IEnumerable<string> sourceFiles, string assemblyName)
     {
         ArgumentException.ThrowIfNullOrEmpty(assemblyName);
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         var files = sourceFiles.Select(fs.ToFilePath).ToArray();
         return CompileCore(files, assemblyName);
     }
@@ -107,7 +107,7 @@ public sealed class ScriptCompiler
             {
                 return _platformReferences ??= ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? string.Empty)
                     .Split(PathUtil.PathListSeparator, StringSplitOptions.RemoveEmptyEntries)
-                    .Where(FileSystemService.Default.FileExists)
+                    .Where(FileSystem.Content.FileExists)
                     .Select(path => MetadataReference.CreateFromFile(path))
                     .ToArray();
             }
@@ -152,7 +152,7 @@ public sealed class ScriptCompiler
         {
             lock (_gate)
             {
-                var fs = FileSystemService.Default;
+                var fs = FileSystem.Content;
                 var fileSet = files.Select(file => file.FullName).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
                 // Drop trees for files that no longer exist.

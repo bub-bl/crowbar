@@ -846,7 +846,7 @@ public sealed class UiTreePainter
         if (normalized.StartsWith('/') || normalized.Contains("..", StringComparison.Ordinal))
             return null;
         var path = PathUtil.Combine(IconRoot, normalized + ".svg");
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         if (!fs.FileExists(path))
             return null;
         try

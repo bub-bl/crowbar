@@ -105,7 +105,7 @@ public sealed class UiImageCache
                 return (image.Width, image.Height);
             }
 
-            var fs = FileSystemService.Default;
+            var fs = FileSystem.Content;
             var path = fs.ToFilePath(FileSystemService.IsRooted(source) ? source : PathUtil.Combine(ContentRoot, source));
             if (!fs.FileExists(path)) return null;
             using var imageStream = fs.OpenRead(path);

@@ -31,7 +31,7 @@ public sealed class Texture2D
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        using var stream = FileSystemService.Default.OpenRead(path);
+        using var stream = FileSystem.Content.OpenRead(path);
         using var image = Image.Load<Rgba32>(stream);
         var width = image.Width;
         var height = image.Height;

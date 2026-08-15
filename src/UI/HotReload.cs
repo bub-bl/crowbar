@@ -24,7 +24,7 @@ public sealed partial class UiSystem
     public void WatchFiles(string razorPath, string? stylePath = null, string className = "Root")
     {
         StopWatching();
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         var razor = fs.ToFilePath(razorPath);
         _razorPath = razor;
         _razorClassName = className;
@@ -59,7 +59,7 @@ public sealed partial class UiSystem
     public void WatchDirectory(string directory)
     {
         StopWatching();
-        var dir = FileSystemService.Default.ToFilePath(directory);
+        var dir = FileSystem.Content.ToFilePath(directory);
         _watchDirectory = dir;
         _watchSnapshot = TakeDirectorySnapshot(dir);
         StartWatcher(dir, "*.razor*", includeSubdirectories: true);
@@ -74,7 +74,7 @@ public sealed partial class UiSystem
     /// </summary>
     private void StartWatcher(FilePath directory, string filter, bool includeSubdirectories)
     {
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         if (!fs.DirectoryExists(directory)) return;
         try
         {
@@ -146,11 +146,11 @@ public sealed partial class UiSystem
                 else if (_razorRoot is not null) _razorRenderPending = true;
                 else if (_pages.Count > 0) Navigate(CurrentUrl);
             }
-            else if (_razorPath is { } razorPath && FileSystemService.Default.FileExists(razorPath))
+            else if (_razorPath is { } razorPath && FileSystem.Content.FileExists(razorPath))
             {
                 LoadRazorFromFile(razorPath, _razorClassName);
             }
-            else if (_stylePath is { } stylePath && FileSystemService.Default.FileExists(stylePath))
+            else if (_stylePath is { } stylePath && FileSystem.Content.FileExists(stylePath))
             {
                 if (_styleIsScoped)
                 {
@@ -221,7 +221,7 @@ public sealed partial class UiSystem
     }
 
     private static DateTime GetWriteTime(FilePath path) =>
-        FileSystemService.Default.FileExists(path) ? FileSystemService.Default.GetLastWriteTimeUtc(path) : DateTime.MinValue;
+        FileSystem.Content.FileExists(path) ? FileSystem.Content.GetLastWriteTimeUtc(path) : DateTime.MinValue;
 
     /// <summary>
     /// Rebuilds the non-partial SCSS entry points before the directory reload.
@@ -231,7 +231,7 @@ public sealed partial class UiSystem
     /// </summary>
     private static void CompileScssFiles(FilePath directory)
     {
-        var scssPaths = FileSystemService.Default.EnumerateFiles(directory, "*.scss", recursive: true)
+        var scssPaths = FileSystem.Content.EnumerateFiles(directory, "*.scss", recursive: true)
             .Where(path => !path.GetName().StartsWith("_", StringComparison.Ordinal))
             .ToArray();
         if (scssPaths.Length == 0) return;
@@ -241,7 +241,7 @@ public sealed partial class UiSystem
 
     private static bool TryCompileScss(IReadOnlyList<FilePath> scssPaths)
     {
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         var compiler = FindSassCompiler();
         if (compiler is null) return false;
 
@@ -320,7 +320,7 @@ public sealed partial class UiSystem
 
     private static SassCompilerCommand? FindSassCompiler()
     {
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         var packageRoot = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
             ?? PathUtil.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
         var toolDirectory = PathUtil.Combine(packageRoot, "dartsassbuilder", "1.1.0", "tool");
@@ -377,7 +377,7 @@ public sealed partial class UiSystem
 
     private static string ReadStableText(FilePath path)
     {
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         string? previous = null;
         for (var attempt = 0; attempt < 6; attempt++)
         {
@@ -411,7 +411,7 @@ public sealed partial class UiSystem
     private static Dictionary<string, DateTime> TakeDirectorySnapshot(FilePath directory)
     {
         var snapshot = new Dictionary<string, DateTime>(StringComparer.Ordinal);
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         if (!fs.DirectoryExists(directory)) return snapshot;
         foreach (var path in fs.EnumerateFiles(directory, "*.razor*", recursive: true))
             snapshot[path.FullName] = GetWriteTime(path);

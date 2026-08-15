@@ -130,7 +130,7 @@ public sealed class Shader
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         var candidates = FileSystemService.IsRooted(path)
             ? [fs.ToFilePath(path)]
             : new[] { fs.ToFilePath(path), fs.ToWorkingDirectoryPath(path) };

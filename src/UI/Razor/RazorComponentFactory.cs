@@ -75,7 +75,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     /// </summary>
     public RazorPanel CompileTemplateFromFile(string razorPath, string className, Type baseType,
         IReadOnlyDictionary<string, string>? typeArguments, params Assembly[] references)
-        => CompileTemplateFromFile(FileSystemService.Default.ToFilePath(razorPath), className, baseType, typeArguments, references);
+        => CompileTemplateFromFile(FileSystem.Content.ToFilePath(razorPath), className, baseType, typeArguments, references);
 
     /// <summary>
     /// Compiles the component from a file, caching the emitted assembly by
@@ -87,7 +87,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         IReadOnlyDictionary<string, string>? typeArguments, params Assembly[] references)
     {
         var pathKey = razorPath.FullName;
-        var writeTime = FileSystemService.Default.GetLastWriteTimeUtc(razorPath).Ticks;
+        var writeTime = FileSystem.Content.GetLastWriteTimeUtc(razorPath).Ticks;
         var typeArgsKey = typeArguments is null ? string.Empty : string.Join(",", typeArguments.Values);
         var cacheKey = pathKey + "|" + className + "|" + (baseType.FullName ?? baseType.Name) + "|" + typeArgsKey;
         var assembly = TemplateAssemblyCache.Get(cacheKey, writeTime);
@@ -218,10 +218,10 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
 
     private static Assembly? TryLoadFromDisk(string path)
     {
-        if (!FileSystemService.Default.FileExists(path)) return null;
+        if (!FileSystem.Content.FileExists(path)) return null;
         try
         {
-            return Assembly.Load(FileSystemService.Default.ReadAllBytes(path));
+            return Assembly.Load(FileSystem.Content.ReadAllBytes(path));
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or BadImageFormatException)
         {
@@ -234,8 +234,8 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     {
         try
         {
-            FileSystemService.Default.CreateDirectory(RazorCacheDirectory);
-            FileSystemService.Default.WriteAllBytes(path, il);
+            FileSystem.Content.CreateDirectory(RazorCacheDirectory);
+            FileSystem.Content.WriteAllBytes(path, il);
             PruneRazorCache();
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -251,7 +251,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         if (Interlocked.Exchange(ref _pruneStarted, 1) == 1) return;
         try
         {
-            var fs = FileSystemService.Default;
+            var fs = FileSystem.Content;
             var cutoff = DateTime.UtcNow.AddDays(-30);
             foreach (var file in fs.EnumerateFiles(RazorCacheDirectory, "*.dll"))
                 if (fs.GetLastWriteTimeUtc(file) < cutoff) fs.DeleteFile(file);
@@ -309,7 +309,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     /// <summary>Fast file read for the hot path; changes invalidate the entry via their write time.</summary>
     private static string ReadFileTextCached(FilePath path)
     {
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         var key = path.FullName;
         var writeTime = fs.GetLastWriteTimeUtc(path).Ticks;
         if (FileTextCache.TryGetValue(key, out var entry) && entry.WriteTime == writeTime)

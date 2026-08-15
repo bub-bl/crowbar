@@ -87,7 +87,7 @@ public sealed class SvgIconCache
     {
         try
         {
-            var text = FileSystemService.Default.ReadAllText(path);
+            var text = FileSystem.Content.ReadAllText(path);
             var root = XDocument.Parse(text).Root;
             if (root is null || !root.Name.LocalName.Equals("svg", StringComparison.OrdinalIgnoreCase))
                 return null;
@@ -144,7 +144,7 @@ public sealed class SvgIconCache
         {
             if (_resolved.TryGetValue(normalized, out var cached)) return cached;
             var path = PathUtil.Combine(_contentRoot, normalized + ".svg");
-            var resolved = FileSystemService.Default.FileExists(path) ? path : null;
+            var resolved = FileSystem.Content.FileExists(path) ? path : null;
             _resolved[normalized] = resolved;
             return resolved;
         }

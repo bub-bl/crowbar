@@ -69,7 +69,7 @@ public sealed class GizmoIconAtlas : IDisposable
     {
         ArgumentNullException.ThrowIfNull(device);
 
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         var assetsDirectory = PathUtil.Combine("Assets", "Gizmos");
         if (!fs.DirectoryExists(assetsDirectory))
             throw new DirectoryNotFoundException(
@@ -133,7 +133,7 @@ public sealed class GizmoIconAtlas : IDisposable
         // The supplied icons use currentColor: the engine's parser treats it as
         // a caller tint, so rasterize white and let the sprite shader multiply
         // the sampled RGB by the light/entity tint.
-        var shape = SvgDocumentParser.Parse(FileSystemService.Default.ReadAllText(path));
+        var shape = SvgDocumentParser.Parse(FileSystem.Content.ReadAllText(path));
         if (shape.ViewBox.Width <= 0f || shape.ViewBox.Height <= 0f)
             throw new InvalidDataException($"SVG gizmo icon '{path}' has no drawable bounds.");
 

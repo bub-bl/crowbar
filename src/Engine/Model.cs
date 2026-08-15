@@ -96,7 +96,7 @@ public sealed class Model
     public static unsafe Model Load(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         if (!fs.FileExists(path))
             throw new FileNotFoundException("Model file not found.", path);
 

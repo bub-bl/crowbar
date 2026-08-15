@@ -16,11 +16,11 @@ public abstract class ResourceFile : IValid, IDisposable
 
     public void Load()
     {
-        if (FileSystemService.Default.FileExists(Path))
+        if (FileSystem.Content.FileExists(Path))
         {
             // Opened with shared write access so an external tool (or the editor
             // itself) can overwrite the asset while it is loaded.
-            Data = FileSystemService.Default.OpenRead(Path);
+            Data = FileSystem.Content.OpenRead(Path);
             IsValid = true;
         }
         else

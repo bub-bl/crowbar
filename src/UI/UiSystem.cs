@@ -71,7 +71,7 @@ public sealed partial class UiSystem : IDisposable
 
     public void RegisterRazorComponentFromFile(string tagName, string razorPath, string className)
     {
-        var upath = FileSystemService.Default.ToFilePath(razorPath);
+        var upath = FileSystem.Content.ToFilePath(razorPath);
         RegisterRazorComponentFromFileCore(tagName, upath, className);
         foreach (var route in RazorComponentFactory.ExtractPages(ReadStableTextCached(upath)))
         {
@@ -84,7 +84,7 @@ public sealed partial class UiSystem : IDisposable
     private void RegisterRazorComponentFromFileCore(string tagName, FilePath razorPath, string className)
     {
         var scopeId = $"b-{className.ToLowerInvariant()}";
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         var cssPath = GetAssociatedCssPath(razorPath);
         if (fs.FileExists(cssPath)) LoadScopedStyles(tagName, ReadStableTextCached(cssPath), scopeId);
         var fileFactory = new RazorComponentFactory();
@@ -108,11 +108,11 @@ public sealed partial class UiSystem : IDisposable
     /// can be re-run on every file change for hot reload.
     /// </summary>
     public int RegisterRazorComponentsFromDirectory(string directory, bool recursive = true)
-        => RegisterRazorComponentsFromDirectory(FileSystemService.Default.ToFilePath(directory), recursive);
+        => RegisterRazorComponentsFromDirectory(FileSystem.Content.ToFilePath(directory), recursive);
 
     public int RegisterRazorComponentsFromDirectory(FilePath directory, bool recursive = true)
     {
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         var files = fs.DirectoryExists(directory)
             ? fs.EnumerateFiles(directory, "*.razor", recursive).ToArray()
             : [];
@@ -194,11 +194,11 @@ public sealed partial class UiSystem : IDisposable
     }
 
     public void LoadRazorFromFile(string razorPath, string className = "Root")
-        => LoadRazorFromFile(FileSystemService.Default.ToFilePath(razorPath), className);
+        => LoadRazorFromFile(FileSystem.Content.ToFilePath(razorPath), className);
 
     public void LoadRazorFromFile(FilePath razorPath, string className = "Root")
     {
-        var fs = FileSystemService.Default;
+        var fs = FileSystem.Content;
         var source = fs.ReadAllText(razorPath);
         var scopeId = $"b-{className.ToLowerInvariant()}";
         var scopedCssPath = GetAssociatedCssPath(razorPath);

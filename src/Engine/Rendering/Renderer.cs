@@ -611,7 +611,7 @@ public sealed class Renderer : IDisposable
             Usage = BufferUsage.Uniform | BufferUsage.CopyDst
         });
 
-        string shaderSource = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Grid.wgsl"));
+        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Grid.wgsl"));
         _gridPipeline = _device.CreatePipeline(new PipelineDescription
         {
             ShaderSource = shaderSource,
@@ -1041,7 +1041,7 @@ public sealed class Renderer : IDisposable
     {
         _uiSampler ??= _device.CreateSampler(new SamplerDescription());
 
-        string shaderSource = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Ui.wgsl"));
+        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui.wgsl"));
         _uiPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
             ShaderSource = shaderSource,
@@ -1091,7 +1091,7 @@ public sealed class Renderer : IDisposable
     /// </summary>
     private void CreateUi2DResources()
     {
-        string shaderSource = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Ui2D.wgsl"));
+        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui2D.wgsl"));
         _ui2dSampler ??= _device.CreateSampler(new SamplerDescription());
         _ui2dPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
@@ -1122,7 +1122,7 @@ public sealed class Renderer : IDisposable
 
     private void CreateBackdropResources()
     {
-        string shaderSource = FileSystemService.Default.ReadAllText(PathUtil.Combine("Shaders", "Backdrop.wgsl"));
+        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Backdrop.wgsl"));
         _backdropParamsBuffer = _device.CreateBuffer(new BufferDescription
         {
             Size = (ulong)(MaxBackdropRegions * sizeof(BackdropGpuParams)),

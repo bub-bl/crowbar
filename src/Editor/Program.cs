@@ -6,13 +6,18 @@ using Crowbar.Engine.InputSystem;
 using Crowbar.Engine.Rendering;
 using Crowbar.Engine.Scripting;
 using Crowbar.Files;
+using Crowbar.Files.Zio;
 using Crowbar.UI;
 
 namespace Crowbar.Editor;
 
 internal static class Program
 {
-    public static void Main() => new DemoApplication().Run();
+    public static void Main()
+    {
+        DemoApplication.ConfigureFileSystem();
+        new DemoApplication().Run();
+    }
 }
 
 /// <summary>
@@ -28,8 +33,6 @@ internal sealed class DemoApplication : Application
 
     protected override void OnInitialize()
     {
-        ConfigureFileSystem();
-
         // Le snapping du gizmo de translation suit la taille de cellule de la grille.
         if (Renderer is { } renderer)
             renderer.Gizmos.SnapSize = renderer.Grid.CellSize;
@@ -312,17 +315,19 @@ internal sealed class DemoApplication : Application
     /// in dev builds so their edits hot reload. Published builds fall back to
     /// the copies next to the executable.
     /// </summary>
-    private static void ConfigureFileSystem()
+    internal static void ConfigureFileSystem()
     {
-        var fs = FileSystemService.Default;
-        var gameSource = fs.ResolveSystemDirectory(PathUtil.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Game"));
-        var uiSource = fs.ResolveSystemDirectory(PathUtil.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Editor", "Ui"));
+        FileSystem.Mounted = ZioFileSystem.Physical();
+
+        var probe = new FileSystemService(FileSystem.Mounted, AppContext.BaseDirectory);
+        var gameSource = probe.ResolveSystemDirectory(PathUtil.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "Game"));
+        var uiSource = probe.ResolveSystemDirectory(PathUtil.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Editor", "Ui"));
 
         var mounts = new Dictionary<FilePath, string>();
         if (gameSource is not null) mounts["/Game"] = gameSource;
         if (uiSource is not null) mounts["/Ui"] = uiSource;
 
-        FileSystemService.Default = FileSystemService.CreatePhysical(AppContext.BaseDirectory, mounts);
+        FileSystem.Content = new FileSystemService(FileSystem.Mounted, AppContext.BaseDirectory, mounts);
     }
 }
 

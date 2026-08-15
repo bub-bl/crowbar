@@ -8,11 +8,4 @@
     <AssemblyName>Crowbar.Files</AssemblyName>
     <RootNamespace>Crowbar.Files</RootNamespace>
   </PropertyGroup>
-
-  <ItemGroup>
-    <!-- Zio is an implementation detail of Crowbar.Files. The compile asset is
-         private, so no consumer can write `using Zio`; only the runtime asset
-         flows transitively so Zio.dll is deployed next to Crowbar.Files.dll. -->
-    <PackageReference Include="Zio" Version="0.24.0" PrivateAssets="compile;contentfiles;analyzers;build" />
-  </ItemGroup>
 </Project>

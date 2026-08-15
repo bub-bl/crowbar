@@ -1,6 +1,3 @@
-using System.IO;
-using Zio;
-
 namespace Crowbar.Files;
 
 /// <summary>The kind of filesystem change reported by <see cref="IFileWatcher"/>.</summary>
@@ -67,9 +64,8 @@ public sealed class FileRenamedEventArgs : FileChangedEventArgs
 }
 
 /// <summary>
-/// Watches a directory for changes. This is Crowbar.Files' own watcher
-/// abstraction — the backing implementation is provided by the filesystem
-/// returned by <see cref="FileSystemService.Watch(FilePath)"/>.
+/// Watches a directory for changes. The backing implementation is provided by
+/// the filesystem backend returned from <see cref="FileSystemService.Watch(FilePath)"/>.
 /// </summary>
 public interface IFileWatcher : IDisposable
 {
@@ -89,64 +85,4 @@ public interface IFileWatcher : IDisposable
 
     /// <summary>Which changes to report.</summary>
     FileChangeFilters NotifyFilter { get; set; }
-}
-
-/// <summary>Adapts a Zio <see cref="IFileSystemWatcher"/> to the public <see cref="IFileWatcher"/> contract.</summary>
-internal sealed class ZioFileWatcher : IFileWatcher
-{
-    private readonly IFileSystemWatcher _watcher;
-
-    public ZioFileWatcher(IFileSystemWatcher watcher)
-    {
-        _watcher = watcher;
-        _watcher.Changed += (_, e) => Changed?.Invoke(this, ToChanged(e));
-        _watcher.Created += (_, e) => Created?.Invoke(this, ToChanged(e));
-        _watcher.Deleted += (_, e) => Deleted?.Invoke(this, ToChanged(e));
-        _watcher.Renamed += (_, e) => Renamed?.Invoke(this, ToRenamed(e));
-    }
-
-    public event EventHandler<FileChangedEventArgs>? Changed;
-    public event EventHandler<FileChangedEventArgs>? Created;
-    public event EventHandler<FileChangedEventArgs>? Deleted;
-    public event EventHandler<FileRenamedEventArgs>? Renamed;
-
-    public bool EnableRaisingEvents
-    {
-        get => _watcher.EnableRaisingEvents;
-        set => _watcher.EnableRaisingEvents = value;
-    }
-
-    public string Filter
-    {
-        get => _watcher.Filter;
-        set => _watcher.Filter = value;
-    }
-
-    public bool IncludeSubdirectories
-    {
-        get => _watcher.IncludeSubdirectories;
-        set => _watcher.IncludeSubdirectories = value;
-    }
-
-    public FileChangeFilters NotifyFilter
-    {
-        get => (FileChangeFilters)(int)_watcher.NotifyFilter;
-        set => _watcher.NotifyFilter = (Zio.NotifyFilters)(int)value;
-    }
-
-    public void Dispose() => _watcher.Dispose();
-
-    private static FileChangedEventArgs ToChanged(Zio.FileChangedEventArgs e) =>
-        new(ToChangeType(e.ChangeType), new FilePath(e.FullPath), e.Name);
-
-    private static FileRenamedEventArgs ToRenamed(Zio.FileRenamedEventArgs e) =>
-        new(ToChangeType(e.ChangeType), new FilePath(e.FullPath), e.Name, new FilePath(e.OldFullPath), e.OldName);
-
-    private static FileChangeType ToChangeType(Zio.WatcherChangeTypes changeType) => changeType switch
-    {
-        Zio.WatcherChangeTypes.Created => FileChangeType.Created,
-        Zio.WatcherChangeTypes.Deleted => FileChangeType.Deleted,
-        Zio.WatcherChangeTypes.Renamed => FileChangeType.Renamed,
-        _ => FileChangeType.Changed
-    };
 }
