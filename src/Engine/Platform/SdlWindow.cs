@@ -116,6 +116,9 @@ internal sealed unsafe class SdlWindow : IWindow
         _chrome?.SetFullscreen(fullscreen);
         _sdl.SetWindowFullscreen(_window, fullscreen ? (uint)WindowFlags.Fullscreen : 0);
         RefreshSizes();
+        // SDL's window grab confines the physical cursor to this window. Apply
+        // it after switching modes so the grab uses the fullscreen bounds.
+        _input.SetMouseGrabbed(fullscreen && _focused);
     }
 
     private bool IsMaximized =>
@@ -265,6 +268,7 @@ internal sealed unsafe class SdlWindow : IWindow
                 _restoreMetricsPending = false;
                 _focused = false;
                 _input.SetFocused(false);
+                _input.SetMouseGrabbed(false);
                 FlushPendingKey();
                 break;
 
@@ -276,6 +280,7 @@ internal sealed unsafe class SdlWindow : IWindow
                 _restoreMetricsPending = true;
                 _focused = true;
                 _input.SetFocused(true);
+                _input.SetMouseGrabbed(_fullscreen);
                 break;
 
             case WindowEventID.FocusGained:
@@ -289,11 +294,13 @@ internal sealed unsafe class SdlWindow : IWindow
                     _restoreMetricsPending = true;
                 _focused = true;
                 _input.SetFocused(true);
+                _input.SetMouseGrabbed(_fullscreen);
                 break;
 
             case WindowEventID.FocusLost:
                 _focused = false;
                 _input.SetFocused(false);
+                _input.SetMouseGrabbed(false);
                 FlushPendingKey();
                 break;
         }
@@ -428,6 +435,7 @@ internal sealed unsafe class SdlWindow : IWindow
             return;
         _disposed = true;
         _closing = true;
+        _input.SetMouseGrabbed(false);
         _chrome?.Dispose();
         _chrome = null;
         if (_window != null)

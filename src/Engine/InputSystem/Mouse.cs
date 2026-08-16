@@ -40,6 +40,9 @@ public static class Mouse
     /// <summary>Enables or disables unbounded relative mouse motion (FPS style).</summary>
     public static void SetRelativeMouseMode(bool enabled) => Source?.SetRelativeMouseMode(enabled);
 
+    /// <summary>Confines the OS cursor to the window while it has focus.</summary>
+    public static void SetMouseGrabbed(bool grabbed) => Source?.SetMouseGrabbed(grabbed);
+
     /// <summary>
     /// Captures the mouse so motion keeps arriving outside the window. Dispose
     /// the returned handle (or use it with <c>using</c>) to release the capture.

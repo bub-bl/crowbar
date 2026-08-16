@@ -65,6 +65,12 @@ public interface IInputSource
     void SetRelativeMouseMode(bool enabled);
 
     /// <summary>
+    /// Confines the OS cursor to this input source's window. Unlike mouse
+    /// capture, this keeps the cursor itself from crossing the window boundary.
+    /// </summary>
+    void SetMouseGrabbed(bool grabbed);
+
+    /// <summary>
     /// Captures the mouse so it keeps delivering motion outside the window.
     /// The returned handle releases the capture when disposed.
     /// </summary>

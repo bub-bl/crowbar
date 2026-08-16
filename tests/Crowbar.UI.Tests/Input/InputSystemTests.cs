@@ -32,6 +32,8 @@ internal sealed class FakeInputSource : IInputSource
     public void SetCursorShape(string cursor) => LastCursorShape = cursor;
     public string? LastCursorShape { get; private set; }
     public void SetRelativeMouseMode(bool enabled) => LastRelativeMode = enabled;
+    public void SetMouseGrabbed(bool grabbed) => LastMouseGrabbed = grabbed;
+    public bool? LastMouseGrabbed { get; private set; }
 
     public IDisposable CaptureMouse()
     {
@@ -171,6 +173,9 @@ public class InputSystemTests
 
         Mouse.SetRelativeMouseMode(true);
         Assert.True(_source.LastRelativeMode);
+
+        Mouse.SetMouseGrabbed(true);
+        Assert.True(_source.LastMouseGrabbed);
     }
 
     [Fact]

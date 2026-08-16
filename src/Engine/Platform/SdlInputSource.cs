@@ -160,6 +160,15 @@ internal sealed unsafe class SdlInputSource : IInputSource
     public void SetRelativeMouseMode(bool enabled) =>
         _sdl.SetRelativeMouseMode(enabled ? SdlBool.True : SdlBool.False);
 
+    /// <summary>
+    /// Uses SDL's window grab rather than input capture: the former confines
+    /// the OS cursor to this window, which is required for game-style
+    /// fullscreen. CaptureMouse only keeps events flowing after the cursor has
+    /// already left the window.
+    /// </summary>
+    public void SetMouseGrabbed(bool grabbed) =>
+        _sdl.SetWindowGrab(_window, grabbed ? SdlBool.True : SdlBool.False);
+
     public IDisposable CaptureMouse()
     {
         _sdl.CaptureMouse(SdlBool.True);
