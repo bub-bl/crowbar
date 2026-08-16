@@ -5,9 +5,17 @@
 
 <div class="prop-row" style="padding-left: @(Indent * 12)px">
     <div class="field-label">@Name</div>
-    <div class="prop-value">@Value</div>
+    <input type="checkbox" checked="@IsChecked" @onchange="OnChanged" />
 </div>
 
 @code {
-    protected override int BuildHash() => HashCode.Combine(Name, Value, Indent);
+    private bool IsChecked => bool.TryParse(Value, out var parsed) && parsed;
+
+    private void OnChanged(bool value)
+    {
+        Value = value ? "true" : "false";
+        EditorInspectorState.RequestEdit(Key, Value);
+    }
+
+    protected override int BuildHash() => HashCode.Combine(Name, Value, Key, Indent);
 }

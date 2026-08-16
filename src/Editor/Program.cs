@@ -191,8 +191,18 @@ internal sealed class DemoApplication : Application
         if (EditorExplorerState.ConsumeRequestedSelection() is { } requestedId &&
             World.FindEntity(requestedId) is { } requested)
             Renderer?.Gizmos.Selection = requested;
-        ExplorerTreeBuilder.Publish(World, Renderer?.Gizmos.Selection);
-        InspectorStateBuilder.Publish(Renderer?.Gizmos.Selection);
+
+        // Edits queued by the inspector (UI → host) are written back to the
+        // selected entity before the snapshots are republished, so the panels
+        // reflect the new values on the same frame.
+        var selected = Renderer?.Gizmos.Selection;
+        if (selected is not null)
+        {
+            foreach (var (key, value) in EditorInspectorState.ConsumeEdits())
+                InspectorStateBuilder.ApplyEdit(selected, key, value);
+        }
+        ExplorerTreeBuilder.Publish(World, selected);
+        InspectorStateBuilder.Publish(selected);
 
         var renderer = Renderer;
         if (renderer is null)

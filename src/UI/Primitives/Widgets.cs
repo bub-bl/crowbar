@@ -20,6 +20,12 @@ public class TextInput : Panel
 {
     public TextInput() { TagName = "input"; }
     public string Value { get; private set; } = string.Empty;
+    /// <summary>
+    /// The value attribute the parser last applied to this input. The typed
+    /// value wins only while this stays unchanged, so a parent changing the
+    /// declared value (e.g. a new inspector selection) replaces the stale text.
+    /// </summary>
+    internal string LastDeclaredValue { get; set; } = string.Empty;
     public int CaretIndex { get; private set; }
     public int SelectionStart { get; private set; }
     public int SelectionEnd { get; private set; }
@@ -40,6 +46,16 @@ public class TextInput : Panel
         CaretIndex = nextCaret;
         SelectionStart = SelectionEnd = nextCaret;
         ValueChanged?.Invoke(value);
+        Invalidate();
+    }
+    /// <summary>Sets the value without firing <see cref="ValueChanged"/> (state restoration, not a user edit).</summary>
+    internal void SetValueQuiet(string value, int caretIndex)
+    {
+        var nextCaret = Math.Clamp(caretIndex, 0, value.Length);
+        if (Value == value && CaretIndex == nextCaret) return;
+        Value = value;
+        CaretIndex = nextCaret;
+        SelectionStart = SelectionEnd = nextCaret;
         Invalidate();
     }
     internal void FocusAtEnd() { CaretIndex = Value.Length; CaretVisible = true; _caretTime = 0; InvalidatePaint(); }

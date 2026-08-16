@@ -6,18 +6,37 @@
 
 <div class="vec-row" style="padding-left: @(Indent * 12)px">
     <div class="vec-label">@Name</div>
-    <div class="vec-field"><span class="vec-axis">X</span>@Axis(0)</div>
-    <div class="vec-field"><span class="vec-axis">Y</span>@Axis(1)</div>
-    <div class="vec-field"><span class="vec-axis">Z</span>@Axis(2)</div>
-    <div class="vec-field"><span class="vec-axis">W</span>@Axis(3)</div>
+    <span class="vec-axis">X</span>
+    <input class="vec-input" value="@X" @bind-value="X" />
+    <span class="vec-axis">Y</span>
+    <input class="vec-input" value="@Y" @bind-value="Y" />
+    <span class="vec-axis">Z</span>
+    <input class="vec-input" value="@Z" @bind-value="Z" />
+    <span class="vec-axis">W</span>
+    <input class="vec-input" value="@W" @bind-value="W" />
 </div>
 
 @code {
+    private string X { get => Axis(0); set => SetAxis(0, value); }
+    private string Y { get => Axis(1); set => SetAxis(1, value); }
+    private string Z { get => Axis(2); set => SetAxis(2, value); }
+    private string W { get => Axis(3); set => SetAxis(3, value); }
+
     private string Axis(int index)
     {
         var parts = Value.Split(',');
         return index < parts.Length ? parts[index].Trim() : string.Empty;
     }
 
-    protected override int BuildHash() => HashCode.Combine(Name, Value, Indent);
+    private void SetAxis(int index, string text)
+    {
+        var parts = Value.Split(',').Select(part => part.Trim()).ToArray();
+        while (parts.Length <= index)
+            Array.Resize(ref parts, index + 1);
+        parts[index] = text.Trim();
+        Value = string.Join(", ", parts);
+        EditorInspectorState.RequestEdit(Key, Value);
+    }
+
+    protected override int BuildHash() => HashCode.Combine(Name, Value, Key, Indent);
 }

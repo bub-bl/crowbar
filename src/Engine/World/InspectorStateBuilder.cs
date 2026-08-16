@@ -7,20 +7,16 @@ using Crowbar.UI;
 namespace Crowbar.Engine;
 
 /// <summary>
-/// Serializes an entity into the flat snapshot the Inspector panel displays:
-/// one collapsible transform section plus one collapsible section per
-/// component. Unlike a hand-written per-component switch, the component
-/// sections are built by reflecting the component's public properties marked
-/// with <see cref="PropertyAttribute"/>; each property carries the canonical
-/// CLR type name of its value and the UI resolves that name to an editor
-/// component (a material still expands to a header plus its shader
-/// parameters). The snapshot is plain UI data
+/// Serializes an entity into the flat snapshot the Inspector panel displays and
+/// applies the edits the panel sends back. One collapsible transform section
+/// plus one collapsible section per component; the component sections are built
+/// by reflecting the public properties marked with <see cref="PropertyAttribute"/>.
+/// Each property carries the canonical CLR type name of its value (resolved to
+/// an editor component by the UI) and a stable write-back key that
+/// <see cref="ApplyEdit"/> resolves back to the source property, transform field
+/// or material shader parameter. The snapshot is plain UI data
 /// (<see cref="EditorInspectorState"/>), so the UI assembly never learns about
 /// engine component types.
-///
-/// This lives in the engine (rather than the editor host, like
-/// <c>ExplorerTreeBuilder</c>) because it reflects engine types and the engine
-/// already depends on the UI assembly.
 /// </summary>
 public static class InspectorStateBuilder
 {
@@ -67,6 +63,84 @@ public static class InspectorStateBuilder
         return sections;
     }
 
+    /// <summary>
+    /// Applies one write-back edit to the entity. The key resolves to a
+    /// transform field (<c>transform.position</c>), a component property
+    /// (<c>PointLight.Intensity</c>) or a material shader parameter
+    /// (<c>MeshRenderer.Material.metallic</c>). Malformed keys and values are
+    /// ignored, so a bad keystroke never crashes the host.
+    /// </summary>
+    public static void ApplyEdit(Entity entity, string key, string value)
+    {
+        if (entity is null || !entity.IsValid || string.IsNullOrEmpty(key))
+            return;
+
+        if (key.StartsWith("transform.", StringComparison.Ordinal))
+        {
+            ApplyTransformEdit(entity, key["transform.".Length..], value);
+            return;
+        }
+
+        var parts = key.Split('.');
+        if (parts.Length < 2)
+            return;
+
+        var component = entity.Components.FirstOrDefault(c =>
+            c.GetType().Name.Equals(parts[0], StringComparison.Ordinal));
+        if (component is null)
+            return;
+
+        if (parts.Length == 2)
+        {
+            var property = component.GetType().GetProperty(parts[1], InstancePublic);
+            if (property?.CanWrite == true && TryParseValue(value, property.PropertyType, out var parsed))
+                property.SetValue(component, parsed);
+            return;
+        }
+
+        if (parts.Length == 3 && parts[1].Equals("Material", StringComparison.Ordinal))
+        {
+            var materialProperty = component.GetType().GetProperty("Material", InstancePublic);
+            if (materialProperty?.GetValue(component) is Material material)
+            {
+                var parameterType = material.Shader.Parameters.FirstOrDefault(p => p.Name == parts[2])?.Type;
+                if (parameterType is not null && TryParseValue(value, parameterType, out var parsed))
+                    material.Set(parts[2], ToShaderParameter(parsed!));
+            }
+        }
+    }
+
+    private static void ApplyTransformEdit(Entity entity, string field, string value)
+    {
+        if (entity.GetComponent<TransformComponent>() is not { } transform)
+            return;
+
+        switch (field)
+        {
+            case "position" when TryParseVector3(value, out var position):
+                transform.Local = transform.Local.WithPosition(position);
+                break;
+            case "scale" when TryParseVector3(value, out var scale):
+                transform.Local = transform.Local.WithScale(scale);
+                break;
+            case "rotation" when TryParseEulerDegrees(value, out var rotation):
+                transform.Local = transform.Local.WithRotation(rotation);
+                break;
+        }
+    }
+
+    private static bool TryParseEulerDegrees(string value, out Rotation rotation)
+    {
+        if (TryParseVector3(value, out var degrees))
+        {
+            rotation = Rotation.From(new Angles(degrees.X, degrees.Y, degrees.Z));
+            return true;
+        }
+
+        rotation = default;
+        return false;
+    }
+
     // ---- Dynamic reflection -------------------------------------------------
 
     private const BindingFlags InstancePublic = BindingFlags.Instance | BindingFlags.Public;
@@ -80,6 +154,7 @@ public static class InspectorStateBuilder
     /// </summary>
     private static IReadOnlyList<EditorInspectorState.Property> DescribeComponent(Component component)
     {
+        var sectionId = component.GetType().Name;
         var properties = new List<EditorInspectorState.Property>();
         foreach (var property in component.GetType()
                      .GetProperties(InstancePublic)
@@ -88,7 +163,8 @@ public static class InspectorStateBuilder
                      .Where(p => !IsInfrastructure(p))
                      .OrderBy(p => p.Name, StringComparer.Ordinal))
         {
-            DescribeValue(property.Name, property.PropertyType, property.GetValue(component), 0, properties);
+            DescribeValue(property.Name, property.PropertyType, property.GetValue(component), 0,
+                $"{sectionId}.{property.Name}", properties);
         }
 
         return properties;
@@ -100,37 +176,34 @@ public static class InspectorStateBuilder
         property.DeclaringType == typeof(TransformComponent);
 
     /// <summary>Appends the flat rows for one property value, keyed by its CLR type.</summary>
-    private static void DescribeValue(string name, Type type, object? value, int indent,
+    private static void DescribeValue(string name, Type type, object? value, int indent, string key,
         List<EditorInspectorState.Property> output)
     {
         switch (value)
         {
-            case Vector2 vector: output.Add(Scalar(name, typeof(Vector2), FormatVector2(vector), indent)); return;
-            case Vector3 vector: output.Add(Scalar(name, typeof(Vector3), FormatVector3(vector), indent)); return;
-            case Vector4 vector: output.Add(Scalar(name, typeof(Vector4), FormatVector4(vector), indent)); return;
-            case Transform transform:
-                output.Add(Scalar("Position", typeof(Vector3), FormatVector3(transform.Position), indent));
-                output.Add(Scalar("Rotation", typeof(Vector3), FormatVector3(ToEulerDegrees(transform.Rotation)), indent));
-                output.Add(Scalar("Scale", typeof(Vector3), FormatVector3(transform.Scale), indent));
-                return;
+            case Vector2 vector: output.Add(Scalar(name, typeof(Vector2), FormatVector2(vector), indent, key)); return;
+            case Vector3 vector: output.Add(Scalar(name, typeof(Vector3), FormatVector3(vector), indent, key)); return;
+            case Vector4 vector: output.Add(Scalar(name, typeof(Vector4), FormatVector4(vector), indent, key)); return;
             case Material material:
-                AddMaterial(name, material, indent, output);
+                AddMaterial(name, material, indent, key, output);
                 return;
             default:
-                output.Add(new EditorInspectorState.Property(name, TypeNameOf(type), FormatValue(value), Indent: indent));
+                output.Add(new EditorInspectorState.Property(name, TypeNameOf(type), FormatValue(value), Indent: indent, Key: key));
                 return;
         }
     }
 
-    private static void AddMaterial(string name, Material material, int indent,
+    private static void AddMaterial(string name, Material material, int indent, string key,
         List<EditorInspectorState.Property> output)
     {
+        // Read-only header: the material is a reference, not an editable value.
         output.Add(new EditorInspectorState.Property(name, TypeNameOf(typeof(Material)), material.Name, Indent: indent));
 
-        // Each shader parameter resolves its own editor from its CLR type, so
-        // the material editor stays data-driven instead of listing fields.
+        // Each shader parameter resolves its own editor from its CLR type and
+        // keeps its original parameter name in the write-back key.
         foreach (var (parameterName, parameter) in material.Values)
-            DescribeValue(Humanize(parameterName), ValueType(parameter), ValueOf(parameter), indent + 1, output);
+            DescribeValue(Humanize(parameterName), ValueType(parameter), ValueOf(parameter), indent + 1,
+                $"{key}.{parameterName}", output);
     }
 
     private static Type ValueType(ShaderParameter parameter) => parameter.Value?.GetType() ?? typeof(object);
@@ -141,9 +214,9 @@ public static class InspectorStateBuilder
 
     private static IReadOnlyList<EditorInspectorState.Property> DescribeTransform(Transform transform) =>
     [
-        Scalar("Position", typeof(Vector3), FormatVector3(transform.Position)),
-        Scalar("Rotation", typeof(Vector3), FormatVector3(ToEulerDegrees(transform.Rotation))),
-        Scalar("Scale", typeof(Vector3), FormatVector3(transform.Scale))
+        Scalar("Position", typeof(Vector3), FormatVector3(transform.Position), key: "transform.position"),
+        Scalar("Rotation", typeof(Vector3), FormatVector3(ToEulerDegrees(transform.Rotation)), key: "transform.rotation"),
+        Scalar("Scale", typeof(Vector3), FormatVector3(transform.Scale), key: "transform.scale")
     ];
 
     private static Vector3 ToEulerDegrees(Rotation rotation)
@@ -154,8 +227,8 @@ public static class InspectorStateBuilder
 
     // ---- Row builders -------------------------------------------------------
 
-    private static EditorInspectorState.Property Scalar(string name, Type type, string value, int indent = 0) =>
-        new(name, TypeNameOf(type), value, Indent: indent);
+    private static EditorInspectorState.Property Scalar(string name, Type type, string value, int indent = 0, string key = "") =>
+        new(name, TypeNameOf(type), value, Indent: indent, Key: key);
 
     private static string FormatVector2(Vector2 value) =>
         $"{FormatFloat(value.X)}, {FormatFloat(value.Y)}";
@@ -192,6 +265,99 @@ public static class InspectorStateBuilder
         Enum e => e.ToString(),
         _ => value.ToString() ?? string.Empty
     };
+
+    // ---- Value parsing (write-back) -----------------------------------------
+
+    private static bool TryParseValue(string text, Type type, out object? value)
+    {
+        try
+        {
+            if (type == typeof(float)) value = float.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
+            else if (type == typeof(double)) value = double.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
+            else if (type == typeof(int)) value = int.Parse(text, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            else if (type == typeof(uint)) value = uint.Parse(text, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            else if (type == typeof(long)) value = long.Parse(text, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            else if (type == typeof(ulong)) value = ulong.Parse(text, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            else if (type == typeof(short)) value = short.Parse(text, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            else if (type == typeof(ushort)) value = ushort.Parse(text, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            else if (type == typeof(byte)) value = byte.Parse(text, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            else if (type == typeof(sbyte)) value = sbyte.Parse(text, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            else if (type == typeof(bool)) value = bool.Parse(text);
+            else if (type == typeof(string)) value = text;
+            else if (type == typeof(Vector2)) value = ParseVector2(text);
+            else if (type == typeof(Vector3)) value = ParseVector3(text);
+            else if (type == typeof(Vector4)) value = ParseVector4(text);
+            else { value = null; return false; }
+
+            return true;
+        }
+        catch (FormatException)
+        {
+            value = null;
+            return false;
+        }
+    }
+
+    private static bool TryParseVector3(string value, out Vector3 result)
+    {
+        var parts = SplitComponents(value);
+        if (parts.Length != 3 ||
+            !float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x) ||
+            !float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y) ||
+            !float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var z))
+        {
+            result = default;
+            return false;
+        }
+
+        result = new Vector3(x, y, z);
+        return true;
+    }
+
+    private static Vector2 ParseVector2(string text)
+    {
+        var parts = SplitComponents(text);
+        return new Vector2(
+            parts.Length > 0 ? ParseFloat(parts[0]) : 0f,
+            parts.Length > 1 ? ParseFloat(parts[1]) : 0f);
+    }
+
+    private static Vector3 ParseVector3(string text)
+    {
+        var parts = SplitComponents(text);
+        return new Vector3(
+            parts.Length > 0 ? ParseFloat(parts[0]) : 0f,
+            parts.Length > 1 ? ParseFloat(parts[1]) : 0f,
+            parts.Length > 2 ? ParseFloat(parts[2]) : 0f);
+    }
+
+    private static Vector4 ParseVector4(string text)
+    {
+        var parts = SplitComponents(text);
+        return new Vector4(
+            parts.Length > 0 ? ParseFloat(parts[0]) : 0f,
+            parts.Length > 1 ? ParseFloat(parts[1]) : 0f,
+            parts.Length > 2 ? ParseFloat(parts[2]) : 0f,
+            parts.Length > 3 ? ParseFloat(parts[3]) : 0f);
+    }
+
+    private static float ParseFloat(string text) =>
+        float.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
+
+    private static string[] SplitComponents(string text) =>
+        text.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    private static ShaderParameter ToShaderParameter(object value)
+    {
+        if (value is float f) return f;
+        if (value is int i) return i;
+        if (value is uint u) return u;
+        if (value is bool b) return b;
+        if (value is Vector2 v2) return v2;
+        if (value is Vector3 v3) return v3;
+        if (value is Vector4 v4) return v4;
+        throw new InvalidOperationException($"Unsupported shader parameter type '{value.GetType().Name}'.");
+    }
 
     /// <summary>Humanizes a C# member name for the label ("MaxDistance" → "Max Distance").</summary>
     private static string Humanize(string name)

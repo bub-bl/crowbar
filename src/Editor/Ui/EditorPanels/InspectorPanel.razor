@@ -26,7 +26,7 @@
                 @foreach (var property in section.Properties)
                 {
                     <PropertyEditor TypeName="@property.TypeName" Name="@property.Name" Value="@property.Value"
-                                    Indent="@property.Indent" />
+                                    Key="@property.Key" Indent="@property.Indent" />
                 }
             </InspectorSection>
         }

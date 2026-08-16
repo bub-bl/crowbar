@@ -311,12 +311,12 @@ internal static class HtmlPanelParser
 
         if (panel is TextInput inputValue)
         {
-            if (previousTree is not null && previousTree.TryGetValue(effectiveKey, out var previous) && previous is TextInput preserved)
-            {
-                inputValue.SetValue(preserved.Value, preserved.CaretIndex);
-                inputValue.CopyInteractionStateFrom(preserved);
-            }
-            else inputValue.SetValue(declaredValue ?? string.Empty);
+            var previous = previousTree is not null &&
+                           previousTree.TryGetValue(effectiveKey, out var existing) &&
+                           existing is TextInput preserved
+                ? preserved
+                : null;
+            ApplyTextInputState(inputValue, previous, declaredValue ?? string.Empty);
         }
 
         // Event handlers: @onclick / @onkeydown / @onmousemove / @onwheel / ...
@@ -486,14 +486,40 @@ internal static class HtmlPanelParser
     private static void RestorePreservedInputs(Panel panel, string key,
         IReadOnlyDictionary<string, Panel>? previousTree)
     {
+        // The input was just built with its current declared value; the same
+        // change-detection rule decides whether to keep that or restore the
+        // previous in-progress edit (see ApplyTextInputState).
         if (panel is TextInput input && previousTree is not null &&
             previousTree.TryGetValue(key, out var previous) && previous is TextInput previousInput)
-        {
-            input.SetValue(previousInput.Value, previousInput.CaretIndex);
-            input.CopyInteractionStateFrom(previousInput);
-        }
+            ApplyTextInputState(input, previousInput, input.LastDeclaredValue);
 
         for (var i = 0; i < panel.Children.Count; i++)
             RestorePreservedInputs(panel.Children[i], $"{key}/{i}", previousTree);
+    }
+
+    /// <summary>
+    /// Reconciles a rebuilt text input against the input that occupied the same
+    /// position before. The in-progress typed value (and caret/focus) is kept
+    /// only while the parent still declares the same value; a changed declared
+    /// value (a new entity in the inspector, an external update) replaces the
+    /// stale text but still inherits focus/caret when the previous input was
+    /// focused.
+    /// </summary>
+    private static void ApplyTextInputState(TextInput input, TextInput? previous, string declared)
+    {
+        if (previous is null)
+        {
+            input.SetValueQuiet(declared, declared.Length);
+            input.LastDeclaredValue = declared;
+            return;
+        }
+
+        if (!string.Equals(previous.LastDeclaredValue, declared, StringComparison.Ordinal))
+            input.SetValueQuiet(declared, declared.Length);
+        else
+            input.SetValueQuiet(previous.Value, previous.CaretIndex);
+
+        input.CopyInteractionStateFrom(previous);
+        input.LastDeclaredValue = declared;
     }
 }

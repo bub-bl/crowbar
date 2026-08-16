@@ -19,13 +19,15 @@ public static class EditorInspectorState
     /// serialized display value (a vector is a comma-separated string such as
     /// "0, 1, 2", which its editor splits). <see cref="Indent"/> nests a
     /// property under a composite parent (e.g. a material parameter under its
-    /// material).
+    /// material). <see cref="Key"/> is the stable write-back identity the host
+    /// uses to apply an edit to the entity; it is empty for read-only rows.
     /// </summary>
     public readonly record struct Property(
         string Name,
         string TypeName,
         string Value,
-        int Indent = 0);
+        int Indent = 0,
+        string Key = "");
 
     /// <summary>A collapsible inspector block: the transform or a single component.</summary>
     public readonly record struct Section(string Id, string Title, string? Icon, IReadOnlyList<Property> Properties);
@@ -49,6 +51,8 @@ public static class EditorInspectorState
     public static int Version => _version;
 
     private static readonly HashSet<string> Collapsed = new(StringComparer.Ordinal);
+    private static readonly object EditLock = new();
+    private static readonly List<(string Key, string Value)> PendingEdits = [];
 
     public static bool IsCollapsed(string id) => Collapsed.Contains(id);
 
@@ -62,18 +66,43 @@ public static class EditorInspectorState
     }
 
     /// <summary>
-    /// Clears the snapshot and every collapsed section. Used by tests so each
-    /// editor-page fixture starts from a clean slate (section ids are stable
-    /// strings, unlike the explorer's per-publish guids).
+    /// Clears the snapshot, the collapsed sections and the pending edits. Used
+    /// by tests so each editor-page fixture starts from a clean slate (section
+    /// ids are stable strings, unlike the explorer's per-publish guids).
     /// </summary>
     internal static void Reset()
     {
         Collapsed.Clear();
+        lock (EditLock) PendingEdits.Clear();
         _entityName = string.Empty;
         _hasSelection = false;
         _sections = [];
         _signature = string.Empty;
         _version++;
+    }
+
+    /// <summary>Queues one value edit for the host to apply to the selected entity.</summary>
+    public static void RequestEdit(string key, string value)
+    {
+        if (string.IsNullOrEmpty(key))
+            return;
+        lock (EditLock)
+        {
+            PendingEdits.Add((key, value));
+        }
+    }
+
+    /// <summary>Returns and clears the edits queued since the previous call.</summary>
+    public static IReadOnlyList<(string Key, string Value)> ConsumeEdits()
+    {
+        lock (EditLock)
+        {
+            if (PendingEdits.Count == 0)
+                return [];
+            var edits = PendingEdits.ToArray();
+            PendingEdits.Clear();
+            return edits;
+        }
     }
 
     /// <summary>
@@ -113,7 +142,7 @@ public static class EditorInspectorState
                 .Append(section.Icon ?? string.Empty);
             foreach (var property in section.Properties)
                 builder.Append('\u0002').Append(property.Name).Append('\u0003').Append(property.TypeName).Append('\u0003')
-                    .Append(property.Value).Append('\u0003').Append(property.Indent);
+                    .Append(property.Value).Append('\u0003').Append(property.Indent).Append('\u0003').Append(property.Key);
         }
 
         return builder.ToString();

@@ -6,9 +6,15 @@
 
 <div class="prop-row" style="padding-left: @(Indent * 12)px">
     <div class="field-label">@Name</div>
-    <div class="prop-value">@Value</div>
+    <input class="prop-input" value="@Value" @onchange="OnChanged" />
 </div>
 
 @code {
-    protected override int BuildHash() => HashCode.Combine(Name, Value, Indent);
+    private void OnChanged(string value)
+    {
+        Value = value;
+        EditorInspectorState.RequestEdit(Key, value);
+    }
+
+    protected override int BuildHash() => HashCode.Combine(Name, Value, Key, Indent);
 }

@@ -438,12 +438,30 @@ public sealed partial class UiSystem : IDisposable
         Content = newContent;
         if (old is not null) Screen.RemoveChild(old);
         Screen.AddChild(newContent);
-        if (oldFocused is TextInput && FindPanel<TextInput>(newContent) is { } replacement)
+        if (oldFocused is TextInput)
         {
-            replacement.SetFocused(true);
-            FocusedPanel = replacement;
+            // The rebuild already re-applied focus to the input that replaced
+            // the old one at the same position (HtmlPanelParser's
+            // CopyInteractionStateFrom). Prefer it over the first input on the
+            // page: grabbing the first one would steal the caret from the field
+            // the user is editing when the page has several inputs.
+            var replacement = FindFocusedTextInput(newContent) ?? FindPanel<TextInput>(newContent);
+            if (replacement is not null)
+            {
+                replacement.SetFocused(true);
+                FocusedPanel = replacement;
+            }
         }
         Renderer.MarkDirty();
+    }
+
+    /// <summary>Returns the first text input whose focus was preserved by a rebuild, if any.</summary>
+    private static TextInput? FindFocusedTextInput(Panel panel)
+    {
+        if (panel is TextInput { IsFocused: true } input) return input;
+        foreach (var child in panel.Children)
+            if (FindFocusedTextInput(child) is { } nested) return nested;
+        return null;
     }
 
     private bool TryResolveRoute(string url, out PageRoute route, out Dictionary<string, string> routeParams)

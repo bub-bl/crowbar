@@ -9,5 +9,5 @@
 </div>
 
 @code {
-    protected override int BuildHash() => HashCode.Combine(Name, Value, Indent);
+    protected override int BuildHash() => HashCode.Combine(Name, Value, Key, Indent);
 }

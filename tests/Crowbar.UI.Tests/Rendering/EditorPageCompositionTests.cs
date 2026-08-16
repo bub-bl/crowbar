@@ -107,17 +107,18 @@ public class EditorPageCompositionTests
         [
             new EditorInspectorState.Section("transform", "Transform", null,
             [
-                new EditorInspectorState.Property("Position", "System.Numerics.Vector3", "1245.6, 320.7, 884.2"),
-                new EditorInspectorState.Property("Rotation", "System.Numerics.Vector3", "0, 132.5, 0"),
-                new EditorInspectorState.Property("Scale", "System.Numerics.Vector3", "1, 1, 1")
+                new EditorInspectorState.Property("Position", "System.Numerics.Vector3", "1245.6, 320.7, 884.2", Key: "transform.position"),
+                new EditorInspectorState.Property("Rotation", "System.Numerics.Vector3", "0, 132.5, 0", Key: "transform.rotation"),
+                new EditorInspectorState.Property("Scale", "System.Numerics.Vector3", "1, 1, 1", Key: "transform.scale")
             ]),
             new EditorInspectorState.Section("MeshRenderer", "MeshRenderer", "Solar/ui/Bold/box-minimalistic",
             [
                 new EditorInspectorState.Property("Material", "System.Object", "Pbr"),
-                new EditorInspectorState.Property("Color", "System.Numerics.Vector4", "0.2, 0.6, 1, 1", Indent: 1),
-                new EditorInspectorState.Property("Metallic", "System.Single", "0.15", Indent: 1),
+                new EditorInspectorState.Property("Color", "System.Numerics.Vector4", "0.2, 0.6, 1, 1", Indent: 1, Key: "MeshRenderer.Material.color"),
+                new EditorInspectorState.Property("UV Scale", "System.Numerics.Vector2", "1, 1", Indent: 1, Key: "MeshRenderer.Material.uvScale"),
+                new EditorInspectorState.Property("Metallic", "System.Single", "0.15", Indent: 1, Key: "MeshRenderer.Material.metallic"),
                 new EditorInspectorState.Property("Model", "System.Object", "house.glb"),
-                new EditorInspectorState.Property("Roughness", "System.Single", "0.45", Indent: 1)
+                new EditorInspectorState.Property("Roughness", "System.Single", "0.45", Indent: 1, Key: "MeshRenderer.Material.roughness")
             ])
         ]);
     }
@@ -125,6 +126,10 @@ public class EditorPageCompositionTests
     /// <summary>Text lives on child text panels, so match against the descendant text.</summary>
     private static Panel? FindText(Panel root, string className, Func<string, bool> match) =>
         TestUi.FindAll(root, p => p.Classes.Contains(className)).FirstOrDefault(p => TestUi.Texts(p).Any(match));
+
+    /// <summary>Finds the first text input whose value equals <paramref name="value"/>.</summary>
+    private static TextInput? FindInput(Panel root, string value) =>
+        TestUi.FindAll(root, p => p is TextInput).Cast<TextInput>().FirstOrDefault(input => input.Value == value);
 
     [Fact]
     public void EditorPageComposesAllDockablePanels()
@@ -341,7 +346,37 @@ public class EditorPageCompositionTests
         Assert.NotNull(TestUi.Find(content, p => p.Classes.Contains("entity-name") && TestUi.Texts(p).Contains("Sun")));
         Assert.NotNull(FindText(content, "insp-section-head", t => t == "DirectionalLight"));
         Assert.Null(FindText(content, "insp-section-head", t => t == "MeshRenderer"));
-        Assert.NotNull(TestUi.Find(content, p => TestUi.Texts(p).Any(t => t == "1.6")));
+        Assert.NotNull(FindInput(content, "1.6"));
+    }
+
+    [Fact]
+    public void InspectorInputsAreEditableAndKeepFocusAcrossRebuild()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // The float editors render as real text inputs, not read-only labels.
+        var metallic = FindInput(content, "0.15");
+        Assert.NotNull(metallic);
+
+        // Focus the Metallic field, then replace its value: the @onchange
+        // handler queues the write for the host and re-renders the page.
+        ui.ProcessPointerDown(metallic!.Layout.X + 1, metallic.Layout.Y + 1);
+        ui.ProcessPointerUp(metallic.Layout.X + 1, metallic.Layout.Y + 1);
+        metallic.SetValue("0.25");
+        ui.Update();
+        ui.Prepare();
+
+        // The edit is queued under the stable write-back key.
+        var edits = EditorInspectorState.ConsumeEdits();
+        Assert.Contains(edits, edit => edit.Key == "MeshRenderer.Material.metallic" && edit.Value == "0.25");
+
+        // The rebuild keeps the edited input's value and focus (it must not
+        // jump to the first input on the page).
+        var rerendered = FindInput(ui.Content!, "0.25");
+        Assert.NotNull(rerendered);
+        Assert.True(rerendered!.IsFocused);
+        Assert.Same(rerendered, ui.FocusedPanel);
     }
 
     [Fact]

@@ -56,11 +56,13 @@ public class InlineControlLayoutTests
         using var ui = EditorPageCompositionTests.CreateEditorUi();
         var content = ui.Content!;
 
-        var field = TestUi.Find(content, p => p.Classes.Contains("vec-field"));
-        Assert.NotNull(field);
-        var axis = field!.Children.Single(c => c.Classes.Contains("vec-axis"));
-        var value = field.Children.Single(c => c.TagName == "text");
-        AssertSameLine(axis, value, "vec-field axis/value");
+        // The vector editors are now editable per-axis inputs: the X/Y/Z prefix
+        // is a sibling span sitting to the left of its input, all on one line.
+        var row = TestUi.Find(content, p => p.Classes.Contains("vec-row"));
+        Assert.NotNull(row);
+        var axis = row!.Children.First(c => c.Classes.Contains("vec-axis"));
+        var input = row.Children.First(c => c.Classes.Contains("vec-input"));
+        AssertSameLine(axis, input, "vec-row axis/input");
     }
 
     [Fact]

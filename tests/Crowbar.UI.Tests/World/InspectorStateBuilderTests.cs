@@ -84,4 +84,28 @@ public class InspectorStateBuilderTests
         // World, Parent, ...) must never appear in the inspector.
         Assert.DoesNotContain(section.Properties, p => p.Name is "Entity" or "Enabled" or "TickEnabled" or "Local" or "World");
     }
+
+    [Fact]
+    public void ApplyEditWritesBackToTransformComponentAndMaterial()
+    {
+        using var world = new World();
+        var cube = world.SpawnEntity("Cube");
+        var mesh = cube.AddComponent<MeshRenderer>();
+        mesh.Model = Model.CreateCube();
+        mesh.Material = Material.FromShader("Pbr").Set("metallic", 0.15f);
+        mesh.Local = new Transform(Vector3.Zero, Rotation.Identity, Vector3.One);
+
+        // A material shader parameter is resolved through the Material key.
+        InspectorStateBuilder.ApplyEdit(cube, "MeshRenderer.Material.metallic", "0.9");
+        Assert.True(Math.Abs(mesh.Material!.Get<float>("metallic") - 0.9f) < 0.0001f);
+
+        // A transform field is applied to the component's local transform.
+        InspectorStateBuilder.ApplyEdit(cube, "transform.position", "1, 2, 3");
+        Assert.Equal(new Vector3(1, 2, 3), mesh.Local.Position);
+
+        // Malformed values are ignored, so a bad keystroke never crashes the host.
+        InspectorStateBuilder.ApplyEdit(cube, "transform.position", "not-a-vector");
+        InspectorStateBuilder.ApplyEdit(cube, "Unknown.Type", "5");
+        Assert.Equal(new Vector3(1, 2, 3), mesh.Local.Position);
+    }
 }

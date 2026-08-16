@@ -6,16 +6,31 @@
 
 <div class="vec-row" style="padding-left: @(Indent * 12)px">
     <div class="vec-label">@Name</div>
-    <div class="vec-field"><span class="vec-axis">X</span>@Axis(0)</div>
-    <div class="vec-field"><span class="vec-axis">Y</span>@Axis(1)</div>
+    <span class="vec-axis">X</span>
+    <input class="vec-input" value="@X" @bind-value="X" />
+    <span class="vec-axis">Y</span>
+    <input class="vec-input" value="@Y" @bind-value="Y" />
 </div>
 
 @code {
+    private string X { get => Axis(0); set => SetAxis(0, value); }
+    private string Y { get => Axis(1); set => SetAxis(1, value); }
+
     private string Axis(int index)
     {
         var parts = Value.Split(',');
         return index < parts.Length ? parts[index].Trim() : string.Empty;
     }
 
-    protected override int BuildHash() => HashCode.Combine(Name, Value, Indent);
+    private void SetAxis(int index, string text)
+    {
+        var parts = Value.Split(',').Select(part => part.Trim()).ToArray();
+        while (parts.Length <= index)
+            Array.Resize(ref parts, index + 1);
+        parts[index] = text.Trim();
+        Value = string.Join(", ", parts);
+        EditorInspectorState.RequestEdit(Key, Value);
+    }
+
+    protected override int BuildHash() => HashCode.Combine(Name, Value, Key, Indent);
 }
