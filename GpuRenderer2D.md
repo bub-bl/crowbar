@@ -92,13 +92,20 @@ computed on the CPU before the quad is emitted.
 
 Text is laid out and shaped by **SixLabors.Fonts** (`TextRenderer.RenderTo`,
 which applies kerning, ligatures and wrapping). Each glyph outline is flattened
-(adaptive de Casteljau), rasterized with even-odd winding and converted to a
-**single-channel signed distance field** (exact two-pass EDT), then packed into
-a glyph atlas. A glyph is one screen-space quad sampling the atlas with the
-`Glyph` shader, which smoothsteps the distance for antialiasing — text is crisp
-at any scale with a single rasterization per (font, size, glyph), cached in the
-atlas. Measurement reuses the same `TextOptions` as rendering, so layout and
-pixels stay in lockstep.
+(adaptive de Casteljau) into directed line segments, split into contours and
+colored (Chlumský's msdfgen `edgeColoringSimple`: edges keep their color along
+smooth runs and switch at sharp corners), then rasterized into a
+**multi-channel signed distance field (MSDF)**: RGB hold the distance to the
+nearest edge of each color (perpendicular distance to the supporting line,
+exact for line segments), channels without a nearby edge fall back to the true
+distance, and a light error-correction pass flattens texels whose median
+deviates from the true distance so bilinear interpolation stays artifact-free.
+A glyph is one screen-space quad sampling the atlas with the `Glyph` shader,
+which reconstructs the distance as the **median of the three channels** and
+smoothsteps it for antialiasing — sharp corners survive any scale, with a
+single rasterization per (font, size, glyph), cached in the atlas. Measurement
+reuses the same `TextOptions` as rendering, so layout and pixels stay in
+lockstep.
 
 ## 4. C# structures and buffers
 
@@ -108,7 +115,7 @@ pixels stay in lockstep.
 | `TriVertex` (24 B) | `Vector2` + `Vector4` | `Vertex | CopyDst`, one per triangle vertex |
 | `TexturedVertex` (32 B) | `Vector2` + `Vector2` uv + `Vector4` tint | `Vertex | CopyDst`, one per image/glyph quad vertex |
 | image atlas | `RGBA8` square texture (256→4096, shelf-packed) | `Sampled | CopyDst` |
-| glyph atlas | `RGBA8` square texture of SDF glyphs (256→4096, shelf-packed) | `Sampled | CopyDst` |
+| glyph atlas | `RGBA8` square texture of MSDF glyphs (256→4096, shelf-packed) | `Sampled | CopyDst` |
 | unit quad | 6 × (position + uv) | `Vertex | CopyDst`, shared by all SDF instances |
 | viewport | `Vector4` (size, 1/size) | `Uniform | CopyDst` |
 | target / depth | RGBA8 + D24 | render targets, resized with the viewport |
@@ -164,7 +171,7 @@ the table below records how each feature migrated:
 | Rect / rounded clips, transforms | per-instance clip list + matrix | `SdfShape` | ✅ done |
 | Solid borders | SDF stroke | `SdfShape` | ✅ done |
 | Dashed / dotted / double borders | arc-length along the outline `mod`-ed by the dash pattern (round dots via 2D dot mask) | `SdfShape` | ✅ done |
-| **Text** | SixLabors.Fonts shaping + single-channel SDF glyph atlas + per-glyph quads; kerning, alignment, wrapping | `Glyph` | ✅ done |
+| **Text** | SixLabors.Fonts shaping + MSDF glyph atlas (median-of-three) + per-glyph quads; kerning, alignment, wrapping | `Glyph` | ✅ done |
 | **SVG** | CPU parse (path/rect/circle/ellipse/line/poly) → flatten Béziers/arcs → even-odd scanline fill + SDF stroke | `TriMesh` + `SdfShape` | ✅ done |
 | **Images (PNG/JPEG/WebP)** | decode (ImageSharp) → texture atlas → image quads with object-fit | `Textured` | ✅ done |
 | Box / inner / drop shadow | blurred SDF with clip/inset mask, drawn under or over the box | `Shadow` | ✅ done |
@@ -213,6 +220,10 @@ filters, neither used by the editor's CSS.
 - Triangle edges are hard (no antialiasing) until a coverage attribute is added.
 - Text renders monochrome outlines (`ColorFontSupport.None`); color/emoji fonts,
   bidi and complex-script shaping are not yet wired.
+- MSDF error correction is a simplified version of msdfgen's (deviation-based
+  flattening with boundary protection, without the diagonal artifact classifier
+  and corner/edge protection stencils); it is invisible at UI sizes but could be
+  upgraded for extreme magnification.
 - Backdrop-filter still reads the existing `Backdrop.wgsl` compositor path
   (the 3D scene texture), pending its wiring into the Renderer2D layer stack.
 - `UiTreePainter` paints per-side borders as solid bands (dashed/dotted/double

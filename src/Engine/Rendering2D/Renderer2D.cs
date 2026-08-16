@@ -247,7 +247,7 @@ public sealed class Renderer2D : IDisposable
     private const int FilterParamsSize = 160;   // 10 * 16 bytes
     private const int GlyphShadowVertexSize = 36; // vec2 + vec2 + vec4 + f32
 
-    /// <summary>A cached glyph atlas entry: the packed SDF and its ink size.</summary>
+    /// <summary>A cached glyph atlas entry: the packed MSDF cell.</summary>
     private readonly struct GlyphEntry
     {
         public readonly Image2D Atlas;
@@ -328,7 +328,7 @@ public sealed class Renderer2D : IDisposable
     // deterministic per (text, font, size, typography), so a repaint of the
     // same text re-emits the cached glyph quads instead of re-running the
     // shaper (which was the dominant per-frame cost in the profiler). The
-    // per-glyph SDF cells stay cached in _glyphCache; this cache only stores
+    // per-glyph MSDF cells stay cached in _glyphCache; this cache only stores
     // the laid-out quad positions.
     private readonly Dictionary<TextRunKey, ShapedRun> _textRunCache = [];
     private List<ShapedGlyphPlacement>? _runRecording;

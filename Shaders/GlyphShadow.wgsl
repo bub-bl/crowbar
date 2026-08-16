@@ -1,9 +1,11 @@
-// SDF glyph shadow renderer (Crowbar 2D UI backend).
+// MSDF glyph shadow renderer (Crowbar 2D UI backend).
 //
 // A text shadow reuses the glyph atlas: the same glyph quad is drawn once at an
 // offset with the shadow color, but with a wider smoothstep band (softness), so
-// the distance field falls off across the blur radius instead of the fixed 1px
-// antialiasing band. One Draw renders every glyph shadow in the batch.
+// the multi-channel distance field falls off across the blur radius instead of
+// the fixed 1px antialiasing band. The distance is the median of the three MSDF
+// channels, matching Glyph.wgsl. One Draw renders every glyph shadow in the
+// batch.
 
 @group(0) @binding(0) var glyph_atlas: texture_2d<f32>;
 @group(0) @binding(1) var glyph_sampler: sampler;
@@ -37,10 +39,14 @@ fn srgbToLinear(c: vec3f) -> vec3f {
     return select(hi, lo, c <= vec3f(0.04045));
 }
 
+fn median(r: f32, g: f32, b: f32) -> f32 {
+    return max(min(r, g), min(max(r, g), b));
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4f {
-    let s = textureSample(glyph_atlas, glyph_sampler, input.uv).r;
-    let distance = (s - 0.5) * SPREAD;
+    let s = textureSample(glyph_atlas, glyph_sampler, input.uv).rgb;
+    let distance = (median(s.r, s.g, s.b) - 0.5) * SPREAD;
     let soft = max(input.softness, 0.75);
     let coverage = smoothstep(-soft, soft, distance);
     return vec4f(srgbToLinear(input.color.rgb), coverage * input.color.a);

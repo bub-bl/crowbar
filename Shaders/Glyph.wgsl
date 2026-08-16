@@ -1,10 +1,12 @@
-// SDF glyph renderer (Crowbar 2D UI backend).
+// MSDF glyph renderer (Crowbar 2D UI backend).
 //
-// Text is rasterized once into a single-channel signed distance field packed
-// in the glyph atlas. Each glyph is a screen-space quad carrying the atlas UV
-// and a straight sRGB color; the fragment shader reconstructs the distance and
-// smoothsteps it for antialiasing, so text stays crisp at any scale with no
-// per-size rasterization.
+// Text is rasterized once into a multi-channel signed distance field (MSDF)
+// packed in the glyph atlas: RGB hold the three channel distances, alpha 255.
+// The fragment shader reconstructs the distance as the median of the three
+// channels (Chlumský's msdfgen), which stays exact at sharp corners under
+// bilinear filtering — a single-channel SDF would round them. Each glyph is a
+// screen-space quad carrying the atlas UV and a straight sRGB color, so text
+// stays crisp at any scale with no per-size rasterization.
 
 @group(0) @binding(0) var glyph_atlas: texture_2d<f32>;
 @group(0) @binding(1) var glyph_sampler: sampler;
@@ -39,10 +41,14 @@ fn srgbToLinear(c: vec3f) -> vec3f {
     return select(hi, lo, c <= vec3f(0.04045));
 }
 
+fn median(r: f32, g: f32, b: f32) -> f32 {
+    return max(min(r, g), min(max(r, g), b));
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4f {
-    let s = textureSample(glyph_atlas, glyph_sampler, input.uv).r;
-    let distance = (s - 0.5) * SPREAD;
+    let s = textureSample(glyph_atlas, glyph_sampler, input.uv).rgb;
+    let distance = (median(s.r, s.g, s.b) - 0.5) * SPREAD;
     let coverage = smoothstep(-AA, AA, distance);
     return vec4f(srgbToLinear(input.color.rgb), coverage * input.color.a);
 }
