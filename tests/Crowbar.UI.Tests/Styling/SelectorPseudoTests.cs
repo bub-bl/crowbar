@@ -219,4 +219,22 @@ public class SelectorPseudoTests
         var style = Compute(".t { letter-spacing: -1px; }", panel);
         Assert.Equal(-1, style.LetterSpacing);
     }
+
+    [Fact]
+    public void ExplicitDefaultFontSizeIsNotReplacedByInheritedParentSize()
+    {
+        using var ui = TestUi.Create();
+        ui.LoadRazor("""
+            <div class="parent">
+                <span class="child">A</span>
+            </div>
+            """, "FontInheritanceDemo");
+        ui.LoadStyles(".parent { font-size: 12px; } .child { font-size: 16px; }");
+        ui.Prepare();
+
+        var child = TestUi.Find(ui.Screen, panel => panel.Classes.Contains("child"));
+        Assert.NotNull(child);
+        Assert.Equal(16f, child!.ComputedStyle.FontSize);
+        Assert.Equal(16f, child.Children.Single().ComputedStyle.FontSize);
+    }
 }

@@ -167,6 +167,9 @@ public sealed class ComputedStyle
 
     internal System.UInt128 WrittenMask => _writtenMask;
 
+    /// <summary>True when this style explicitly received the given declaration during the cascade.</summary>
+    internal bool HasWritten(CssProperty property) => (_writtenMask & property.WrittenBits) != 0;
+
     internal static System.UInt128 BitOf(CssProperty property) => (System.UInt128)1 << property.Index;
 
     /// <summary>Records that <paramref name="property"/> was just applied to this style.</summary>

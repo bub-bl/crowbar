@@ -211,20 +211,25 @@ public sealed class YogaLayoutEngine
         // Text is rendered by the leaf label/input inside controls such as
         // Button. Carry the inherited text metrics down so the leaf uses
         // the same alignment and line box as its parent.
-        if (style.TextAlign == "left") style.TextAlign = inherited.TextAlign;
-        if (style.VerticalAlign == "top") style.VerticalAlign = inherited.VerticalAlign;
-        if (Math.Abs(style.FontSize - 16) < 0.0001f) style.FontSize = inherited.FontSize;
-        if (style.LineHeight == 0) style.LineHeight = inherited.LineHeight;
+        // Inheritance must be based on whether the child explicitly declared a
+        // property, not on whether its value happens to equal the property's
+        // default. Otherwise `font-size: 16px` is mistaken for an undeclared
+        // value and overwritten by the parent's size, making 16px render smaller
+        // than 12px depending on the surrounding styles.
+        if (!IsWritten(style, "text-align")) style.TextAlign = inherited.TextAlign;
+        if (!IsWritten(style, "vertical-align")) style.VerticalAlign = inherited.VerticalAlign;
+        if (!IsWritten(style, "font-size")) style.FontSize = inherited.FontSize;
+        if (!IsWritten(style, "line-height")) style.LineHeight = inherited.LineHeight;
         // Typography inherits like color: carry the parent's family/weight/
         // tracking/case/decoration/whitespace down when the child did not
         // declare its own.
-        if (style.FontFamily == "sans-serif") style.FontFamily = inherited.FontFamily;
-        if (style.FontWeight == 400) style.FontWeight = inherited.FontWeight;
-        if (style.LetterSpacing == 0) style.LetterSpacing = inherited.LetterSpacing;
-        if (style.TextTransform == "none") style.TextTransform = inherited.TextTransform;
-        if (style.WhiteSpace == "normal") style.WhiteSpace = inherited.WhiteSpace;
-        if (style.TextOverflow == "clip") style.TextOverflow = inherited.TextOverflow;
-        if (style.TextDecoration == "none") style.TextDecoration = inherited.TextDecoration;
+        if (!IsWritten(style, "font-family")) style.FontFamily = inherited.FontFamily;
+        if (!IsWritten(style, "font-weight")) style.FontWeight = inherited.FontWeight;
+        if (!IsWritten(style, "letter-spacing")) style.LetterSpacing = inherited.LetterSpacing;
+        if (!IsWritten(style, "text-transform")) style.TextTransform = inherited.TextTransform;
+        if (!IsWritten(style, "white-space")) style.WhiteSpace = inherited.WhiteSpace;
+        if (!IsWritten(style, "text-overflow")) style.TextOverflow = inherited.TextOverflow;
+        if (!IsWritten(style, "text-decoration")) style.TextDecoration = inherited.TextDecoration;
         // text-shadow inherits like color: carry the parent's list down when
         // the child did not declare one of its own.
         if (style.TextShadows.Length == 0) style.TextShadows = inherited.TextShadows;
@@ -433,6 +438,9 @@ public sealed class YogaLayoutEngine
         node.Style.SetGap(Gutter.Column, ToLengthOrZero(style.ColumnGap));
         node.Style.SetGap(Gutter.Row, ToLengthOrZero(style.RowGap));
     }
+
+    private static bool IsWritten(ComputedStyle style, string propertyName) =>
+        CssProperties.TryGet(propertyName, out var property) && style.HasWritten(property);
 
     private static long MeasureKey(ComputedStyle style) => HashCode.Combine(
         style.FontSize, style.LineHeight, style.FontFamily, style.FontWeight, style.LetterSpacing,
