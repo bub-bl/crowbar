@@ -12,6 +12,8 @@ public interface IWindow : IDisposable
     int FramebufferWidth { get; }
     int FramebufferHeight { get; }
     bool IsClosing { get; }
+    /// <summary>True while the OS has removed the window from the usable swapchain surface.</summary>
+    bool IsMinimized { get; }
     nint NativeHandle { get; }
 
     /// <summary>

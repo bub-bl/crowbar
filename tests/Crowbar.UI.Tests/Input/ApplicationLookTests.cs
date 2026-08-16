@@ -401,6 +401,7 @@ public class ApplicationLookTests
         public int FramebufferWidth => 640;
         public int FramebufferHeight => 480;
         public bool IsClosing => false;
+        public bool IsMinimized => false;
         public nint NativeHandle => 0;
         public WindowChromeState ChromeState => WindowChromeState.Default;
         public void SetFullscreen(bool fullscreen) { }

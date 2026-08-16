@@ -30,6 +30,7 @@ internal sealed unsafe class SdlWindow : IWindow
     private int _drawableHeight;
     private bool _focused = true;
     private bool _fullscreen;
+    private bool _minimized;
     private bool _closing;
     private bool _disposed;
     private long _lastTick;
@@ -86,6 +87,7 @@ internal sealed unsafe class SdlWindow : IWindow
     public int FramebufferWidth => _drawableWidth;
     public int FramebufferHeight => _drawableHeight;
     public bool IsClosing => _closing;
+    public bool IsMinimized => _minimized;
 
     public WindowChromeState ChromeState => new(
         _chrome?.HoveredButton ?? WindowChromeButton.None,
@@ -238,12 +240,40 @@ internal sealed unsafe class SdlWindow : IWindow
 
             case WindowEventID.Resized:
             case WindowEventID.SizeChanged:
-                RefreshSizes();
-                _input.SetViewportScale(ScaleX, ScaleY);
-                Resized?.Invoke(_drawableWidth, _drawableHeight);
+            case WindowEventID.Maximized:
+                _minimized = false;
+                RefreshWindowMetrics();
+                break;
+
+            case WindowEventID.Minimized:
+                // A minimized window has no usable swapchain surface. Keep the
+                // state explicit so the render loop does not repeatedly acquire
+                // from a zero-sized surface and starve the UI's next restore.
+                _minimized = true;
+                _focused = false;
+                _input.SetFocused(false);
+                FlushPendingKey();
+                break;
+
+            case WindowEventID.Restored:
+                // SDL does not guarantee a Resized event after a taskbar restore.
+                // Refresh the drawable size and force the renderer/UI viewport to
+                // rebuild before the next frame is submitted.
+                _minimized = false;
+                RefreshWindowMetrics();
+                _focused = true;
+                _input.SetFocused(true);
                 break;
 
             case WindowEventID.FocusGained:
+                // Some Windows/SDL combinations report the taskbar restore as
+                // focus gained without a separate RESTORED event. Treat focus
+                // gain as a usable window and refresh the swapchain if this was
+                // the first usable event after minimization.
+                var wasMinimized = _minimized;
+                _minimized = false;
+                if (wasMinimized)
+                    RefreshWindowMetrics();
                 _focused = true;
                 _input.SetFocused(true);
                 break;
@@ -338,6 +368,13 @@ internal sealed unsafe class SdlWindow : IWindow
         5 => PointerButton.X2,
         _ => PointerButton.Left
     };
+
+    private void RefreshWindowMetrics()
+    {
+        RefreshSizes();
+        _input.SetViewportScale(ScaleX, ScaleY);
+        Resized?.Invoke(_drawableWidth, _drawableHeight);
+    }
 
     private void RefreshSizes()
     {

@@ -150,6 +150,13 @@ public abstract class Application : IDisposable
 
     private void RenderFrame(double delta)
     {
+        // SDL can keep the main loop alive while Windows has detached the
+        // minimized window from its swapchain. Do not submit GPU work in that
+        // state; SdlWindow will refresh the surface and emit Resized when the
+        // taskbar restores it.
+        if (_window.IsMinimized)
+            return;
+
         OnRender((float)delta);
         _renderer?.Render(World, _camera, delta, _ui);
 
