@@ -16,7 +16,8 @@ public enum TextureFormat
     Bgra8Unorm,
     Rgba8UnormSrgb,
     Bgra8UnormSrgb,
-    Depth24Plus
+    Depth24Plus,
+    Depth32Float
 }
 
 /// <summary>Backend-neutral usage flags for GPU buffers.</summary>
@@ -70,7 +71,11 @@ public enum BindingType
     UniformBuffer,
     ReadOnlyStorageBuffer,
     Texture,
-    Sampler
+    /// <summary>Sampled depth texture (shadow maps); compared, not color-filtered.</summary>
+    DepthTexture,
+    Sampler,
+    /// <summary>Depth-comparison sampler used with <see cref="DepthTexture"/>.</summary>
+    ComparisonSampler
 }
 
 /// <summary>Describes a texture the runtime wants to create.</summary>
@@ -132,6 +137,12 @@ public sealed class SamplerDescription
     public SamplerFilter Filter { get; init; } = SamplerFilter.Linear;
     public SamplerAddressMode AddressMode { get; init; } = SamplerAddressMode.ClampToEdge;
     public SamplerFilter MipmapFilter { get; init; } = SamplerFilter.Nearest;
+
+    /// <summary>
+    /// When set, the sampler compares depth samples against a reference value
+    /// (used for shadow maps); null produces a plain filtering sampler.
+    /// </summary>
+    public CompareFunction? Compare { get; init; }
 }
 
 /// <summary>One vertex attribute inside a vertex-buffer layout.</summary>
@@ -195,6 +206,12 @@ public sealed class PipelineDescription
     /// match the pass attachments (defaults to 1).
     /// </summary>
     public int SampleCount { get; init; } = 1;
+
+    /// <summary>
+    /// Depth-only pipeline (shadow map pass): no color target is declared, the
+    /// fragment stage outputs no color and only depth is written.
+    /// </summary>
+    public bool DepthOnly { get; init; }
 }
 
 /// <summary>One resource actually bound to a bind-group slot.</summary>
@@ -257,6 +274,7 @@ public sealed class DepthAttachment
 /// </summary>
 public sealed class RenderPassDescription
 {
-    public required ColorAttachment Color { get; init; }
+    /// <summary>Null for depth-only passes (shadow maps).</summary>
+    public ColorAttachment? Color { get; init; }
     public DepthAttachment? Depth { get; init; }
 }

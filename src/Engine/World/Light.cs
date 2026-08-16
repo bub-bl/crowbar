@@ -17,4 +17,12 @@ public abstract class Light : TransformComponent
     /// <summary>Intensity multiplier applied to the color.</summary>
     [Property]
     public float Intensity { get; set; } = 1f;
+
+    /// <summary>
+    /// When true the light casts shadows: the renderer renders the shadow
+    /// casters into a depth map from this light and the lit shaders darken
+    /// occluded fragments. Disabled by default (shadow maps are not free).
+    /// </summary>
+    [Property]
+    public bool CastShadows { get; set; }
 }

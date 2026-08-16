@@ -36,7 +36,10 @@ public sealed unsafe class WebGpuSampler : ISampler
                 : MipmapFilterMode.Linear,
             LodMinClamp = 0,
             LodMaxClamp = 32,
-            MaxAnisotropy = 1
+            MaxAnisotropy = 1,
+            Compare = description.Compare is { } compare
+                ? WebGpuNative.ToNative(compare)
+                : Silk.NET.WebGPU.CompareFunction.Undefined
         };
         var sampler = runtime.Api.DeviceCreateSampler(device.UnsafeHandle, in descriptor);
         if (sampler == null)

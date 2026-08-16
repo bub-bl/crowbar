@@ -19,12 +19,14 @@ public class ShaderReflectionTests
     {
         var shader = Shader.Load("Shaders/Mesh.wgsl");
 
-        // Group 0 = per-frame scene + lights (from the includes); group 1 =
-        // per-renderable model + material.
+        // Group 0 = per-frame scene + lights + shadows (from the includes);
+        // group 1 = per-renderable model + material.
         var expected = new[]
         {
             (0, 0u, ShaderBindingKind.UniformBuffer, "scene", "SceneUniforms"),
             (0, 1u, ShaderBindingKind.UniformBuffer, "lights", "LightsUniform"),
+            (0, 2u, ShaderBindingKind.UniformBuffer, "shadows", "ShadowUniforms"),
+            (0, 3u, ShaderBindingKind.Texture, "shadowMap", "texture_depth_2d"),
             (1, 0u, ShaderBindingKind.UniformBuffer, "model", "mat4x4<f32>"),
             (1, 1u, ShaderBindingKind.UniformBuffer, "material", "MaterialUniforms")
         };
@@ -55,9 +57,11 @@ public class ShaderReflectionTests
 
         Assert.Equal(
             new[] { "albedoTexture", "normalTexture", "metallicRoughnessTexture", "occlusionTexture", "emissiveTexture" },
-            shader.Bindings.Where(b => b.Kind == ShaderBindingKind.Texture).Select(b => b.VariableName).ToArray());
+            shader.Bindings.Where(b => b.Kind == ShaderBindingKind.Texture && b.Group == 1).Select(b => b.VariableName).ToArray());
         Assert.Contains(shader.Bindings,
             b => b.VariableName == "materialSampler" && b.Kind == ShaderBindingKind.Sampler && b.Group == 1);
+        Assert.Contains(shader.Bindings,
+            b => b.VariableName == "shadowMap" && b.Kind == ShaderBindingKind.Texture && b.Group == 0);
         Assert.Contains(shader.MaterialFields, f => f.Name == "occlusion");
     }
 

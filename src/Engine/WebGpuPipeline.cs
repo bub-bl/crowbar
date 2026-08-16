@@ -82,6 +82,9 @@ public sealed unsafe class WebGpuPipeline : IPipeline
                 blendPtr = &blend;
             }
 
+            // Depth-only pipelines (shadow maps) declare no color targets and
+            // their fragment stage returns nothing; the rasterizer still writes
+            // depth from the vertex's clip position.
             var target = new ColorTargetState
             {
                 Format = WebGpuNative.ToNative(description.ColorFormat),
@@ -92,8 +95,8 @@ public sealed unsafe class WebGpuPipeline : IPipeline
             {
                 Module = ShaderModule,
                 EntryPoint = (byte*)fragmentEntry,
-                TargetCount = 1,
-                Targets = &target
+                TargetCount = description.DepthOnly ? 0u : 1u,
+                Targets = description.DepthOnly ? null : &target
             };
 
             VertexAttribute* attributes = stackalloc VertexAttribute[
@@ -185,8 +188,18 @@ public sealed unsafe class WebGpuPipeline : IPipeline
                         ViewDimension = TextureViewDimension.Dimension2D
                     };
                     break;
+                case BindingType.DepthTexture:
+                    entries[i].Texture = new TextureBindingLayout
+                    {
+                        SampleType = TextureSampleType.Depth,
+                        ViewDimension = TextureViewDimension.Dimension2D
+                    };
+                    break;
                 case BindingType.Sampler:
                     entries[i].Sampler = new SamplerBindingLayout { Type = SamplerBindingType.Filtering };
+                    break;
+                case BindingType.ComparisonSampler:
+                    entries[i].Sampler = new SamplerBindingLayout { Type = SamplerBindingType.Comparison };
                     break;
             }
         }

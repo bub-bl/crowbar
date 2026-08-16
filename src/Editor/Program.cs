@@ -49,6 +49,7 @@ internal sealed class DemoApplication : Application
         var sunLight = sun.AddComponent<DirectionalLight>();
         sunLight.Color = new Vector3(1f, 0.95f, 0.85f);
         sunLight.Intensity = 1.6f;
+        sunLight.CastShadows = true;
         sunLight.Local = new Transform(
             Vector3.Zero,
             Rotation.FromYaw(-45f) * Rotation.FromPitch(-35f),

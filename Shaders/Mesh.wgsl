@@ -1,4 +1,5 @@
 #include "Common/Transform.wgsl"
+#include "Common/Shadows.wgsl"
 #include "Common/Lighting.wgsl"
 
 // Material parameters, packed by the engine from this struct's fields.
@@ -44,8 +45,11 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
 
     var color = vec3<f32>(0.0);
     for (var i = 0u; i < lights.count; i++) {
-        color += evaluateLight(lights.lights[i], normal, view_dir, input.world_position,
+        let light = lights.lights[i];
+        let light_dir = lightDirection(light, input.world_position);
+        let radiance = evaluateLight(light, normal, view_dir, input.world_position,
             material.color.rgb, material.metallic, material.roughness);
+        color += radiance * shadowFactor(i, input.world_position, light_dir);
     }
     color += material.emissive * material.color.rgb;
 

@@ -48,6 +48,62 @@ public sealed class Renderer : IDisposable
     // padded to 16 bytes, then array<LightData, 8> (48 bytes per element).
     private const int LightsBufferSize = 16 + MaxLights * 48;
 
+    // Mirrors ShadowFace in Shaders/Common/Shadows.wgsl: a UV rect (16 bytes)
+    // followed by the face's light view-projection matrix (64 bytes).
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ShadowFaceGpuData
+    {
+        public Vector4 UvRect;      // u0, v0, u1, v1 in atlas UV space
+        public Matrix4x4 ViewProj;  // world -> light clip space
+    }
+
+    // Mirrors ShadowLight in Shaders/Common/Shadows.wgsl: a flags vector plus
+    // six face slots (80 bytes each), 496 bytes per light, 16-byte aligned.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ShadowLightGpuData
+    {
+        public Vector4 Flags;       // x = enabled, y = type (0 directional / 1 point), z = face count, w = bias
+        public ShadowFaceGpuData Face0;
+        public ShadowFaceGpuData Face1;
+        public ShadowFaceGpuData Face2;
+        public ShadowFaceGpuData Face3;
+        public ShadowFaceGpuData Face4;
+        public ShadowFaceGpuData Face5;
+    }
+
+    // Mirrors ShadowUniforms in Shaders/Common/Shadows.wgsl: a leading vec4
+    // (atlas size) then array<ShadowLight, 8> (496 bytes per element).
+    private const int ShadowLightStride = 16 + 6 * 80;
+    private const int ShadowBufferSize = 16 + MaxLights * ShadowLightStride;
+
+    // The shadow atlas: a single 2D depth texture (Depth32Float, filterable for
+    // PCF) partitioned into 512px tiles. Each directional light occupies one
+    // tile; each point light occupies six (one per cube face).
+    private const int ShadowAtlasSize = 2048;
+    private const int ShadowTileSize = 512;
+    private const int ShadowTilesPerRow = ShadowAtlasSize / ShadowTileSize;
+    private const int TotalShadowTiles = ShadowTilesPerRow * ShadowTilesPerRow;
+    private const float DirectionalShadowBias = 0.002f;
+    private const float PointShadowBias = 0.02f;
+
+    // Directional shadows are fit to the camera frustum, but the camera's far
+    // plane (100 units) would waste most of the atlas on empty space and make
+    // every texel huge. The fit is clamped to this distance so a small scene
+    // keeps crisp shadows; geometry beyond it simply stops casting into view.
+    private const float DirectionalShadowMaxDistance = 50f;
+
+    // Cube-face orientations for a point light, in the order Shadows.wgsl
+    // selects them: +X, -X, +Y, -Y, +Z, -Z.
+    private static readonly (Vector3 Forward, Vector3 Up)[] PointFaceOrientations =
+    [
+        (Vector3.UnitX, Vector3.UnitY),
+        (-Vector3.UnitX, Vector3.UnitY),
+        (Vector3.UnitY, -Vector3.UnitZ),
+        (-Vector3.UnitY, Vector3.UnitZ),
+        (Vector3.UnitZ, Vector3.UnitY),
+        (-Vector3.UnitZ, Vector3.UnitY)
+    ];
+
     /// <summary>GPU geometry of one <see cref="Mesh"/>, shared by every renderable using it.</summary>
     private sealed class MeshBuffers
     {
@@ -68,6 +124,13 @@ public sealed class Renderer : IDisposable
         public required string Technique { get; init; }
         public required IBuffer ModelBuffer { get; init; }
         public IBuffer? MaterialBuffer { get; init; }
+        public required IBindGroup BindGroup { get; init; }
+    }
+
+    /// <summary>Per-renderable GPU state for the shadow depth pass (model matrix only).</summary>
+    private sealed class ShadowRenderable
+    {
+        public required IBuffer ModelBuffer { get; init; }
         public required IBindGroup BindGroup { get; init; }
     }
 
@@ -128,7 +191,10 @@ public sealed class Renderer : IDisposable
     private static readonly BindGroupLayoutBinding[] SceneGroupBindings =
     [
         new() { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
-        new() { Slot = 1, Type = BindingType.UniformBuffer, Stages = ShaderStage.Fragment }
+        new() { Slot = 1, Type = BindingType.UniformBuffer, Stages = ShaderStage.Fragment },
+        new() { Slot = 2, Type = BindingType.UniformBuffer, Stages = ShaderStage.Fragment },
+        new() { Slot = 3, Type = BindingType.DepthTexture, Stages = ShaderStage.Fragment },
+        new() { Slot = 4, Type = BindingType.ComparisonSampler, Stages = ShaderStage.Fragment }
     ];
     private static readonly VertexBufferLayoutDescription MeshVertexLayout = new()
     {
@@ -154,6 +220,21 @@ public sealed class Renderer : IDisposable
     private readonly Dictionary<MeshRenderer, RenderableResources> _renderables = [];
     private readonly Dictionary<Texture2D, ITexture> _materialTextures = [];
     private Material? _defaultMaterial;
+
+    // Shadow mapping: the depth atlas, its comparison sampler, the per-light
+    // shadow metadata buffer and the depth-only pipeline that renders each
+    // face into a tile. Each tile owns its own light view-projection buffer
+    // and bind group: QueueWriteBuffer uploads are ordered before the command
+    // buffer runs, so a single shared buffer would end up holding the last
+    // face's matrix for every face. Per-renderable model buffers are shared
+    // with the scene pass.
+    private ITexture _shadowAtlas = null!;
+    private ISampler _shadowSampler = null!;
+    private IBuffer _shadowDataBuffer = null!;
+    private IPipeline _shadowPipeline = null!;
+    private IBuffer[] _shadowViewProjBuffers = null!;
+    private IBindGroup[] _shadowViewProjBindGroups = null!;
+    private readonly Dictionary<MeshRenderer, ShadowRenderable> _shadowRenderables = [];
 
     // Editor ground grid: a fullscreen pass drawn after the meshes inside the
     // scene pass (tests mesh depth without writing it), configurable through
@@ -239,6 +320,7 @@ public sealed class Renderer : IDisposable
         _height = device.Height;
 
         CreateMeshResources();
+        CreateShadowResources();
         CreateGridResources();
         Gizmos = new GizmoRenderer(_device, _sceneBuffer, (ulong)sizeof(SceneUniforms));
         CreateBackdropResources();
@@ -261,6 +343,10 @@ public sealed class Renderer : IDisposable
         var viewport = SceneViewport;
         EnsureSceneTargets(viewport);
 
+        // Collect the world's enabled lights once; the shadow pass and the
+        // scene pass must agree on each light's index in the shared buffers.
+        var lights = CollectLights(world);
+
         ITexture? frame = _device.Swapchain.AcquireTexture();
         if (frame is null)
             return;
@@ -268,6 +354,11 @@ public sealed class Renderer : IDisposable
         using (frame)
         {
             using ICommandBuffer commandBuffer = _device.CreateCommandBuffer();
+
+            // Pass 0: render the shadow-casting lights into the depth atlas, so
+            // the scene pass can sample it (the atlas is written in one pass and
+            // read in a later pass, which WebGPU barriers allow).
+            UpdateShadows(commandBuffer, world, lights);
 
             // Pass 1: render the 3D scene into the offscreen scene texture (it is
             // both blitted to the surface and copied back for the UI backdrop).
@@ -292,7 +383,7 @@ public sealed class Renderer : IDisposable
             };
             using (IRenderPass scenePass = commandBuffer.BeginRenderPass(scenePassDescription))
             {
-                DrawMeshRenderers(scenePass, world, time);
+                DrawMeshRenderers(scenePass, world, time, lights);
                 DrawGrid(scenePass);
                 Gizmos.Draw(scenePass, world, camera, _sceneTargetWidth, _sceneTargetHeight);
             }
@@ -560,6 +651,83 @@ public sealed class Renderer : IDisposable
         _defaultMaterial = Material.CreateDefault(Shader.Load(PathUtil.Combine("Shaders", "Mesh.wgsl")));
     }
 
+    /// <summary>
+    /// Creates the shadow-mapping resources: the depth atlas, its comparison
+    /// sampler, the per-light shadow metadata buffer and the depth-only
+    /// pipeline that renders each face into an atlas tile.
+    /// </summary>
+    private void CreateShadowResources()
+    {
+        _shadowAtlas = _device.CreateTexture(new TextureDescription
+        {
+            Width = ShadowAtlasSize,
+            Height = ShadowAtlasSize,
+            // Depth32Float is filterable, so the comparison sampler can do
+            // bilinear PCF; Depth24Plus cannot be linearly filtered.
+            Format = TextureFormat.Depth32Float,
+            RenderTarget = true,
+            Sampled = true
+        });
+
+        _shadowSampler = _device.CreateSampler(new SamplerDescription
+        {
+            AddressMode = SamplerAddressMode.ClampToEdge,
+            Compare = CompareFunction.LessEqual
+        });
+
+        _shadowDataBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)ShadowBufferSize,
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+
+        _shadowPipeline = _device.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "ShadowDepth.wgsl")).Source,
+            VertexEntryPoint = "vs_main",
+            FragmentEntryPoint = "fs_main",
+            DepthOnly = true,
+            DepthFormat = TextureFormat.Depth32Float,
+            DepthWriteEnabled = true,
+            DepthCompare = CompareFunction.Less,
+            VertexLayout = new VertexBufferLayoutDescription
+            {
+                // Shares the mesh vertex buffers (48-byte stride, position at 0).
+                Stride = 12 * sizeof(float),
+                Attributes =
+                [
+                    new VertexAttributeDescription { Format = VertexFormat.Float32x3, Offset = 0, ShaderLocation = 0 }
+                ]
+            },
+            BindGroups =
+            [
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                ],
+                [
+                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
+                ]
+            ]
+        });
+
+        // One view-projection buffer (and bind group) per atlas tile so every
+        // face in a point light's cube keeps its own matrix.
+        _shadowViewProjBuffers = new IBuffer[TotalShadowTiles];
+        _shadowViewProjBindGroups = new IBindGroup[TotalShadowTiles];
+        for (var tile = 0; tile < TotalShadowTiles; tile++)
+        {
+            _shadowViewProjBuffers[tile] = _device.CreateBuffer(new BufferDescription
+            {
+                Size = 64,
+                Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+            });
+            _shadowViewProjBindGroups[tile] = _shadowPipeline.CreateBindGroup(0,
+            [
+                new BindGroupBinding { Slot = 0, Buffer = _shadowViewProjBuffers[tile], BufferSize = 64 }
+            ]);
+        }
+    }
+
     /// <summary>Creates a 1x1 texture with a single RGBA pixel.</summary>
     private ITexture CreateSolidTexture(byte r, byte g, byte b, byte a, bool srgb)
     {
@@ -667,7 +835,7 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>Draws every living <see cref="MeshRenderer"/> in the world at its world transform.</summary>
-    private void DrawMeshRenderers(IRenderPass pass, World? world, double time)
+    private void DrawMeshRenderers(IRenderPass pass, World? world, double time, List<Light> lights)
     {
         if (world is null)
             return;
@@ -677,7 +845,7 @@ public sealed class Renderer : IDisposable
         if (renderers.Count == 0)
             return;
 
-        UpdateSceneUniforms(world, time);
+        UpdateSceneUniforms(lights, time);
 
         // Release GPU state for renderables whose component was destroyed.
         foreach (var stale in _renderables.Keys.Except(renderers).ToArray())
@@ -724,46 +892,35 @@ public sealed class Renderer : IDisposable
     /// packs the world's lights (directional + point, capped at
     /// <see cref="MaxLights"/>) into the light buffer.
     /// </summary>
-    private void UpdateSceneUniforms(World? world, double time)
+    private void UpdateSceneUniforms(List<Light> lights, double time)
     {
         _scene.Time = new Vector4((float)time, 0f, 0f, 0f);
         _sceneBuffer.Write(in _scene);
 
-        // Collect the world's lights (directional + point, capped at
-        // MaxLights), then lay them out exactly as Lighting.wgsl expects:
-        // count at offset 0, array<LightData, 8> at offset 16.
+        // Lay the already-collected lights out exactly as Lighting.wgsl
+        // expects: count at offset 0, array<LightData, 8> at offset 16.
         var collected = new LightGpuData[MaxLights];
-        var count = 0;
-        if (world is not null)
+        var count = Math.Min(lights.Count, MaxLights);
+        for (var i = 0; i < count; i++)
         {
-            foreach (var light in world.Query<Light>())
+            switch (lights[i])
             {
-                if (!light.Enabled || count >= MaxLights)
-                    continue;
-
-                switch (light)
-                {
-                    case PointLight point:
-                        collected[count] = new LightGpuData
-                        {
-                            PositionType = new Vector4(point.World.Position, 1f),
-                            ColorIntensity = new Vector4(point.Color, point.Intensity),
-                            DirectionRange = new Vector4(0f, 0f, 0f, point.Range)
-                        };
-                        break;
-                    case DirectionalLight directional:
-                        collected[count] = new LightGpuData
-                        {
-                            PositionType = new Vector4(0f, 0f, 0f, 0f),
-                            ColorIntensity = new Vector4(directional.Color, directional.Intensity),
-                            DirectionRange = new Vector4(directional.Direction, 0f)
-                        };
-                        break;
-                    default:
-                        continue;
-                }
-
-                count++;
+                case PointLight point:
+                    collected[i] = new LightGpuData
+                    {
+                        PositionType = new Vector4(point.World.Position, 1f),
+                        ColorIntensity = new Vector4(point.Color, point.Intensity),
+                        DirectionRange = new Vector4(0f, 0f, 0f, point.Range)
+                    };
+                    break;
+                case DirectionalLight directional:
+                    collected[i] = new LightGpuData
+                    {
+                        PositionType = new Vector4(0f, 0f, 0f, 0f),
+                        ColorIntensity = new Vector4(directional.Color, directional.Intensity),
+                        DirectionRange = new Vector4(directional.Direction, 0f)
+                    };
+                    break;
             }
         }
 
@@ -779,6 +936,430 @@ public sealed class Renderer : IDisposable
             }
         }
         _lightsBuffer.Write(bytes);
+    }
+
+    /// <summary>Collects the world's enabled, supported lights (capped at <see cref="MaxLights"/>).</summary>
+    private static List<Light> CollectLights(World? world)
+    {
+        var lights = new List<Light>();
+        if (world is null)
+            return lights;
+
+        foreach (var light in world.Query<Light>())
+        {
+            if (!light.Enabled)
+                continue;
+            if (light is not (PointLight or DirectionalLight))
+                continue;
+
+            lights.Add(light);
+            if (lights.Count >= MaxLights)
+                break;
+        }
+        return lights;
+    }
+
+    /// <summary>
+    /// Renders every shadow-casting light into the depth atlas and uploads the
+    /// per-light shadow metadata the lit shaders sample. Lights that cannot get
+    /// a tile (the atlas is full) silently fall back to unshadowed.
+    /// </summary>
+    private void UpdateShadows(ICommandBuffer commandBuffer, World? world, List<Light> lights)
+    {
+        var data = new ShadowLightGpuData[MaxLights];
+        var tiles = new bool[TotalShadowTiles];
+        var faces = new List<(Matrix4x4 ViewProj, int Tile, int PixelX, int PixelY)>();
+
+        // Collect the casters up front: a directional light fits its
+        // orthographic box to the scene's world bounds, so the shadow map is
+        // tight around the actual content instead of spanning the camera's
+        // deep frustum (which wastes texels and balloons the bias).
+        var renderers = world?.Query<MeshRenderer>()
+            .Where(r => r.IsValid && r.Model is not null)
+            .ToList() ?? [];
+        var sceneBounds = ComputeWorldBounds(renderers);
+
+        // Fallback (no casters): unproject the far-clamped camera frustum so
+        // the box still covers whatever the camera sees.
+        Matrix4x4.Invert(_scene.View * ClampShadowProjection(_scene.Projection), out var invViewProj);
+
+        for (var i = 0; i < lights.Count; i++)
+        {
+            var light = lights[i];
+            if (!light.CastShadows)
+                continue;
+
+            switch (light)
+            {
+                case DirectionalLight directional:
+                    data[i] = BuildDirectionalShadow(directional, invViewProj, sceneBounds, tiles, faces);
+                    break;
+                case PointLight point:
+                    data[i] = BuildPointShadow(point, tiles, faces);
+                    break;
+            }
+        }
+
+        WriteShadowBuffer(data);
+
+        if (faces.Count == 0 || world is null)
+            return;
+        if (renderers.Count == 0)
+            return;
+
+        // Release GPU state for renderables whose component was destroyed.
+        foreach (var stale in _shadowRenderables.Keys.Except(renderers).ToArray())
+            DisposeShadowRenderable(stale);
+
+        // Upload each face's matrix into its own tile buffer up front:
+        // QueueWriteBuffer is ordered before the command buffer runs, so a
+        // single shared buffer would end up holding the last face's matrix for
+        // every face.
+        foreach (var face in faces)
+            _shadowViewProjBuffers[face.Tile].Write(in face.ViewProj);
+
+        var firstFace = true;
+        foreach (var face in faces)
+        {
+            // Clear the whole atlas once (LoadOp.Clear ignores the scissor); the
+            // remaining faces load so their tiles keep the previous faces.
+            using (IRenderPass pass = commandBuffer.BeginRenderPass(new RenderPassDescription
+            {
+                Depth = new DepthAttachment
+                {
+                    Texture = _shadowAtlas,
+                    LoadOp = firstFace ? RenderAttachmentLoadOp.Clear : RenderAttachmentLoadOp.Load,
+                    StoreOp = RenderAttachmentStoreOp.Store,
+                    ClearValue = 1f
+                }
+            }))
+            {
+                pass.SetViewport(face.PixelX, face.PixelY, ShadowTileSize, ShadowTileSize);
+                pass.SetScissorRect((uint)face.PixelX, (uint)face.PixelY, ShadowTileSize, ShadowTileSize);
+                DrawShadowMeshes(pass, renderers, face.Tile);
+            }
+
+            firstFace = false;
+        }
+    }
+
+    /// <summary>World-space bounding box of every caster (the shadow pass renders them all).</summary>
+    private static Bounds ComputeWorldBounds(IEnumerable<MeshRenderer> renderers)
+    {
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        var any = false;
+        foreach (var renderer in renderers)
+        {
+            var bounds = renderer.Model!.Bounds.TransformBy(ToWorldMatrix(renderer.World));
+            min = Vector3.Min(min, bounds.Min);
+            max = Vector3.Max(max, bounds.Max);
+            any = true;
+        }
+
+        return any ? new Bounds(min, max) : Bounds.Empty;
+    }
+
+    /// <summary>Builds the single orthographic shadow face for a directional light.</summary>
+    private static ShadowLightGpuData BuildDirectionalShadow(
+        DirectionalLight light,
+        Matrix4x4 invViewProj,
+        Bounds sceneBounds,
+        bool[] tiles,
+        List<(Matrix4x4 ViewProj, int Tile, int PixelX, int PixelY)> faces)
+    {
+        var tile = AllocateShadowTile(tiles);
+        if (tile is null)
+            return default;
+        var tileIndex = tile.Value;
+
+        var direction = Vector3.Normalize(light.Direction);
+        var up = MathF.Abs(direction.Y) > 0.9f ? Vector3.UnitX : Vector3.UnitY;
+        var view = BuildLightView(Vector3.Zero, direction, up);
+
+        // Fit the orthographic box to the scene's casters in light space: a
+        // tight box spends the whole tile on the content (sharp edges, small
+        // bias). With no casters, fall back to the camera frustum so the map
+        // still covers whatever the camera sees.
+        var min = new Vector3(float.PositiveInfinity);
+        var max = new Vector3(float.NegativeInfinity);
+        if (sceneBounds != Bounds.Empty)
+        {
+            for (var i = 0; i < 8; i++)
+            {
+                var corner = new Vector3(
+                    (i & 1) == 0 ? sceneBounds.Min.X : sceneBounds.Max.X,
+                    (i & 2) == 0 ? sceneBounds.Min.Y : sceneBounds.Max.Y,
+                    (i & 4) == 0 ? sceneBounds.Min.Z : sceneBounds.Max.Z);
+                var lightSpace = Vector3.Transform(corner, view);
+                min = Vector3.Min(min, lightSpace);
+                max = Vector3.Max(max, lightSpace);
+            }
+        }
+        else
+        {
+            for (var zi = 0; zi < 2; zi++)
+            {
+                for (var yi = 0; yi < 2; yi++)
+                {
+                    for (var xi = 0; xi < 2; xi++)
+                    {
+                        var clip = new Vector4(xi * 2f - 1f, yi * 2f - 1f, zi, 1f);
+                        var world = Vector4.Transform(clip, invViewProj);
+                        var point = new Vector3(world.X, world.Y, world.Z) / world.W;
+                        var lightSpace = Vector3.Transform(point, view);
+                        min = Vector3.Min(min, lightSpace);
+                        max = Vector3.Max(max, lightSpace);
+                    }
+                }
+            }
+        }
+
+        var spanZ = max.Z - min.Z;
+        if (spanZ < 0.001f)
+            spanZ = 1f;
+        var margin = Math.Max(1f, spanZ * 0.25f);
+
+        // Guard against a degenerate projection (light edge-on to the scene),
+        // which would otherwise divide by zero in the ortho matrix.
+        var extentX = Math.Max(max.X - min.X, 1f);
+        var extentY = Math.Max(max.Y - min.Y, 1f);
+        // A small XY margin keeps the PCF taps near the box edge inside the
+        // tile instead of bleeding into the neighbouring atlas tile.
+        var xyMargin = Math.Max(0.5f, Math.Max(extentX, extentY) * 0.1f);
+        var centerX = (min.X + max.X) * 0.5f;
+        var centerY = (min.Y + max.Y) * 0.5f;
+        var projection = CreateOrthoShadow(
+            centerX - extentX * 0.5f - xyMargin, centerX + extentX * 0.5f + xyMargin,
+            centerY - extentY * 0.5f - xyMargin, centerY + extentY * 0.5f + xyMargin,
+            min.Z - margin, max.Z + margin);
+        var viewProj = view * projection;
+
+        faces.Add((viewProj, tileIndex, ShadowTileX(tileIndex), ShadowTileY(tileIndex)));
+        return new ShadowLightGpuData
+        {
+            Flags = new Vector4(1f, 0f, 1f, DirectionalShadowBias),
+            Face0 = new ShadowFaceGpuData { UvRect = ShadowTileUvRect(tileIndex), ViewProj = viewProj }
+        };
+    }
+
+    /// <summary>Builds the six cube faces for a point light's shadow map.</summary>
+    private static ShadowLightGpuData BuildPointShadow(
+        PointLight light,
+        bool[] tiles,
+        List<(Matrix4x4 ViewProj, int Tile, int PixelX, int PixelY)> faces)
+    {
+        var tile = new int[6];
+        for (var i = 0; i < tile.Length; i++)
+        {
+            var allocated = AllocateShadowTile(tiles);
+            if (allocated is null)
+            {
+                // Roll back the tiles already claimed for this light.
+                for (var j = 0; j < i; j++)
+                    tiles[tile[j]] = false;
+                return default;
+            }
+            tile[i] = allocated.Value;
+        }
+
+        var far = Math.Max(light.Range, 0.1f);
+        var near = Math.Min(0.1f, far * 0.01f);
+        var result = new ShadowLightGpuData { Flags = new Vector4(1f, 1f, 6f, PointShadowBias) };
+
+        for (var i = 0; i < 6; i++)
+        {
+            var (forward, up) = PointFaceOrientations[i];
+            var view = BuildLightView(light.World.Position, forward, up);
+            var projection = CreatePointShadowProjection(near, far);
+            var viewProj = view * projection;
+            var face = new ShadowFaceGpuData { UvRect = ShadowTileUvRect(tile[i]), ViewProj = viewProj };
+            SetShadowFace(ref result, i, face);
+            faces.Add((viewProj, tile[i], ShadowTileX(tile[i]), ShadowTileY(tile[i])));
+        }
+
+        return result;
+    }
+
+    private static void SetShadowFace(ref ShadowLightGpuData light, int index, in ShadowFaceGpuData face)
+    {
+        switch (index)
+        {
+            case 0: light.Face0 = face; break;
+            case 1: light.Face1 = face; break;
+            case 2: light.Face2 = face; break;
+            case 3: light.Face3 = face; break;
+            case 4: light.Face4 = face; break;
+            case 5: light.Face5 = face; break;
+        }
+    }
+
+    private static int? AllocateShadowTile(bool[] tiles)
+    {
+        for (var i = 0; i < tiles.Length; i++)
+        {
+            if (tiles[i])
+                continue;
+            tiles[i] = true;
+            return i;
+        }
+        return null;
+    }
+
+    private static Vector4 ShadowTileUvRect(int tile)
+    {
+        var col = tile % ShadowTilesPerRow;
+        var row = tile / ShadowTilesPerRow;
+        var u = 1f / ShadowTilesPerRow;
+        return new Vector4(col * u, row * u, (col + 1) * u, (row + 1) * u);
+    }
+
+    private static int ShadowTileX(int tile) => tile % ShadowTilesPerRow * ShadowTileSize;
+    private static int ShadowTileY(int tile) => tile / ShadowTilesPerRow * ShadowTileSize;
+
+    /// <summary>Uploads the shadow atlas metadata (atlas size + per-light faces).</summary>
+    private void WriteShadowBuffer(ShadowLightGpuData[] data)
+    {
+        var bytes = new byte[ShadowBufferSize];
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(0, 4), ShadowAtlasSize);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(4, 4), ShadowAtlasSize);
+        unsafe
+        {
+            fixed (byte* destination = bytes)
+            {
+                var lightPtr = (ShadowLightGpuData*)(destination + 16);
+                for (var i = 0; i < MaxLights; i++)
+                    lightPtr[i] = data[i];
+            }
+        }
+        _shadowDataBuffer.Write(bytes);
+    }
+
+    /// <summary>Draws every caster mesh into the current shadow face.</summary>
+    private void DrawShadowMeshes(IRenderPass pass, List<MeshRenderer> renderers, int tile)
+    {
+        pass.SetPipeline(_shadowPipeline);
+        pass.SetBindGroup(_shadowViewProjBindGroups[tile], 0);
+
+        foreach (var renderer in renderers)
+        {
+            var shadowRenderable = GetShadowRenderable(renderer);
+            var modelMatrix = ToWorldMatrix(renderer.World);
+            shadowRenderable.ModelBuffer.Write(in modelMatrix);
+            pass.SetBindGroup(shadowRenderable.BindGroup, 1);
+
+            foreach (var mesh in renderer.Model!.Meshes)
+            {
+                var buffers = GetMeshBuffers(mesh);
+                pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
+                pass.SetIndexBuffer(buffers.IndexBuffer, buffers.IndexBuffer.Size);
+                pass.DrawIndexed((uint)mesh.Indices.Length);
+            }
+        }
+    }
+
+    /// <summary>Creates (or returns) the shadow pass's per-renderable model bind group.</summary>
+    private ShadowRenderable GetShadowRenderable(MeshRenderer renderer)
+    {
+        if (_shadowRenderables.TryGetValue(renderer, out var existing))
+            return existing;
+
+        var modelBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = 64,
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+        var shadowRenderable = new ShadowRenderable
+        {
+            ModelBuffer = modelBuffer,
+            BindGroup = _shadowPipeline.CreateBindGroup(1,
+            [
+                new BindGroupBinding { Slot = 0, Buffer = modelBuffer, BufferSize = 64 }
+            ])
+        };
+        _shadowRenderables.Add(renderer, shadowRenderable);
+        return shadowRenderable;
+    }
+
+    private void DisposeShadowRenderable(MeshRenderer renderer)
+    {
+        if (!_shadowRenderables.Remove(renderer, out var shadowRenderable))
+            return;
+
+        shadowRenderable.BindGroup.Dispose();
+        shadowRenderable.ModelBuffer.Dispose();
+    }
+
+    /// <summary>Left-handed look-at view (mirrors <see cref="Camera.ViewMatrix"/>).</summary>
+    private static Matrix4x4 BuildLightView(Vector3 eye, Vector3 forward, Vector3 up)
+    {
+        var f = Vector3.Normalize(forward);
+        var right = Vector3.Normalize(Vector3.Cross(up, f));
+        var upVector = Vector3.Cross(f, right);
+        return new Matrix4x4(
+            right.X, upVector.X, f.X, 0f,
+            right.Y, upVector.Y, f.Y, 0f,
+            right.Z, upVector.Z, f.Z, 0f,
+            -Vector3.Dot(right, eye), -Vector3.Dot(upVector, eye), -Vector3.Dot(f, eye), 1f);
+    }
+
+    /// <summary>
+    /// Rebuilds the camera projection with its far plane clamped to
+    /// <see cref="DirectionalShadowMaxDistance"/> (FOV, aspect and near are
+    /// preserved). Directional shadows are fit to this clamped frustum so a
+    /// small scene is not smeared across the camera's full 100-unit far plane.
+    /// </summary>
+    private static Matrix4x4 ClampShadowProjection(Matrix4x4 projection)
+    {
+        // Left-handed perspective (Camera.ProjectionMatrix): m33 = far/(far-near)
+        // and m43 = -(near*far)/(far-near). Solve for near/far, then rebuild.
+        var zScale = projection.M33;
+        var zOffset = projection.M43;
+        if (MathF.Abs(zScale) < 1e-6f)
+            return projection;
+
+        var near = -zOffset / zScale;
+        var far = -zOffset / (zScale - 1f);
+        if (far <= near)
+            return projection;
+
+        var clampedFar = MathF.Min(far, DirectionalShadowMaxDistance);
+        if (clampedFar >= far)
+            return projection;
+
+        var newZScale = clampedFar / (clampedFar - near);
+        var newZOffset = -(near * clampedFar) / (clampedFar - near);
+        return new Matrix4x4(
+            projection.M11, 0f, 0f, 0f,
+            0f, projection.M22, 0f, 0f,
+            0f, 0f, newZScale, 1f,
+            0f, 0f, newZOffset, 0f);
+    }
+
+    /// <summary>Left-handed orthographic projection, z in [0,1] (row-vector layout).</summary>
+    private static Matrix4x4 CreateOrthoShadow(float left, float right, float bottom, float top, float near, float far)
+    {
+        var rl = right - left;
+        var tb = top - bottom;
+        var fn = far - near;
+        return new Matrix4x4(
+            2f / rl, 0f, 0f, 0f,
+            0f, 2f / tb, 0f, 0f,
+            0f, 0f, 1f / fn, 0f,
+            -(right + left) / rl, -(top + bottom) / tb, -near / fn, 1f);
+    }
+
+    /// <summary>90-degree perspective projection for a point light's square cube face.</summary>
+    private static Matrix4x4 CreatePointShadowProjection(float near, float far)
+    {
+        var yScale = 1f / MathF.Tan(MathF.PI / 4f);
+        var zScale = far / (far - near);
+        var zOffset = -(near * far) / (far - near);
+        return new Matrix4x4(
+            yScale, 0f, 0f, 0f,
+            0f, yScale, 0f, 0f,
+            0f, 0f, zScale, 1f,
+            0f, 0f, zOffset, 0f);
     }
 
     /// <summary>
@@ -838,7 +1419,10 @@ public sealed class Renderer : IDisposable
         var bindGroup = pipeline.CreateBindGroup(0,
         [
             new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = (ulong)sizeof(SceneUniforms) },
-            new BindGroupBinding { Slot = 1, Buffer = _lightsBuffer, BufferSize = (ulong)LightsBufferSize }
+            new BindGroupBinding { Slot = 1, Buffer = _lightsBuffer, BufferSize = (ulong)LightsBufferSize },
+            new BindGroupBinding { Slot = 2, Buffer = _shadowDataBuffer, BufferSize = (ulong)ShadowBufferSize },
+            new BindGroupBinding { Slot = 3, Texture = _shadowAtlas },
+            new BindGroupBinding { Slot = 4, Sampler = _shadowSampler }
         ]);
         _sceneBindGroups.Add(pipeline, bindGroup);
         return bindGroup;
@@ -1506,6 +2090,26 @@ public sealed class Renderer : IDisposable
         foreach (var texture in _materialTextures.Values)
             texture.Dispose();
         _materialTextures.Clear();
+        foreach (var shadowRenderable in _shadowRenderables.Values)
+        {
+            shadowRenderable.BindGroup.Dispose();
+            shadowRenderable.ModelBuffer.Dispose();
+        }
+        _shadowRenderables.Clear();
+        if (_shadowViewProjBindGroups is not null)
+        {
+            foreach (var bindGroup in _shadowViewProjBindGroups)
+                bindGroup?.Dispose();
+        }
+        if (_shadowViewProjBuffers is not null)
+        {
+            foreach (var buffer in _shadowViewProjBuffers)
+                buffer?.Dispose();
+        }
+        _shadowPipeline?.Dispose();
+        _shadowDataBuffer?.Dispose();
+        _shadowSampler?.Dispose();
+        _shadowAtlas?.Dispose();
         _defaultWhiteTexture?.Dispose();
         _defaultBlackTexture?.Dispose();
         _defaultNormalTexture?.Dispose();

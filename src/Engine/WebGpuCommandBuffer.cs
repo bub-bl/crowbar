@@ -30,7 +30,9 @@ public sealed unsafe class WebGpuCommandBuffer : ICommandBuffer
         if (_disposed) throw new ObjectDisposedException(nameof(WebGpuCommandBuffer));
         if (_submitted) throw new InvalidOperationException("The command buffer has already been submitted.");
         if (_activePass != null) throw new InvalidOperationException("A render pass is already active.");
-        if (description.Color.Texture == null)
+        if (description.Color is null && description.Depth is null)
+            throw new ArgumentException("A color or depth attachment is required.", nameof(description));
+        if (description.Color is not null && description.Color.Texture is null)
             throw new ArgumentException("A valid color attachment is required.", nameof(description));
 
         var handle = _runtime.BeginRenderPass(_encoder, description);
