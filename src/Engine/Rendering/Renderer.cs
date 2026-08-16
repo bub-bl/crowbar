@@ -280,7 +280,7 @@ public sealed class Renderer : IDisposable
                     Texture = _sceneTexture,
                     LoadOp = RenderAttachmentLoadOp.Clear,
                     StoreOp = RenderAttachmentStoreOp.Store,
-                    ClearColor = new Vector4(0.06f, 0.09f, 0.16f, 1f)
+                    ClearColor = new Vector4(0f, 0f, 0f, 1f)
                 },
                 Depth = new DepthAttachment
                 {
@@ -366,7 +366,7 @@ public sealed class Renderer : IDisposable
                     Texture = frame,
                     LoadOp = RenderAttachmentLoadOp.Clear,
                     StoreOp = RenderAttachmentStoreOp.Store,
-                    ClearColor = new Vector4(0.06f, 0.09f, 0.16f, 1f)
+                    ClearColor = new Vector4(0f, 0f, 0f, 1f)
                 },
                 Depth = new DepthAttachment
                 {
