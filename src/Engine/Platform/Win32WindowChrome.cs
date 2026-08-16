@@ -52,6 +52,8 @@ internal sealed unsafe class Win32WindowChrome : IDisposable
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE_LEGACY = 19;
     private const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
+    private const int DWMWCP_ROUND = 2;
+    private const int DWMWCP_DONOTROUND = 1;
 
     private readonly nint _hwnd;
     private readonly nint _originalWndProc;
@@ -97,8 +99,16 @@ internal sealed unsafe class Win32WindowChrome : IDisposable
             _layout = layout;
     }
 
-    /// <summary>Mirrors the window's exclusive-fullscreen mode (see SdlWindow.SetFullscreen).</summary>
-    public void SetFullscreen(bool fullscreen) => _fullscreen = fullscreen;
+    /// <summary>
+    /// Mirrors the window's fullscreen mode and removes the DWM corner mask while
+    /// the window covers the desktop. The mask must be disabled explicitly:
+    /// fullscreen does not automatically override Windows 11 rounded corners.
+    /// </summary>
+    public void SetFullscreen(bool fullscreen)
+    {
+        _fullscreen = fullscreen;
+        SetCornerPreference(fullscreen ? DWMWCP_DONOTROUND : DWMWCP_ROUND);
+    }
 
     public void SetDrawableSize(int width, int height)
     {
@@ -396,9 +406,13 @@ internal sealed unsafe class Win32WindowChrome : IDisposable
         if (DwmSetWindowAttribute(_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(int)) != 0)
             DwmSetWindowAttribute(_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE_LEGACY, &dark, sizeof(int));
 
-        // Windows 11 rounded corners (DWMWCP_ROUND); ignored on older systems.
-        var corner = 2;
-        DwmSetWindowAttribute(_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(int));
+        SetCornerPreference(DWMWCP_ROUND);
+    }
+
+    private void SetCornerPreference(int preference)
+    {
+        // DWMWA_WINDOW_CORNER_PREFERENCE is ignored on older Windows versions.
+        DwmSetWindowAttribute(_hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &preference, sizeof(int));
     }
 
     private void RestoreWndProc()
