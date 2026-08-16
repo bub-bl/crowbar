@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 
 namespace Crowbar.Engine.Rendering2D;
@@ -5,7 +6,8 @@ namespace Crowbar.Engine.Rendering2D;
 /// <summary>
 /// Turns a glyph's flattened outline (a flat list of directed edges) into a
 /// multi-channel signed distance field (MSDF) packed as an RGBA8
-/// <see cref="Texture2D"/>. RGB hold the three channel distances, alpha 255;
+/// <see cref="Texture2D"/>. RGB hold the three channel distances and alpha
+/// carries the true signed distance (MTSDF fallback);
 /// the glyph shader reconstructs the distance as the median of the three
 /// channels, which stays exact at sharp corners under bilinear filtering
 /// (a single-channel SDF would round them). Edge coloring and the per-channel
@@ -20,8 +22,8 @@ internal static class GlyphRasterizer
     /// Field supersampling factor. The distance field is rasterized at
     /// <see cref="Scale"/>× the display size and the quad is drawn at 1×, so
     /// thin strokes and curves get accurate distances instead of being lost
-    /// between two texels. The shader constants (SPREAD, AA) are the 1× values
-    /// scaled by this factor to stay in grid units.
+    /// between two texels. The shader's SPREAD value is the 1× range scaled by
+    /// this factor; its antialiasing width is derived from the texture gradient.
     /// </summary>
     public const int Scale = 2;
 
@@ -51,8 +53,10 @@ internal static class GlyphRasterizer
     // interpolation between texels stays artifact-free.
     private const float ErrorThreshold = 1.5f;
 
-    // Texels within one texel of the boundary (|median - 0.5| below this) carry
-    // the corner-preserving multi-channel structure and are never flattened.
+    // Texels within one texel of the true boundary carry the corner-preserving
+    // multi-channel structure and are never flattened. This must be measured
+    // from the true field, not the median: a line-extension artifact can itself
+    // look like a boundary and would otherwise evade correction forever.
     private const float ProtectionRadius = 1.001f;
 
     private readonly struct Segment
@@ -69,6 +73,41 @@ internal static class GlyphRasterizer
         }
     }
 
+    private readonly struct RasterSegment
+    {
+        public readonly float Ax;
+        public readonly float Ay;
+        public readonly float Dx;
+        public readonly float Dy;
+        public readonly float InvLength;
+        public readonly float InvLengthSquared;
+        public readonly int Color;
+        public readonly int X0;
+        public readonly int X1;
+        public readonly int Y0;
+        public readonly int Y1;
+
+        public RasterSegment(Vector2 a, Vector2 b, int color, Vector2 min, int gridWidth, int gridHeight, float range)
+        {
+            Ax = a.X;
+            Ay = a.Y;
+            Dx = b.X - a.X;
+            Dy = b.Y - a.Y;
+            var lengthSquared = Dx * Dx + Dy * Dy;
+            InvLengthSquared = 1f / lengthSquared;
+            InvLength = MathF.Sqrt(InvLengthSquared);
+            Color = color;
+
+            var padding = Padding * Scale;
+            X0 = Math.Clamp((int)MathF.Floor((MathF.Min(a.X, b.X) - range - min.X) * Scale + padding - 0.5f), 0, gridWidth - 1);
+            X1 = Math.Clamp((int)MathF.Ceiling((MathF.Max(a.X, b.X) + range - min.X) * Scale + padding - 0.5f) - 1, 0, gridWidth - 1);
+            Y0 = Math.Clamp((int)MathF.Floor((MathF.Min(a.Y, b.Y) - range - min.Y) * Scale + padding - 0.5f), 0, gridHeight - 1);
+            Y1 = Math.Clamp((int)MathF.Ceiling((MathF.Max(a.Y, b.Y) + range - min.Y) * Scale + padding - 0.5f) - 1, 0, gridHeight - 1);
+        }
+    }
+
+    private const float Epsilon = 1e-12f;
+
     /// <summary>
     /// Rasterizes <paramref name="edges"/> (screen-space, row-major pairs) whose
     /// axis-aligned bounds start at <paramref name="min"/> with the given ink
@@ -81,71 +120,159 @@ internal static class GlyphRasterizer
         var gridWidth = (inkWidth + Padding * 2) * Scale;
         var gridHeight = (inkHeight + Padding * 2) * Scale;
         var range = Spread * Scale;
+        var displayRangeSquared = Spread * Spread;
 
         var seed = ColoringSeed;
         var segments = BuildColoredSegments(edges, ref seed);
+        var rasterSegments = new RasterSegment[segments.Count];
+        for (var i = 0; i < segments.Count; i++)
+            rasterSegments[i] = new RasterSegment(segments[i].A, segments[i].B, segments[i].Color, min, gridWidth, gridHeight, Spread);
 
-        var pixels = new byte[gridWidth * gridHeight * 4];
-        var trueStored = new float[gridWidth * gridHeight];
-        for (var y = 0; y < gridHeight; y++)
-        for (var x = 0; x < gridWidth; x++)
+        var pixelCount = checked(gridWidth * gridHeight);
+        // Six values per texel: nearest finite squared distance and pseudo
+        // distance for each of the three channels. The old implementation
+        // scanned every edge for every texel; this representation lets us
+        // update only texels in each edge's range-expanded bounding box.
+        var valueLength = checked(pixelCount * 6);
+        var pixelLength = checked(pixelCount * 4);
+        var values = ArrayPool<float>.Shared.Rent(valueLength);
+        var inside = ArrayPool<byte>.Shared.Rent(pixelCount);
+        var pixels = ArrayPool<byte>.Shared.Rent(pixelLength);
+        var trueStored = ArrayPool<float>.Shared.Rent(pixelCount);
+        try
         {
-            var p = new Vector2(
-                min.X + (x - Padding * Scale + 0.5f) / Scale,
-                min.Y + (y - Padding * Scale + 0.5f) / Scale);
+        for (var i = 0; i < pixelCount; i++)
+        {
+            values[i * 6] = displayRangeSquared;
+            values[i * 6 + 1] = displayRangeSquared;
+            values[i * 6 + 2] = displayRangeSquared;
+            values[i * 6 + 3] = Spread;
+            values[i * 6 + 4] = Spread;
+            values[i * 6 + 5] = Spread;
+        }
 
-            // Per-channel unsigned perpendicular distance to the nearest edge
-            // of that color. For flattened line segments the signed distance
-            // collapses to the distance to the supporting line (msdfgen's
-            // LinearSegment), so the corner-wedge correction falls out for free.
-            var d0 = float.PositiveInfinity;
-            var d1 = float.PositiveInfinity;
-            var d2 = float.PositiveInfinity;
-            foreach (var seg in segments)
+        var padding = Padding * Scale;
+        for (var segmentIndex = 0; segmentIndex < rasterSegments.Length; segmentIndex++)
+        {
+            var segment = rasterSegments[segmentIndex];
+            if (segment.X0 > segment.X1 || segment.Y0 > segment.Y1)
+                continue;
+
+            for (var y = segment.Y0; y <= segment.Y1; y++)
             {
-                var pd = PerpDistance(p, seg.A, seg.B);
-                if ((seg.Color & ColorRed) != 0 && pd < d0)
-                    d0 = pd;
-                if ((seg.Color & ColorGreen) != 0 && pd < d1)
-                    d1 = pd;
-                if ((seg.Color & ColorBlue) != 0 && pd < d2)
-                    d2 = pd;
+                var py = min.Y + (y - padding + 0.5f) / Scale;
+                for (var x = segment.X0; x <= segment.X1; x++)
+                {
+                    var px = min.X + (x - padding + 0.5f) / Scale;
+                    var qx = px - segment.Ax;
+                    var qy = py - segment.Ay;
+                    var projection = (qx * segment.Dx + qy * segment.Dy) * segment.InvLengthSquared;
+                    var closestX = projection <= 0f
+                        ? segment.Ax
+                        : projection >= 1f
+                            ? segment.Ax + segment.Dx
+                            : segment.Ax + segment.Dx * projection;
+                    var closestY = projection <= 0f
+                        ? segment.Ay
+                        : projection >= 1f
+                            ? segment.Ay + segment.Dy
+                            : segment.Ay + segment.Dy * projection;
+                    var ex = px - closestX;
+                    var ey = py - closestY;
+                    var trueSquared = ex * ex + ey * ey;
+                    if (trueSquared >= displayRangeSquared)
+                        continue;
+
+                    var cross = segment.Dx * qy - segment.Dy * qx;
+                    var pseudo = MathF.Min(MathF.Abs(cross) * segment.InvLength, range);
+                    var baseIndex = (y * gridWidth + x) * 6;
+                    if ((segment.Color & ColorRed) != 0 && trueSquared < values[baseIndex])
+                    {
+                        values[baseIndex] = trueSquared;
+                        values[baseIndex + 3] = pseudo;
+                    }
+                    if ((segment.Color & ColorGreen) != 0 && trueSquared < values[baseIndex + 1])
+                    {
+                        values[baseIndex + 1] = trueSquared;
+                        values[baseIndex + 4] = pseudo;
+                    }
+                    if ((segment.Color & ColorBlue) != 0 && trueSquared < values[baseIndex + 2])
+                    {
+                        values[baseIndex + 2] = trueSquared;
+                        values[baseIndex + 5] = pseudo;
+                    }
+                }
             }
+        }
 
-            // Distances so far are in ink units; the atlas cell is rasterized
-            // at Scale× and the stored range is in grid units, so convert now.
-            d0 *= Scale;
-            d1 *= Scale;
-            d2 *= Scale;
-
-            // A channel without a colored edge within the stored range falls
-            // back to the true distance (min over all edges), so the median of
-            // the three channels reconstructs it exactly along smooth edges and
-            // at corners (at least two channels then carry the true value).
-            var dTrue = MathF.Min(d0, MathF.Min(d1, d2));
-            if (d0 > range)
-                d0 = dTrue;
-            if (d1 > range)
-                d1 = dTrue;
-            if (d2 > range)
-                d2 = dTrue;
-
-            var sign = Contains(p, edges) ? 1f : -1f;
+        // Build the even-odd sign mask with one scanline pass per row instead
+        // of testing every texel against every edge.
+        BuildInsideMask(edges, min, gridWidth, gridHeight, inside);
+        for (var i = 0; i < pixelCount; i++)
+        {
+            var baseIndex = i * 6;
+            var trueSquared = MathF.Min(values[baseIndex], MathF.Min(values[baseIndex + 1], values[baseIndex + 2]));
+            var dTrue = MathF.Sqrt(trueSquared) * Scale;
+            var d0 = values[baseIndex + 3] * Scale;
+            var d1 = values[baseIndex + 4] * Scale;
+            var d2 = values[baseIndex + 5] * Scale;
+            var sign = inside[i] != 0 ? 1f : -1f;
             var s0 = ToStored(sign * d0, range);
             var s1 = ToStored(sign * d1, range);
             var s2 = ToStored(sign * d2, range);
-
-            var offset = (y * gridWidth + x) * 4;
+            var trueValue = ToStored(sign * dTrue, range);
+            var offset = i * 4;
             pixels[offset] = (byte)MathF.Round(s0 * 255f);
             pixels[offset + 1] = (byte)MathF.Round(s1 * 255f);
             pixels[offset + 2] = (byte)MathF.Round(s2 * 255f);
-            pixels[offset + 3] = 255;
-            trueStored[y * gridWidth + x] = ToStored(sign * dTrue, range);
+            pixels[offset + 3] = (byte)MathF.Round(trueValue * 255f);
+            trueStored[i] = trueValue;
         }
 
         ApplyErrorCorrection(pixels, trueStored, gridWidth, gridHeight, range);
+        return Texture2D.Create("glyph", gridWidth, gridHeight, pixels.AsSpan(0, pixelLength));
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(values);
+            ArrayPool<byte>.Shared.Return(inside);
+            ArrayPool<byte>.Shared.Return(pixels);
+            ArrayPool<float>.Shared.Return(trueStored);
+        }
+    }
 
-        return Texture2D.Create("glyph", gridWidth, gridHeight, pixels);
+    private static void BuildInsideMask(IReadOnlyList<Vector2> edges, Vector2 min, int gridWidth, int gridHeight, byte[] inside)
+    {
+        Array.Clear(inside, 0, checked(gridWidth * gridHeight));
+        var intersections = new List<float>(edges.Count / 2);
+        var padding = Padding * Scale;
+        for (var y = 0; y < gridHeight; y++)
+        {
+            var py = min.Y + (y - padding + 0.5f) / Scale;
+            intersections.Clear();
+            for (var i = 0; i + 1 < edges.Count; i += 2)
+            {
+                var a = edges[i];
+                var b = edges[i + 1];
+                if ((a.Y > py) == (b.Y > py) || MathF.Abs(a.Y - b.Y) < Epsilon)
+                    continue;
+                intersections.Add(a.X + (py - a.Y) / (b.Y - a.Y) * (b.X - a.X));
+            }
+            intersections.Sort();
+            for (var i = 0; i + 1 < intersections.Count; i += 2)
+            {
+                var left = intersections[i];
+                var right = intersections[i + 1];
+                if (left > right)
+                    (left, right) = (right, left);
+                var first = (int)MathF.Ceiling((left - min.X) * Scale + padding - 0.5f);
+                var lastExclusive = (int)MathF.Ceiling((right - min.X) * Scale + padding - 0.5f);
+                first = Math.Clamp(first, 0, gridWidth);
+                lastExclusive = Math.Clamp(lastExclusive, 0, gridWidth);
+                for (var x = first; x < lastExclusive; x++)
+                    inside[y * gridWidth + x] = 1;
+            }
+        }
     }
 
     /// <summary>
@@ -171,7 +298,7 @@ internal static class GlyphRasterizer
             var b = pixels[i + 2] / 255f;
             var m = Median(r, g, b);
             var t = trueStored[y * gridWidth + x];
-            if (MathF.Abs(m - 0.5f) > protection && MathF.Abs(m - t) > threshold)
+            if (MathF.Abs(t - 0.5f) > protection && MathF.Abs(m - t) > threshold)
             {
                 var v = (byte)MathF.Round(t * 255f);
                 pixels[i] = v;
@@ -341,37 +468,4 @@ internal static class GlyphRasterizer
         };
     }
 
-    /// <summary>
-    /// Unsigned perpendicular distance from <paramref name="p"/> to the
-    /// supporting line of the segment (a..b). For flattened line segments this
-    /// equals msdfgen's linear-segment distance, which is what makes the field
-    /// exact along edges and at the corner wedges.
-    /// </summary>
-    private static float PerpDistance(Vector2 p, Vector2 a, Vector2 b)
-    {
-        var ab = b - a;
-        var lenSq = ab.X * ab.X + ab.Y * ab.Y;
-        if (lenSq < 1e-12f)
-            return (p - a).Length();
-        var cross = ab.X * (p.Y - a.Y) - ab.Y * (p.X - a.X);
-        return MathF.Abs(cross) / MathF.Sqrt(lenSq);
-    }
-
-    /// <summary>Even-odd point-in-polygon over the flattened edges (handles glyph holes).</summary>
-    private static bool Contains(Vector2 p, IReadOnlyList<Vector2> edges)
-    {
-        var inside = false;
-        for (var i = 0; i + 1 < edges.Count; i += 2)
-        {
-            var a = edges[i];
-            var b = edges[i + 1];
-            if ((a.Y > p.Y) != (b.Y > p.Y))
-            {
-                var x = a.X + (p.Y - a.Y) / (b.Y - a.Y) * (b.X - a.X);
-                if (p.X < x)
-                    inside = !inside;
-            }
-        }
-        return inside;
-    }
 }

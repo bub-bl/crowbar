@@ -379,6 +379,7 @@ public sealed class Renderer2D : IDisposable
     private IBuffer? _glyphShadowBuffer;
     private IPipeline? _glyphShadowPipeline;
     private IBindGroup? _glyphShadowBindGroup;
+    private ITexture? _glyphShadowTextureBound;
 
     public Renderer2D(IGraphicsDevice? device = null)
     {
@@ -872,7 +873,9 @@ public sealed class Renderer2D : IDisposable
 
         if (style.ShadowColor.A > 0f)
         {
-            var softness = (0.75f + MathF.Max(style.ShadowBlur, 0f)) * GlyphRasterizer.Scale;
+            // GlyphShadow.wgsl reconstructs distance in screen pixels, so the
+            // blur radius stays in the same unit as TextStyle.ShadowBlur.
+            var softness = 0.75f + MathF.Max(style.ShadowBlur, 0f);
             var shadowVector = style.ShadowColor.ToVector4();
             var ox = style.ShadowOffset.X;
             var oy = style.ShadowOffset.Y;
@@ -975,8 +978,8 @@ public sealed class Renderer2D : IDisposable
                 glyphId,
                 min.X - GlyphRasterizer.Padding - _runOrigin.X,
                 min.Y - GlyphRasterizer.Padding - _runOrigin.Y,
-                min.X - GlyphRasterizer.Padding + entry.Atlas.Width / GlyphRasterizer.Scale - _runOrigin.X,
-                min.Y - GlyphRasterizer.Padding + entry.Atlas.Height / GlyphRasterizer.Scale - _runOrigin.Y));
+                min.X - GlyphRasterizer.Padding + entry.Atlas.Width / (float)GlyphRasterizer.Scale - _runOrigin.X,
+                min.Y - GlyphRasterizer.Padding + entry.Atlas.Height / (float)GlyphRasterizer.Scale - _runOrigin.Y));
         }
 
         var uv = entry.Atlas.UvRect;
@@ -984,8 +987,11 @@ public sealed class Renderer2D : IDisposable
         // drawn at 1× screen size so the SDF is sampled at Scale texels per pixel.
         var x0 = min.X - GlyphRasterizer.Padding;
         var y0 = min.Y - GlyphRasterizer.Padding;
-        var x1 = x0 + entry.Atlas.Width / GlyphRasterizer.Scale;
-        var y1 = y0 + entry.Atlas.Height / GlyphRasterizer.Scale;
+        // The atlas stores the field at Scale× resolution, while the quad is
+        // expressed in display pixels. Keep this conversion in floating point
+        // so the quad dimensions cannot be truncated before sampling the MSDF.
+        var x1 = x0 + entry.Atlas.Width / (float)GlyphRasterizer.Scale;
+        var y1 = y0 + entry.Atlas.Height / (float)GlyphRasterizer.Scale;
         var uv0 = new Vector2(uv.X, uv.Y);
         var uv1 = new Vector2(uv.Right, uv.Y);
         var uv2 = new Vector2(uv.Right, uv.Bottom);
@@ -993,8 +999,9 @@ public sealed class Renderer2D : IDisposable
 
         if (emitShadow && shadowColor.A > 0f)
         {
-            // In grid units (the shader's SPREAD is also scaled): 0.75 px AA band + blur.
-            var softness = (0.75f + MathF.Max(shadowBlur, 0f)) * GlyphRasterizer.Scale;
+            // GlyphShadow.wgsl reconstructs distance in screen pixels: keep
+            // the blur radius in the same unit as the style value.
+            var softness = 0.75f + MathF.Max(shadowBlur, 0f);
             var shadowVector = shadowColor.ToVector4();
             var sx0 = x0 + shadowOffset.X;
             var sy0 = y0 + shadowOffset.Y;
@@ -1887,12 +1894,22 @@ public sealed class Renderer2D : IDisposable
         EnsureGlyphShadowBuffer();
         if (_glyphAtlas is not null)
         {
+            // Glyph atlas growth replaces the texture and repacks every cell.
+            // Keep the shadow pass on the same texture as the main glyph pass;
+            // otherwise shadows continue sampling the previous atlas while the
+            // refreshed UVs point into the new one.
+            if (_glyphShadowTextureBound != _glyphAtlas.Texture)
+            {
+                _glyphShadowBindGroup?.Dispose();
+                _glyphShadowBindGroup = null;
+            }
             _glyphShadowBindGroup ??= _glyphShadowPipeline.CreateBindGroup(
             [
                 new BindGroupBinding { Slot = 0, Texture = _glyphAtlas.Texture },
                 new BindGroupBinding { Slot = 1, Sampler = _glyphSampler },
                 new BindGroupBinding { Slot = 2, Buffer = _viewportBuffer, BufferSize = 16 }
             ]);
+            _glyphShadowTextureBound = _glyphAtlas.Texture;
         }
     }
 

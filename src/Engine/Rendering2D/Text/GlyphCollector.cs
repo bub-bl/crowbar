@@ -12,6 +12,9 @@ namespace Crowbar.Engine.Rendering2D;
 /// </summary>
 internal sealed class GlyphCollector : IGlyphRenderer
 {
+    // Keep the curve approximation at the field's display-pixel resolution.
+    // A much smaller constant makes high-font-size glyphs explode into tens of
+    // thousands of segments before MSDF rasterization even begins.
     private const float Flatness = 0.25f;
 
     private readonly Renderer2D _owner;

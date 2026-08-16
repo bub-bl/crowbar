@@ -43,11 +43,18 @@ fn median(r: f32, g: f32, b: f32) -> f32 {
     return max(min(r, g), min(max(r, g), b));
 }
 
+fn screenPxRange(uv: vec2f) -> f32 {
+    let unitRange = vec2f(SPREAD) / vec2f(textureDimensions(glyph_atlas));
+    let dx = dpdx(uv);
+    let dy = dpdy(uv);
+    let screenTexSize = inverseSqrt(dx * dx + dy * dy);
+    return max(0.5 * dot(unitRange, screenTexSize), 1.0);
+}
+
 @fragment
 fn fs_main(input: VertexOutput) -> @location(0) vec4f {
-    let s = textureSample(glyph_atlas, glyph_sampler, input.uv).rgb;
-    let distance = (median(s.r, s.g, s.b) - 0.5) * SPREAD;
-    let soft = max(input.softness, 0.75);
-    let coverage = smoothstep(-soft, soft, distance);
+    let msd = textureSample(glyph_atlas, glyph_sampler, input.uv).rgb;
+    let distance = screenPxRange(input.uv) * (median(msd.r, msd.g, msd.b) - 0.5);
+    let coverage = smoothstep(-max(input.softness, 1.0), max(input.softness, 1.0), distance);
     return vec4f(srgbToLinear(input.color.rgb), coverage * input.color.a);
 }
