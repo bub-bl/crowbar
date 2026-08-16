@@ -77,14 +77,23 @@ public sealed class Renderer : IDisposable
     private const int ShadowBufferSize = 16 + MaxLights * ShadowLightStride;
 
     // The shadow atlas: a single 2D depth texture (Depth32Float, filterable for
-    // PCF) partitioned into 512px tiles. Each directional light occupies one
-    // tile; each point light occupies six (one per cube face).
+    // PCF) partitioned into 512px tiles. A directional light occupies a 2x2
+    // block of tiles (1024px, so its texels stay small enough that the constant
+    // bias comfortably clears the per-texel depth gradient); a point light
+    // occupies six single tiles (one per cube face).
     private const int ShadowAtlasSize = 2048;
     private const int ShadowTileSize = 512;
+    private const int DirectionalShadowTileSize = ShadowTileSize * 2;
     private const int ShadowTilesPerRow = ShadowAtlasSize / ShadowTileSize;
     private const int TotalShadowTiles = ShadowTilesPerRow * ShadowTilesPerRow;
     private const float DirectionalShadowBias = 0.002f;
     private const float PointShadowBias = 0.02f;
+
+    // Multiplier on (1 - |dot(surface normal, light direction)|) added to the
+    // per-light bias. Grazing surfaces change depth fastest in the shadow map,
+    // so they need proportionally more bias; the value is sent to the shaders
+    // in the shadow uniforms (atlasSize.z).
+    private const float ShadowSlopeScale = 0.004f;
 
     // Directional shadows are fit to the camera frustum, but the camera's far
     // plane (100 units) would waste most of the atlas on empty space and make
@@ -968,7 +977,7 @@ public sealed class Renderer : IDisposable
     {
         var data = new ShadowLightGpuData[MaxLights];
         var tiles = new bool[TotalShadowTiles];
-        var faces = new List<(Matrix4x4 ViewProj, int Tile, int PixelX, int PixelY)>();
+        var faces = new List<(Matrix4x4 ViewProj, int Tile, int PixelX, int PixelY, int PixelSize)>();
 
         // Collect the casters up front: a directional light fits its
         // orthographic box to the scene's world bounds, so the shadow map is
@@ -1034,8 +1043,8 @@ public sealed class Renderer : IDisposable
                 }
             }))
             {
-                pass.SetViewport(face.PixelX, face.PixelY, ShadowTileSize, ShadowTileSize);
-                pass.SetScissorRect((uint)face.PixelX, (uint)face.PixelY, ShadowTileSize, ShadowTileSize);
+                pass.SetViewport(face.PixelX, face.PixelY, face.PixelSize, face.PixelSize);
+                pass.SetScissorRect((uint)face.PixelX, (uint)face.PixelY, (uint)face.PixelSize, (uint)face.PixelSize);
                 DrawShadowMeshes(pass, renderers, face.Tile);
             }
 
@@ -1066,9 +1075,9 @@ public sealed class Renderer : IDisposable
         Matrix4x4 invViewProj,
         Bounds sceneBounds,
         bool[] tiles,
-        List<(Matrix4x4 ViewProj, int Tile, int PixelX, int PixelY)> faces)
+        List<(Matrix4x4 ViewProj, int Tile, int PixelX, int PixelY, int PixelSize)> faces)
     {
-        var tile = AllocateShadowTile(tiles);
+        var tile = AllocateShadowBlock(tiles, out var uvRect, out var pixelX, out var pixelY);
         if (tile is null)
             return default;
         var tileIndex = tile.Value;
@@ -1135,11 +1144,11 @@ public sealed class Renderer : IDisposable
             min.Z - margin, max.Z + margin);
         var viewProj = view * projection;
 
-        faces.Add((viewProj, tileIndex, ShadowTileX(tileIndex), ShadowTileY(tileIndex)));
+        faces.Add((viewProj, tileIndex, pixelX, pixelY, DirectionalShadowTileSize));
         return new ShadowLightGpuData
         {
             Flags = new Vector4(1f, 0f, 1f, DirectionalShadowBias),
-            Face0 = new ShadowFaceGpuData { UvRect = ShadowTileUvRect(tileIndex), ViewProj = viewProj }
+            Face0 = new ShadowFaceGpuData { UvRect = uvRect, ViewProj = viewProj }
         };
     }
 
@@ -1147,7 +1156,7 @@ public sealed class Renderer : IDisposable
     private static ShadowLightGpuData BuildPointShadow(
         PointLight light,
         bool[] tiles,
-        List<(Matrix4x4 ViewProj, int Tile, int PixelX, int PixelY)> faces)
+        List<(Matrix4x4 ViewProj, int Tile, int PixelX, int PixelY, int PixelSize)> faces)
     {
         var tile = new int[6];
         for (var i = 0; i < tile.Length; i++)
@@ -1175,7 +1184,7 @@ public sealed class Renderer : IDisposable
             var viewProj = view * projection;
             var face = new ShadowFaceGpuData { UvRect = ShadowTileUvRect(tile[i]), ViewProj = viewProj };
             SetShadowFace(ref result, i, face);
-            faces.Add((viewProj, tile[i], ShadowTileX(tile[i]), ShadowTileY(tile[i])));
+            faces.Add((viewProj, tile[i], ShadowTileX(tile[i]), ShadowTileY(tile[i]), ShadowTileSize));
         }
 
         return result;
@@ -1206,6 +1215,52 @@ public sealed class Renderer : IDisposable
         return null;
     }
 
+    /// <summary>
+    /// Allocates a 2x2 block of atlas tiles (a 1024px map) for a directional
+    /// light, falling back to a single tile when the atlas has no free block.
+    /// The UV rect and pixel origin are the block's, so the light's content
+    /// spans the whole 1024px region.
+    /// </summary>
+    private static int? AllocateShadowBlock(bool[] tiles, out Vector4 uvRect, out int pixelX, out int pixelY)
+    {
+        for (var row = 0; row + 1 < ShadowTilesPerRow; row++)
+        {
+            for (var col = 0; col + 1 < ShadowTilesPerRow; col++)
+            {
+                var topLeft = row * ShadowTilesPerRow + col;
+                var occupied = tiles[topLeft] || tiles[topLeft + 1]
+                    || tiles[topLeft + ShadowTilesPerRow] || tiles[topLeft + ShadowTilesPerRow + 1];
+                if (occupied)
+                    continue;
+
+                tiles[topLeft] = true;
+                tiles[topLeft + 1] = true;
+                tiles[topLeft + ShadowTilesPerRow] = true;
+                tiles[topLeft + ShadowTilesPerRow + 1] = true;
+
+                var u = 1f / ShadowTilesPerRow;
+                uvRect = new Vector4(col * u, row * u, (col + 2) * u, (row + 2) * u);
+                pixelX = col * ShadowTileSize;
+                pixelY = row * ShadowTileSize;
+                return topLeft;
+            }
+        }
+
+        var single = AllocateShadowTile(tiles);
+        if (single is null)
+        {
+            uvRect = default;
+            pixelX = 0;
+            pixelY = 0;
+            return null;
+        }
+
+        uvRect = ShadowTileUvRect(single.Value);
+        pixelX = ShadowTileX(single.Value);
+        pixelY = ShadowTileY(single.Value);
+        return single;
+    }
+
     private static Vector4 ShadowTileUvRect(int tile)
     {
         var col = tile % ShadowTilesPerRow;
@@ -1223,6 +1278,8 @@ public sealed class Renderer : IDisposable
         var bytes = new byte[ShadowBufferSize];
         BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(0, 4), ShadowAtlasSize);
         BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(4, 4), ShadowAtlasSize);
+        // atlasSize.z carries the slope-bias scale to the lit shaders.
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(8, 4), ShadowSlopeScale);
         unsafe
         {
             fixed (byte* destination = bytes)

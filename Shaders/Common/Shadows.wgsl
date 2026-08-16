@@ -15,7 +15,7 @@ struct ShadowLight {
 }
 
 struct ShadowUniforms {
-    atlasSize: vec4<f32>, // xy = atlas dimensions in texels
+    atlasSize: vec4<f32>, // xy = atlas dimensions in texels, z = slope bias scale
     lights: array<ShadowLight, 8>,
 }
 
@@ -62,13 +62,18 @@ fn sampleShadowFace(face: ShadowFace, ndc: vec3<f32>, bias: f32) -> f32 {
     return visibility / 9.0;
 }
 
-fn shadowFactor(lightIndex: u32, worldPosition: vec3<f32>, lightDir: vec3<f32>) -> f32 {
+fn shadowFactor(lightIndex: u32, worldPosition: vec3<f32>, lightDir: vec3<f32>, normal: vec3<f32>) -> f32 {
     let data = shadows.lights[lightIndex];
     if (data.flags.x < 0.5) {
         return 1.0;
     }
 
-    let bias = data.flags.w;
+    // Slope-scaled bias: a surface angled toward the light changes depth fast
+    // across the shadow map, so a constant bias aliases into a texel-sized acne
+    // lattice (visible as "lines" on floors and walls). Scale the bias by how
+    // parallel the surface is to the light (|dot| -> 0) on top of the per-light
+    // constant floor, which stays for surfaces facing the light directly.
+    let bias = data.flags.w + shadows.atlasSize.z * (1.0 - abs(dot(normal, lightDir)));
     if (data.flags.y < 0.5) {
         // Directional light: one orthographic face.
         let face = data.faces[0];

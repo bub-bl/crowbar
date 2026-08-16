@@ -72,7 +72,7 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
         let light_dir = lightDirection(light, input.world_position);
         let radiance = evaluateLight(light, normal, view_dir, input.world_position,
             albedo, material.metallic * metallic_roughness.b, material.roughness * metallic_roughness.g);
-        color += radiance * shadowFactor(i, input.world_position, light_dir);
+        color += radiance * shadowFactor(i, input.world_position, light_dir, normal);
     }
     color = color * occlusion * material.occlusion + emissive * material.emissive;
 
