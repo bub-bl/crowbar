@@ -5,17 +5,17 @@ namespace Crowbar.Engine;
 
 /// <summary>
 /// A light with no position, illuminating the whole scene from a direction.
-/// The direction is the component's world-space forward (the rotation of the
-/// component's transform).
+/// The light travels along the component's world-space forward (the rotation
+/// of the component's transform).
 /// </summary>
 [GizmoIcon("directional-light")]
 public sealed class DirectionalLight : Light
 {
-    /// <summary>The world-space direction the light travels (pointing from the light).</summary>
+    /// <summary>The world-space direction the light travels (the rotation's forward).</summary>
     [Property]
     public Vector3 Direction => World.Rotation.Forward;
 
-    /// <summary>Draws a unit arrow along the light direction when the light's entity is selected.</summary>
+    /// <summary>Draws a unit arrow showing where the light shines when the light's entity is selected.</summary>
     protected internal override void OnDrawGizmo()
     {
         if (Gizmos.SelectedEntity != Entity)

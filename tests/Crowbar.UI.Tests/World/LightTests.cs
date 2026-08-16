@@ -26,7 +26,8 @@ public class LightTests
         var light = level.SpawnEntity("Sun").AddComponent<DirectionalLight>();
         light.Local = new Transform(Vector3.Zero, Rotation.FromYaw(90f), Vector3.One);
 
-        // Forward (+Z) rotated 90 degrees about Y points toward +X.
+        // Forward (+Z) rotated 90 degrees about Y points toward +X; the light
+        // travels along that forward, toward +X.
         var direction = light.Direction;
         Assert.True(direction.Length() > 0.99f);
         Assert.Equal(1f, direction.X, 3);

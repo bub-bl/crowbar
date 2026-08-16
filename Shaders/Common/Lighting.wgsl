@@ -6,7 +6,7 @@
 struct LightData {
     position_type: vec4<f32>,    // xyz = world position, w = 0 directional / 1 point
     color_intensity: vec4<f32>,  // rgb = color, w = intensity
-    direction_range: vec4<f32>,  // xyz = direction (directional), w = range (point)
+    direction_range: vec4<f32>,  // xyz = direction the light travels (directional), w = range (point)
 };
 
 struct LightsUniform {
@@ -43,7 +43,9 @@ fn lightDirection(light: LightData, surfacePosition: vec3<f32>) -> vec3<f32> {
     if (light.position_type.w > 0.5) {
         return normalize(light.position_type.xyz - surfacePosition);
     }
-    return normalize(light.direction_range.xyz);
+    // The buffer stores the direction the light travels; the incident
+    // direction a surface sees is the opposite.
+    return normalize(-light.direction_range.xyz);
 }
 
 fn evaluateLight(light: LightData, normal: vec3<f32>, viewDir: vec3<f32>, surfacePosition: vec3<f32>, baseColor: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {

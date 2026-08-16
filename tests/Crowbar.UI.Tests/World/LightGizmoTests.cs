@@ -17,7 +17,8 @@ public class LightGizmoTests
         using (Gizmos.Begin(batch, light.Entity))
             light.OnDrawGizmo();
 
-        // The arrowhead spokes converge on the tip, one unit along +X.
+        // The arrow points along the forward direction the light travels,
+        // one unit toward +X for a 90° yaw.
         var tip = light.World.Position + light.Direction;
         Assert.Contains(batch.Lines, line => Vector3.Distance(line.End, tip) < 1e-4f);
     }

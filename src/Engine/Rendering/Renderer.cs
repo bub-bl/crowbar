@@ -41,7 +41,7 @@ public sealed class Renderer : IDisposable
     {
         public Vector4 PositionType;     // xyz = position, w = 0 directional / 1 point
         public Vector4 ColorIntensity;   // rgb = color, w = intensity
-        public Vector4 DirectionRange;   // xyz = direction, w = range (point lights)
+        public Vector4 DirectionRange;   // xyz = direction the light travels, w = range (point lights)
     }
 
     // Mirrors LightsUniform in Shaders/Common/Lighting.wgsl: a u32 count
