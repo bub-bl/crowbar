@@ -76,6 +76,12 @@ root {
     flex-direction: row;
     align-items: center;
     justify-content: center;
+    gap: 2px;
+
+    icon {
+        width: 10px;
+        height: 10px;
+    }
 
     &:hover {
         color: $text-bright;

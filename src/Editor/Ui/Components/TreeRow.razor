@@ -6,7 +6,7 @@
 <div class="tree-row @(Folder ? "tree-folder" : "") @(Selected ? "tree-selected" : "")" style="padding-left: @(Indent * 12 + 6)px" @onclick="OnClick">
     @if (Folder)
     {
-        <span class="caret">@(Open ? "▾" : "▸")</span>
+        <icon name="@(Open ? "Solar/arrows/Bold/alt-arrow-down" : "Solar/arrows/Bold/alt-arrow-right")" />
     }
     @if (!string.IsNullOrEmpty(Icon))
     {

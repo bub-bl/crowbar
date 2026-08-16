@@ -8,7 +8,7 @@
    republishes à chaque frame. *@
 <div class="insp-section">
     <div class="insp-section-head @(Open ? "" : "collapsed")" @onclick="OnToggle">
-        <span class="caret">@(Open ? "▾" : "▸")</span>
+        <icon name="@(Open ? "Solar/arrows/Bold/alt-arrow-down" : "Solar/arrows/Bold/alt-arrow-right")" />
         @if (!string.IsNullOrEmpty(Icon))
         {
             <icon name="@Icon" />
