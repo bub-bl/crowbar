@@ -40,8 +40,8 @@ internal sealed class DemoApplication : Application
             renderer.Gizmos.SnapSize = renderer.Grid.CellSize;
 
         // Demo scene: a level with a directional light (key), a point light
-        // (fill) and two cubes rendered by MeshRenderers through the world
-        // system (World).
+        // (fill), a floor plane and three cubes rendered by MeshRenderers
+        // through the world system (World).
         var level = World.CreateLevel("Demo");
         _demoLevel = level;
 
@@ -64,6 +64,23 @@ internal sealed class DemoApplication : Application
             Rotation.Identity,
             Vector3.One);
 
+        // The floor: a plane primitive lying on the XZ grid plane, at the
+        // origin (0, 0, 0). Scaled to 5×5 so it forms a floor under the
+        // cubes around it.
+        var plane = level.SpawnEntity("Plane");
+        var planeMesh = plane.AddComponent<MeshRenderer>();
+        planeMesh.Model = Model.CreatePlane();
+        planeMesh.Material = Material.FromShader("Pbr")
+            .Set("color", new Vector4(0.3f, 0.33f, 0.3f, 1f))
+            .Set("metallic", 0f)
+            .Set("roughness", 0.85f)
+            .Set("occlusion", 1f)
+            .Set("emissive", 0f);
+        planeMesh.Local = new Transform(
+            Vector3.Zero,
+            Rotation.Identity,
+            new Vector3(5f, 1f, 5f));
+
         var cube = level.SpawnEntity("Cube");
         var mesh = cube.AddComponent<MeshRenderer>();
         mesh.Model = Model.CreateCube();
@@ -73,8 +90,9 @@ internal sealed class DemoApplication : Application
             .Set("roughness", 0.45f)
             .Set("occlusion", 1f)
             .Set("emissive", 0f);
+        // Sits on the plane: the unit cube's bottom face is at y = 0.
         mesh.Local = new Transform(
-            Vector3.Zero,
+            new Vector3(0f, 0.5f, 0f),
             Rotation.FromYaw(30f) * Rotation.FromPitch(15f),
             Vector3.One);
 
@@ -85,8 +103,9 @@ internal sealed class DemoApplication : Application
         accentMesh.Model = Model.CreateCube();
         accentMesh.Material = Material.FromShader("Unlit")
             .Set("color", new Vector4(1f, 0.72f, 0.08f, 1f));
+        // Half the cube's height (0.25) above the floor: it rests on the plane.
         accentMesh.Local = new Transform(
-            new Vector3(2.2f, 0.9f, 1.4f),
+            new Vector3(2.2f, 0.25f, 1.4f),
             Rotation.FromYaw(-20f) * Rotation.FromPitch(10f),
             new Vector3(0.5f));
 
@@ -96,7 +115,7 @@ internal sealed class DemoApplication : Application
         var fallbackMesh = fallback.AddComponent<MeshRenderer>();
         fallbackMesh.Model = Model.CreateCube();
         fallbackMesh.Local = new Transform(
-            new Vector3(-2.2f, 0.9f, 1.4f),
+            new Vector3(-2.2f, 0.25f, 1.4f),
             Rotation.FromYaw(-20f) * Rotation.FromPitch(10f),
             new Vector3(0.5f));
 

@@ -1,3 +1,5 @@
+using System.Numerics;
+
 namespace Crowbar.Engine.Tests;
 
 public class ModelTests
@@ -29,6 +31,34 @@ public class ModelTests
         Assert.Equal(8, mesh.Vertices.Select(v => v.Position).Distinct().Count());
         Assert.Equal(6, mesh.Vertices.GroupBy(v => v.Normal).Count());
         Assert.All(mesh.Vertices.GroupBy(v => v.Normal), group => Assert.Equal(4, group.Count()));
+
+        foreach (var index in mesh.Indices)
+            Assert.InRange(index, 0u, (uint)mesh.Vertices.Length - 1);
+    }
+
+    [Fact]
+    public void CreatePlane_ProducesAFlatUpFacingQuad()
+    {
+        var model = Model.CreatePlane();
+
+        Assert.Equal("Plane", model.Name);
+        var mesh = Assert.Single(model.Meshes);
+
+        // 4 corners, 2 triangles.
+        Assert.Equal(4, mesh.Vertices.Length);
+        Assert.Equal(6, mesh.Indices.Length);
+
+        // A unit quad lying in the XZ plane: x/z at ±0.5, y exactly 0.
+        foreach (var vertex in mesh.Vertices)
+        {
+            Assert.Equal(0f, vertex.Position.Y);
+            Assert.Contains(vertex.Position.X, new[] { -0.5f, 0.5f });
+            Assert.Contains(vertex.Position.Z, new[] { -0.5f, 0.5f });
+            Assert.Equal(Vector3.UnitY, vertex.Normal);
+        }
+
+        // Both corners of the quad are present.
+        Assert.Equal(4, mesh.Vertices.Select(v => v.Position).Distinct().Count());
 
         foreach (var index in mesh.Indices)
             Assert.InRange(index, 0u, (uint)mesh.Vertices.Length - 1);

@@ -30,8 +30,9 @@ public sealed class Mesh
 
 /// <summary>
 /// A 3D model: a named collection of <see cref="Mesh"/>es. Procedural
-/// primitives (<see cref="CreateCube"/>) are built in code; files (OBJ, glTF,
-/// FBX, …) are imported through Assimp (<see cref="Load"/>).
+/// primitives (<see cref="CreateCube"/>, <see cref="CreatePlane"/>) are built
+/// in code; files (OBJ, glTF, FBX, …) are imported through Assimp
+/// (<see cref="Load"/>).
 /// </summary>
 public sealed class Model
 {
@@ -85,6 +86,26 @@ public sealed class Model
         }
 
         return new Model("Cube", [new Mesh("Cube", [.. vertices], [.. indices])]);
+    }
+
+    /// <summary>
+    /// A unit plane (1×1) lying in the XZ plane with its normal pointing up
+    /// (+Y), centered on the origin. The two triangles share the winding of
+    /// the cube's top face, so the geometry stays consistent with
+    /// <see cref="CreateCube"/>.
+    /// </summary>
+    public static Model CreatePlane()
+    {
+        MeshVertex[] vertices =
+        [
+            new(new Vector3(-0.5f, 0f, 0.5f), Vector3.UnitY, new Vector4(1f, 0f, 0f, 1f), new Vector2(0, 1)),
+            new(new Vector3(-0.5f, 0f, -0.5f), Vector3.UnitY, new Vector4(1f, 0f, 0f, 1f), new Vector2(1, 1)),
+            new(new Vector3(0.5f, 0f, -0.5f), Vector3.UnitY, new Vector4(1f, 0f, 0f, 1f), new Vector2(1, 0)),
+            new(new Vector3(0.5f, 0f, 0.5f), Vector3.UnitY, new Vector4(1f, 0f, 0f, 1f), new Vector2(0, 0))
+        ];
+        uint[] indices = [0, 1, 2, 0, 2, 3];
+
+        return new Model("Plane", [new Mesh("Plane", vertices, indices)]);
     }
 
     /// <summary>
