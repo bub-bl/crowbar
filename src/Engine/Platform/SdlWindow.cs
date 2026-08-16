@@ -31,6 +31,7 @@ internal sealed unsafe class SdlWindow : IWindow
     private bool _focused = true;
     private bool _fullscreen;
     private bool _minimized;
+    private bool _restoreMetricsPending;
     private bool _closing;
     private bool _disposed;
     private long _lastTick;
@@ -228,6 +229,12 @@ internal sealed unsafe class SdlWindow : IWindow
                     break;
             }
         }
+
+        // Restore/FocusGained can arrive before Windows has committed the final
+        // client and drawable dimensions. Refresh after the SDL queue has been
+        // drained so any queued SizeChanged event has already been observed.
+        if (_restoreMetricsPending && !_minimized && RefreshWindowMetrics(requireUsableSize: true))
+            _restoreMetricsPending = false;
     }
 
     private void HandleWindowEvent(WindowEvent window)
@@ -242,6 +249,7 @@ internal sealed unsafe class SdlWindow : IWindow
             case WindowEventID.SizeChanged:
             case WindowEventID.Maximized:
                 _minimized = false;
+                _restoreMetricsPending = false;
                 RefreshWindowMetrics();
                 break;
 
@@ -250,6 +258,7 @@ internal sealed unsafe class SdlWindow : IWindow
                 // state explicit so the render loop does not repeatedly acquire
                 // from a zero-sized surface and starve the UI's next restore.
                 _minimized = true;
+                _restoreMetricsPending = false;
                 _focused = false;
                 _input.SetFocused(false);
                 FlushPendingKey();
@@ -260,7 +269,7 @@ internal sealed unsafe class SdlWindow : IWindow
                 // Refresh the drawable size and force the renderer/UI viewport to
                 // rebuild before the next frame is submitted.
                 _minimized = false;
-                RefreshWindowMetrics();
+                _restoreMetricsPending = true;
                 _focused = true;
                 _input.SetFocused(true);
                 break;
@@ -273,7 +282,7 @@ internal sealed unsafe class SdlWindow : IWindow
                 var wasMinimized = _minimized;
                 _minimized = false;
                 if (wasMinimized)
-                    RefreshWindowMetrics();
+                    _restoreMetricsPending = true;
                 _focused = true;
                 _input.SetFocused(true);
                 break;
@@ -369,11 +378,25 @@ internal sealed unsafe class SdlWindow : IWindow
         _ => PointerButton.Left
     };
 
-    private void RefreshWindowMetrics()
+    private bool RefreshWindowMetrics(bool requireUsableSize = false)
     {
-        RefreshSizes();
+        var width = 0;
+        var height = 0;
+        var drawableWidth = 0;
+        var drawableHeight = 0;
+        _sdl.GetWindowSize(_window, ref width, ref height);
+        _sdl.VulkanGetDrawableSize(_window, ref drawableWidth, ref drawableHeight);
+        if (requireUsableSize && (width <= 1 || height <= 1 || drawableWidth <= 1 || drawableHeight <= 1))
+            return false;
+
+        _width = Math.Max(1, width);
+        _height = Math.Max(1, height);
+        _drawableWidth = Math.Max(1, drawableWidth);
+        _drawableHeight = Math.Max(1, drawableHeight);
+        _chrome?.SetDrawableSize(_drawableWidth, _drawableHeight);
         _input.SetViewportScale(ScaleX, ScaleY);
         Resized?.Invoke(_drawableWidth, _drawableHeight);
+        return true;
     }
 
     private void RefreshSizes()

@@ -163,8 +163,16 @@
     /// The dock area's own rect changed (a window resize): recompute the group
     /// rects and republish the scene viewport, then request a rebuild so the
     /// dock group divs re-render their explicit positions from the fresh rects.
+    /// A taskbar restore can briefly expose a zero/one-pixel client rect while
+    /// SDL is still committing the swapchain dimensions; never rebuild from
+    /// that transient size or the markup would permanently lose all dock groups.
     /// </summary>
-    protected override void OnLayoutChanged() => StateHasChanged();
+    protected override void OnLayoutChanged()
+    {
+        if (Layout.Width <= 1 || Layout.Height <= 1)
+            return;
+        StateHasChanged();
+    }
 
     /// <summary>Initial layout: hierarchy / (viewport + content) / inspector.</summary>
     private static DockTree CreateInitialTree()
@@ -208,11 +216,14 @@
     private void ComputeLayout()
     {
         _areaRect = Layout;
-        if (_areaRect.Width <= 0 || _areaRect.Height <= 0)
+        if (_areaRect.Width <= 1 || _areaRect.Height <= 1)
         {
-            _rects.Clear();
-            _splitters.Clear();
-            PublishViewport(null);
+            // Keep the last valid rects during the short restore transition.
+            // Clearing them here makes the next Razor build emit no dock-group
+            // elements, leaving only the transparent viewport visible until a
+            // manual resize happens to rebuild the layout.
+            if (_rects.Count == 0)
+                PublishViewport(null);
             return;
         }
 

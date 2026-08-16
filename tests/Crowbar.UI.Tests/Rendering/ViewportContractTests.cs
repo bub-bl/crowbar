@@ -50,6 +50,25 @@ public class ViewportContractTests
     }
 
     [Fact]
+    public void DockTabsSurviveTransientRestoreLayout()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+
+        // A taskbar restore can expose a one-pixel client/swapchain size for one
+        // frame. The DockArea must not rebuild its geometry-dependent markup from
+        // that transient size, otherwise the transparent viewport remains while
+        // every tab/group disappears until the user resizes the window.
+        ui.SetViewport(1, 1);
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+
+        Assert.NotNull(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("dock-tab"))
+            .FirstOrDefault(panel => TestUi.Texts(panel).Any(text => text.Contains("VIEWPORT", StringComparison.Ordinal))));
+    }
+
+    [Fact]
     public void ViewportRectTracksDockResize()
     {
         using var ui = EditorPageCompositionTests.CreateEditorUi();
