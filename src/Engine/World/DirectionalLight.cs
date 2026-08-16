@@ -1,4 +1,5 @@
 using System.Numerics;
+using Crowbar.Engine.Rendering;
 
 namespace Crowbar.Engine;
 
@@ -13,4 +14,15 @@ public sealed class DirectionalLight : Light
     /// <summary>The world-space direction the light travels (pointing from the light).</summary>
     [Property]
     public Vector3 Direction => World.Rotation.Forward;
+
+    /// <summary>Draws a unit arrow along the light direction when the light's entity is selected.</summary>
+    protected internal override void OnDrawGizmo()
+    {
+        if (Gizmos.SelectedEntity != Entity)
+            return;
+
+        Gizmos.Color = new Vector4(Color, 1f);
+        var origin = World.Position;
+        Gizmos.DrawArrow(origin, origin + Direction);
+    }
 }

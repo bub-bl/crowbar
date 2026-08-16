@@ -6,15 +6,20 @@ using Crowbar.FileSystems;
 namespace Crowbar.Engine.Rendering;
 
 /// <summary>
-/// Viewport gizmo pass: the translation widget around the selected entity and
-/// camera-facing billboard sprites (light icons, selection ring). It is a
-/// pure overlay — nothing here writes to the world; interaction moves the
-/// selected entity's transform through <see cref="TranslationGizmo"/>. Drawn
-/// after the grid, always on top of the scene, and disabled in game.
+/// Viewport gizmo pass: the translation widget around the selected entity,
+/// the per-component gizmo shapes emitted through the static
+/// <see cref="Gizmos"/> API and camera-facing billboard sprites (light icons,
+/// selection ring). It is a pure overlay — nothing here writes to the world;
+/// interaction moves the selected entity's transform through
+/// <see cref="TranslationGizmo"/>. Drawn after the grid, always on top of the
+/// scene, and disabled in game.
 /// </summary>
 public sealed class GizmoRenderer : IDisposable
 {
     public const int MaxSprites = 128;
+
+    // Upper bound on gizmo line segments emitted by components each frame.
+    private const int MaxGizmoElements = 8192;
 
     private enum SpriteKind
     {
@@ -78,6 +83,8 @@ public sealed class GizmoRenderer : IDisposable
     private readonly GizmoSpriteParams[] _spriteParams = new GizmoSpriteParams[MaxSprites];
     private readonly GizmoWidgetElement[] _widgetElements = new GizmoWidgetElement[6];
     private readonly GizmoWidgetElement[] _ringElements = new GizmoWidgetElement[3];
+    private readonly GizmoWidgetElement[] _gizmoElements = new GizmoWidgetElement[MaxGizmoElements];
+    private readonly GizmoLineBatch _lineBatch = new();
     private IPipeline _widgetPipeline = null!;
     private IPipeline _spritePipeline = null!;
     private IBuffer _shaftVertexBuffer = null!;
@@ -87,10 +94,12 @@ public sealed class GizmoRenderer : IDisposable
     private IBuffer _shaftElementsBuffer = null!;
     private IBuffer _coneElementsBuffer = null!;
     private IBuffer _ringElementsBuffer = null!;
+    private IBuffer _gizmoElementsBuffer = null!;
     private IBuffer _spriteParamsBuffer = null!;
     private IBindGroup _shaftBindGroup = null!;
     private IBindGroup _coneBindGroup = null!;
     private IBindGroup _ringBindGroup = null!;
+    private IBindGroup _gizmoBindGroup = null!;
     private IBindGroup _spriteBindGroup = null!;
     private bool _wasMouseDown;
     private bool _disposed;
@@ -209,7 +218,7 @@ public sealed class GizmoRenderer : IDisposable
         }
     }
 
-    /// <summary>Draws the widget and the billboard sprites on top of the scene.</summary>
+    /// <summary>Draws the widget, the per-component gizmo shapes and the billboard sprites on top of the scene.</summary>
     public void Draw(IRenderPass pass, World? world, Camera camera, int width, int height)
     {
         if (_disposed || !Enabled)
@@ -218,13 +227,16 @@ public sealed class GizmoRenderer : IDisposable
         var target = Selection?.GetComponent<TransformComponent>();
         ActiveGizmo.SetTarget(target);
 
-        if (target is null && (world is null || !ShowLightSprites))
+        if (target is null && world is null)
             return;
 
         var spriteCount = 0;
 
         if (target is not null)
             DrawWidget(pass, ref spriteCount, camera, width, height);
+
+        if (world is not null)
+            DrawComponentGizmos(pass, world, width, height);
 
         if (world is not null && ShowLightSprites)
         {
@@ -279,6 +291,53 @@ public sealed class GizmoRenderer : IDisposable
         pass.SetBindGroup(_spriteBindGroup, 0);
         pass.SetVertexBuffer(_spriteVertexBuffer, _spriteVertexBuffer.Size);
         pass.DrawInstanced(6, (uint)spriteCount);
+    }
+
+    /// <summary>
+    /// Runs every enabled component's <see cref="Component.OnDrawGizmo"/> hook
+    /// inside a <see cref="Gizmos"/> scope, then uploads and draws the emitted
+    /// line segments as screen-space-thick shafts through the widget pipeline.
+    /// </summary>
+    private void DrawComponentGizmos(IRenderPass pass, World world, int width, int height)
+    {
+        _lineBatch.Clear();
+        using (Gizmos.Begin(_lineBatch, Selection))
+        {
+            foreach (var entity in world.Entities.ToArray())
+            {
+                if (!entity.IsValid)
+                    continue;
+                foreach (var component in entity.Components.ToArray())
+                {
+                    if (!component.IsValid || !component.Enabled)
+                        continue;
+                    component.OnDrawGizmo();
+                }
+            }
+        }
+
+        if (_lineBatch.Count == 0)
+            return;
+
+        var count = Math.Min(_lineBatch.Count, MaxGizmoElements);
+        for (var i = 0; i < count; i++)
+        {
+            var line = _lineBatch.Lines[i];
+            _gizmoElements[i] = new GizmoWidgetElement
+            {
+                Start = new Vector4(line.Start, 1f),
+                End = new Vector4(line.End, 1f),
+                Color = line.Color,
+                Sizes = new Vector4(0f, Math.Max(0.5f, line.Thickness * 0.5f), 0f, 0f),
+                Viewport = new Vector4(width, height, 0f, 0f)
+            };
+        }
+
+        WriteGizmoElements(count);
+        pass.SetPipeline(_widgetPipeline);
+        pass.SetBindGroup(_gizmoBindGroup, 0);
+        pass.SetVertexBuffer(_shaftVertexBuffer, _shaftVertexBuffer.Size);
+        pass.DrawInstanced(6, (uint)count);
     }
 
     /// <summary>Draws the active widget (translate/rotate/scale) around the selection.</summary>
@@ -519,6 +578,22 @@ public sealed class GizmoRenderer : IDisposable
         buffer.Write(bytes);
     }
 
+    /// <summary>Uploads the recorded component gizmo lines into their storage buffer.</summary>
+    private void WriteGizmoElements(int count)
+    {
+        var bytes = new byte[count * sizeof(GizmoWidgetElement)];
+        unsafe
+        {
+            fixed (byte* destination = bytes)
+            {
+                var elements = (GizmoWidgetElement*)destination;
+                for (var i = 0; i < count; i++)
+                    elements[i] = _gizmoElements[i];
+            }
+        }
+        _gizmoElementsBuffer.Write(bytes);
+    }
+
     /// <summary>Uploads the three rotation ring elements into their storage buffer.</summary>
     private void WriteRingElements()
     {
@@ -701,6 +776,7 @@ public sealed class GizmoRenderer : IDisposable
         _shaftElementsBuffer = CreateBuffer((ulong)(3 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
         _coneElementsBuffer = CreateBuffer((ulong)(3 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
         _ringElementsBuffer = CreateBuffer((ulong)(3 * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
+        _gizmoElementsBuffer = CreateBuffer((ulong)(MaxGizmoElements * sizeof(GizmoWidgetElement)), BufferUsage.Storage | BufferUsage.CopyDst);
         _spriteParamsBuffer = CreateBuffer((ulong)(MaxSprites * sizeof(GizmoSpriteParams)), BufferUsage.Storage | BufferUsage.CopyDst);
         _iconAtlas = GizmoIconAtlas.Load(_device);
 
@@ -747,6 +823,11 @@ public sealed class GizmoRenderer : IDisposable
         [
             new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
             new BindGroupBinding { Slot = 1, Buffer = _ringElementsBuffer, BufferSize = (ulong)(3 * sizeof(GizmoWidgetElement)) }
+        ]);
+        _gizmoBindGroup = _widgetPipeline.CreateBindGroup(
+        [
+            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
+            new BindGroupBinding { Slot = 1, Buffer = _gizmoElementsBuffer, BufferSize = (ulong)(MaxGizmoElements * sizeof(GizmoWidgetElement)) }
         ]);
 
         _spritePipeline = _device.CreatePipeline(new PipelineDescription
@@ -801,10 +882,12 @@ public sealed class GizmoRenderer : IDisposable
         _shaftBindGroup?.Dispose();
         _coneBindGroup?.Dispose();
         _ringBindGroup?.Dispose();
+        _gizmoBindGroup?.Dispose();
         _spriteBindGroup?.Dispose();
         _shaftElementsBuffer?.Dispose();
         _coneElementsBuffer?.Dispose();
         _ringElementsBuffer?.Dispose();
+        _gizmoElementsBuffer?.Dispose();
         _spriteParamsBuffer?.Dispose();
         _shaftVertexBuffer?.Dispose();
         _coneVertexBuffer?.Dispose();

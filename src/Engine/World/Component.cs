@@ -1,3 +1,5 @@
+using Crowbar.Engine.Rendering;
+
 namespace Crowbar.Engine;
 
 /// <summary>
@@ -39,5 +41,17 @@ public abstract class Component : WorldObject, IDisposable
     {
         Entity?.RemoveComponent(this);
         GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Draws this component's editor gizmo through the static
+    /// <see cref="Gizmos"/> API. The viewport's gizmo pass calls this for
+    /// every enabled component while a <see cref="Gizmos"/> scope is active,
+    /// so an override only has to emit shapes (for example
+    /// <c>Gizmos.DrawSphere(...)</c>). Purely an editor overlay — it never
+    /// runs or renders in play mode.
+    /// </summary>
+    protected internal virtual void OnDrawGizmo()
+    {
     }
 }
