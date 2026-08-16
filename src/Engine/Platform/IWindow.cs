@@ -24,8 +24,9 @@ public interface IWindow : IDisposable
     WindowChromeState ChromeState { get; }
 
     /// <summary>
-    /// Toggles exclusive fullscreen (game-style, the whole display is taken
-    /// over) or restores the previous windowed state.
+    /// Toggles borderless desktop fullscreen (the whole display is covered
+    /// without taking exclusive control of the display mode) or restores the
+    /// previous windowed state.
     /// </summary>
     void SetFullscreen(bool fullscreen);
 

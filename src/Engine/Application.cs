@@ -135,7 +135,7 @@ public abstract class Application : IDisposable
     /// <summary>
     /// Mirrors the platform's window-chrome state into the UI, pushes the UI's
     /// title-bar geometry back to the platform window, and applies the global
-    /// window shortcut: F11 toggles exclusive (game-style) fullscreen.
+    /// window shortcut: F11 toggles borderless desktop fullscreen.
     /// </summary>
     private void UpdateWindowChrome()
     {

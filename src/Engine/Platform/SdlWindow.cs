@@ -101,10 +101,11 @@ internal sealed unsafe class SdlWindow : IWindow
         _chrome?.SetLayout(layout);
 
     /// <summary>
-    /// Enters or leaves exclusive fullscreen (SDL_WINDOW_FULLSCREEN), the same
-    /// mode standalone Unreal/Unity games use: the window takes over the whole
-    /// display, with no borders or taskbar. The caption/client geometry changes
-    /// with the mode, so the sizes are re-read immediately.
+    /// Enters or leaves borderless desktop fullscreen (SDL_WINDOW_FULLSCREEN_DESKTOP).
+    /// Unlike exclusive display-mode fullscreen, this keeps Windows overlays such
+    /// as Win+Shift+S available without making the application leave fullscreen.
+    /// The caption/client geometry changes with the mode, so the sizes are
+    /// re-read immediately.
     /// </summary>
     public void SetFullscreen(bool fullscreen)
     {
@@ -114,7 +115,7 @@ internal sealed unsafe class SdlWindow : IWindow
         // Tell the Win32 chrome first: the fullscreen switch triggers a
         // WM_NCCALCSIZE/WM_NCHITTEST burst that must already see the new mode.
         _chrome?.SetFullscreen(fullscreen);
-        _sdl.SetWindowFullscreen(_window, fullscreen ? (uint)WindowFlags.Fullscreen : 0);
+        _sdl.SetWindowFullscreen(_window, fullscreen ? (uint)WindowFlags.FullscreenDesktop : 0);
         RefreshSizes();
         // SDL's window grab confines the physical cursor to this window. Apply
         // it after switching modes so the grab uses the fullscreen bounds.

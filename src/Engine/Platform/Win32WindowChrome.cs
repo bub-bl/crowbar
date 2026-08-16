@@ -188,7 +188,7 @@ internal sealed unsafe class Win32WindowChrome : IDisposable
     /// </summary>
     private nint OnNcCalcSize(nint lParam)
     {
-        // Exclusive fullscreen is a borderless popup: there is no frame to
+        // Desktop fullscreen is a borderless popup: there is no frame to
         // absorb, so the whole window rect is already the client rect.
         if (_fullscreen)
             return 0;
