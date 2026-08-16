@@ -33,6 +33,10 @@ public abstract class Application : IDisposable
     private float _lastLookY;
     private float _lastPanX;
     private float _lastPanY;
+    private bool _hasWindowChromeState;
+    private WindowChromeState _lastWindowChromeState;
+    private bool _lastWindowMinimized;
+    private int _chromeRefreshFrames;
     private bool _disposed;
 
     protected Application()
@@ -136,8 +140,36 @@ public abstract class Application : IDisposable
     private void UpdateWindowChrome()
     {
         var state = _window.ChromeState;
+        var restoredFromMinimize = _lastWindowMinimized && !_window.IsMinimized;
+        var nativeStateChanged = _hasWindowChromeState &&
+            (state.IsActive != _lastWindowChromeState.IsActive ||
+             state.IsMaximized != _lastWindowChromeState.IsMaximized ||
+             state.IsFullscreen != _lastWindowChromeState.IsFullscreen);
+
         Ui.ChromeState = state;
+        if (restoredFromMinimize || nativeStateChanged)
+            // Native restore/maximize transitions can span several SDL/Win32
+            // messages. Keep repainting for a short settling window instead of
+            // relying on the next mouse move to become the first invalidation.
+            _chromeRefreshFrames = Math.Max(_chromeRefreshFrames, 8);
+
+        if (_chromeRefreshFrames > 0)
+        {
+            // A restore can leave the GPU UI target visually stale even though
+            // the main loop is running. Mouse movement over the client titlebar
+            // used to be the accidental first invalidation, which made the
+            // native caption buttons appear to "unlock" only after hovering.
+            // Invalidate layout/paint deterministically for the whole native
+            // transition, not just the first frame.
+            Ui.Screen.Invalidate();
+            Ui.Renderer.MarkDirty();
+            _chromeRefreshFrames--;
+        }
+
         _window.SetChromeLayout(Ui.WindowChrome);
+        _lastWindowChromeState = state;
+        _lastWindowMinimized = _window.IsMinimized;
+        _hasWindowChromeState = true;
 
         // F11 is a window-level shortcut: it must not fire while the user is
         // typing in a text field (the UI owns the keyboard then).

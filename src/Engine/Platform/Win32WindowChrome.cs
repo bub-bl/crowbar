@@ -85,7 +85,17 @@ internal sealed unsafe class Win32WindowChrome : IDisposable
 
     public WindowChromeButton HoveredButton { get; private set; }
 
-    public void SetLayout(WindowChromeLayout? layout) => _layout = layout;
+    public void SetLayout(WindowChromeLayout? layout)
+    {
+        // A restore can produce one or more UI frames without a resolved
+        // geometry (or with a transient zero-sized tree). Never discard the
+        // last valid hit-test map in that interval: doing so makes the native
+        // buttons start working only after mouse movement triggers another UI
+        // publication. Fullscreen is tracked independently by _fullscreen, so
+        // retaining this map is also safe while the caption is hidden.
+        if (layout is not null)
+            _layout = layout;
+    }
 
     /// <summary>Mirrors the window's exclusive-fullscreen mode (see SdlWindow.SetFullscreen).</summary>
     public void SetFullscreen(bool fullscreen) => _fullscreen = fullscreen;

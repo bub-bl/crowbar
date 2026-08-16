@@ -64,5 +64,53 @@ public class WindowChromePublishTests
         Assert.Equal(WindowChromeButton.None,
             Win32WindowChrome.HitTestButton(chrome, chrome.CloseButton.Right,
                 chrome.CloseButton.Y + chrome.CloseButton.Height / 2));
+
+        // A transient restore layout must not clear the platform geometry. The
+        // native buttons remain clickable while SDL settles the maximized size.
+        var closeBeforeTransientLayout = chrome.CloseButton;
+        ui.SetViewport(1, 1);
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+        Assert.NotNull(ui.WindowChrome);
+        Assert.Equal(closeBeforeTransientLayout, ui.WindowChrome!.CloseButton);
+    }
+
+    [Fact]
+    public void ChromeLayoutIsRepaintedAfterAWindowStateTransition()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        ui.ChromeState = new WindowChromeState(
+            HoveredButton: WindowChromeButton.None,
+            IsMaximized: false,
+            IsActive: true,
+            IsFullscreen: false,
+            SupportsCustomChrome: true);
+        ui.Update();
+        ui.Prepare();
+        var before = ui.WindowChrome;
+        Assert.NotNull(before);
+
+        // This mirrors the host's restore/maximize path: the native state is
+        // copied into the UI, then the screen and GPU painter are invalidated.
+        // The next prepare must repaint the existing tree without requiring a
+        // pointer move over the client titlebar.
+        ui.ChromeState = new WindowChromeState(
+            HoveredButton: WindowChromeButton.None,
+            IsMaximized: true,
+            IsActive: true,
+            IsFullscreen: false,
+            SupportsCustomChrome: true);
+        ui.Screen.Invalidate();
+        ui.Renderer.MarkDirty();
+        ui.Update();
+
+        Assert.True(ui.Prepare());
+        var after = ui.WindowChrome;
+        Assert.NotNull(after);
+        Assert.Equal(before!.MinimizeButton, after!.MinimizeButton);
+        Assert.Equal(before.MaximizeButton, after.MaximizeButton);
+        Assert.Equal(before.CloseButton, after.CloseButton);
     }
 }

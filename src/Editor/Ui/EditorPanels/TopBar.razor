@@ -115,10 +115,17 @@
 
     private void PublishChrome()
     {
+        // During a taskbar restore Yoga can briefly report a zero/one-pixel
+        // component rect. Keep the last valid native layout during that frame;
+        // publishing null here would remove every caption hit region until a
+        // later resize happened to rebuild the TopBar.
+        if (Layout.Width <= 1 || Layout.Height <= 1)
+            return;
+
         // Sans caption custom (plateformes non-Windows) ou en plein écran, il
         // n'y a rien à déplacer ni à redimensionner : le hit test natif s'occupe
         // de tout (ou n'existe plus).
-        if (!ChromeState.SupportsCustomChrome || ChromeState.IsFullscreen || Layout.Width <= 0 || Layout.Height <= 0)
+        if (!ChromeState.SupportsCustomChrome || ChromeState.IsFullscreen)
         {
             PublishWindowChrome(null);
             return;

@@ -249,8 +249,12 @@ internal sealed unsafe class SdlWindow : IWindow
             case WindowEventID.SizeChanged:
             case WindowEventID.Maximized:
                 _minimized = false;
-                _restoreMetricsPending = false;
-                RefreshWindowMetrics();
+                // Maximized is commonly delivered immediately after Restored.
+                // During that handoff SDL can still report a 0/1 px drawable.
+                // Do not publish those transient metrics: they would resize the
+                // renderer and change the chrome hit-test scale, leaving the
+                // titlebar buttons inert until another native mouse/resize event.
+                _restoreMetricsPending = !RefreshWindowMetrics(requireUsableSize: true);
                 break;
 
             case WindowEventID.Minimized:
