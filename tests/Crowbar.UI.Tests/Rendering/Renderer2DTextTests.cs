@@ -5,45 +5,26 @@ using Xunit;
 namespace Crowbar.Engine.Tests;
 
 /// <summary>
-/// Headless tests of the text path: the signed distance field, glyph
-/// rasterization and <see cref="Renderer2D.DrawText"/> quad emission. They use
-/// a real system font (via <see cref="FontManager"/>'s fallback chain) so the
-/// measured glyph stream is real, without needing a GPU.
+/// Headless tests of the text path: the multi-channel signed distance field
+/// (MSDF), glyph rasterization and <see cref="Renderer2D.DrawText"/> quad
+/// emission. They use a real system font (via <see cref="FontManager"/>'s
+/// fallback chain) so the measured glyph stream is real, without needing a GPU.
 /// </summary>
 public class Renderer2DTextTests
 {
-    // --- Distance field ----------------------------------------------------
+    // --- Median reconstruction ----------------------------------------------
 
     [Fact]
-    public void DistanceField_SingleCell_CenterPositiveEdgeNegative()
+    public void Median_Reconstruction_MatchesShaderMath()
     {
-        // 3x3 mask with only the center cell inside.
-        var inside = new bool[9];
-        inside[4] = true;
-
-        var signed = DistanceField.Signed(inside, 3, 3);
-
-        Assert.Equal(0.5f, signed[4], 3);            // center: +0.5 (adjacent to boundary)
-        Assert.Equal(-0.5f, signed[1], 3);           // top neighbor: -0.5
-        Assert.Equal(-0.5f, signed[3], 3);           // left neighbor: -0.5
-        Assert.Equal(-(MathF.Sqrt(2f) - 0.5f), signed[0], 3); // corner: -sqrt(2)+0.5
-    }
-
-    [Fact]
-    public void DistanceField_SolidBlock_InteriorDistancesGrow()
-    {
-        // 5x5 mask with a 3x3 inside block at the center.
-        var inside = new bool[25];
-        for (var y = 1; y <= 3; y++)
-        for (var x = 1; x <= 3; x++)
-            inside[y * 5 + x] = true;
-
-        var signed = DistanceField.Signed(inside, 5, 5);
-
-        Assert.Equal(1.5f, signed[2 * 5 + 2], 3); // block center: 2 cells to the boundary - 0.5
-        Assert.Equal(0.5f, signed[1 * 5 + 2], 3); // top-middle inside: adjacent to boundary
-        Assert.Equal(-0.5f, signed[0 * 5 + 2], 3); // just outside the top edge
-        Assert.Equal(-(MathF.Sqrt(2f) - 0.5f), signed[0 * 5 + 0], 3); // corner
+        // The WGSL fragment shader reconstructs the distance as the median of
+        // the three stored channels; this mirrors that math exactly.
+        Assert.Equal(0.53125f, Median(0.53125f, 0.8125f, 0.53125f), 6);
+        Assert.Equal(0.46875f, Median(0.46875f, 0.1875f, 0.46875f), 6);
+        Assert.Equal(0.5f, Median(0.5f, 0.5f, 0.5f), 6);
+        // When two channels carry the true distance, the median equals it.
+        Assert.Equal(0.625f, Median(0.625f, 0.8125f, 0.625f), 6);
+        Assert.Equal(0.375f, Median(0.375f, 0.3125f, 0.375f), 6);
     }
 
     // --- Glyph rasterization ------------------------------------------------
@@ -60,24 +41,86 @@ public class Renderer2DTextTests
             new(0, 10), new(0, 0)
         ];
 
-        var sdf = GlyphRasterizer.Rasterize(edges, Vector2.Zero, 10, 10);
+        var msdf = GlyphRasterizer.Rasterize(edges, Vector2.Zero, 10, 10);
 
         // The grid is rasterized at GlyphRasterizer.Scale× the ink size.
         var expected = (10 + GlyphRasterizer.Padding * 2) * GlyphRasterizer.Scale;
-        Assert.Equal(expected, sdf.Width);
-        Assert.Equal(expected, sdf.Height);
+        Assert.Equal(expected, msdf.Width);
+        Assert.Equal(expected, msdf.Height);
 
-        // Center pixel is deep inside: stored value > 0.5.
-        var center = Sample(sdf, sdf.Width / 2, sdf.Height / 2);
-        Assert.True(center > 0.5f);
-        // A corner pixel is far outside: stored value < 0.5.
-        var corner = Sample(sdf, 0, 0);
-        Assert.True(corner < 0.5f);
-        // The stored SDF is single-channel: RGB equal, alpha opaque.
-        var centerIndex = (sdf.Height / 2 * sdf.Width + sdf.Width / 2) * 4;
-        Assert.Equal(sdf.Pixels[centerIndex], sdf.Pixels[centerIndex + 1]);
-        Assert.Equal(sdf.Pixels[centerIndex], sdf.Pixels[centerIndex + 2]);
-        Assert.Equal(255, sdf.Pixels[centerIndex + 3]);
+        // Center pixel is deep inside: stored median > 0.5.
+        Assert.True(MedianStored(msdf, msdf.Width / 2, msdf.Height / 2) > 0.5f);
+        // A far corner pixel is outside: stored median < 0.5.
+        Assert.True(MedianStored(msdf, 0, 0) < 0.5f);
+        // Alpha stays opaque.
+        var centerIndex = (msdf.Height / 2 * msdf.Width + msdf.Width / 2) * 4;
+        Assert.Equal(255, msdf.Pixels[centerIndex + 3]);
+    }
+
+    [Fact]
+    public void Rasterize_Square_ChannelsReconstructTrueDistance()
+    {
+        // A square has only two edge colors, so the third channel is filled
+        // with the true distance. At ink (2, 5) the nearest edges are the left
+        // (2px) and bottom (5px) edges: the median must reconstruct 2px, and
+        // the stored channels must genuinely differ (multi-channel).
+        Vector2[] edges =
+        [
+            new(0, 0), new(10, 0),
+            new(10, 0), new(10, 10),
+            new(10, 10), new(0, 10),
+            new(0, 10), new(0, 0)
+        ];
+
+        var msdf = GlyphRasterizer.Rasterize(edges, Vector2.Zero, 10, 10);
+
+        // Texel (9, 15) samples ink ((9 - 5.5) / 2, (15 - 5.5) / 2) = (1.75, 4.75):
+        // the nearest edge is the left one at 1.75 px = 3.5 grid units.
+        var x = 9;
+        var y = 15;
+        var d = Distance(msdf, x, y);
+        Assert.True(MathF.Abs(d - 3.5f) < 0.3f, $"reconstructed {d}, expected ≈ 3.5 grid units (1.75 px)");
+
+        var i = (y * msdf.Width + x) * 4;
+        Assert.False(
+            msdf.Pixels[i] == msdf.Pixels[i + 1] && msdf.Pixels[i + 1] == msdf.Pixels[i + 2],
+            "the MSDF must not collapse to a single channel");
+    }
+
+    [Fact]
+    public void Rasterize_Square_CornerStaysSharp()
+    {
+        // A 20x20 square. Near a convex corner the true (rounded) distance
+        // follows sqrt(x² + y²); sampled and bilinearly filtered, that rounds
+        // the corner. The MSDF median must track the perpendicular pseudo-
+        // distance min(x, y) instead, keeping the corner sharp.
+        Vector2[] edges =
+        [
+            new(0, 0), new(20, 0),
+            new(20, 0), new(20, 20),
+            new(20, 20), new(0, 20),
+            new(0, 20), new(0, 0)
+        ];
+
+        var msdf = GlyphRasterizer.Rasterize(edges, Vector2.Zero, 20, 20);
+
+        // Texel (g, g) samples ink ((g - 5.5) / 2, (g - 5.5) / 2); the corner at
+        // ink (0, 0) sits between texels 5 and 6.
+        for (var g = 4; g >= 2; g--)
+        {
+            var t = 5.5f - g;                   // ink distance t/2 along each axis
+            var pseudo = -t;                    // min(x, y) in grid units
+            var rounded = -MathF.Sqrt(2f) * t;  // sqrt(x² + y²) in grid units
+            var d = Distance(msdf, g, g);
+            Assert.True(MathF.Abs(d - pseudo) < 0.3f, $"texel ({g},{g}): got {d}, expected ≈ {pseudo}");
+            Assert.True(
+                MathF.Abs(d - pseudo) < MathF.Abs(d - rounded),
+                $"texel ({g},{g}) corner is rounded: got {d}, pseudo {pseudo}, rounded {rounded}");
+        }
+
+        // The texel just outside the corner tracks the pseudo-distance too.
+        var corner = Distance(msdf, 5, 5); // ink (-0.25, -0.25) → pseudo -0.5 grid
+        Assert.True(MathF.Abs(corner + 0.5f) < 0.3f, $"corner texel: {corner}");
     }
 
     [Fact]
@@ -92,14 +135,14 @@ public class Renderer2DTextTests
             new(7, 7), new(7, 3), new(7, 3), new(3, 3)
         ];
 
-        var sdf = GlyphRasterizer.Rasterize(edges, Vector2.Zero, 10, 10);
+        var msdf = GlyphRasterizer.Rasterize(edges, Vector2.Zero, 10, 10);
 
-        // Grid coordinates map to ink via
-        // ink = (grid - Padding*Scale + 0.5) / Scale. The band (outer square
-        // minus the hole) is filled; the hole center is outside.
-        var band = Sample(sdf, InkToGrid(1.5f), InkToGrid(1.5f)); // ink (1.5, 1.5): inside the filled band
+        // The band (outer square minus the hole) is filled; the hole center is
+        // outside the shape. At these texels all channels coincide with the
+        // true distance, so sampling any channel is valid.
+        var band = Sample(msdf, InkToGrid(1.5f), InkToGrid(1.5f)); // near ink (1.25, 1.25)
         Assert.True(band > 0.5f);
-        var hole = Sample(sdf, InkToGrid(5.5f), InkToGrid(5.5f)); // ink (5.5, 5.5): inside the hole
+        var hole = Sample(msdf, InkToGrid(5.5f), InkToGrid(5.5f)); // near ink (5.25, 5.25)
         Assert.True(hole < 0.5f);
     }
 
@@ -245,6 +288,31 @@ public class Renderer2DTextTests
         Assert.Contains(shader.Bindings, b => b.Slot == 0 && b.Kind == ShaderBindingKind.Texture);
         Assert.Contains(shader.Bindings, b => b.Slot == 1 && b.Kind == ShaderBindingKind.Sampler);
         Assert.Contains(shader.Bindings, b => b.Slot == 2 && b.Kind == ShaderBindingKind.UniformBuffer);
+    }
+
+    // --- Helpers ------------------------------------------------------------
+
+    /// <summary>The median of three channels, exactly as the glyph shader computes it.</summary>
+    private static float Median(float r, float g, float b) =>
+        MathF.Max(MathF.Min(r, g), MathF.Min(MathF.Max(r, g), b));
+
+    /// <summary>Reconstructed distance (grid units) at a texel: median-of-three mapped back through the range.</summary>
+    private static float Distance(Crowbar.Engine.Texture2D msdf, int x, int y)
+    {
+        var i = (y * msdf.Width + x) * 4;
+        var r = msdf.Pixels[i] / 255f;
+        var g = msdf.Pixels[i + 1] / 255f;
+        var b = msdf.Pixels[i + 2] / 255f;
+        return (Median(r, g, b) - 0.5f) * (GlyphRasterizer.Spread * GlyphRasterizer.Scale);
+    }
+
+    private static float MedianStored(Crowbar.Engine.Texture2D msdf, int x, int y)
+    {
+        var i = (y * msdf.Width + x) * 4;
+        return Median(
+            msdf.Pixels[i] / 255f,
+            msdf.Pixels[i + 1] / 255f,
+            msdf.Pixels[i + 2] / 255f);
     }
 
     private static float Sample(Crowbar.Engine.Texture2D sdf, int x, int y) =>
