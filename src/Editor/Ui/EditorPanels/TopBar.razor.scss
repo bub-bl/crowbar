@@ -238,9 +238,20 @@ root {
     align-items: center;
     justify-content: center;
 
-    icon {
-        width: 15px;
-        height: 15px;
+    // Use the caption glyphs used by Windows' native titlebar controls.
+    // ChromeMinimize/Maximize/Restore/Close are E921/E922/E923/E8BB.
+    .tb-win-glyph {
+        width: 16px;
+        height: 44px;
+        color: inherit;
+        font-family: Segoe MDL2 Assets;
+        font-size: 10px;
+        font-weight: normal;
+        line-height: 44px;
+        text-align: center;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
     &:hover,

@@ -52,9 +52,9 @@
    conserve le flyout snap layouts au survol de Agrandir. L'état hover (résolu
    côté OS) pilote ici la surbrillance. *@
 <div class="tb-window @(ChromeState.SupportsCustomChrome && !ChromeState.IsFullscreen ? "" : "tb-window-hidden")">
-    <div class="tb-win-btn @(ChromeState.HoveredButton == WindowChromeButton.Minimize ? "hover" : "")" @ref="_minimize" title="Réduire"><icon name="Solar/arrows-action/Bold/minimize" /></div>
-    <div class="tb-win-btn @(ChromeState.HoveredButton == WindowChromeButton.Maximize ? "hover" : "")" @ref="_maximize" title="@(ChromeState.IsMaximized ? "Restaurer" : "Agrandir")"><icon name="@(ChromeState.IsMaximized ? "Solar/video/Bold/quit-full-screen-square" : "Solar/arrows-action/Bold/maximize-square-2")" /></div>
-    <div class="tb-win-btn tb-close @(ChromeState.HoveredButton == WindowChromeButton.Close ? "hover" : "")" @ref="_close" title="Fermer"><icon name="Solar/ui/Bold/close-square" /></div>
+    <div class="tb-win-btn @(ChromeState.HoveredButton == WindowChromeButton.Minimize ? "hover" : "")" @ref="_minimize" title="Réduire"><span class="tb-win-glyph">&#xE921;</span></div>
+    <div class="tb-win-btn @(ChromeState.HoveredButton == WindowChromeButton.Maximize ? "hover" : "")" @ref="_maximize" title="@(ChromeState.IsMaximized ? "Restaurer" : "Agrandir")"><span class="tb-win-glyph">@(ChromeState.IsMaximized ? "\uE923" : "\uE922")</span></div>
+    <div class="tb-win-btn tb-close @(ChromeState.HoveredButton == WindowChromeButton.Close ? "hover" : "")" @ref="_close" title="Fermer"><span class="tb-win-glyph">&#xE8BB;</span></div>
 </div>
 
 @code {
