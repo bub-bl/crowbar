@@ -119,18 +119,30 @@ public abstract class Application : IDisposable
         Input.Poll();
         var clamped = Math.Clamp((float)delta, 0f, 0.1f);
         OnUpdate(clamped);
-        // Custom title bar: hand the UI's geometry to the platform window and
-        // mirror the OS-side caption state (hovered button, maximized) back to
-        // the UI before it updates/re-renders.
-        _window.SetChromeLayout(Ui.WindowChrome);
-        WindowChromeState.HoveredButton = _window.HoveredChromeButton;
-        WindowChromeState.IsMaximized = _window.IsMaximized;
+        UpdateWindowChrome();
         World.Update(clamped);
         Ui.Update(clamped);
         // The hover cursor can change without a pointer move (a re-render, a
         // scroll under a stationary cursor): re-assert it every frame. The
         // platform skips the SDL call when the shape is unchanged.
         ApplyUiCursor();
+    }
+
+    /// <summary>
+    /// Mirrors the platform's window-chrome state into the UI, pushes the UI's
+    /// title-bar geometry back to the platform window, and applies the global
+    /// window shortcut: F11 toggles exclusive (game-style) fullscreen.
+    /// </summary>
+    private void UpdateWindowChrome()
+    {
+        var state = _window.ChromeState;
+        Ui.ChromeState = state;
+        _window.SetChromeLayout(Ui.WindowChrome);
+
+        // F11 is a window-level shortcut: it must not fire while the user is
+        // typing in a text field (the UI owns the keyboard then).
+        if (Input.WasPressed(Key.F11) && !Ui.KeyboardConsumed)
+            _window.SetFullscreen(!state.IsFullscreen);
     }
 
     /// <summary>Pushes the UI's resolved hover cursor to the OS cursor.</summary>
@@ -140,6 +152,13 @@ public abstract class Application : IDisposable
     {
         OnRender((float)delta);
         _renderer?.Render(World, _camera, delta, _ui);
+
+        // Renderer.Render runs Ui.Prepare(), which is the moment Yoga has
+        // resolved the current title-bar rectangles. Push that freshly laid-out
+        // geometry immediately; doing it only in OnFrame would leave the
+        // platform hit-test one render behind and could leave the buttons with
+        // an empty layout after the first page build or a resize.
+        _window.SetChromeLayout(Ui.WindowChrome);
     }
 
     private void OnResized(int width, int height)

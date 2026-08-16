@@ -5,20 +5,23 @@
 @* Publie la géométrie de la barre de titre custom (boutons fenêtre, zones
    interactives, hauteur) après chaque layout, pour que la fenêtre native
    puisse répondre à WM_NCHITTEST et reproduire le comportement natif de la
-   barre de titre (drag, minimize/maximize/close, snap layouts). *@
+   barre de titre (drag, minimize/maximize/close, snap layouts). Le bloc ci-dessous
+   publie les refs du rendu précédent quand un rebuild est nécessaire, puis
+   OnLayoutChanged republie les rects du nouvel arbre dès que Yoga les a mesurés.
+   Ainsi le hit-test ne dépend pas d'un frame de retard. *@
 @{
     PublishChrome();
 }
 
-<div class="logo">Crowbar</div>
+<div class="logo @(ChromeState.IsActive ? "" : "tb-inactive")">@DocumentLabel()</div>
 
-<div class="tabs">
+<div class="tabs @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_tabs">
     <div class="tab @TabClass("jouer")" @onclick="TabJouer">JOUER</div>
     <div class="tab @TabClass("creer")" @onclick="TabCreer">CRÉER</div>
     <div class="tab @TabClass("developper")" @onclick="TabDevelopper">DÉVELOPPER</div>
 </div>
 
-<div class="topbar-tools">
+<div class="topbar-tools @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_tools">
     <div class="tb-btn tb-on" title="Sélection" tooltip="Outil de sélection"><icon name="Solar/ui/Bold/cursor" /></div>
     <div class="tb-btn" title="Translation" tooltip="Déplacer l'entité sélectionnée"><icon name="translate" /></div>
     <div class="tb-btn" title="Rotation" tooltip="Faire pivoter l'entité sélectionnée"><icon name="Solar/arrows/Bold/restart" /></div>
@@ -29,32 +32,55 @@
     <div class="tb-btn tb-local" title="Local" tooltip="Utiliser les axes locaux"><icon name="Solar/it/Bold/translation" /></div>
 </div>
 
-<div class="tb-play" tooltip="Lancer le mode test (F5)"><icon name="Solar/video/Bold/play" />Tester&#160;(F5)</div>
+<div class="tb-play @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_play" tooltip="Lancer le mode test (F5)"><icon name="Solar/video/Bold/play" />Tester&#160;(F5)</div>
 
-<div class="tb-mode" tooltip="Changer de mode"><icon name="Solar/it/Bold/code" />Mode&#160;:&#160;Édition&#160;<icon name="Solar/arrows/Bold/alt-arrow-down" /></div>
+<div class="tb-mode @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_mode" tooltip="Changer de mode"><icon name="Solar/it/Bold/code" />Mode&#160;:&#160;Édition&#160;<icon name="Solar/arrows/Bold/alt-arrow-down" /></div>
 
-<div class="tb-user">
+<div class="tb-user @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_user">
     <div class="tb-btn" title="Paramètres" tooltip="Paramètres"><icon name="Solar/settings/Bold/settings" /></div>
     <div class="avatar">J</div>
     <div class="username">JohnDoe</div>
 </div>
 
-@* Les boutons fenêtre ne reçoivent pas de @onclick : leur zone répond à
-   WM_NCHITTEST (HTMINBUTTON/HTMAXBUTTON/HTCLOSE), donc Windows les gère
-   nativement — y compris le flyout snap layouts au survol de Agrandir. L'état
-   hover (résolu côté OS) pilote ici la surbrillance. *@
-<div class="tb-window">
-    <div class="tb-win-btn @(WindowChromeState.HoveredButton == WindowChromeButton.Minimize ? "hover" : "")" title="Réduire"><icon name="Solar/arrows-action/Bold/minimize" /></div>
-    <div class="tb-win-btn @(WindowChromeState.HoveredButton == WindowChromeButton.Maximize ? "hover" : "")" title="Agrandir"><icon name="@(WindowChromeState.IsMaximized ? "Solar/video/Bold/quit-full-screen-square" : "Solar/arrows-action/Bold/maximize-square-2")" /></div>
-    <div class="tb-win-btn tb-close @(WindowChromeState.HoveredButton == WindowChromeButton.Close ? "hover" : "")" title="Fermer"><icon name="Solar/ui/Bold/close-square" /></div>
+@* Les boutons fenêtre restent montés même quand le chrome n'est pas actif
+   (plateforme sans caption custom, ou plein écran) : masqués via la classe
+   .tb-window-hidden (opacité 0, jamais display:none pour que leurs rects
+   restent mesurés), leurs @ref gardent le cycle de publication stable. Ils ne
+   reçoivent pas de @onclick : leur zone répond à WM_NCHITTEST
+   (HTMINBUTTON/HTMAXBUTTON/HTCLOSE), puis Win32WindowChrome exécute
+   explicitement l'action native si la procédure SDL ne la relaie pas. Cela
+   conserve le flyout snap layouts au survol de Agrandir. L'état hover (résolu
+   côté OS) pilote ici la surbrillance. *@
+<div class="tb-window @(ChromeState.SupportsCustomChrome && !ChromeState.IsFullscreen ? "" : "tb-window-hidden")">
+    <div class="tb-win-btn @(ChromeState.HoveredButton == WindowChromeButton.Minimize ? "hover" : "")" @ref="_minimize" title="Réduire"><icon name="Solar/arrows-action/Bold/minimize" /></div>
+    <div class="tb-win-btn @(ChromeState.HoveredButton == WindowChromeButton.Maximize ? "hover" : "")" @ref="_maximize" title="@(ChromeState.IsMaximized ? "Restaurer" : "Agrandir")"><icon name="@(ChromeState.IsMaximized ? "Solar/video/Bold/quit-full-screen-square" : "Solar/arrows-action/Bold/maximize-square-2")" /></div>
+    <div class="tb-win-btn tb-close @(ChromeState.HoveredButton == WindowChromeButton.Close ? "hover" : "")" @ref="_close" title="Fermer"><icon name="Solar/ui/Bold/close-square" /></div>
 </div>
 
 @code {
     private string _tab = "creer";
     private bool _initialChromePublishRequested;
+    private Panel? _minimize;
+    private Panel? _maximize;
+    private Panel? _close;
+    private Panel? _tabs;
+    private Panel? _tools;
+    private Panel? _play;
+    private Panel? _mode;
+    private Panel? _user;
 
-    protected override int BuildHash() =>
-        HashCode.Combine(_tab, (int)WindowChromeState.HoveredButton, WindowChromeState.IsMaximized);
+    protected override int BuildHash()
+    {
+        var chrome = ChromeState;
+        return HashCode.Combine(
+            _tab,
+            (int)chrome.HoveredButton,
+            chrome.IsMaximized,
+            chrome.IsActive,
+            chrome.IsFullscreen,
+            chrome.SupportsCustomChrome,
+            EditorDocumentState.Version);
+    }
 
     private void TabJouer() => _tab = "jouer";
     private void TabCreer() => _tab = "creer";
@@ -62,11 +88,16 @@
 
     private string TabClass(string tab) => _tab == tab ? "tab-active" : "";
 
+    /// <summary>Nom du document ouvert (avec point de modifications non sauvegardées), ou le nom de l'app.</summary>
+    private string DocumentLabel() =>
+        EditorDocumentState.HasDocument
+            ? EditorDocumentState.Title + (EditorDocumentState.IsDirty ? " ●" : "")
+            : "Crowbar";
+
     /// <summary>
     /// Republie la géométrie après le premier layout (les rects des enfants ne
-    /// sont connus qu'une fois le layout passé) et à chaque redimensionnement.
-    /// Le re-render déclenche <see cref="PublishChrome"/> dans le bloc @{ }.
-    /// OnTreeBuilt est appelé à chaque rebuild : le garde évite une boucle.
+    /// sont connus qu'une fois le layout passé). OnTreeBuilt est appelé à chaque
+    /// rebuild : le garde évite une boucle.
     /// </summary>
     protected override void OnTreeBuilt()
     {
@@ -75,46 +106,46 @@
         StateHasChanged();
     }
 
-    protected override void OnLayoutChanged() => StateHasChanged();
+    // Unlike ordinary Razor components, the title bar's first resolved layout
+    // is itself an external event: Win32 must receive the button rectangles as
+    // soon as Yoga has measured them, without waiting for another Razor build.
+    protected override bool NotifyInitialLayoutChanged => true;
+
+    protected override void OnLayoutChanged() => PublishChrome();
 
     private void PublishChrome()
     {
-        if (Layout.Width <= 0 || Layout.Height <= 0)
+        // Sans caption custom (plateformes non-Windows) ou en plein écran, il
+        // n'y a rien à déplacer ni à redimensionner : le hit test natif s'occupe
+        // de tout (ou n'existe plus).
+        if (!ChromeState.SupportsCustomChrome || ChromeState.IsFullscreen || Layout.Width <= 0 || Layout.Height <= 0)
         {
             PublishWindowChrome(null);
             return;
         }
 
-        // Les trois .tb-win-btn sont dans l'ordre DOM : réduire, agrandir, fermer.
-        var windowButtons = FindAllByClass(this, "tb-win-btn");
-        var minimize = windowButtons.Count > 0 ? windowButtons[0].Layout : default;
-        var maximize = windowButtons.Count > 1 ? windowButtons[1].Layout : default;
-        var close = windowButtons.Count > 2 ? windowButtons[2].Layout : default;
-
         // Les zones interactives restent dans la zone client (clics reçus par l'UI).
         var interactive = new List<UiRect>();
-        foreach (var className in new[] { "tabs", "topbar-tools", "tb-play", "tb-mode", "tb-user" })
-        {
-            foreach (var panel in FindAllByClass(this, className))
-            {
-                if (panel.Layout.Width > 0 && panel.Layout.Height > 0)
-                    interactive.Add(panel.Layout);
-            }
-        }
+        AddRect(interactive, _tabs);
+        AddRect(interactive, _tools);
+        AddRect(interactive, _play);
+        AddRect(interactive, _mode);
+        AddRect(interactive, _user);
 
-        PublishWindowChrome(new WindowChromeLayout(Layout.Height, minimize, maximize, close, interactive));
+        PublishWindowChrome(new WindowChromeLayout(
+            Layout.Height,
+            RectOrEmpty(_minimize),
+            RectOrEmpty(_maximize),
+            RectOrEmpty(_close),
+            interactive));
     }
 
-    private static List<Panel> FindAllByClass(Panel root, string className)
+    private static void AddRect(List<UiRect> list, Panel? panel)
     {
-        var result = new List<Panel>();
-        Collect(root, className, result);
-        return result;
-
-        static void Collect(Panel panel, string className, List<Panel> result)
-        {
-            if (panel.Classes.Contains(className)) result.Add(panel);
-            foreach (var child in panel.Children) Collect(child, className, result);
-        }
+        if (panel is not null && panel.Layout.Width > 0 && panel.Layout.Height > 0)
+            list.Add(panel.Layout);
     }
+
+    private static UiRect RectOrEmpty(Panel? panel) =>
+        panel is not null && panel.Layout.Width > 0 && panel.Layout.Height > 0 ? panel.Layout : default;
 }

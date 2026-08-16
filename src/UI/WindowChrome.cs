@@ -25,16 +25,20 @@ public sealed record WindowChromeLayout(
     IReadOnlyList<UiRect> InteractiveRects);
 
 /// <summary>
-/// UI → host channel for the live window-chrome state the platform cannot see
-/// from the UI alone (the hovered native caption button and the maximized
-/// state, both resolved on the OS side). The host writes it every frame and the
-/// TopBar reads it through its BuildHash to re-render the button feedback.
+/// Live window-chrome state mirrored from the platform window into the UI. The
+/// host writes it every frame; the TopBar hashes the fields it renders so the
+/// caption feedback (hovered button, restore glyph, inactive dimming,
+/// fullscreen) updates without a global timer. Unlike a static singleton, this
+/// is a plain value: each window carries its own state, so multiple windows and
+/// tests never share it.
 /// </summary>
-public static class WindowChromeState
+public readonly record struct WindowChromeState(
+    WindowChromeButton HoveredButton = WindowChromeButton.None,
+    bool IsMaximized = false,
+    bool IsActive = true,
+    bool IsFullscreen = false,
+    bool SupportsCustomChrome = false)
 {
-    /// <summary>The caption button the cursor is hovering, or <see cref="WindowChromeButton.None"/>.</summary>
-    public static WindowChromeButton HoveredButton;
-
-    /// <summary>True while the window is maximized (the top bar shows the restore glyph).</summary>
-    public static bool IsMaximized;
+    /// <summary>Safe fallback before the host has mirrored a real window (active, no custom chrome).</summary>
+    public static WindowChromeState Default => new(IsActive: true);
 }

@@ -613,10 +613,11 @@ public sealed class YogaLayoutEngine
             ReadLayout(panel.Children[i], node.GetChild((nuint)i)!, panel.Layout.X, panel.Layout.Y);
         ComputeScrollRange(panel);
         // Children are laid out first so the notify runs on a complete subtree.
-        // Only fire for an already-laid-out panel whose rect moved (a window
-        // resize): a fresh panel's 0 → actual transition is its first layout
-        // and is handled by the build cycle (OnTreeBuilt), not this hook.
-        if (layoutChanged && oldLayout.Width > 0 && oldLayout.Height > 0)
+        // Most components only need resize notifications; a component that
+        // publishes an external geometry contract may opt into the initial
+        // 0 → actual transition as well (the custom window chrome does this).
+        if (layoutChanged &&
+            (oldLayout.Width > 0 && oldLayout.Height > 0 || panel.NotifyInitialLayoutChanged))
             panel.OnLayoutChanged();
     }
 

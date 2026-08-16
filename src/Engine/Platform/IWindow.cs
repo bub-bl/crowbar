@@ -14,11 +14,18 @@ public interface IWindow : IDisposable
     bool IsClosing { get; }
     nint NativeHandle { get; }
 
-    /// <summary>True while the window is maximized.</summary>
-    bool IsMaximized { get; }
+    /// <summary>
+    /// Live window-chrome state: the hovered caption button, maximized/active/
+    /// fullscreen flags and whether this platform draws a custom client-area
+    /// caption (Windows). The host mirrors it into the UI every frame.
+    /// </summary>
+    WindowChromeState ChromeState { get; }
 
-    /// <summary>The caption button the cursor is hovering (Windows native chrome).</summary>
-    WindowChromeButton HoveredChromeButton { get; }
+    /// <summary>
+    /// Toggles exclusive fullscreen (game-style, the whole display is taken
+    /// over) or restores the previous windowed state.
+    /// </summary>
+    void SetFullscreen(bool fullscreen);
 
     /// <summary>
     /// Hands the custom title-bar geometry to the platform so its hit test can

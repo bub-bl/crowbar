@@ -211,6 +211,20 @@ root {
     }
 }
 
+// Plateau/plateformes sans caption custom, ou plein écran : les boutons
+// fenêtre restent montés (leurs @ref alimentent la publication de la géométrie)
+// mais invisibles. Surtout pas display:none : Yoga ne mesurerait plus les
+// boutons, leurs rects seraient publiés vides et WM_NCHITTEST ne reconnaîtrait
+// plus les zones minimize/maximize/close quand le chrome redevient actif.
+.tb-window-hidden {
+    opacity: 0;
+}
+
+// Fenêtre inactive : la barre s'estompe comme un caption natif.
+.tb-inactive {
+    opacity: 0.55;
+}
+
 .tb-win-btn {
     width: 46px;
     height: 44px;
@@ -238,6 +252,6 @@ root {
 
 .tb-close:hover,
 .tb-close.hover {
-    background-color: #e81123;
+    background-color: $close;
     color: $text-bright;
 }

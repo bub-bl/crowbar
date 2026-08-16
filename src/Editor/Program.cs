@@ -30,6 +30,8 @@ internal sealed class DemoApplication : Application
     private ScriptHost? _scriptHost;
     private readonly object? _gamemodeHolder = new GamemodeHolder();
     private MethodInfo? _describe;
+    private Level? _demoLevel;
+    private string _lastWindowTitle = string.Empty;
 
     protected override void OnInitialize()
     {
@@ -41,6 +43,7 @@ internal sealed class DemoApplication : Application
         // (fill) and two cubes rendered by MeshRenderers through the world
         // system (World).
         var level = World.CreateLevel("Demo");
+        _demoLevel = level;
 
         var sun = level.SpawnEntity("Sun");
         var sunLight = sun.AddComponent<DirectionalLight>();
@@ -117,7 +120,6 @@ internal sealed class DemoApplication : Application
         var precompileWatch = Stopwatch.StartNew();
         Ui.PrecompileAll();
         Console.WriteLine($"Razor UI: precompiled in {precompileWatch.ElapsedMilliseconds} ms");
-        Ui.NavigationChanged += url => Window.SetTitle($"Crowbar — {url}");
         var navigateWatch = Stopwatch.StartNew();
         Ui.Navigate("/editor");
         Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
@@ -155,6 +157,12 @@ internal sealed class DemoApplication : Application
     protected override void OnUpdate(float deltaTime)
     {
         base.OnUpdate(deltaTime);
+
+        // Document shown in the custom title bar (the open level; the dirty
+        // flag will come from the asset/save system). The OS title follows the
+        // same document, so Alt-Tab shows the open level too.
+        EditorDocumentState.Publish(_demoLevel?.Name ?? string.Empty, isDirty: false);
+        SyncWindowTitle();
 
         // Live values for the editor status bar (FPS, memory, latency). The
         // editor page re-renders on a throttle and reads these statics.
@@ -265,6 +273,26 @@ internal sealed class DemoApplication : Application
     /// </summary>
     protected override UiRect? MouseLookClampRect =>
         Ui.SceneViewport ?? new UiRect(0, 0, ViewportWidth, ViewportHeight);
+
+    /// <summary>
+    /// Pushes the composed window title (document name + dirty flag) to the OS
+    /// only when it changed, so the platform title is not set every frame.
+    /// </summary>
+    private void SyncWindowTitle()
+    {
+        var title = ComposeWindowTitle();
+        if (string.Equals(title, _lastWindowTitle, StringComparison.Ordinal)) return;
+        _lastWindowTitle = title;
+        Window.SetTitle(title);
+    }
+
+    /// <summary>Composes the OS window title from the open document and the current route.</summary>
+    private string ComposeWindowTitle()
+    {
+        var doc = EditorDocumentState.Title;
+        if (doc.Length == 0) return $"Crowbar — {Ui.CurrentUrl}";
+        return EditorDocumentState.IsDirty ? $"Crowbar — {doc} ●" : $"Crowbar — {doc}";
+    }
 
     /// <summary>True when the cursor is inside the docked viewport rectangle (the whole window before the first layout).</summary>
     private bool IsPointerInsideViewport()

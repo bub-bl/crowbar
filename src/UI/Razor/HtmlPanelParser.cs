@@ -143,6 +143,7 @@ internal static class HtmlPanelParser
             child.NavigationRequested = runtime.NavigationRequested;
             child.ViewportPublishRequested = runtime.ViewportPublishRequested;
             child.WindowChromePublishRequested = runtime.WindowChromePublishRequested;
+            child.WindowChromeStateProvider = runtime.WindowChromeStateProvider;
             foreach (var attribute in element.Attributes())
             {
                 if (attribute.Name.LocalName.Equals("class", StringComparison.OrdinalIgnoreCase))

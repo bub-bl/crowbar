@@ -119,6 +119,14 @@ public class Panel
     /// derived state — the docked scene viewport — without a Razor rebuild.
     /// </summary>
     protected internal virtual void OnLayoutChanged() { }
+    /// <summary>
+    /// Allows a component whose published contract depends on its first resolved
+    /// geometry (for example the native window chrome) to receive the initial
+    /// 0 → actual layout notification. Most components intentionally keep the
+    /// default false because their first render already schedules their normal
+    /// build lifecycle.
+    /// </summary>
+    protected internal virtual bool NotifyInitialLayoutChanged => false;
     /// <summary>Horizontal scroll offset of the content box, in layout units.</summary>
     public float ScrollX { get; private set; }
     /// <summary>Vertical scroll offset of the content box, in layout units.</summary>

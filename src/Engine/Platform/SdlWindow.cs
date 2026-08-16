@@ -28,6 +28,8 @@ internal sealed unsafe class SdlWindow : IWindow
     private int _height;
     private int _drawableWidth;
     private int _drawableHeight;
+    private bool _focused = true;
+    private bool _fullscreen;
     private bool _closing;
     private bool _disposed;
     private long _lastTick;
@@ -85,14 +87,36 @@ internal sealed unsafe class SdlWindow : IWindow
     public int FramebufferHeight => _drawableHeight;
     public bool IsClosing => _closing;
 
-    public bool IsMaximized =>
-        (_sdl.GetWindowFlags(_window) & (uint)WindowFlags.Maximized) != 0;
-
-    public WindowChromeButton HoveredChromeButton =>
-        _chrome?.HoveredButton ?? WindowChromeButton.None;
+    public WindowChromeState ChromeState => new(
+        _chrome?.HoveredButton ?? WindowChromeButton.None,
+        IsMaximized,
+        _focused,
+        _fullscreen,
+        _chrome is not null);
 
     public void SetChromeLayout(WindowChromeLayout? layout) =>
         _chrome?.SetLayout(layout);
+
+    /// <summary>
+    /// Enters or leaves exclusive fullscreen (SDL_WINDOW_FULLSCREEN), the same
+    /// mode standalone Unreal/Unity games use: the window takes over the whole
+    /// display, with no borders or taskbar. The caption/client geometry changes
+    /// with the mode, so the sizes are re-read immediately.
+    /// </summary>
+    public void SetFullscreen(bool fullscreen)
+    {
+        if (_fullscreen == fullscreen)
+            return;
+        _fullscreen = fullscreen;
+        // Tell the Win32 chrome first: the fullscreen switch triggers a
+        // WM_NCCALCSIZE/WM_NCHITTEST burst that must already see the new mode.
+        _chrome?.SetFullscreen(fullscreen);
+        _sdl.SetWindowFullscreen(_window, fullscreen ? (uint)WindowFlags.Fullscreen : 0);
+        RefreshSizes();
+    }
+
+    private bool IsMaximized =>
+        (_sdl.GetWindowFlags(_window) & (uint)WindowFlags.Maximized) != 0;
 
     /// <summary>
     /// The Windows HWND backing this SDL window, or 0 on other platforms. The
@@ -220,10 +244,12 @@ internal sealed unsafe class SdlWindow : IWindow
                 break;
 
             case WindowEventID.FocusGained:
+                _focused = true;
                 _input.SetFocused(true);
                 break;
 
             case WindowEventID.FocusLost:
+                _focused = false;
                 _input.SetFocused(false);
                 FlushPendingKey();
                 break;

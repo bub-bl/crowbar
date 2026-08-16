@@ -52,6 +52,12 @@ public sealed partial class UiSystem : IDisposable
     /// so WM_NCHITTEST can reproduce the native caption behavior.
     /// </summary>
     public WindowChromeLayout? WindowChrome { get; private set; }
+    /// <summary>
+    /// Live window-chrome state mirrored by the host each frame (hovered caption
+    /// button, maximized, active, fullscreen, custom-chrome support). The TopBar
+    /// reads it through its injected provider to render the caption feedback.
+    /// </summary>
+    public WindowChromeState ChromeState { get; set; } = WindowChromeState.Default;
     /// <summary>Raised after a navigation, with the new URL.</summary>
     public event Action<string>? NavigationChanged;
     /// <summary>All routes discovered from <c>@page</c> directives.</summary>
@@ -225,6 +231,7 @@ public sealed partial class UiSystem : IDisposable
         _razorRoot.NavigationRequested = Navigate;
         _razorRoot.ViewportPublishRequested = rect => SceneViewport = rect;
         _razorRoot.WindowChromePublishRequested = chrome => WindowChrome = chrome;
+        _razorRoot.WindowChromeStateProvider = () => ChromeState;
         _currentRoute = null;
         SceneViewport = null;
         WindowChrome = null;
@@ -383,6 +390,7 @@ public sealed partial class UiSystem : IDisposable
             template.NavigationRequested = Navigate;
             template.ViewportPublishRequested = rect => SceneViewport = rect;
             template.WindowChromePublishRequested = chrome => WindowChrome = chrome;
+            template.WindowChromeStateProvider = () => ChromeState;
             _razorFactory = factory;
             _razorRoot = template;
             _currentRoute = route;

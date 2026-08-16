@@ -420,6 +420,23 @@ public abstract class RazorPanel : PanelComponent, IComponent
     /// <summary>Publishes the custom title-bar geometry (null when there is no title bar).</summary>
     protected void PublishWindowChrome(WindowChromeLayout? layout) => WindowChromePublishRequested?.Invoke(layout);
 
+    /// <summary>
+    /// Host → UI channel for the live window-chrome state (hovered caption
+    /// button, maximized, active, fullscreen, custom-chrome support), mirrored
+    /// by the host each frame. Wired like <see cref="WindowChromePublishRequested"/>
+    /// and propagated to child components; a component such as the TopBar reads
+    /// <see cref="ChromeState"/> to render the caption feedback.
+    /// </summary>
+    internal Func<WindowChromeState>? WindowChromeStateProvider { get; set; }
+
+    /// <summary>
+    /// The current window-chrome state, or <see cref="WindowChromeState.Default"/>
+    /// before the host has wired a provider. Components hash the fields they
+    /// render so the caption feedback updates when the platform state changes.
+    /// </summary>
+    protected WindowChromeState ChromeState =>
+        WindowChromeStateProvider?.Invoke() ?? WindowChromeState.Default;
+
     // The Razor SDK generates a design-time declaration for .razor files.
     // That declaration contains the component shape but not the generated
     // ExecuteAsync body, so the base must remain instantiable from the IDE's

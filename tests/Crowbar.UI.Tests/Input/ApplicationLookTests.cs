@@ -402,8 +402,8 @@ public class ApplicationLookTests
         public int FramebufferHeight => 480;
         public bool IsClosing => false;
         public nint NativeHandle => 0;
-        public bool IsMaximized => false;
-        public WindowChromeButton HoveredChromeButton => WindowChromeButton.None;
+        public WindowChromeState ChromeState => WindowChromeState.Default;
+        public void SetFullscreen(bool fullscreen) { }
         public void SetChromeLayout(WindowChromeLayout? layout) { }
         public IInputSource Input { get; }
         public event Action? Loaded;
