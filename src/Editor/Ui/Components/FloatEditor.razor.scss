@@ -1,0 +1,7 @@
+@use '../_editor-theme' as *;
+@use '_property-editor' as *;
+
+root {
+    width: 100%;
+    flex-shrink: 0;
+}

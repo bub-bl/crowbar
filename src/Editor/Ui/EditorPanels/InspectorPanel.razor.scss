@@ -22,7 +22,15 @@ root {
     gap: 7px;
 }
 
-.insp-row {
+.insp-empty {
+    width: 100%;
+    flex-shrink: 0;
+    color: $text-muted;
+    font-size: 10px;
+    line-height: 18px;
+}
+
+.insp-head {
     width: 100%;
     flex-shrink: 0;
     flex-direction: row;
@@ -30,63 +38,21 @@ root {
     gap: 8px;
 }
 
-.section-title {
-    width: 100%;
-    flex-shrink: 0;
-    height: 16px;
-    margin-top: 3px;
-    color: $text-bright;
-    font-size: 10px;
-    font-weight: bold;
-    line-height: 16px;
-    flex-direction: row;
-    align-items: center;
-}
-
-.count {
-    color: $text-muted;
-    font-size: 9px;
-    font-weight: normal;
-}
-
-.model-row {
-    width: 100%;
-    flex-shrink: 0;
-    flex-direction: row;
-    align-items: center;
-    gap: 5px;
-}
-
-.field {
+.entity-name {
     flex-grow: 1;
     height: 22px;
     border-radius: 3px;
     background-color: $input-bg;
     border: 1px solid $border;
-    color: $text;
-    font-size: 10px;
-    cursor: text;
-    padding: 0 6px;
-    box-sizing: border-box;
-}
-
-.folder-btn {
-    width: 24px;
-    height: 22px;
-    border-radius: 3px;
-    background-color: $panel-head;
-    border: 1px solid $border;
-    color: $text-muted;
-    cursor: pointer;
+    color: $text-bright;
     font-size: 11px;
-    text-align: center;
-    vertical-align: center;
+    font-weight: bold;
     line-height: 20px;
+    padding: 0 8px;
     box-sizing: border-box;
-
-    &:hover {
-        color: $text-bright;
-    }
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: clip;
 }
 
 .add-component {

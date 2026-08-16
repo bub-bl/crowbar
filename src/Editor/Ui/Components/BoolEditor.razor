@@ -1,0 +1,13 @@
+@inherits Crowbar.UI.PropertyEditorBase
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+@attribute [EditorProperty(typeof(bool))]
+
+<div class="prop-row" style="padding-left: @(Indent * 12)px">
+    <div class="field-label">@Name</div>
+    <div class="prop-value">@Value</div>
+</div>
+
+@code {
+    protected override int BuildHash() => HashCode.Combine(Name, Value, Indent);
+}

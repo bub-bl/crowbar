@@ -11,8 +11,10 @@ namespace Crowbar.Engine;
 public abstract class Light : TransformComponent
 {
     /// <summary>Linear RGB color of the light.</summary>
+    [Property]
     public Vector3 Color { get; set; } = Vector3.One;
 
     /// <summary>Intensity multiplier applied to the color.</summary>
+    [Property]
     public float Intensity { get; set; } = 1f;
 }

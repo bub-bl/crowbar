@@ -70,6 +70,7 @@ public sealed partial class UiSystem : IDisposable
         {
             LoadScopedStyles(tagName, cssSource, scopeId);
         }
+        PropertyEditorRegistry.RegisterFromSource(source, tagName);
         var factory = new RazorComponentFactory();
         var typeParameters = RazorComponentFactory.TypeParamNamesFromSource(source);
         _razorComponents[tagName] = new RazorComponentSource(typeParameters, typeArguments =>
@@ -80,6 +81,16 @@ public sealed partial class UiSystem : IDisposable
             template.ScopeId = scopeId;
             return template;
         });
+    }
+
+    /// <summary>
+    /// Registers a native (non-Razor) component instance under a tag name. The
+    /// editor's property dispatcher is registered this way: its markup is
+    /// produced in code, not compiled from a .razor file.
+    /// </summary>
+    public void RegisterComponent(string tagName, Func<RazorPanel> create)
+    {
+        _razorComponents[tagName] = new RazorComponentSource([], _ => create());
     }
 
     public void RegisterRazorComponentFromFile(string tagName, string razorPath, string className)
@@ -101,7 +112,9 @@ public sealed partial class UiSystem : IDisposable
         var cssPath = GetAssociatedCssPath(razorPath);
         if (fs.FileExists(cssPath)) LoadScopedStyles(tagName, ReadStableTextCached(cssPath), scopeId);
         var fileFactory = new RazorComponentFactory();
-        var typeParameters = RazorComponentFactory.TypeParamNamesFromSource(fs.FileExists(razorPath) ? ReadStableTextCached(razorPath) : string.Empty);
+        var source = fs.FileExists(razorPath) ? ReadStableTextCached(razorPath) : string.Empty;
+        PropertyEditorRegistry.RegisterFromSource(source, tagName);
+        var typeParameters = RazorComponentFactory.TypeParamNamesFromSource(source);
         _razorComponents[tagName] = new RazorComponentSource(typeParameters, typeArguments =>
         {
             var template = fileFactory.CompileTemplateFromFile(razorPath, className, typeof(PanelComponent),

@@ -25,11 +25,18 @@ public class EditorPageCompositionTests
         var ui = new UiSystem();
         ui.SetViewport(1280, 720);
         ui.RegisterRazorComponentsFromDirectory(uiDir);
+        ui.RegisterComponent("PropertyEditor", () => new PropertyEditor());
         ui.Navigate("/editor");
         // The Explorer tree is no longer hard-coded: it mirrors the state the
         // editor host publishes from the live world. Publish a demo hierarchy
         // so the tree assertions see the same rows the old fake tree showed.
+        // The inspector reads its own snapshot the same way (see
+        // PublishDemoInspectorState), so publish both before the first frame.
+        // Inspector section ids are stable strings, so reset the shared state
+        // first or a collapse left by another test would leak in.
+        EditorInspectorState.Reset();
         PublishDemoExplorerState();
+        PublishDemoInspectorState();
         // The DockArea positions its dock groups from the rect of its own root,
         // which is only known after a layout pass: run one full frame like the
         // app loop (render to lay out, update to rebuild, render to paint) so
@@ -86,6 +93,33 @@ public class EditorPageCompositionTests
         // its Points_Spawn leaf (flag) visible.
         EditorExplorerState.Publish(nodes, maison);
         EditorExplorerState.ToggleCollapsed(props);
+    }
+
+    /// <summary>
+    /// Publishes the inspector snapshot the real InspectorStateBuilder would
+    /// produce for the selected entity (a transform plus a MeshRenderer with a
+    /// Pbr material), so the panel assertions see every editor instead of the
+    /// old hard-coded rows.
+    /// </summary>
+    internal static void PublishDemoInspectorState()
+    {
+        EditorInspectorState.Publish("House",
+        [
+            new EditorInspectorState.Section("transform", "Transform", null,
+            [
+                new EditorInspectorState.Property("Position", "System.Numerics.Vector3", "1245.6, 320.7, 884.2"),
+                new EditorInspectorState.Property("Rotation", "System.Numerics.Vector3", "0, 132.5, 0"),
+                new EditorInspectorState.Property("Scale", "System.Numerics.Vector3", "1, 1, 1")
+            ]),
+            new EditorInspectorState.Section("MeshRenderer", "MeshRenderer", "Solar/ui/Bold/box-minimalistic",
+            [
+                new EditorInspectorState.Property("Material", "System.Object", "Pbr"),
+                new EditorInspectorState.Property("Color", "System.Numerics.Vector4", "0.2, 0.6, 1, 1", Indent: 1),
+                new EditorInspectorState.Property("Metallic", "System.Single", "0.15", Indent: 1),
+                new EditorInspectorState.Property("Model", "System.Object", "house.glb"),
+                new EditorInspectorState.Property("Roughness", "System.Single", "0.45", Indent: 1)
+            ])
+        ]);
     }
 
     /// <summary>Text lives on child text panels, so match against the descendant text.</summary>
@@ -155,10 +189,17 @@ public class EditorPageCompositionTests
         Assert.NotNull(selected);
         Assert.Equal(new UiColor(47, 111, 224, 255), selected!.ComputedStyle.BackgroundColor);
 
-        // The material thumbnail color class comes from a parameter.
-        var vitre = TestUi.Find(content, p => p.Classes.Contains("mat-thumb") && p.Classes.Contains("mat-glass"));
-        Assert.NotNull(vitre);
-        Assert.Equal(new UiColor(143, 183, 214, 255), vitre!.ComputedStyle.BackgroundColor);
+        // The inspector's entity-name field is styled by the InspectorPanel's
+        // own scoped sheet, across the panel boundary.
+        var entityName = TestUi.Find(content, p => p.Classes.Contains("entity-name"));
+        Assert.NotNull(entityName);
+        Assert.Equal(new UiColor(14, 14, 14, 255), entityName!.ComputedStyle.BackgroundColor);
+
+        // The collapsible section header (InspectorSection primitive) is styled
+        // by its own sheet, not the panel's.
+        var sectionHead = TestUi.Find(content, p => p.Classes.Contains("insp-section-head"));
+        Assert.NotNull(sectionHead);
+        Assert.Equal(new UiColor(242, 242, 242, 255), sectionHead!.ComputedStyle.Color);
     }
 
     [Fact]
@@ -232,31 +273,75 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
-    public void CheckboxRowsKeepTheirOwnStateAcrossReRenders()
+    public void InspectorSectionsCollapseAndStayCollapsedAcrossRepublish()
     {
         using var ui = CreateEditorUi();
         var content = ui.Content!;
 
-        // Two checkboxes: Actif (inspector head) and Générer Collision
-        // (inspector body). Both start checked.
-        var toggles = TestUi.FindAll(content, p => p is ToggleInput).Cast<ToggleInput>().ToList();
-        Assert.Equal(2, toggles.Count);
-        Assert.All(toggles, t => Assert.True(t.IsChecked));
+        // The Transform section starts open: its Position/Rotation/Scale rows
+        // are visible and the caret points down.
+        var transformHead = TestUi.FindAll(content, p => p.Classes.Contains("insp-section-head"))
+            .Single(head => TestUi.Texts(head).Any(t => t == "Transform"));
+        Assert.Contains("▾", TestUi.Texts(transformHead));
+        Assert.NotNull(TestUi.Find(content, p => TestUi.Texts(p).Any(t => t == "Position")));
 
-        // Toggle "Générer Collision" (located by its row label: the docked
-        // tree order no longer guarantees a fixed index). The CheckRow
-        // primitive owns its state, so it must stay unchecked even though the
-        // parent page re-renders.
-        var generer = toggles.Single(t => TestUi.Texts(t.Parent!).Any(text => text.Contains("Générer Collision", StringComparison.Ordinal)));
-        ui.ProcessPointerDown(generer.Layout.X + 1, generer.Layout.Y + 1);
-        ui.ProcessPointerUp(generer.Layout.X + 1, generer.Layout.Y + 1);
+        // Click the header: the body collapses and the caret flips.
+        ui.ProcessPointerDown(transformHead.Layout.X + 1, transformHead.Layout.Y + 1);
+        ui.ProcessPointerUp(transformHead.Layout.X + 1, transformHead.Layout.Y + 1);
         ui.Update();
         ui.Prepare();
 
-        toggles = TestUi.FindAll(ui.Content!, p => p is ToggleInput).Cast<ToggleInput>().ToList();
-        Assert.Equal(2, toggles.Count);
-        Assert.Equal(1, toggles.Count(t => t.IsChecked));
-        Assert.False(toggles.Single(t => TestUi.Texts(t.Parent!).Any(text => text.Contains("Générer Collision", StringComparison.Ordinal))).IsChecked);
+        Assert.Null(TestUi.Find(ui.Content!, p => TestUi.Texts(p).Any(t => t == "Position")));
+        transformHead = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("insp-section-head"))
+            .Single(head => TestUi.Texts(head).Any(t => t == "Transform"));
+        Assert.Contains("▸", TestUi.Texts(transformHead));
+
+        // Republishing the same snapshot (the host does this every frame) must
+        // not reopen the section the user folded.
+        PublishDemoInspectorState();
+        ui.Update();
+        ui.Prepare();
+
+        Assert.Null(TestUi.Find(ui.Content!, p => TestUi.Texts(p).Any(t => t == "Position")));
+        Assert.True(EditorInspectorState.IsCollapsed("transform"));
+    }
+
+    [Fact]
+    public void InspectorReflectsThePublishedSelection()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // The published entity name is shown, and its transform + component
+        // sections carry the real labels and values.
+        Assert.NotNull(TestUi.Find(content, p => p.Classes.Contains("entity-name") && TestUi.Texts(p).Contains("House")));
+        Assert.NotNull(FindText(content, "insp-section-head", t => t == "Transform"));
+        Assert.NotNull(FindText(content, "insp-section-head", t => t == "MeshRenderer"));
+        Assert.NotNull(TestUi.Find(content, p => TestUi.Texts(p).Any(t => t == "house.glb")));
+
+        // Publishing a different selection replaces the panel content.
+        EditorInspectorState.Publish("Sun",
+        [
+            new EditorInspectorState.Section("transform", "Transform", null,
+            [
+                new EditorInspectorState.Property("Position", "System.Numerics.Vector3", "0, 0, 0"),
+                new EditorInspectorState.Property("Rotation", "System.Numerics.Vector3", "-45, -35, 0"),
+                new EditorInspectorState.Property("Scale", "System.Numerics.Vector3", "1, 1, 1")
+            ]),
+            new EditorInspectorState.Section("DirectionalLight", "DirectionalLight", "Solar/devices/Bold/lightbulb",
+            [
+                new EditorInspectorState.Property("Color", "System.Numerics.Vector3", "1, 0.95, 0.85"),
+                new EditorInspectorState.Property("Intensity", "System.Single", "1.6")
+            ])
+        ]);
+        ui.Update();
+        ui.Prepare();
+
+        content = ui.Content!;
+        Assert.NotNull(TestUi.Find(content, p => p.Classes.Contains("entity-name") && TestUi.Texts(p).Contains("Sun")));
+        Assert.NotNull(FindText(content, "insp-section-head", t => t == "DirectionalLight"));
+        Assert.Null(FindText(content, "insp-section-head", t => t == "MeshRenderer"));
+        Assert.NotNull(TestUi.Find(content, p => TestUi.Texts(p).Any(t => t == "1.6")));
     }
 
     [Fact]

@@ -11,5 +11,6 @@ namespace Crowbar.Engine;
 public sealed class DirectionalLight : Light
 {
     /// <summary>The world-space direction the light travels (pointing from the light).</summary>
+    [Property]
     public Vector3 Direction => World.Rotation.Forward;
 }

@@ -561,6 +561,14 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
                     // is consumed by UiSystem, never emitted.
                     b.AddDirective(DirectiveDescriptor.CreateDirective("page", DirectiveKind.SingleLine,
                         d => d.AddStringToken()));
+                    // @attribute is a components-only directive too; editors use it
+                    // to declare their property type ([EditorProperty(...)]). The
+                    // attribute is emitted onto the generated class (editor files
+                    // therefore carry the matching @using directives), and the
+                    // registry additionally reads it from the source at
+                    // registration time so editors are mapped without compiling.
+                    b.AddDirective(DirectiveDescriptor.CreateDirective("attribute", DirectiveKind.SingleLine,
+                        d => d.AddAttributeToken()));
                     // Captures every directive before the classifier passes consume
                     // them, and stashes them on the code document. The pass keeps
                     // no instance state, so the shared engine is concurrency-safe.

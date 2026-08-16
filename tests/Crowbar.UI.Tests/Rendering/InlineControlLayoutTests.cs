@@ -77,17 +77,20 @@ public class InlineControlLayoutTests
     }
 
     [Fact]
-    public void SectionTitleLaysCountBesideTheHeading()
+    public void InspectorSectionHeadLaysCaretAndTitleOnOneLine()
     {
         using var ui = EditorPageCompositionTests.CreateEditorUi();
         var content = ui.Content!;
 
-        var title = TestUi.Find(content, p => p.Classes.Contains("section-title") &&
-            TestUi.Texts(p).Any(t => t.Contains("MATÉRIAUX", StringComparison.Ordinal)));
-        Assert.NotNull(title);
-        var heading = title!.Children.Single(c => c.TagName == "text");
-        var count = title.Children.Single(c => c.Classes.Contains("count"));
-        AssertSameLine(heading, count, "section-title heading/count");
+        // The collapsible inspector sections replaced the old fake
+        // "MATÉRIAUX Éléments: 5" title+count row. The same inline contract
+        // now applies to the section head: caret and title sit side by side.
+        var head = TestUi.Find(content, p => p.Classes.Contains("insp-section-head") &&
+            TestUi.Texts(p).Any(t => t == "Transform"));
+        Assert.NotNull(head);
+        var caret = head!.Children.Single(c => c.Classes.Contains("caret"));
+        var title = head.Children.Single(c => c.Classes.Contains("insp-section-title"));
+        AssertSameLine(caret, title, "insp-section-head caret/title");
     }
 
 }

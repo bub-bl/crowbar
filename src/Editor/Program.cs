@@ -107,13 +107,19 @@ internal sealed class DemoApplication : Application
         Renderer?.Gizmos.Selection = cube;
 
         // Publish the real world hierarchy for the Explorer panel: the page
-        // reads it through EditorExplorerState on every render.
+        // reads it through EditorExplorerState on every render. The inspector
+        // reads the same selection through EditorInspectorState.
         ExplorerTreeBuilder.Publish(World, Renderer?.Gizmos.Selection);
+        InspectorStateBuilder.Publish(Renderer?.Gizmos.Selection);
 
         // Automatic registration of the whole Ui/ folder: files with @page
         // become routable pages, the others become components.
         const string uiDirectory = "/Ui";
         var registeredCount = Ui.RegisterRazorComponentsFromDirectory(uiDirectory);
+        // The property dispatcher is native code (it resolves editors from the
+        // [EditorProperty] registry at render time), so it is registered here
+        // alongside the .razor components found in the directory.
+        Ui.RegisterComponent("PropertyEditor", () => new PropertyEditor());
         Console.WriteLine($"Razor UI: registered {registeredCount} file(s) from {uiDirectory}");
         // Parallel precompilation: the first render (Navigate) is only cache
         // hits. Timed to validate the gains.
@@ -186,6 +192,7 @@ internal sealed class DemoApplication : Application
             World.FindEntity(requestedId) is { } requested)
             Renderer?.Gizmos.Selection = requested;
         ExplorerTreeBuilder.Publish(World, Renderer?.Gizmos.Selection);
+        InspectorStateBuilder.Publish(Renderer?.Gizmos.Selection);
 
         var renderer = Renderer;
         if (renderer is null)

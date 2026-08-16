@@ -12,11 +12,13 @@ namespace Crowbar.Engine;
 public sealed class MeshRenderer : TransformComponent
 {
     /// <summary>The geometry to draw, or null to draw nothing.</summary>
+    [Property]
     public Model? Model { get; set; }
 
     /// <summary>
     /// The material (a shader plus its parameter values), or null to use the
     /// engine's default material.
     /// </summary>
+    [Property]
     public Material? Material { get; set; }
 }

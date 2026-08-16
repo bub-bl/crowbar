@@ -9,5 +9,6 @@ namespace Crowbar.Engine;
 public sealed class PointLight : Light
 {
     /// <summary>Distance beyond which the light has no effect.</summary>
+    [Property]
     public float Range { get; set; } = 10f;
 }

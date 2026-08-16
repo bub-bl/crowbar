@@ -1,0 +1,22 @@
+@inherits Crowbar.UI.PropertyEditorBase
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+@using System.Numerics
+@attribute [EditorProperty(typeof(Vector3))]
+
+<div class="vec-row" style="padding-left: @(Indent * 12)px">
+    <div class="vec-label">@Name</div>
+    <div class="vec-field"><span class="vec-axis">X</span>@Axis(0)</div>
+    <div class="vec-field"><span class="vec-axis">Y</span>@Axis(1)</div>
+    <div class="vec-field"><span class="vec-axis">Z</span>@Axis(2)</div>
+</div>
+
+@code {
+    private string Axis(int index)
+    {
+        var parts = Value.Split(',');
+        return index < parts.Length ? parts[index].Trim() : string.Empty;
+    }
+
+    protected override int BuildHash() => HashCode.Combine(Name, Value, Indent);
+}

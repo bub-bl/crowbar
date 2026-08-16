@@ -18,6 +18,7 @@ public abstract class TransformComponent : Component
     private readonly List<TransformComponent> _children = [];
 
     /// <summary>Transform relative to <see cref="Parent"/>, or absolute when the component is a root.</summary>
+    [Property]
     public Transform Local
     {
         get => _local;
