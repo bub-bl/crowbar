@@ -49,6 +49,29 @@
     <SlangShaderDependency Include="$(_CrowbarRepoRoot)Shaders\Common\**\*.slang" />
   </ItemGroup>
 
+  <!-- Remove WGSL/sidecar artifacts whose .slang source was renamed or
+       deleted, so dead shaders never linger in the compile intermediates or
+       the shipped output. -->
+  <Target Name="CrowbarPurgeOrphanedSlangShaders"
+          BeforeTargets="CrowbarCompileSlangShaders"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <_CrowbarSlangOnDisk Include="$(IntermediateOutputPath)SlangShaders\**\*.wgsl" />
+      <_CrowbarSlangOnDisk Include="$(IntermediateOutputPath)SlangShaders\**\*.slang.json" />
+      <_CrowbarSlangOnDisk Include="$(TargetDir)Shaders\**\*.wgsl" Condition="'$(TargetDir)' != ''" />
+      <_CrowbarSlangOnDisk Include="$(TargetDir)Shaders\**\*.slang.json" Condition="'$(TargetDir)' != ''" />
+      <_CrowbarSlangExpected Include="@(SlangShader->'$(IntermediateOutputPath)SlangShaders\%(RecursiveDir)%(Filename).wgsl')" />
+      <_CrowbarSlangExpected Include="@(SlangShader->'$(IntermediateOutputPath)SlangShaders\%(RecursiveDir)%(Filename).slang.json')" />
+      <_CrowbarSlangExpected Include="@(SlangShader->'$(TargetDir)Shaders\%(RecursiveDir)%(Filename).wgsl')" Condition="'$(TargetDir)' != ''" />
+      <_CrowbarSlangExpected Include="@(SlangShader->'$(TargetDir)Shaders\%(RecursiveDir)%(Filename).slang.json')" Condition="'$(TargetDir)' != ''" />
+      <_CrowbarSlangOnDisk Remove="@(_CrowbarSlangExpected)" />
+    </ItemGroup>
+    <Message Importance="high"
+             Condition="'@(_CrowbarSlangOnDisk)' != ''"
+             Text="[Slang] Purging orphaned shader artifacts: @(_CrowbarSlangOnDisk)" />
+    <Delete Files="@(_CrowbarSlangOnDisk)" />
+  </Target>
+
   <!-- Incremental: slangc runs only when a .slang source is newer than its
        compiled WGSL (or the sidecar is missing). IntermediateOutputPath is
        referenced inside the targets (not a top-level PropertyGroup) so it
