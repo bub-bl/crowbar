@@ -1,7 +1,10 @@
 // Shared lighting library: the light buffer the engine binds to group 0
-// binding 1, plus the BRDF functions every lit shader reuses. This is the
-// "class library" of the shader API — Mesh, Pbr and any future shadow pass
-// include it instead of re-declaring lights or re-writing fresnel/GGX.
+// binding 1, the shadow-mapping bindings and sampling (Shadows.wgsl), plus
+// the BRDF functions every lit shader reuses. This is the "class library" of
+// the shader API — lit shaders include this one file and call
+// evaluateLights(), so the light/shadow loop exists in exactly one place.
+
+#include "Common/Shadows.wgsl"
 
 struct LightData {
     position_type: vec4<f32>,    // xyz = world position, w = 0 directional / 1 point
@@ -74,6 +77,21 @@ fn evaluateLight(light: LightData, normal: vec3<f32>, viewDir: vec3<f32>, surfac
     }
 
     return (diffuse + specular) * ndotl * light.color_intensity.rgb * light.color_intensity.w * attenuation;
+}
+
+// Evaluates every enabled light at the surface, shadows included. This is the
+// one loop lit shaders call: the light index iterated here is exactly the
+// index shadowFactor() uses for its per-light metadata, so the arrays can
+// never drift out of sync.
+fn evaluateLights(worldPosition: vec3<f32>, normal: vec3<f32>, viewDir: vec3<f32>, baseColor: vec3<f32>, metallic: f32, roughness: f32) -> vec3<f32> {
+    var color = vec3<f32>(0.0);
+    for (var i = 0u; i < lights.count; i++) {
+        let light = lights.lights[i];
+        let light_dir = lightDirection(light, worldPosition);
+        let radiance = evaluateLight(light, normal, viewDir, worldPosition, baseColor, metallic, roughness);
+        color += radiance * shadowFactor(i, worldPosition, light_dir, normal);
+    }
+    return color;
 }
 
 fn tonemap(color: vec3<f32>) -> vec3<f32> {

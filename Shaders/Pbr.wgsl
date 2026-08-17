@@ -1,5 +1,5 @@
 #include "Common/Transform.wgsl"
-#include "Common/Shadows.wgsl"
+#include "Common/VertexIO.wgsl"
 #include "Common/Lighting.wgsl"
 
 struct MaterialUniforms {
@@ -18,21 +18,6 @@ struct MaterialUniforms {
 @group(1) @binding(5) var metallicRoughnessTexture: texture_2d<f32>;
 @group(1) @binding(6) var occlusionTexture: texture_2d<f32>;
 @group(1) @binding(7) var emissiveTexture: texture_2d<f32>;
-
-struct VertexInput {
-    @location(0) position: vec3<f32>,
-    @location(1) normal: vec3<f32>,
-    @location(2) tangent: vec4<f32>,
-    @location(3) uv: vec2<f32>,
-};
-
-struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
-    @location(0) world_position: vec3<f32>,
-    @location(1) normal: vec3<f32>,
-    @location(2) tangent: vec4<f32>,
-    @location(3) uv: vec2<f32>,
-};
 
 @vertex
 fn vs_main(input: VertexInput) -> VertexOutput {
@@ -66,14 +51,8 @@ fn fs_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let normal = normalize(tangent * normal_map.x + bitangent * normal_map.y + geometric_normal * normal_map.z);
     let view_dir = normalize(scene.cameraPosition.xyz - input.world_position);
 
-    var color = vec3<f32>(0.0);
-    for (var i = 0u; i < lights.count; i++) {
-        let light = lights.lights[i];
-        let light_dir = lightDirection(light, input.world_position);
-        let radiance = evaluateLight(light, normal, view_dir, input.world_position,
-            albedo, material.metallic * metallic_roughness.b, material.roughness * metallic_roughness.g);
-        color += radiance * shadowFactor(i, input.world_position, light_dir, normal);
-    }
+    var color = evaluateLights(input.world_position, normal, view_dir,
+        albedo, material.metallic * metallic_roughness.b, material.roughness * metallic_roughness.g);
     color = color * occlusion * material.occlusion + emissive * material.emissive;
 
     return vec4<f32>(tonemap(color), material.color.a);
