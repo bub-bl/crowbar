@@ -690,9 +690,10 @@ public sealed class Renderer : IDisposable
             Usage = BufferUsage.Uniform | BufferUsage.CopyDst
         });
 
+        var shader = Shader.Load(PathUtil.Combine("Shaders", "Surface/ShadowDepth.wgsl"));
         _shadowPipeline = _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "Surface/ShadowDepth.wgsl")).Source,
+            ShaderSource = shader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             DepthOnly = true,
@@ -708,15 +709,7 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x3, Offset = 0, ShaderLocation = 0 }
                 ]
             },
-            BindGroups =
-            [
-                [
-                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
-                ],
-                [
-                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
-                ]
-            ]
+            BindGroups = shader.BuildBindGroupLayouts()
         });
 
         // One view-projection buffer (and bind group) per atlas tile so every
@@ -788,10 +781,10 @@ public sealed class Renderer : IDisposable
             Usage = BufferUsage.Uniform | BufferUsage.CopyDst
         });
 
-        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Editor/Grid.wgsl"));
+        var shader = Shader.Load(PathUtil.Combine("Shaders", "Editor/Grid.wgsl"));
         _gridPipeline = _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = shaderSource,
+            ShaderSource = shader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,
@@ -809,17 +802,7 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x3, Offset = 0, ShaderLocation = 0 }
                 ]
             },
-            BindGroups =
-            [
-                [
-                    new BindGroupLayoutBinding
-                    {
-                        Slot = 0,
-                        Type = BindingType.UniformBuffer,
-                        Stages = ShaderStage.Vertex | ShaderStage.Fragment
-                    }
-                ]
-            ]
+            BindGroups = shader.BuildBindGroupLayouts()
         });
         _gridBindGroup = _gridPipeline.CreateBindGroup(
         [
@@ -1431,25 +1414,13 @@ public sealed class Renderer : IDisposable
             return existing;
 
         var technique = shader.GetTechnique(techniqueName);
-        var group1 = shader.Bindings
-            .Where(binding => binding.Group == 1)
-            .OrderBy(binding => binding.Slot)
-            .Select(binding => new BindGroupLayoutBinding
-            {
-                Slot = binding.Slot,
-                Type = binding.Kind switch
-                {
-                    ShaderBindingKind.UniformBuffer => BindingType.UniformBuffer,
-                    ShaderBindingKind.ReadOnlyStorageBuffer => BindingType.ReadOnlyStorageBuffer,
-                    ShaderBindingKind.Texture => BindingType.Texture,
-                    ShaderBindingKind.Sampler => BindingType.Sampler,
-                    _ => throw new ArgumentOutOfRangeException()
-                },
-                Stages = binding.Kind == ShaderBindingKind.UniformBuffer
-                    ? ShaderStage.Vertex | ShaderStage.Fragment
-                    : ShaderStage.Fragment
-            })
-            .ToList();
+
+        // Group 0 is the engine's shared per-frame state (scene, lights, shadow
+        // map) and includes the one binding slangc's reflection cannot classify
+        // — the shadow comparison sampler — so it stays declared in
+        // SceneGroupBindings. Group 1 (per-renderable: model, material,
+        // textures) derives from the shader's reflected bindings.
+        var bindGroups = shader.BuildBindGroupLayouts();
 
         var pipeline = _device.CreatePipeline(new PipelineDescription
         {
@@ -1461,7 +1432,7 @@ public sealed class Renderer : IDisposable
             DepthWriteEnabled = true,
             DepthCompare = CompareFunction.Less,
             VertexLayout = MeshVertexLayout,
-            BindGroups = [SceneGroupBindings, group1]
+            BindGroups = [SceneGroupBindings, bindGroups[1]]
         });
         _meshPipelines.Add(key, pipeline);
         return pipeline;
@@ -1682,10 +1653,10 @@ public sealed class Renderer : IDisposable
     {
         _uiSampler ??= _device.CreateSampler(new SamplerDescription());
 
-        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/Blit.wgsl"));
+        var shader = Shader.Load(PathUtil.Combine("Shaders", "Ui/Blit.wgsl"));
         _uiPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = shaderSource,
+            ShaderSource = shader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,
@@ -1700,13 +1671,7 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
                 ]
             },
-            BindGroups =
-            [
-                [
-                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment }
-                ]
-            ]
+            BindGroups = shader.BuildBindGroupLayouts()
         });
 
         if (_uiVertexBuffer == null)
@@ -1732,11 +1697,11 @@ public sealed class Renderer : IDisposable
     /// </summary>
     private void CreateUi2DResources()
     {
-        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/BlitLinear.wgsl"));
+        var shader = Shader.Load(PathUtil.Combine("Shaders", "Ui/BlitLinear.wgsl"));
         _ui2dSampler ??= _device.CreateSampler(new SamplerDescription());
         _ui2dPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = shaderSource,
+            ShaderSource = shader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,
@@ -1751,19 +1716,13 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
                 ]
             },
-            BindGroups =
-            [
-                [
-                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment }
-                ]
-            ]
+            BindGroups = shader.BuildBindGroupLayouts()
         });
     }
 
     private void CreateBackdropResources()
     {
-        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/Backdrop.wgsl"));
+        var shader = Shader.Load(PathUtil.Combine("Shaders", "Ui/Backdrop.wgsl"));
         _backdropParamsBuffer = _device.CreateBuffer(new BufferDescription
         {
             Size = (ulong)(MaxBackdropRegions * sizeof(BackdropGpuParams)),
@@ -1773,7 +1732,7 @@ public sealed class Renderer : IDisposable
 
         _backdropPipeline = _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = shaderSource,
+            ShaderSource = shader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,
@@ -1788,14 +1747,7 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
                 ]
             },
-            BindGroups =
-            [
-                [
-                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Sampler, Stages = ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 2, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Fragment }
-                ]
-            ]
+            BindGroups = shader.BuildBindGroupLayouts()
         });
     }
 
@@ -1903,9 +1855,10 @@ public sealed class Renderer : IDisposable
         // The mask pipeline reuses the mesh vertex buffers (48-byte stride,
         // position at location 0) and the shared scene buffer; only the model
         // uniform is per-renderable.
+        var shader = Shader.Load(PathUtil.Combine("Shaders", "Editor/SelectionMask.wgsl"));
         _selectionMaskPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "Editor/SelectionMask.wgsl")).Source,
+            ShaderSource = shader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = TextureFormat.Rgba8Unorm,
@@ -1922,20 +1875,13 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x3, Offset = 0, ShaderLocation = 0 }
                 ]
             },
-            BindGroups =
-            [
-                [
-                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
-                ],
-                [
-                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex }
-                ]
-            ]
+            BindGroups = shader.BuildBindGroupLayouts()
         });
 
+        var outlineShader = Shader.Load(PathUtil.Combine("Shaders", "Editor/SelectionOutline.wgsl"));
         _outlinePipeline ??= _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "Editor/SelectionOutline.wgsl")).Source,
+            ShaderSource = outlineShader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,
@@ -1950,15 +1896,7 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
                 ]
             },
-            BindGroups =
-            [
-                [
-                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 2, Type = BindingType.Sampler, Stages = ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 3, Type = BindingType.UniformBuffer, Stages = ShaderStage.Fragment }
-                ]
-            ]
+            BindGroups = outlineShader.BuildBindGroupLayouts()
         });
 
         _selectionMaskSceneBindGroup = _selectionMaskPipeline.CreateBindGroup(0,

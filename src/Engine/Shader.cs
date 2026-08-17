@@ -1,5 +1,6 @@
 using System.Numerics;
 using System.Text.Json;
+using Crowbar.Engine.Rendering;
 using Crowbar.FileSystems;
 
 namespace Crowbar.Engine;
@@ -118,6 +119,46 @@ public sealed class Shader
         return EntryPoints.FirstOrDefault(entry => entry.Name == name)
                ?? throw new InvalidOperationException(
                    $"Shader '{Name}' does not contain an entry point named '{name}'.");
+    }
+
+    /// <summary>
+    /// Builds the bind-group layouts this shader requires from its reflected
+    /// bindings, one layout per group ordered by slot. Slangc's reflection
+    /// reports each binding's group (space), slot (index), kind and texture
+    /// shape, so the pipeline layout derives from the shader instead of being
+    /// hand-coded per pass. Stage visibility is conservative — uniform and
+    /// storage buffers are exposed to both stages, textures and samplers to
+    /// the fragment stage — which WebGPU accepts as a superset of any narrower
+    /// usage, and depth textures (reflected as <c>texture_depth_2d</c>) map to
+    /// the depth binding type.
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<BindGroupLayoutBinding>> BuildBindGroupLayouts()
+    {
+        return
+        [
+            .. Bindings
+                .GroupBy(binding => binding.Group)
+                .OrderBy(group => group.Key)
+                .Select(group => (IReadOnlyList<BindGroupLayoutBinding>)group
+                    .OrderBy(binding => binding.Slot)
+                    .Select(binding => new BindGroupLayoutBinding
+                    {
+                        Slot = binding.Slot,
+                        Type = binding.Kind switch
+                        {
+                            ShaderBindingKind.UniformBuffer => BindingType.UniformBuffer,
+                            ShaderBindingKind.ReadOnlyStorageBuffer => BindingType.ReadOnlyStorageBuffer,
+                            ShaderBindingKind.Texture =>
+                                binding.TypeName == "texture_depth_2d" ? BindingType.DepthTexture : BindingType.Texture,
+                            ShaderBindingKind.Sampler => BindingType.Sampler,
+                            _ => throw new ArgumentOutOfRangeException(nameof(binding), binding.Kind, null)
+                        },
+                        Stages = binding.Kind is ShaderBindingKind.Texture or ShaderBindingKind.Sampler
+                            ? ShaderStage.Fragment
+                            : ShaderStage.Vertex | ShaderStage.Fragment
+                    })
+                    .ToList())
+        ];
     }
 
     public ShaderTechnique GetTechnique(string name)

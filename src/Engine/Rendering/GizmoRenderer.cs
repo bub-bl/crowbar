@@ -782,11 +782,12 @@ public sealed class GizmoRenderer : IDisposable
 
         // Both gizmo shaders include Common/Scene.slang, which slangc
         // flattens into the WGSL that Shader.Load returns.
-        string ReadShader(string name) => Shader.Load(PathUtil.Combine("Shaders", name)).Source;
+        var widgetShader = Shader.Load(PathUtil.Combine("Shaders", "Editor/GizmoLine.wgsl"));
+        var spriteShader = Shader.Load(PathUtil.Combine("Shaders", "Editor/GizmoSprite.wgsl"));
 
         _widgetPipeline = _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = ReadShader("Editor/GizmoLine.wgsl"),
+            ShaderSource = widgetShader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,
@@ -801,13 +802,7 @@ public sealed class GizmoRenderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x4, Offset = 0, ShaderLocation = 0 }
                 ]
             },
-            BindGroups =
-            [
-                [
-                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment }
-                ]
-            ]
+            BindGroups = widgetShader.BuildBindGroupLayouts()
         });
         _shaftBindGroup = _widgetPipeline.CreateBindGroup(
         [
@@ -832,7 +827,7 @@ public sealed class GizmoRenderer : IDisposable
 
         _spritePipeline = _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = ReadShader("Editor/GizmoSprite.wgsl"),
+            ShaderSource = spriteShader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,
@@ -848,15 +843,7 @@ public sealed class GizmoRenderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 0, ShaderLocation = 0 }
                 ]
             },
-            BindGroups =
-            [
-                [
-                    new BindGroupLayoutBinding { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 1, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 2, Type = BindingType.Texture, Stages = ShaderStage.Fragment },
-                    new BindGroupLayoutBinding { Slot = 3, Type = BindingType.Sampler, Stages = ShaderStage.Fragment }
-                ]
-            ]
+            BindGroups = spriteShader.BuildBindGroupLayouts()
         });
         _spriteBindGroup = _spritePipeline.CreateBindGroup(
         [

@@ -1,3 +1,5 @@
+using Crowbar.Engine.Rendering;
+
 namespace Crowbar.Engine.Tests;
 
 public class ShaderReflectionTests
@@ -87,5 +89,64 @@ public class ShaderReflectionTests
     {
         var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
         Assert.Throws<InvalidOperationException>(() => shader.GetTechnique("DoesNotExist"));
+    }
+
+    [Fact]
+    public void BuildBindGroupLayouts_DerivesTheMeshPipelineLayout()
+    {
+        // Group 0 = per-frame scene + lights + shadows (with the depth map);
+        // group 1 = per-renderable model + material. The one binding slangc's
+        // reflection cannot classify — the shadow comparison sampler — comes
+        // back as a plain sampler, which is why the engine keeps that shared
+        // group explicit in Renderer.SceneGroupBindings.
+        var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
+        var layouts = shader.BuildBindGroupLayouts();
+
+        Assert.Equal(2, layouts.Count);
+        Assert.Equal(
+            new[]
+            {
+                (0u, BindingType.UniformBuffer),
+                (1u, BindingType.UniformBuffer),
+                (2u, BindingType.UniformBuffer),
+                (3u, BindingType.DepthTexture),
+                (4u, BindingType.Sampler)
+            },
+            layouts[0].Select(b => (b.Slot, b.Type)).ToArray());
+        Assert.Equal(
+            new[] { (0u, BindingType.UniformBuffer), (1u, BindingType.UniformBuffer) },
+            layouts[1].Select(b => (b.Slot, b.Type)).ToArray());
+    }
+
+    [Fact]
+    public void UiShaderLayouts_MatchTheRendererContracts()
+    {
+        var shape = Shader.Load("Shaders/Ui/Shape.wgsl");
+        var shapeLayout = Assert.Single(shape.BuildBindGroupLayouts());
+        Assert.Equal(
+            new[] { (0u, BindingType.ReadOnlyStorageBuffer), (1u, BindingType.UniformBuffer) },
+            shapeLayout.Select(b => (b.Slot, b.Type)).ToArray());
+
+        var glyph = Shader.Load("Shaders/Ui/Glyph.wgsl");
+        var glyphLayout = Assert.Single(glyph.BuildBindGroupLayouts());
+        Assert.Equal(
+            new[] { (0u, BindingType.Texture), (1u, BindingType.Sampler), (2u, BindingType.UniformBuffer) },
+            glyphLayout.Select(b => (b.Slot, b.Type)).ToArray());
+        // Textures/samplers are exposed to the fragment stage only; buffers to
+        // both stages (a conservative superset WebGPU accepts).
+        Assert.Equal(ShaderStage.Fragment, glyphLayout[0].Stages);
+        Assert.Equal(ShaderStage.Vertex | ShaderStage.Fragment, glyphLayout[2].Stages);
+    }
+
+    [Fact]
+    public void ShadowDepthLayout_HasOneUniformPerGroup()
+    {
+        var shader = Shader.Load("Shaders/Surface/ShadowDepth.wgsl");
+        var layouts = shader.BuildBindGroupLayouts();
+
+        Assert.Equal(2, layouts.Count);
+        Assert.All(layouts, group => Assert.Equal(
+            new[] { (0u, BindingType.UniformBuffer) },
+            group.Select(b => (b.Slot, b.Type)).ToArray()));
     }
 }
