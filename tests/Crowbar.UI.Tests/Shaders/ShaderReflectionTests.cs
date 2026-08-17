@@ -45,6 +45,12 @@ public class ShaderReflectionTests
         Assert.Equal("vec4<f32>", shader.MaterialFields[0].Type);
         Assert.All(shader.MaterialFields.Skip(1), field => Assert.Equal("f32", field.Type));
 
+        // The uniform layout comes straight from slangc's reflection sidecar:
+        // color spans bytes 0..16, then metallic/roughness/emissive at 16/20/24.
+        Assert.Equal(
+            new[] { (0, 16, 16), (16, 4, 4), (20, 4, 4), (24, 4, 4) },
+            shader.MaterialFields.Select(f => (f.Offset, f.Size, f.Alignment)).ToArray());
+
         // The material struct is what Material.Set validates against.
         Assert.Equal(shader.MaterialFields.Select(f => f.Name), shader.Parameters.Select(p => p.Name));
     }

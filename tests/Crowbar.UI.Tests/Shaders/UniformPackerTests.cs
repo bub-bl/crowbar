@@ -4,16 +4,20 @@ namespace Crowbar.Engine.Tests;
 
 public class UniformPackerTests
 {
+    // Offsets/sizes/alignments are what slangc's reflection reports for a
+    // MaterialUniforms { vec4 color; float metallic; float roughness; float emissive; }
+    // struct under std140: color spans 0..16, then the three floats pack
+    // back-to-back at 16/20/24.
     private static readonly ShaderStructField[] MaterialFields =
     [
-        new("color", "vec4<f32>"),
-        new("metallic", "f32"),
-        new("roughness", "f32"),
-        new("emissive", "f32")
+        new("color", "vec4<f32>", 0, 16, 16),
+        new("metallic", "f32", 16, 4, 4),
+        new("roughness", "f32", 20, 4, 4),
+        new("emissive", "f32", 24, 4, 4)
     ];
 
     [Fact]
-    public void PacksVec4ThenFloatsWith16ByteAlignment()
+    public void PacksValuesAtTheirReflectedOffsets()
     {
         var bytes = UniformPacker.Pack(MaterialFields, new Dictionary<string, ShaderParameter>
         {
@@ -34,12 +38,14 @@ public class UniformPackerTests
     }
 
     [Fact]
-    public void AlignsVec3To16BytesInTheUniformAddressSpace()
+    public void StructSizeRoundsTheFurthestFieldExtentUpToMaxAlignment()
     {
+        // std140: vec3 spans bytes 0..12 aligned to 16; the following f32 sits
+        // at 12 (4-aligned), so the struct is 16 bytes despite the tail gap.
         var fields = new[]
         {
-            new ShaderStructField("offset", "vec3<f32>"),
-            new ShaderStructField("value", "f32")
+            new ShaderStructField("offset", "vec3<f32>", 0, 12, 16),
+            new ShaderStructField("value", "f32", 12, 4, 4)
         };
         var bytes = UniformPacker.Pack(fields, new Dictionary<string, ShaderParameter>
         {
@@ -47,8 +53,6 @@ public class UniformPackerTests
             ["value"] = 7f
         });
 
-        // vec3 starts 16-aligned and spans 12 bytes; the following f32 fits
-        // immediately after (12 % 4 == 0), matching WGSL's member rules.
         Assert.Equal(16, bytes.Length);
         Assert.Equal(1f, ReadSingle(bytes, 0));
         Assert.Equal(2f, ReadSingle(bytes, 4));
@@ -57,12 +61,12 @@ public class UniformPackerTests
     }
 
     [Fact]
-    public void PacksMatrix4WithA64ByteFootprint()
+    public void PacksMatrixAtItsReflectedOffset()
     {
         var fields = new[]
         {
-            new ShaderStructField("model", "mat4x4<f32>"),
-            new ShaderStructField("flag", "f32")
+            new ShaderStructField("model", "mat4x4<f32>", 0, 64, 16),
+            new ShaderStructField("flag", "f32", 64, 4, 4)
         };
         var bytes = UniformPacker.Pack(fields, new Dictionary<string, ShaderParameter>
         {

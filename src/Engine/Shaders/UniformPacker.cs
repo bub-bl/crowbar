@@ -5,67 +5,43 @@ using System.Runtime.InteropServices;
 namespace Crowbar.Engine;
 
 /// <summary>
-/// Packs material parameter values into the byte layout WGSL expects for a
-/// uniform buffer: the uniform address space requires 16-byte alignment,
-/// vec3 occupies 12 bytes but is aligned to 16, mat4 is column-major with a
-/// 64-byte footprint. The layout is derived from the shader's own struct
-/// fields, so the WGSL remains the single source of truth — a new field in
-/// the shader is picked up without touching any C# struct.
+/// Packs material parameter values into a uniform buffer. The per-field byte
+/// offsets, sizes and alignments come from <see cref="ShaderStructField"/>
+/// (populated by slangc's reflection sidecar), so the engine no longer
+/// re-derives the std140 layout from type names — slangc is the single source
+/// of truth and a layout change in the shader is picked up automatically.
 /// </summary>
 public static class UniformPacker
 {
-    /// <summary>Alignment of a WGSL type in the uniform address space.</summary>
-    public static int GetAlignment(string wgslType) => Normalize(wgslType) switch
-    {
-        "f32" or "i32" or "u32" or "bool" => 4,
-        "vec2" => 8,
-        _ => 16
-    };
-
-    /// <summary>Size in bytes of a WGSL type (before struct tail padding).</summary>
-    public static int GetSize(string wgslType) => Normalize(wgslType) switch
-    {
-        "f32" or "i32" or "u32" or "bool" => 4,
-        "vec2" => 8,
-        "vec3" => 12,
-        "vec4" => 16,
-        "mat4" => 64,
-        _ => 16
-    };
-
-    /// <summary>Total size of the struct, including per-field padding and the tail.</summary>
+    /// <summary>Total size of the struct: the furthest field extent, rounded up to the struct's max alignment.</summary>
     public static int ComputeStructSize(IReadOnlyList<ShaderStructField> fields)
     {
-        var offset = 0;
+        var size = 0;
         var maxAlignment = 1;
         foreach (var field in fields)
         {
-            var alignment = GetAlignment(field.Type);
-            maxAlignment = Math.Max(maxAlignment, alignment);
-            offset = AlignUp(offset, alignment) + GetSize(field.Type);
+            size = Math.Max(size, field.Offset + field.Size);
+            maxAlignment = Math.Max(maxAlignment, field.Alignment);
         }
 
-        return AlignUp(offset, maxAlignment);
+        return AlignUp(size, maxAlignment);
     }
 
     /// <summary>
-    /// Packs the given values into a byte buffer matching the WGSL struct
-    /// layout. Missing values are left as zeros; matrices are copied in
-    /// System.Numerics storage order, which matches WGSL's column-major
-    /// interpretation when consumed with column-vector multiplication.
+    /// Packs the given values at their reflected offsets. Missing values are
+    /// left as zeros; matrices are copied in System.Numerics storage order,
+    /// which matches WGSL's column-major interpretation when consumed with
+    /// column-vector multiplication.
     /// </summary>
     public static byte[] Pack(
         IReadOnlyList<ShaderStructField> fields,
         IReadOnlyDictionary<string, ShaderParameter> values)
     {
         var bytes = new byte[ComputeStructSize(fields)];
-        var offset = 0;
         foreach (var field in fields)
         {
-            offset = AlignUp(offset, GetAlignment(field.Type));
             if (values.TryGetValue(field.Name, out var value))
-                Write(bytes, offset, value);
-            offset += GetSize(field.Type);
+                Write(bytes, field.Offset, value);
         }
 
         return bytes;
@@ -115,13 +91,4 @@ public static class UniformPacker
     }
 
     private static int AlignUp(int value, int alignment) => (value + alignment - 1) & ~(alignment - 1);
-
-    private static string Normalize(string wgslType) => wgslType switch
-    {
-        "vec2<f32>" => "vec2",
-        "vec3<f32>" => "vec3",
-        "vec4<f32>" => "vec4",
-        "mat4x4<f32>" => "mat4",
-        _ => wgslType
-    };
 }

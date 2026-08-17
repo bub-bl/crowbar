@@ -19,8 +19,13 @@ public enum ShaderBindingKind
 /// </summary>
 public sealed record ShaderBinding(int Group, uint Slot, ShaderBindingKind Kind, string VariableName, string TypeName);
 
-/// <summary>One field of a shader struct: name plus type (e.g. <c>vec4&lt;f32&gt;</c>).</summary>
-public sealed record ShaderStructField(string Name, string Type);
+/// <summary>
+/// One field of a shader struct: its name, WGSL-style type, and the exact
+/// uniform-buffer layout slangc computed (byte <see cref="Offset"/>,
+/// <see cref="Size"/> and <see cref="Alignment"/>). These come straight from
+/// the reflection sidecar, so the runtime never re-derives the std140 layout.
+/// </summary>
+public sealed record ShaderStructField(string Name, string Type, int Offset, int Size, int Alignment);
 
 /// <summary>A shader struct definition.</summary>
 public sealed record ShaderStruct(string Name, IReadOnlyList<ShaderStructField> Fields);
@@ -176,11 +181,36 @@ internal static class SlangShaderReflection
                 var fieldName = field.GetProperty("name").GetString();
                 if (fieldName is null)
                     continue;
-                fields.Add(new ShaderStructField(fieldName, MapType(field.GetProperty("type"))));
+
+                // Constant-buffer struct fields carry their uniform layout
+                // directly: binding.offset/size plus the alignment of the
+                // "uniform" size entry on the type.
+                var binding = field.GetProperty("binding");
+                fields.Add(new ShaderStructField(
+                    fieldName,
+                    MapType(field.GetProperty("type")),
+                    binding.GetProperty("offset").GetInt32(),
+                    binding.GetProperty("size").GetInt32(),
+                    GetUniformAlignment(field.GetProperty("type"))));
             }
         }
 
         return new ShaderStruct(name, fields);
+    }
+
+    /// <summary>Alignment of the type's uniform-size entry (the std140 layout).</summary>
+    private static int GetUniformAlignment(JsonElement type)
+    {
+        if (type.TryGetProperty("sizes", out var sizes))
+        {
+            foreach (var size in sizes.EnumerateArray())
+            {
+                if (size.TryGetProperty("kind", out var kind) && kind.GetString() == "uniform")
+                    return size.GetProperty("alignment").GetInt32();
+            }
+        }
+
+        return 1;
     }
 
     /// <summary>Maps a Slang reflection type node back to the WGSL-style type string the packer expects.</summary>
