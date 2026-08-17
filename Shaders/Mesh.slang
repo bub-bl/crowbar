@@ -1,6 +1,4 @@
-#include "Common/Transform.slang"
-#include "Common/VertexIO.slang"
-#include "Common/Lighting.slang"
+#include "Common/Shading.slang"
 
 // Material parameters, packed by the engine from this struct's fields.
 struct MaterialUniforms
@@ -17,25 +15,18 @@ struct MaterialUniforms
 [shader("vertex")]
 VertexOutput vs_main(VertexInput input)
 {
-    VertexOutput output;
-    let world_position = mul(model, float4(input.position, 1.0));
-    output.world_position = world_position.xyz;
-
-    let normal_matrix = (float3x3)model;
-    output.normal = normalize(mul(normal_matrix, input.normal));
-    output.clip_position = mul(mul(scene.proj, scene.view), world_position);
-    return output;
+    return transformVertex(input, model);
 }
 
 [shader("fragment")]
 float4 fs_main(VertexOutput input) : SV_Target
 {
-    let normal = normalize(input.normal);
-    let view_dir = normalize(scene.cameraPosition.xyz - input.world_position);
+    Material m = Material::Init(input);
+    m.BaseColor = material.color.rgb;
+    m.Metallic = material.metallic;
+    m.Roughness = material.roughness;
+    m.Emissive = material.emissive * material.color.rgb;
+    m.Opacity = material.color.a;
 
-    var color = evaluateLights(input.world_position, normal, view_dir,
-        material.color.rgb, material.metallic, material.roughness);
-    color += material.emissive * material.color.rgb;
-
-    return float4(tonemap(color), material.color.a);
+    return ShadingModelStandard::Shade(m);
 }

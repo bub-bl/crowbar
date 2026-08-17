@@ -1,5 +1,4 @@
-#include "Common/Transform.slang"
-#include "Common/VertexIO.slang"
+#include "Common/VertexTransform.slang"
 
 struct MaterialUniforms
 {
@@ -15,10 +14,7 @@ struct MaterialUniforms
 [shader("vertex")]
 VertexOutput vs_main(VertexInput input)
 {
-    VertexOutput output;
-    let world_position = mul(model, float4(input.position, 1.0));
-    output.clip_position = mul(mul(scene.proj, scene.view), world_position);
-    return output;
+    return transformVertex(input, model);
 }
 
 [shader("fragment")]
