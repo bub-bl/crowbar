@@ -1,3 +1,7 @@
+#language slang 2026;
+import Color;
+import Screen;
+
 // Textured-quad renderer (Crowbar 2D UI backend).
 //
 // Images are packed into a single atlas texture and drawn as screen-space
@@ -21,23 +25,16 @@ VertexOutput vs_main([[vk::location(0)]] float2 position : POSITION, [[vk::locat
                      [[vk::location(2)]] float4 color : COLOR)
 {
     VertexOutput out;
-    out.position = float4(position.x * viewport.z * 2.0 - 1.0, 1.0 - position.y * viewport.w * 2.0, 0.0, 1.0);
+    out.position = float4(Screen::PixelToClip(position, viewport), 0.0, 1.0);
     out.uv = uv;
     out.color = color;
     return out;
-}
-
-float3 srgbToLinear(float3 c)
-{
-    let lo = c / 12.92;
-    let hi = pow((c + 0.055) / 1.055, float3(2.4));
-    return select(c <= float3(0.04045), lo, hi);
 }
 
 [shader("fragment")]
 float4 fs_main(VertexOutput input) : SV_Target
 {
     let tex = image_atlas.Sample(image_sampler, input.uv);
-    let rgb = srgbToLinear(tex.rgb) * srgbToLinear(input.color.rgb);
+    let rgb = Color::SrgbToLinear(tex.rgb) * Color::SrgbToLinear(input.color.rgb);
     return float4(rgb, tex.a * input.color.a);
 }

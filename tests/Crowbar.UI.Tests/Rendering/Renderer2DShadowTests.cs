@@ -87,7 +87,7 @@ public class Renderer2DShadowTests
     [Fact]
     public void ShadowShader_ExposesExpectedBindings()
     {
-        var shader = Shader.Load("Shaders/Shadow.wgsl");
+        var shader = Shader.Load("Shaders/Ui/BoxShadow.wgsl");
         Assert.Contains(shader.EntryPoints, e => e.Name == "vs_main");
         Assert.Contains(shader.EntryPoints, e => e.Name == "fs_main");
         Assert.Equal(2, shader.Bindings.Count);

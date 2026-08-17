@@ -189,7 +189,7 @@ public class Renderer2DImageTests
     [Fact]
     public void TexturedShader_ExposesExpectedEntryPointsAndBindings()
     {
-        var shader = Shader.Load("Shaders/Textured.wgsl");
+        var shader = Shader.Load("Shaders/Ui/Image.wgsl");
         Assert.Contains(shader.EntryPoints, e => e.Name == "vs_main");
         Assert.Contains(shader.EntryPoints, e => e.Name == "fs_main");
         Assert.Equal(3, shader.Bindings.Count);

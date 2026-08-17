@@ -1,3 +1,4 @@
+#language slang 2026;
 // Editor ground grid, drawn as a fullscreen pass after the world's meshes.
 // The vertex shader unprojects the near and far planes; the fragment shader
 // intersects the view ray with the y = 0 plane, draws the grid lines with

@@ -9,16 +9,16 @@ public class MaterialTests
     [Fact]
     public void FromShader_DefaultsToTheMainTechnique()
     {
-        var material = Material.FromShader("Mesh");
+        var material = Material.FromShader("Surface/Standard");
 
         Assert.Equal("Main", material.Technique);
-        Assert.Equal("Mesh", material.Shader.Name);
+        Assert.Equal("Standard", material.Shader.Name);
     }
 
     [Fact]
     public void FromShader_AcceptsANamedTechnique()
     {
-        var material = Material.FromShader("Mesh", "Main");
+        var material = Material.FromShader("Surface/Standard", "Main");
 
         Assert.Equal("Main", material.Technique);
     }
@@ -26,20 +26,20 @@ public class MaterialTests
     [Fact]
     public void FromShader_RejectsAnUnknownTechnique()
     {
-        Assert.Throws<InvalidOperationException>(() => Material.FromShader("Mesh", "DoesNotExist"));
+        Assert.Throws<InvalidOperationException>(() => Material.FromShader("Surface/Standard", "DoesNotExist"));
     }
 
     [Fact]
     public void Set_RejectsUnknownParameters()
     {
-        var material = Material.FromShader("Mesh");
+        var material = Material.FromShader("Surface/Standard");
         Assert.Throws<ArgumentException>(() => material.Set("lightDir", Vector3.UnitY));
     }
 
     [Fact]
     public void CreateDefault_SetsOnlyDeclaredParameters()
     {
-        var material = Material.CreateDefault(Shader.Load("Shaders/Mesh.wgsl"));
+        var material = Material.CreateDefault(Shader.Load("Shaders/Surface/Standard.wgsl"));
 
         Assert.True(material.TryGet<Vector4>("color", out var color));
         Assert.Equal(new Vector4(0.2f, 0.6f, 1f, 1f), color);
@@ -51,7 +51,7 @@ public class MaterialTests
     [Fact]
     public void SetTexture_BindsToADeclaredSlot()
     {
-        var material = Material.FromShader("Pbr");
+        var material = Material.FromShader("Surface/StandardPbr");
         var texture = CreateTexture();
 
         material.SetTexture("albedoTexture", texture);
@@ -62,7 +62,7 @@ public class MaterialTests
     [Fact]
     public void SetTexture_RejectsUnknownSlots()
     {
-        var material = Material.FromShader("Pbr");
+        var material = Material.FromShader("Surface/StandardPbr");
         Assert.Throws<ArgumentException>(() => material.SetTexture("diffuseMap", CreateTexture()));
     }
 

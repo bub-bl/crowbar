@@ -118,10 +118,10 @@ public class Renderer2DBorderTests
     [Fact]
     public void Shader_ContainsOutlineAndDashHelpers()
     {
-        var source = Shader.Load("Shaders/SdfShape.wgsl").Source;
-        Assert.Contains("rectOutlineDist", source);
-        Assert.Contains("ellipseOutlineDist", source);
-        Assert.Contains("lineOutlineDist", source);
-        Assert.Contains("dashMask", source);
+        var source = Shader.Load("Shaders/Ui/Shape.wgsl").Source;
+        Assert.Contains("Sdf_RectOutlineDistance", source);
+        Assert.Contains("Sdf_EllipseOutlineDistance", source);
+        Assert.Contains("Sdf_LineOutlineDistance", source);
+        Assert.Contains("Sdf_Dash", source);
     }
 }

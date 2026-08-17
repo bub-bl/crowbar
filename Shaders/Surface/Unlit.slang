@@ -1,6 +1,11 @@
-#include "Common/Shading.slang"
+#language slang 2026;
+// Unlit material: forwards the base color with no lighting. It pulls in only
+// the unlit shading model, so the pass has no light/shadow bindings.
+import Vertex;
+import VertexTransform;
+import Material;
+import ShadingModelUnlit;
 
-// Material parameters, packed by the engine from this struct's fields.
 struct MaterialUniforms
 {
     float4 color;
@@ -15,7 +20,7 @@ struct MaterialUniforms
 [shader("vertex")]
 VertexOutput vs_main(VertexInput input)
 {
-    return transformVertex(input, model);
+    return VertexTransform::ToClip(input, model);
 }
 
 [shader("fragment")]
@@ -23,10 +28,7 @@ float4 fs_main(VertexOutput input) : SV_Target
 {
     Material m = Material::Init(input);
     m.BaseColor = material.color.rgb;
-    m.Metallic = material.metallic;
-    m.Roughness = material.roughness;
-    m.Emissive = material.emissive * material.color.rgb;
     m.Opacity = material.color.a;
 
-    return ShadingModelStandard::Shade(m);
+    return ShadingModelUnlit::Shade(m);
 }

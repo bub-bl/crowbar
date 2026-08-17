@@ -80,7 +80,7 @@ public static class CssFilterFunctions
 
     /// <summary>
     /// True when a filter chain can be evaluated by the GPU backdrop compositor
-    /// (Backdrop.slang): at most one <c>blur</c> and only as the first function
+    /// (Ui/Backdrop.slang): at most one <c>blur</c> and only as the first function
     /// (a single-pass shader can blur the source texture, but not an
     /// intermediate result), plus any number of color transforms (brightness,
     /// contrast, saturate, grayscale, invert, hue-rotate, opacity, sepia).

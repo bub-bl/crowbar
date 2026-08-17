@@ -1,4 +1,5 @@
-#include "Common/Transform.slang"
+#language slang 2026;
+import Scene;
 
 // One widget element. Shafts use pixel sizes; cones and rings use world sizes
 // computed for the element depth by GizmoRenderer.

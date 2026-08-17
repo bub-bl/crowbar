@@ -1,4 +1,5 @@
-#include "Common/Transform.slang"
+#language slang 2026;
+import Scene;
 
 // Selection mask pass: renders the selected entity's mesh as a flat white
 // silhouette into the mask texture (Rgba8Unorm, red channel used). Depth is

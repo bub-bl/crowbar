@@ -299,14 +299,14 @@ public class Renderer2DTests
     [Fact]
     public void Shaders_ExposeExpectedEntryPointsAndBindings()
     {
-        var sdf = Shader.Load("Shaders/SdfShape.wgsl");
+        var sdf = Shader.Load("Shaders/Ui/Shape.wgsl");
         Assert.Contains(sdf.EntryPoints, e => e.Name == "vs_main");
         Assert.Contains(sdf.EntryPoints, e => e.Name == "fs_main");
         Assert.Equal(2, sdf.Bindings.Count);
         Assert.Contains(sdf.Bindings, b => b.Slot == 0 && b.Kind == ShaderBindingKind.ReadOnlyStorageBuffer);
         Assert.Contains(sdf.Bindings, b => b.Slot == 1 && b.Kind == ShaderBindingKind.UniformBuffer);
 
-        var tri = Shader.Load("Shaders/TriMesh.wgsl");
+        var tri = Shader.Load("Shaders/Ui/Polygon.wgsl");
         Assert.Contains(tri.EntryPoints, e => e.Name == "vs_main");
         Assert.Contains(tri.EntryPoints, e => e.Name == "fs_main");
         var binding = Assert.Single(tri.Bindings);

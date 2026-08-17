@@ -145,7 +145,7 @@ public sealed class UiTreePainter
         var alpha = style.Opacity * opacity;
 
         // backdrop-filter: the backdrop itself is filtered by the GPU
-        // compositor (Backdrop.slang) sampling the 3D scene, not by the painter.
+        // compositor (Ui/Backdrop.slang) sampling the 3D scene, not by the painter.
         // Transformed panels bypass this path (mirroring the Skia renderer).
         if (!style.HasTransform && !style.BackdropFilter.IsNone && CssFilterFunctions.IsGpuBackdropExpressible(style.BackdropFilter))
         {

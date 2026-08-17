@@ -108,7 +108,7 @@ public class Renderer2DFilterTests
     [Fact]
     public void FilterShader_ExposesExpectedBindings()
     {
-        var shader = Shader.Load("Shaders/Filter.wgsl");
+        var shader = Shader.Load("Shaders/Ui/Filter.wgsl");
         Assert.Contains(shader.EntryPoints, e => e.Name == "vs_main");
         Assert.Contains(shader.EntryPoints, e => e.Name == "fs_main");
         Assert.Equal(3, shader.Bindings.Count);

@@ -3,9 +3,9 @@ namespace Crowbar.Engine.Tests;
 public class ShaderReflectionTests
 {
     [Fact]
-    public void MeshShader_ExposesTheMainTechnique()
+    public void StandardShader_ExposesTheMainTechnique()
     {
-        var shader = Shader.Load("Shaders/Mesh.wgsl");
+        var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
 
         Assert.Equal(new[] { "Main" }, shader.Techniques.Select(t => t.Name).ToArray());
         var main = shader.GetTechnique("Main");
@@ -13,9 +13,9 @@ public class ShaderReflectionTests
     }
 
     [Fact]
-    public void MeshShader_BindingsMatchTheEngineLayout()
+    public void StandardShader_BindingsMatchTheEngineLayout()
     {
-        var shader = Shader.Load("Shaders/Mesh.wgsl");
+        var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
 
         // Group 0 = per-frame scene + lights + shadows (from the includes);
         // group 1 = per-renderable model + material.
@@ -35,9 +35,9 @@ public class ShaderReflectionTests
     }
 
     [Fact]
-    public void MeshShader_MaterialFieldsComeFromTheMaterialStruct()
+    public void StandardShader_MaterialFieldsComeFromTheMaterialStruct()
     {
-        var shader = Shader.Load("Shaders/Mesh.wgsl");
+        var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
 
         Assert.Equal(
             new[] { "color", "metallic", "roughness", "emissive" },
@@ -56,9 +56,9 @@ public class ShaderReflectionTests
     }
 
     [Fact]
-    public void PbrShader_ExposesTextureSlotsAndASampler()
+    public void StandardPbrShader_ExposesTextureSlotsAndASampler()
     {
-        var shader = Shader.Load("Shaders/Pbr.wgsl");
+        var shader = Shader.Load("Shaders/Surface/StandardPbr.wgsl");
 
         Assert.Equal(
             new[] { "albedoTexture", "normalTexture", "metallicRoughnessTexture", "occlusionTexture", "emissiveTexture" },
@@ -71,9 +71,9 @@ public class ShaderReflectionTests
     }
 
     [Fact]
-    public void UnlitShader_NeedsOnlyTheTransformInclude()
+    public void UnlitShader_ExposesTheMainTechnique()
     {
-        var shader = Shader.Load("Shaders/Unlit.wgsl");
+        var shader = Shader.Load("Shaders/Surface/Unlit.wgsl");
 
         Assert.Single(shader.Techniques);
         Assert.Equal("Main", shader.Techniques[0].Name);
@@ -85,7 +85,7 @@ public class ShaderReflectionTests
     [Fact]
     public void UnknownTechnique_Throws()
     {
-        var shader = Shader.Load("Shaders/Mesh.wgsl");
+        var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
         Assert.Throws<InvalidOperationException>(() => shader.GetTechnique("DoesNotExist"));
     }
 }

@@ -1,4 +1,10 @@
-#include "Common/Shading.slang"
+#language slang 2026;
+// Full glTF metallic-roughness PBR material with the standard texture set
+// (albedo, normal, metallic-roughness, occlusion, emissive).
+import Vertex;
+import VertexTransform;
+import Material;
+import ShadingModelStandard;
 
 struct MaterialUniforms
 {
@@ -21,7 +27,7 @@ struct MaterialUniforms
 [shader("vertex")]
 VertexOutput vs_main(VertexInput input)
 {
-    return transformVertex(input, model);
+    return VertexTransform::ToClip(input, model);
 }
 
 [shader("fragment")]
@@ -32,7 +38,7 @@ float4 fs_main(VertexOutput input) : SV_Target
     // roughness in the green).
     Material m = Material::Init(input);
     m.BaseColor = albedoTexture.Sample(materialSampler, input.uv).rgb * material.color.rgb;
-    m.Normal = normalFromMap(input, normalTexture.Sample(materialSampler, input.uv).xyz);
+    m.Normal = Material::NormalFromMap(input, normalTexture.Sample(materialSampler, input.uv).xyz);
     let metallic_roughness = metallicRoughnessTexture.Sample(materialSampler, input.uv);
     m.Metallic = material.metallic * metallic_roughness.b;
     m.Roughness = material.roughness * metallic_roughness.g;

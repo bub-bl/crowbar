@@ -1,7 +1,9 @@
-// Blit pass for the Renderer2D offscreen target (the GPU-rendered UI layer).
+#language slang 2026;
+// Linear blit pass for the Renderer2D offscreen target (the GPU-rendered UI
+// layer).
 //
 // The Renderer2D draws into an Rgba8Unorm target whose shaders already write
-// linear color + straight (non-premultiplied) alpha. Unlike Ui.slang (which
+// linear color + straight (non-premultiplied) alpha. Unlike Blit.slang (which
 // un-premultiplies and decodes the sRGB raster), this shader is a plain
 // passthrough: it forwards the linear straight-alpha texel so the SrcAlpha
 // blend below reproduces browser-style compositing on the surface.

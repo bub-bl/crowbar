@@ -30,7 +30,7 @@ public sealed class GizmoRenderer : IDisposable
         Square = 4
     }
 
-    // Mirrors GizmoSpriteParams in Shaders/GizmoSprite.slang.
+    // Mirrors GizmoSpriteParams in Shaders/Editor/GizmoSprite.slang.
     [StructLayout(LayoutKind.Sequential)]
     private struct GizmoSpriteParams
     {
@@ -40,7 +40,7 @@ public sealed class GizmoRenderer : IDisposable
         public Vector4 UvRect;    // icon atlas rectangle (u0, v0, u1, v1)
     }
 
-    // Mirrors GizmoWidgetElement in Shaders/GizmoLine.slang.
+    // Mirrors GizmoWidgetElement in Shaders/Editor/GizmoLine.slang.
     [StructLayout(LayoutKind.Sequential)]
     private struct GizmoWidgetElement
     {
@@ -780,13 +780,13 @@ public sealed class GizmoRenderer : IDisposable
         _spriteParamsBuffer = CreateBuffer((ulong)(MaxSprites * sizeof(GizmoSpriteParams)), BufferUsage.Storage | BufferUsage.CopyDst);
         _iconAtlas = GizmoIconAtlas.Load(_device);
 
-        // Both gizmo shaders include Common/Transform.slang, which slangc
+        // Both gizmo shaders include Common/Scene.slang, which slangc
         // flattens into the WGSL that Shader.Load returns.
         string ReadShader(string name) => Shader.Load(PathUtil.Combine("Shaders", name)).Source;
 
         _widgetPipeline = _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = ReadShader("GizmoLine.wgsl"),
+            ShaderSource = ReadShader("Editor/GizmoLine.wgsl"),
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,
@@ -832,7 +832,7 @@ public sealed class GizmoRenderer : IDisposable
 
         _spritePipeline = _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = ReadShader("GizmoSprite.wgsl"),
+            ShaderSource = ReadShader("Editor/GizmoSprite.wgsl"),
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,

@@ -1,4 +1,5 @@
-#include "Common/Transform.slang"
+#language slang 2026;
+import Scene;
 
 // One instanced billboard: world center, tint, shape/scale and an atlas region.
 struct GizmoSpriteParams

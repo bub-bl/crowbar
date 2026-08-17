@@ -25,7 +25,7 @@ namespace Crowbar.FileSystems;
 /// </list>
 ///
 /// Logical paths let the editor and a packaged build address the same content
-/// (<c>Shaders/Pbr.slang</c>, <c>Game/DemoGamemode.cs</c>, ...) even though the
+/// (<c>Shaders/Surface/StandardPbr.slang</c>, <c>Game/DemoGamemode.cs</c>, ...) even though the
 /// physical layout differs.
 /// </summary>
 public sealed class FileSystemService

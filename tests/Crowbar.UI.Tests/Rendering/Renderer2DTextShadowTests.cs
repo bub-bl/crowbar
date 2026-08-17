@@ -54,7 +54,7 @@ public class Renderer2DTextShadowTests
     [Fact]
     public void GlyphShadowShader_ExposesExpectedBindings()
     {
-        var shader = Shader.Load("Shaders/GlyphShadow.wgsl");
+        var shader = Shader.Load("Shaders/Ui/GlyphShadow.wgsl");
         Assert.Contains(shader.EntryPoints, e => e.Name == "vs_main");
         Assert.Contains(shader.EntryPoints, e => e.Name == "fs_main");
         Assert.Equal(3, shader.Bindings.Count);

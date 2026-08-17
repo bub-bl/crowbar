@@ -71,7 +71,7 @@ internal sealed class DemoApplication : Application
         var plane = level.SpawnEntity("Plane");
         var planeMesh = plane.AddComponent<MeshRenderer>();
         planeMesh.Model = Model.CreatePlane();
-        planeMesh.Material = Material.FromShader("Pbr")
+        planeMesh.Material = Material.FromShader("Surface/StandardPbr")
             .Set("color", new Vector4(0.3f, 0.33f, 0.3f, 1f))
             .Set("metallic", 0f)
             .Set("roughness", 0.85f)
@@ -85,7 +85,7 @@ internal sealed class DemoApplication : Application
         var cube = level.SpawnEntity("Cube");
         var mesh = cube.AddComponent<MeshRenderer>();
         mesh.Model = Model.CreateCube();
-        mesh.Material = Material.FromShader("Pbr")
+        mesh.Material = Material.FromShader("Surface/StandardPbr")
             .Set("color", new Vector4(0.2f, 0.6f, 1.0f, 1.0f))
             .Set("metallic", 0.15f)
             .Set("roughness", 0.45f)
@@ -102,7 +102,7 @@ internal sealed class DemoApplication : Application
         var accent = level.SpawnEntity("Accent");
         var accentMesh = accent.AddComponent<MeshRenderer>();
         accentMesh.Model = Model.CreateCube();
-        accentMesh.Material = Material.FromShader("Unlit")
+        accentMesh.Material = Material.FromShader("Surface/Unlit")
             .Set("color", new Vector4(1f, 0.72f, 0.08f, 1f));
         // Half the cube's height (0.25) above the floor: it rests on the plane.
         accentMesh.Local = new Transform(
@@ -111,7 +111,7 @@ internal sealed class DemoApplication : Application
             new Vector3(0.5f));
 
         // A last cube without a material: it picks up the default material
-        // (Mesh.slang), the renderer's fallback path.
+        // (Surface/Standard.slang), the renderer's fallback path.
         var fallback = level.SpawnEntity("DefaultCube");
         var fallbackMesh = fallback.AddComponent<MeshRenderer>();
         fallbackMesh.Model = Model.CreateCube();

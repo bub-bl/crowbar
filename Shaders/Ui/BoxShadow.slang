@@ -1,3 +1,8 @@
+#language slang 2026;
+import Color;
+import Sdf;
+import Screen;
+
 // Instanced soft shadow renderer (Crowbar 2D UI backend).
 //
 // One instanced unit quad is drawn per shadow. The fragment evaluates a
@@ -44,26 +49,10 @@ VertexOutput vs_main([[vk::location(0)]] float2 position : POSITION, [[vk::locat
     let screen = float2(
         inst.m0.x * local.x + inst.m0.y * local.y + inst.m0.z,
         inst.m1.x * local.x + inst.m1.y * local.y + inst.m1.z);
-    out.position = float4(screen.x * viewport.z * 2.0 - 1.0, 1.0 - screen.y * viewport.w * 2.0, 0.0, 1.0);
+    out.position = float4(Screen::PixelToClip(screen, viewport), 0.0, 1.0);
     out.local = local;
     out.instance = instanceIndex;
     return out;
-}
-
-float3 srgbToLinear(float3 c)
-{
-    let lo = c / 12.92;
-    let hi = pow((c + 0.055) / 1.055, float3(2.4));
-    return select(c <= float3(0.04045), lo, hi);
-}
-
-float roundedRectSDF(float2 p, float4 b, float r)
-{
-    let half = b.zw * 0.5;
-    let center = b.xy + half;
-    let rr = min(r, min(half.x, half.y));
-    let q = abs(p - center) - (half - float2(rr));
-    return length(max(q, float2(0.0))) + min(max(q.x, q.y), 0.0) - rr;
 }
 
 float4 clipRect(ShadowInstance inst, uint i)
@@ -88,10 +77,10 @@ float clipMask(ShadowInstance inst, float2 frag)
 {
     var mask = 1.0;
     let count = uint(inst.flags.y);
-    if (count > 0u) { mask *= 1.0 - smoothstep(-1.0, 0.0, roundedRectSDF(frag, clipRect(inst, 0u), clipRadius(inst, 0u))); }
-    if (count > 1u) { mask *= 1.0 - smoothstep(-1.0, 0.0, roundedRectSDF(frag, clipRect(inst, 1u), clipRadius(inst, 1u))); }
-    if (count > 2u) { mask *= 1.0 - smoothstep(-1.0, 0.0, roundedRectSDF(frag, clipRect(inst, 2u), clipRadius(inst, 2u))); }
-    if (count > 3u) { mask *= 1.0 - smoothstep(-1.0, 0.0, roundedRectSDF(frag, clipRect(inst, 3u), clipRadius(inst, 3u))); }
+    if (count > 0u) { mask *= 1.0 - smoothstep(-1.0, 0.0, Sdf::RoundedRect(frag, clipRect(inst, 0u), clipRadius(inst, 0u))); }
+    if (count > 1u) { mask *= 1.0 - smoothstep(-1.0, 0.0, Sdf::RoundedRect(frag, clipRect(inst, 1u), clipRadius(inst, 1u))); }
+    if (count > 2u) { mask *= 1.0 - smoothstep(-1.0, 0.0, Sdf::RoundedRect(frag, clipRect(inst, 2u), clipRadius(inst, 2u))); }
+    if (count > 3u) { mask *= 1.0 - smoothstep(-1.0, 0.0, Sdf::RoundedRect(frag, clipRect(inst, 3u), clipRadius(inst, 3u))); }
     return mask;
 }
 
@@ -105,9 +94,9 @@ struct FragmentInput
 float4 fs_main(float4 frag : SV_Position, FragmentInput input) : SV_Target
 {
     let inst = instances[input.instance];
-    let sdShape = roundedRectSDF(input.local, inst.shape, inst.radii.x);
+    let sdShape = Sdf::RoundedRect(input.local, inst.shape, inst.radii.x);
     let blur = max(inst.radii.z, 1.0);
-    let sdBox = roundedRectSDF(input.local, inst.box, inst.radii.y);
+    let sdBox = Sdf::RoundedRect(input.local, inst.box, inst.radii.y);
     let boxMask = 1.0 - smoothstep(-1.0, 0.0, sdBox);
 
     var alpha = 0.0;
@@ -123,5 +112,5 @@ float4 fs_main(float4 frag : SV_Position, FragmentInput input) : SV_Target
     }
 
     alpha *= clipMask(inst, frag.xy);
-    return float4(srgbToLinear(inst.color.rgb), inst.color.a * clamp(alpha, 0.0, 1.0));
+    return float4(Color::SrgbToLinear(inst.color.rgb), inst.color.a * clamp(alpha, 0.0, 1.0));
 }

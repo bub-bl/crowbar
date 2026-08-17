@@ -12,7 +12,7 @@ public class MeshRendererTests
         var cube = level.SpawnEntity("Cube");
         var renderer = cube.AddComponent<MeshRenderer>();
         renderer.Model = Model.CreateCube();
-        renderer.Material = Material.FromShader("Mesh");
+        renderer.Material = Material.FromShader("Surface/Standard");
 
         // MeshRenderer is a TransformComponent: it carries the entity's position.
         Assert.IsAssignableFrom<TransformComponent>(renderer);

@@ -8,7 +8,7 @@ public class GridTests
     [Fact]
     public void GridShader_HasASingleUniformBindingAndMainTechnique()
     {
-        var shader = Shader.Load("Shaders/Grid.wgsl");
+        var shader = Shader.Load("Shaders/Editor/Grid.wgsl");
 
         var technique = Assert.Single(shader.Techniques);
         Assert.Equal("Main", technique.Name);
@@ -23,7 +23,7 @@ public class GridTests
     [Fact]
     public void GridShader_UsesGridUniformsNotTheMaterialStruct()
     {
-        var shader = Shader.Load("Shaders/Grid.wgsl");
+        var shader = Shader.Load("Shaders/Editor/Grid.wgsl");
 
         // The grid is an engine-owned pass: no material struct, no textures.
         Assert.Empty(shader.MaterialFields);

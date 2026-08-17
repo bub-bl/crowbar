@@ -8,7 +8,7 @@ public class SelectionOutlineTests
     [Fact]
     public void SelectionMaskShader_BindsSceneAndModelUniforms()
     {
-        var shader = Shader.Load("Shaders/SelectionMask.wgsl");
+        var shader = Shader.Load("Shaders/Editor/SelectionMask.wgsl");
 
         var technique = Assert.Single(shader.Techniques);
         Assert.Equal("Main", technique.Name);
@@ -27,7 +27,7 @@ public class SelectionOutlineTests
     [Fact]
     public void SelectionOutlineShader_BindsSceneMaskSamplerAndParams()
     {
-        var shader = Shader.Load("Shaders/SelectionOutline.wgsl");
+        var shader = Shader.Load("Shaders/Editor/SelectionOutline.wgsl");
 
         var technique = Assert.Single(shader.Techniques);
         Assert.Equal("Main", technique.Name);

@@ -1,3 +1,8 @@
+#language slang 2026;
+import Color;
+import Msdf;
+import Screen;
+
 // MSDF glyph renderer (Crowbar 2D UI backend).
 //
 // Text is rasterized once into a multi-channel signed distance field (MSDF)
@@ -29,43 +34,16 @@ VertexOutput vs_main([[vk::location(0)]] float2 position : POSITION, [[vk::locat
                      [[vk::location(2)]] float4 color : COLOR)
 {
     VertexOutput out;
-    out.position = float4(position.x * viewport.z * 2.0 - 1.0, 1.0 - position.y * viewport.w * 2.0, 0.0, 1.0);
+    out.position = float4(Screen::PixelToClip(position, viewport), 0.0, 1.0);
     out.uv = uv;
     out.color = color;
     return out;
-}
-
-float3 srgbToLinear(float3 c)
-{
-    let lo = c / 12.92;
-    let hi = pow((c + 0.055) / 1.055, float3(2.4));
-    return select(c <= float3(0.04045), lo, hi);
-}
-
-float median(float r, float g, float b)
-{
-    return max(min(r, g), min(max(r, g), b));
-}
-
-// Reference MSDF antialiasing from msdfgen. Derive the screen-space range
-// from the UV gradient, rather than from the reconstructed distance: the
-// median has discontinuities at edge-color transitions, so fwidth(distance)
-// can turn a valid contour into a broad horizontal smear.
-float screenPxRange(float2 uv)
-{
-    uint width, height;
-    glyph_atlas.GetDimensions(width, height);
-    let unitRange = float2(SPREAD) / float2(width, height);
-    let dx = ddx(uv);
-    let dy = ddy(uv);
-    let screenTexSize = rsqrt(dx * dx + dy * dy);
-    return max(0.5 * dot(unitRange, screenTexSize), 1.0);
 }
 
 [shader("fragment")]
 float4 fs_main(VertexOutput input) : SV_Target
 {
     let msd = glyph_atlas.Sample(glyph_sampler, input.uv).rgb;
-    let coverage = clamp(screenPxRange(input.uv) * (median(msd.r, msd.g, msd.b) - 0.5) + 0.5, 0.0, 1.0);
-    return float4(srgbToLinear(input.color.rgb), coverage * input.color.a);
+    let coverage = clamp(Msdf::ScreenPixelRange(glyph_atlas, input.uv, SPREAD) * (Msdf::Median(msd.r, msd.g, msd.b) - 0.5) + 0.5, 0.0, 1.0);
+    return float4(Color::SrgbToLinear(input.color.rgb), coverage * input.color.a);
 }

@@ -690,10 +690,10 @@
 //     {
 //         if (_device == null) return;
 //
-//         var meshShader = Shader.Load("Shaders/Mesh.wgsl");
+//         var meshShader = Shader.Load("Shaders/Surface/Standard.wgsl");
 //         _meshShader = meshShader;
-//         var pbrShader = Shader.Load("Shaders/Pbr.wgsl");
-//         var gridShader = Shader.Load("Shaders/Grid.wgsl");
+//         var pbrShader = Shader.Load("Shaders/Surface/StandardPbr.wgsl");
+//         var gridShader = Shader.Load("Shaders/Editor/Grid.wgsl");
 //         _meshShaderModule = CreateShaderModule(meshShader);
 //         _pbrShaderModule = CreateShaderModule(pbrShader);
 //         _gridShaderModule = CreateShaderModule(gridShader);

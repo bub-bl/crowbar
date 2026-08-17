@@ -1,3 +1,6 @@
+#language slang 2026;
+import Color;
+
 // Selection outline pass: replaces the plain scene blit when an entity is
 // selected. Samples the finished scene texture and the selection mask, then
 // dilates the mask with a tent-weighted disk to tint a soft band just outside
@@ -17,18 +20,6 @@ struct OutlineParams
 [[vk::binding(2, 0)]] SamplerState samp;
 [[vk::binding(3, 0)]] ConstantBuffer<OutlineParams> params;
 
-// The scene texture is sRGB: sampling it with a float texture yields linear
-// values, and the plain blit (Ui.slang) decodes them once more (srgbToLinear)
-// before the sRGB target re-encodes on store — the gamma-correct round trip
-// of the whole pipeline. This pass must reproduce that exact handling, or
-// the scene comes out brighter while an entity is selected.
-float3 srgbToLinear(float3 c)
-{
-    let lo = c / 12.92;
-    let hi = pow((c + 0.055) / 1.055, float3(2.4));
-    return select(c <= float3(0.04045), lo, hi);
-}
-
 struct VertexOutput
 {
     float4 position : SV_Position;
@@ -47,14 +38,17 @@ VertexOutput vs_main([[vk::location(0)]] float2 position : POSITION, [[vk::locat
 [shader("fragment")]
 float4 fs_main(VertexOutput input) : SV_Target
 {
-    // Un-premultiply and decode sRGB exactly like the scene blit (Ui.slang), so
-    // pixels outside the outline band are bit-identical to the blit.
+    // The scene texture is sRGB: sampling it with a float texture yields linear
+    // values, and the plain blit (Blit.slang) decodes them once more before the
+    // sRGB target re-encodes on store — the gamma-correct round trip of the
+    // whole pipeline. This pass must reproduce that exact handling, or the
+    // scene comes out brighter while an entity is selected.
     let tex = scene_tex.Sample(samp, input.uv);
     let alpha = tex.a;
     var rgb = float3(0.0);
     if (alpha > 0.0)
     {
-        rgb = srgbToLinear(clamp(tex.rgb / alpha, float3(0.0), float3(1.0)));
+        rgb = Color::SrgbToLinear(clamp(tex.rgb / alpha, float3(0.0), float3(1.0)));
     }
 
     let center = mask_tex.Sample(samp, input.uv).r;

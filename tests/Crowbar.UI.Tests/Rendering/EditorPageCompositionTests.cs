@@ -113,7 +113,7 @@ public class EditorPageCompositionTests
             ]),
             new EditorInspectorState.Section("MeshRenderer", "MeshRenderer", "Solar/ui/Bold/box-minimalistic",
             [
-                new EditorInspectorState.Property("Material", "System.Object", "Pbr"),
+                new EditorInspectorState.Property("Material", "System.Object", "StandardPbr"),
                 new EditorInspectorState.Property("Color", "System.Numerics.Vector4", "0.2, 0.6, 1, 1", Indent: 1, Key: "MeshRenderer.Material.color"),
                 new EditorInspectorState.Property("UV Scale", "System.Numerics.Vector2", "1, 1", Indent: 1, Key: "MeshRenderer.Material.uvScale"),
                 new EditorInspectorState.Property("Metallic", "System.Single", "0.15", Indent: 1, Key: "MeshRenderer.Material.metallic"),

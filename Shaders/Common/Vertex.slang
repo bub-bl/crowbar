@@ -1,9 +1,10 @@
-// Shared vertex input/output for the engine's standard mesh layout:
-// position (3) + normal (3) + tangent (4) + uv (2) floats, 48 bytes per
-// vertex. Every lit mesh shader includes this file instead of re-declaring
-// the vertex structs.
+#language slang 2026;
+// The engine's standard mesh vertex layout: position (3) + normal (3) +
+// tangent (4) + uv (2) floats, 48 bytes per vertex. Every lit/unlit mesh
+// shader imports this module instead of re-declaring the vertex structs.
+module Vertex;
 
-struct VertexInput
+public struct VertexInput
 {
     [[vk::location(0)]] float3 position : POSITION;
     [[vk::location(1)]] float3 normal : NORMAL;
@@ -11,7 +12,7 @@ struct VertexInput
     [[vk::location(3)]] float2 uv : TEXCOORD0;
 };
 
-struct VertexOutput
+public struct VertexOutput
 {
     float4 clip_position : SV_Position;
     [[vk::location(0)]] float3 world_position : TEXCOORD0;

@@ -45,7 +45,7 @@ public class InspectorStateBuilderTests
         var cube = world.SpawnEntity("Cube");
         var mesh = cube.AddComponent<MeshRenderer>();
         mesh.Model = Model.CreateCube();
-        mesh.Material = Material.FromShader("Pbr")
+        mesh.Material = Material.FromShader("Surface/StandardPbr")
             .Set("color", new Vector4(0.2f, 0.6f, 1.0f, 1.0f))
             .Set("metallic", 0.15f);
 
@@ -53,7 +53,7 @@ public class InspectorStateBuilderTests
 
         var material = section.Properties.Single(p => p.Name == "Material");
         Assert.Equal("Crowbar.Engine.Material", material.TypeName);
-        Assert.Equal("Pbr", material.Value);
+        Assert.Equal("StandardPbr", material.Value);
 
         // Shader parameters become nested rows, each resolved by its own type.
         var color = section.Properties.Single(p => p.Name == "Color");
@@ -92,7 +92,7 @@ public class InspectorStateBuilderTests
         var cube = world.SpawnEntity("Cube");
         var mesh = cube.AddComponent<MeshRenderer>();
         mesh.Model = Model.CreateCube();
-        mesh.Material = Material.FromShader("Pbr").Set("metallic", 0.15f);
+        mesh.Material = Material.FromShader("Surface/StandardPbr").Set("metallic", 0.15f);
         mesh.Local = new Transform(Vector3.Zero, Rotation.Identity, Vector3.One);
 
         // A material shader parameter is resolved through the Material key.

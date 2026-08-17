@@ -40,11 +40,13 @@ public sealed class Material
         var shaderPath = shaderName;
 
         if (!PathUtil.HasExtension(shaderPath))
-        {
             shaderPath += ".wgsl";
-            if (!shaderPath.Contains('/'))
-                shaderPath = PathUtil.Combine("Shaders", shaderPath);
-        }
+
+        // Accept a bare name ("Standard") or a folder-qualified one
+        // ("Surface/StandardPbr"); both resolve under the content Shaders/
+        // mount unless the caller passes an already-rooted path.
+        if (!FileSystemService.IsRooted(shaderPath))
+            shaderPath = PathUtil.Combine("Shaders", shaderPath);
 
         var shader = Shader.Load(shaderPath);
         shader.GetTechnique(technique); // validate the technique exists now, not at render time

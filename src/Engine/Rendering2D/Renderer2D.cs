@@ -60,7 +60,7 @@ internal readonly struct DrawCmd
 internal readonly record struct ClipRect(RectF Rect, float Radius);
 
 /// <summary>
-/// One instanced SDF shape. The layout mirrors <c>Shaders/SdfShape.slang</c>
+/// One instanced SDF shape. The layout mirrors <c>Shaders/Ui/Shape.slang</c>
 /// exactly (18 <c>vec4f</c> = 288 bytes); every field is a <see cref="Vector4"/>
 /// on a 16-byte boundary so the C# struct maps 1:1 onto the WGSL struct.
 /// </summary>
@@ -89,7 +89,7 @@ internal struct SdfInstance
 
 /// <summary>
 /// One tessellated triangle vertex (screen-space position + straight sRGB
-/// color). Mirrors <c>Shaders/TriMesh.slang</c>.
+/// color). Mirrors <c>Shaders/Ui/Polygon.slang</c>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct TriVertex
@@ -100,7 +100,7 @@ internal struct TriVertex
 
 /// <summary>
 /// One textured-quad vertex (screen-space position + atlas UV + straight sRGB
-/// tint). Mirrors <c>Shaders/Textured.slang</c>.
+/// tint). Mirrors <c>Shaders/Ui/Image.slang</c>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct TexturedVertex
@@ -112,7 +112,7 @@ internal struct TexturedVertex
 
 /// <summary>
 /// One SDF glyph-shadow quad vertex (screen-space position + atlas UV + color
-/// + softness). Mirrors <c>Shaders/GlyphShadow.slang</c>.
+/// + softness). Mirrors <c>Shaders/Ui/GlyphShadow.slang</c>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 internal struct GlyphShadowVertex
@@ -133,7 +133,7 @@ internal struct GlyphShadowVertex
 internal readonly record struct GlyphPatch(int VertexIndex, Image2D Atlas);
 
 /// <summary>
-/// One instanced soft shadow. Mirrors <c>Shaders/Shadow.slang</c> exactly
+/// One instanced soft shadow. Mirrors <c>Shaders/Ui/BoxShadow.slang</c> exactly
 /// (13 <c>vec4f</c> = 208 bytes).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
@@ -155,7 +155,7 @@ internal struct ShadowInstance
 }
 
 /// <summary>
-/// The filter pass parameters, mirroring <c>Shaders/Filter.slang</c>
+/// The filter pass parameters, mirroring <c>Shaders/Ui/Filter.slang</c>
 /// (10 <c>vec4f</c> = 160 bytes): a blur radius plus up to eight ordered ops.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
@@ -873,7 +873,7 @@ public sealed class Renderer2D : IDisposable
 
         if (style.ShadowColor.A > 0f)
         {
-            // GlyphShadow.slang reconstructs distance in screen pixels, so the
+            // Ui/GlyphShadow.slang reconstructs distance in screen pixels, so the
             // blur radius stays in the same unit as TextStyle.ShadowBlur.
             var softness = 0.75f + MathF.Max(style.ShadowBlur, 0f);
             var shadowVector = style.ShadowColor.ToVector4();
@@ -999,7 +999,7 @@ public sealed class Renderer2D : IDisposable
 
         if (emitShadow && shadowColor.A > 0f)
         {
-            // GlyphShadow.slang reconstructs distance in screen pixels: keep
+            // Ui/GlyphShadow.slang reconstructs distance in screen pixels: keep
             // the blur radius in the same unit as the style value.
             var softness = 0.75f + MathF.Max(shadowBlur, 0f);
             var shadowVector = shadowColor.ToVector4();
@@ -1915,7 +1915,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateSdfPipeline()
     {
-        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "SdfShape.wgsl"));
+        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/Shape.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -1948,7 +1948,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateTrianglePipeline()
     {
-        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "TriMesh.wgsl"));
+        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/Polygon.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -1980,7 +1980,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateTexturedPipeline()
     {
-        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Textured.wgsl"));
+        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/Image.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -2015,7 +2015,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateGlyphPipeline()
     {
-        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Glyph.wgsl"));
+        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/Glyph.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -2050,7 +2050,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateShadowPipeline()
     {
-        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Shadow.wgsl"));
+        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/BoxShadow.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -2082,7 +2082,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateFilterPipeline()
     {
-        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Filter.wgsl"));
+        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/Filter.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -2130,7 +2130,7 @@ public sealed class Renderer2D : IDisposable
 
     private IPipeline CreateGlyphShadowPipeline()
     {
-        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "GlyphShadow.wgsl"));
+        var source = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/GlyphShadow.wgsl"));
         return _device!.CreatePipeline(new PipelineDescription
         {
             ShaderSource = source,
@@ -2143,7 +2143,7 @@ public sealed class Renderer2D : IDisposable
             DepthCompare = CompareFunction.Always,
             SampleCount = UISampleCount,
             // slangc reorders vertex-input struct fields by type and renumbers
-            // @location (see the comment in GlyphShadow.slang), so the emitted
+            // @location (see the comment in Ui/GlyphShadow.slang), so the emitted
             // WGSL declares position@0, softness@1, uv@2, color@3 — NOT the
             // struct field order. The attribute descriptors below map the
             // GlyphShadowVertex memory layout (position, uv, color, softness)

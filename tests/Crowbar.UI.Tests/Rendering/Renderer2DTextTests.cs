@@ -334,7 +334,7 @@ public class Renderer2DTextTests
     [Fact]
     public void GlyphShader_ExposesExpectedEntryPointsAndBindings()
     {
-        var shader = Shader.Load("Shaders/Glyph.wgsl");
+        var shader = Shader.Load("Shaders/Ui/Glyph.wgsl");
         Assert.Contains(shader.EntryPoints, e => e.Name == "vs_main");
         Assert.Contains(shader.EntryPoints, e => e.Name == "fs_main");
         Assert.Equal(3, shader.Bindings.Count);

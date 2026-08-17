@@ -1,3 +1,4 @@
+#language slang 2026;
 // Depth-only shadow pass. Renders a mesh's position through the current
 // light-face view-projection matrix into the shadow atlas. There is no color
 // output: the rasterizer writes the interpolated clip depth automatically, so

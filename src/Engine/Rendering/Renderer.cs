@@ -23,7 +23,7 @@ namespace Crowbar.Engine.Rendering;
 /// </summary>
 public sealed class Renderer : IDisposable
 {
-    // Mirrors SceneUniforms in Shaders/Common/Transform.slang: view, projection,
+    // Mirrors SceneUniforms in Shaders/Common/Scene.slang: view, projection,
     // camera position and the clock. Written once per frame, shared by every
     // mesh pipeline through bind group 0.
     [StructLayout(LayoutKind.Sequential)]
@@ -154,7 +154,7 @@ public sealed class Renderer : IDisposable
         public Vector4 OpCount;    // x = active op count
     }
 
-    // Mirrors OutlineParams in Shaders/SelectionOutline.slang.
+    // Mirrors OutlineParams in Shaders/Editor/SelectionOutline.slang.
     [StructLayout(LayoutKind.Sequential)]
     private struct SelectionOutlineParams
     {
@@ -275,7 +275,7 @@ public sealed class Renderer : IDisposable
 
     // Offscreen 3D scene: the cube renders here instead of directly on the
     // surface, then the scene is blitted to the surface. backdrop-filter
-    // panels are composited on the GPU by Backdrop.slang sampling this texture
+    // panels are composited on the GPU by Ui/Backdrop.slang sampling this texture
     // directly (like S&box's ui_backdropfilter.shader), so the CPU never sees
     // the scene and the UI layer only re-records when the UI changes.
     private ITexture _sceneTexture = null!;
@@ -288,7 +288,7 @@ public sealed class Renderer : IDisposable
     private ITexture _sceneDepth = null!;
     private ITexture _surfaceDepth = null!;
 
-    // Scene blit: the UI pipeline (Ui.slang) also blits the offscreen scene
+    // Scene blit: the UI pipeline (Ui/Blit.slang) also blits the offscreen scene
     // texture onto the surface, so it is kept even though the Skia UI texture
     // upload path is gone.
     private ISampler _uiSampler = null!;
@@ -307,7 +307,7 @@ public sealed class Renderer : IDisposable
 
     // GPU UI renderer: the tree-walk painter records the panel tree into a
     // Renderer2D, which draws the UI offscreen on the GPU (no Skia raster).
-    // The surface pass blits that target over the scene with Ui2D.slang.
+    // The surface pass blits that target over the scene with Ui/BlitLinear.slang.
     private Renderer2D _ui2d = null!;
     private UiTreePainter _uiPainter = null!;
     private IPipeline _ui2dPipeline = null!;
@@ -657,7 +657,7 @@ public sealed class Renderer : IDisposable
         _defaultBlackTexture = CreateSolidTexture(0, 0, 0, 255, srgb: true);
         _defaultNormalTexture = CreateSolidTexture(128, 128, 255, 255, srgb: false);
 
-        _defaultMaterial = Material.CreateDefault(Shader.Load(PathUtil.Combine("Shaders", "Mesh.wgsl")));
+        _defaultMaterial = Material.CreateDefault(Shader.Load(PathUtil.Combine("Shaders", "Surface/Standard.wgsl")));
     }
 
     /// <summary>
@@ -692,7 +692,7 @@ public sealed class Renderer : IDisposable
 
         _shadowPipeline = _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "ShadowDepth.wgsl")).Source,
+            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "Surface/ShadowDepth.wgsl")).Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             DepthOnly = true,
@@ -788,7 +788,7 @@ public sealed class Renderer : IDisposable
             Usage = BufferUsage.Uniform | BufferUsage.CopyDst
         });
 
-        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Grid.wgsl"));
+        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Editor/Grid.wgsl"));
         _gridPipeline = _device.CreatePipeline(new PipelineDescription
         {
             ShaderSource = shaderSource,
@@ -1682,7 +1682,7 @@ public sealed class Renderer : IDisposable
     {
         _uiSampler ??= _device.CreateSampler(new SamplerDescription());
 
-        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui.wgsl"));
+        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/Blit.wgsl"));
         _uiPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
             ShaderSource = shaderSource,
@@ -1732,7 +1732,7 @@ public sealed class Renderer : IDisposable
     /// </summary>
     private void CreateUi2DResources()
     {
-        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui2D.wgsl"));
+        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/BlitLinear.wgsl"));
         _ui2dSampler ??= _device.CreateSampler(new SamplerDescription());
         _ui2dPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
@@ -1763,7 +1763,7 @@ public sealed class Renderer : IDisposable
 
     private void CreateBackdropResources()
     {
-        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Backdrop.wgsl"));
+        string shaderSource = FileSystem.Content.ReadAllText(PathUtil.Combine("Shaders", "Ui/Backdrop.wgsl"));
         _backdropParamsBuffer = _device.CreateBuffer(new BufferDescription
         {
             Size = (ulong)(MaxBackdropRegions * sizeof(BackdropGpuParams)),
@@ -1905,7 +1905,7 @@ public sealed class Renderer : IDisposable
         // uniform is per-renderable.
         _selectionMaskPipeline ??= _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "SelectionMask.wgsl")).Source,
+            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "Editor/SelectionMask.wgsl")).Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = TextureFormat.Rgba8Unorm,
@@ -1935,7 +1935,7 @@ public sealed class Renderer : IDisposable
 
         _outlinePipeline ??= _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "SelectionOutline.wgsl")).Source,
+            ShaderSource = Shader.Load(PathUtil.Combine("Shaders", "Editor/SelectionOutline.wgsl")).Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,
@@ -2020,7 +2020,7 @@ public sealed class Renderer : IDisposable
 
     /// <summary>
     /// Translates the backdrop regions collected by the tree-walk painter into
-    /// the GPU parameter buffer (Backdrop.slang reads one struct per instance)
+    /// the GPU parameter buffer (Ui/Backdrop.slang reads one struct per instance)
     /// and uploads it only when the set actually changed, so a static UI costs
     /// no uploads at all. The regions already carry the CSS chain in a form the
     /// shader can evaluate (see
@@ -2062,18 +2062,19 @@ public sealed class Renderer : IDisposable
                     var amount = function.Parameters[0];
                     float type = name switch
                     {
-                        "brightness" => 0,
-                        "contrast" => 1,
-                        "saturate" => 2,
-                        "grayscale" => 2, // grayscale(a) == saturate(1-a)
-                        "invert" => 3,
-                        "hue-rotate" => 4,
-                        "sepia" => 5,
-                        "opacity" => 6,
+                        // Op kinds match FilterOps.slang / FilterOpKind, so the
+                        // 3D backdrop and 2D filter passes share one table.
+                        "brightness" => (int)FilterOpKind.Brightness,
+                        "contrast" => (int)FilterOpKind.Contrast,
+                        "grayscale" => (int)FilterOpKind.Grayscale,
+                        "hue-rotate" => (int)FilterOpKind.HueRotate,
+                        "invert" => (int)FilterOpKind.Invert,
+                        "opacity" => (int)FilterOpKind.Opacity,
+                        "saturate" => (int)FilterOpKind.Saturate,
+                        "sepia" => (int)FilterOpKind.Sepia,
                         _ => -1
                     };
                     if (type < 0) continue;
-                    if (name.Equals("grayscale", StringComparison.OrdinalIgnoreCase)) amount = 1 - amount;
                     SetBackdropOp(ref p, opIndex++, type, amount);
                 }
             }

@@ -5,7 +5,7 @@ public class GizmoShaderTests
     [Fact]
     public void GizmoLineShader_BindsSceneAndWidget()
     {
-        var shader = Shader.Load("Shaders/GizmoLine.wgsl");
+        var shader = Shader.Load("Shaders/Editor/GizmoLine.wgsl");
 
         var technique = Assert.Single(shader.Techniques);
         Assert.Equal("Main", technique.Name);
@@ -26,7 +26,7 @@ public class GizmoShaderTests
     [Fact]
     public void GizmoSpriteShader_BindsSceneAndSpriteStorage()
     {
-        var shader = Shader.Load("Shaders/GizmoSprite.wgsl");
+        var shader = Shader.Load("Shaders/Editor/GizmoSprite.wgsl");
 
         var technique = Assert.Single(shader.Techniques);
         Assert.Equal("Main", technique.Name);
