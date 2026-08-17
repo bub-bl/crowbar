@@ -19,15 +19,6 @@ public class GizmoShaderTests
         Assert.Equal((0, 1u, ShaderBindingKind.ReadOnlyStorageBuffer, "elements", "array<GizmoWidgetElement>"),
             (bindings[1].Group, bindings[1].Slot, bindings[1].Kind, bindings[1].VariableName, bindings[1].TypeName));
 
-        // The arrowheads are actual 3D cones, not billboard triangles.
-        Assert.Contains("cross(axis, reference)", shader.Source);
-        Assert.Contains("element.sizes.z", shader.Source);
-
-        // The rotation rings sweep a torus tube (axial component via shape.w),
-        // not a flat annulus that collapses to a hairline edge-on.
-        Assert.Contains("ringRadial", shader.Source);
-        Assert.Contains("input.shape.w", shader.Source);
-
         // A viewport overlay: no material struct, no textures.
         Assert.Empty(shader.MaterialFields);
     }

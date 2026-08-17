@@ -7,8 +7,6 @@ public class ShaderReflectionTests
     {
         var shader = Shader.Load("Shaders/Mesh.wgsl");
 
-        // The old inverted-hull "Outline" technique was removed: selection
-        // contours are a real post-process (SelectionMask/SelectionOutline).
         Assert.Equal(new[] { "Main" }, shader.Techniques.Select(t => t.Name).ToArray());
         var main = shader.GetTechnique("Main");
         Assert.Equal(("vs_main", "fs_main"), (main.VertexEntryPoint, main.FragmentEntryPoint));
@@ -27,6 +25,7 @@ public class ShaderReflectionTests
             (0, 1u, ShaderBindingKind.UniformBuffer, "lights", "LightsUniform"),
             (0, 2u, ShaderBindingKind.UniformBuffer, "shadows", "ShadowUniforms"),
             (0, 3u, ShaderBindingKind.Texture, "shadowMap", "texture_depth_2d"),
+            (0, 4u, ShaderBindingKind.Sampler, "shadowSampler", "sampler"),
             (1, 0u, ShaderBindingKind.UniformBuffer, "model", "mat4x4<f32>"),
             (1, 1u, ShaderBindingKind.UniformBuffer, "material", "MaterialUniforms")
         };

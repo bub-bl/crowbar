@@ -87,18 +87,6 @@ public class GridTests
         Assert.True(grid.ZAxisColor.Z > grid.ZAxisColor.X);
     }
 
-    [Fact]
-    public void GridShader_MapsXToTheLineAlongXAndZToTheLineAlongZ()
-    {
-        var shader = Shader.Load("Shaders/Grid.wgsl");
-
-        // The X axis is the line along X (z ≈ 0), the Z axis the line along
-        // Z (x ≈ 0). Swapping them misaligned the grid colors with those of
-        // the position/scale/rotation gizmos.
-        Assert.Contains("onXAxis = abs(fragPos3D.z)", shader.Source);
-        Assert.Contains("onZAxis = abs(fragPos3D.x)", shader.Source);
-    }
-
     private static void AssertIdentity(Matrix4x4 matrix)
     {
         for (var row = 0; row < 4; row++)

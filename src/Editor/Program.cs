@@ -111,7 +111,7 @@ internal sealed class DemoApplication : Application
             new Vector3(0.5f));
 
         // A last cube without a material: it picks up the default material
-        // (Mesh.wgsl), the renderer's fallback path.
+        // (Mesh.slang), the renderer's fallback path.
         var fallback = level.SpawnEntity("DefaultCube");
         var fallbackMesh = fallback.AddComponent<MeshRenderer>();
         fallbackMesh.Model = Model.CreateCube();

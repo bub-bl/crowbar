@@ -55,7 +55,7 @@ public sealed class Grid
 }
 
 /// <summary>
-/// Mirrors GridUniforms in Shaders/Grid.wgsl (view/proj + inverses, settings
+/// Mirrors GridUniforms in Shaders/Grid.slang (view/proj + inverses, settings
 /// and colors). Engine-owned, so the layout is declared once here and once in
 /// the shader, like the scene and lights uniforms.
 /// </summary>

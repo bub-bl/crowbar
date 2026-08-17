@@ -23,7 +23,7 @@ namespace Crowbar.Engine.Rendering;
 /// </summary>
 public sealed class Renderer : IDisposable
 {
-    // Mirrors SceneUniforms in Shaders/Common/Transform.wgsl: view, projection,
+    // Mirrors SceneUniforms in Shaders/Common/Transform.slang: view, projection,
     // camera position and the clock. Written once per frame, shared by every
     // mesh pipeline through bind group 0.
     [StructLayout(LayoutKind.Sequential)]
@@ -35,7 +35,7 @@ public sealed class Renderer : IDisposable
         public Vector4 Time;
     }
 
-    // Mirrors LightData in Shaders/Common/Lighting.wgsl.
+    // Mirrors LightData in Shaders/Common/Lighting.slang.
     [StructLayout(LayoutKind.Sequential)]
     private struct LightGpuData
     {
@@ -44,11 +44,11 @@ public sealed class Renderer : IDisposable
         public Vector4 DirectionRange;   // xyz = direction the light travels, w = range (point lights)
     }
 
-    // Mirrors LightsUniform in Shaders/Common/Lighting.wgsl: a u32 count
+    // Mirrors LightsUniform in Shaders/Common/Lighting.slang: a u32 count
     // padded to 16 bytes, then array<LightData, 8> (48 bytes per element).
     private const int LightsBufferSize = 16 + MaxLights * 48;
 
-    // Mirrors ShadowFace in Shaders/Common/Shadows.wgsl: a UV rect (16 bytes)
+    // Mirrors ShadowFace in Shaders/Common/Shadows.slang: a UV rect (16 bytes)
     // followed by the face's light view-projection matrix (64 bytes).
     [StructLayout(LayoutKind.Sequential)]
     private struct ShadowFaceGpuData
@@ -57,7 +57,7 @@ public sealed class Renderer : IDisposable
         public Matrix4x4 ViewProj;  // world -> light clip space
     }
 
-    // Mirrors ShadowLight in Shaders/Common/Shadows.wgsl: a flags vector plus
+    // Mirrors ShadowLight in Shaders/Common/Shadows.slang: a flags vector plus
     // six face slots (80 bytes each), 496 bytes per light, 16-byte aligned.
     [StructLayout(LayoutKind.Sequential)]
     private struct ShadowLightGpuData
@@ -71,7 +71,7 @@ public sealed class Renderer : IDisposable
         public ShadowFaceGpuData Face5;
     }
 
-    // Mirrors ShadowUniforms in Shaders/Common/Shadows.wgsl: a leading vec4
+    // Mirrors ShadowUniforms in Shaders/Common/Shadows.slang: a leading vec4
     // (atlas size) then array<ShadowLight, 8> (496 bytes per element).
     private const int ShadowLightStride = 16 + 6 * 80;
     private const int ShadowBufferSize = 16 + MaxLights * ShadowLightStride;
@@ -101,7 +101,7 @@ public sealed class Renderer : IDisposable
     // keeps crisp shadows; geometry beyond it simply stops casting into view.
     private const float DirectionalShadowMaxDistance = 50f;
 
-    // Cube-face orientations for a point light, in the order Shadows.wgsl
+    // Cube-face orientations for a point light, in the order Shadows.slang
     // selects them: +X, -X, +Y, -Y, +Z, -Z.
     private static readonly (Vector3 Forward, Vector3 Up)[] PointFaceOrientations =
     [
@@ -154,7 +154,7 @@ public sealed class Renderer : IDisposable
         public Vector4 OpCount;    // x = active op count
     }
 
-    // Mirrors OutlineParams in Shaders/SelectionOutline.wgsl.
+    // Mirrors OutlineParams in Shaders/SelectionOutline.slang.
     [StructLayout(LayoutKind.Sequential)]
     private struct SelectionOutlineParams
     {
@@ -275,7 +275,7 @@ public sealed class Renderer : IDisposable
 
     // Offscreen 3D scene: the cube renders here instead of directly on the
     // surface, then the scene is blitted to the surface. backdrop-filter
-    // panels are composited on the GPU by Backdrop.wgsl sampling this texture
+    // panels are composited on the GPU by Backdrop.slang sampling this texture
     // directly (like S&box's ui_backdropfilter.shader), so the CPU never sees
     // the scene and the UI layer only re-records when the UI changes.
     private ITexture _sceneTexture = null!;
@@ -288,7 +288,7 @@ public sealed class Renderer : IDisposable
     private ITexture _sceneDepth = null!;
     private ITexture _surfaceDepth = null!;
 
-    // Scene blit: the UI pipeline (Ui.wgsl) also blits the offscreen scene
+    // Scene blit: the UI pipeline (Ui.slang) also blits the offscreen scene
     // texture onto the surface, so it is kept even though the Skia UI texture
     // upload path is gone.
     private ISampler _uiSampler = null!;
@@ -307,7 +307,7 @@ public sealed class Renderer : IDisposable
 
     // GPU UI renderer: the tree-walk painter records the panel tree into a
     // Renderer2D, which draws the UI offscreen on the GPU (no Skia raster).
-    // The surface pass blits that target over the scene with Ui2D.wgsl.
+    // The surface pass blits that target over the scene with Ui2D.slang.
     private Renderer2D _ui2d = null!;
     private UiTreePainter _uiPainter = null!;
     private IPipeline _ui2dPipeline = null!;
@@ -906,7 +906,7 @@ public sealed class Renderer : IDisposable
         _scene.Time = new Vector4((float)time, 0f, 0f, 0f);
         _sceneBuffer.Write(in _scene);
 
-        // Lay the already-collected lights out exactly as Lighting.wgsl
+        // Lay the already-collected lights out exactly as Lighting.slang
         // expects: count at offset 0, array<LightData, 8> at offset 16.
         var collected = new LightGpuData[MaxLights];
         var count = Math.Min(lights.Count, MaxLights);
@@ -2020,7 +2020,7 @@ public sealed class Renderer : IDisposable
 
     /// <summary>
     /// Translates the backdrop regions collected by the tree-walk painter into
-    /// the GPU parameter buffer (Backdrop.wgsl reads one struct per instance)
+    /// the GPU parameter buffer (Backdrop.slang reads one struct per instance)
     /// and uploads it only when the set actually changed, so a static UI costs
     /// no uploads at all. The regions already carry the CSS chain in a form the
     /// shader can evaluate (see

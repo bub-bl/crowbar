@@ -3,7 +3,7 @@ namespace Crowbar.UI;
 /// <summary>
 /// A backdrop-filter region collected during the tree-walk paint. The region
 /// itself is <em>not</em> rasterized on the CPU: the GPU compositor
-/// (Backdrop.wgsl) samples the WebGPU 3D viewport behind the UI, filters it and
+/// (Backdrop.slang) samples the WebGPU 3D viewport behind the UI, filters it and
 /// writes it into this border box, exactly like S&amp;box's ui_backdropfilter
 /// shader. The panel's own background and children are painted by the GPU
 /// renderer and composite on top.

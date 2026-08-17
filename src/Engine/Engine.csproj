@@ -16,7 +16,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="..\..\Shaders\**\*.wgsl" Link="Shaders\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\Assets\Gizmos\**\*.svg" Link="Assets\Gizmos\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\Assets\Icons\**\*.svg" Link="Assets\Icons\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="SixLabors.Fonts" Version="3.1.0" />
@@ -34,4 +33,47 @@
     <ProjectReference Include="..\FileSystem\Crowbar.FileSystem.csproj" />
     <ProjectReference Include="..\UI\Crowbar.UI.csproj" />
   </ItemGroup>
+
+  <!-- Slang shader pipeline: author in Shaders/*.slang, compile to WGSL (plus a
+       reflection JSON sidecar) with the vendored slangc, and ship only the
+       compiled artifacts. The .slang source is the single source of truth; the
+       engine loads the emitted WGSL + JSON at runtime. -->
+  <PropertyGroup>
+    <_CrowbarRepoRoot>$(MSBuildThisFileDirectory)..\..\</_CrowbarRepoRoot>
+    <_CrowbarSlangc>$(_CrowbarRepoRoot)tools\slang\slangc.exe</_CrowbarSlangc>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <SlangShader Include="$(_CrowbarRepoRoot)Shaders\*.slang" />
+    <SlangShaderDependency Include="$(_CrowbarRepoRoot)Shaders\Common\*.slang" />
+  </ItemGroup>
+
+  <!-- Incremental: slangc runs only when a .slang source is newer than its
+       compiled WGSL (or the sidecar is missing). IntermediateOutputPath is
+       referenced inside the targets (not a top-level PropertyGroup) so it
+       resolves with the target-framework suffix applied. -->
+  <Target Name="CrowbarCompileSlangShaders"
+          Inputs="@(SlangShader);@(SlangShaderDependency)"
+          Outputs="@(SlangShader->'$(IntermediateOutputPath)SlangShaders\%(Filename).wgsl');@(SlangShader->'$(IntermediateOutputPath)SlangShaders\%(Filename).slang.json')">
+    <MakeDir Directories="$(IntermediateOutputPath)SlangShaders" />
+    <Exec Command="&quot;$(_CrowbarSlangc)&quot; &quot;%(SlangShader.FullPath)&quot; -target wgsl -I &quot;$(_CrowbarRepoRoot)Shaders&quot; -o &quot;$(IntermediateOutputPath)SlangShaders\%(SlangShader.Filename).wgsl&quot; -reflection-json &quot;$(IntermediateOutputPath)SlangShaders\%(SlangShader.Filename).slang.json&quot;" />
+  </Target>
+
+  <!-- Collect the compiled artifacts into the output (always runs, so the
+       files are also copied on incremental builds where slangc was skipped). -->
+  <Target Name="CrowbarCollectSlangShaders"
+          BeforeTargets="PrepareForBuild"
+          DependsOnTargets="CrowbarCompileSlangShaders"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <ItemGroup>
+      <SlangShaderOutput Include="$(IntermediateOutputPath)SlangShaders\*.wgsl" />
+      <SlangShaderOutput Include="$(IntermediateOutputPath)SlangShaders\*.slang.json" />
+    </ItemGroup>
+    <ItemGroup>
+      <None Include="@(SlangShaderOutput)">
+        <Link>Shaders\%(SlangShaderOutput.Filename)%(SlangShaderOutput.Extension)</Link>
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      </None>
+    </ItemGroup>
+  </Target>
 </Project>

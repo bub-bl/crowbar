@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Text.Json;
 using Crowbar.FileSystems;
 
 namespace Crowbar.Engine;
@@ -47,14 +48,10 @@ public readonly union ShaderParameter(float, Vector2, Vector3, Vector4, Matrix4x
 public sealed record ShaderParameterDefinition(string Name, Type Type);
 
 /// <summary>
-/// A shader source loaded from a file shipped with the application.
-/// <c>#include</c> directives are resolved at load time
-/// (<see cref="ShaderPreprocessor"/>), and the flattened source is reflected
-/// (<see cref="ShaderReflection"/>) into entry points, bind-group
-/// declarations, struct definitions and named techniques — so the WGSL is the
-/// single source of truth for the pipeline layout and the material
-/// parameters, and the <see cref="UniformPacker"/> derives the uniform layout
-/// from it.
+/// A compiled shader: the WGSL emitted by <c>slangc</c> plus the reflection
+/// sidecar (<c>-reflection-json</c>) that describes its entry points, bind
+/// groups, struct definitions and material parameters. Slang is the single
+/// source of truth — the engine never re-derives the layout from source text.
 /// </summary>
 public sealed class Shader
 {
@@ -64,7 +61,7 @@ public sealed class Shader
 
     public string Name { get; }
 
-    /// <summary>The flattened source (includes resolved), ready for compilation.</summary>
+    /// <summary>The compiled WGSL source, ready for the WebGPU backend.</summary>
     public string Source { get; }
 
     public IReadOnlyList<ShaderEntryPoint> EntryPoints { get; }
@@ -72,33 +69,40 @@ public sealed class Shader
     /// <summary>Every resource binding declared by the shader, sorted by group then slot.</summary>
     public IReadOnlyList<ShaderBinding> Bindings { get; }
 
-    /// <summary>Every struct definition in the flattened source.</summary>
+    /// <summary>Every struct definition the shader declares.</summary>
     public IReadOnlyList<ShaderStruct> Structs { get; }
 
     /// <summary>Render passes (vertex/fragment pairs) the shader exposes.</summary>
     public IReadOnlyList<ShaderTechnique> Techniques { get; }
 
     /// <summary>
-    /// Fields of the material uniform struct (the struct referenced by a
-    /// group &gt;= 1 uniform binding whose name contains "Material"). These are
-    /// the parameters a <see cref="Material"/> can set, packed by
-    /// <see cref="UniformPacker"/> into the struct's exact layout.
+    /// Fields of the material uniform struct (the uniform binding in group &gt;= 1
+    /// whose struct name contains "Material"). These are the parameters a
+    /// <see cref="Material"/> can set, packed by <see cref="UniformPacker"/>
+    /// into the struct's exact layout.
     /// </summary>
     public IReadOnlyList<ShaderStructField> MaterialFields { get; }
 
     /// <summary>The material fields mapped to CLR types, for parameter validation.</summary>
     public IReadOnlyList<ShaderParameterDefinition> Parameters { get; }
 
-    private Shader(string requestedPath, FilePath filePath, string source)
+    private Shader(
+        string requestedPath,
+        FilePath filePath,
+        string source,
+        IReadOnlyList<ShaderEntryPoint> entryPoints,
+        IReadOnlyList<ShaderBinding> bindings,
+        IReadOnlyList<ShaderStruct> structs,
+        IReadOnlyList<ShaderTechnique> techniques)
     {
         Path = requestedPath;
         FilePath = filePath.FullName;
         Source = source;
         Name = filePath.GetNameWithoutExtension() ?? string.Empty;
-        EntryPoints = ShaderReflection.DetectEntryPoints(source);
-        Bindings = ShaderReflection.DetectBindings(source);
-        Structs = ShaderReflection.DetectStructs(source);
-        Techniques = ShaderReflection.DetectTechniques(EntryPoints);
+        EntryPoints = entryPoints;
+        Bindings = bindings;
+        Structs = structs;
+        Techniques = techniques;
         MaterialFields = FindMaterialFields();
         Parameters =
         [
@@ -137,11 +141,21 @@ public sealed class Shader
 
         foreach (var candidate in candidates)
         {
-            if (fs.FileExists(candidate))
-            {
-                var source = ShaderPreprocessor.Preprocess(fs, candidate);
-                return new Shader(path, candidate, source);
-            }
+            if (!fs.FileExists(candidate))
+                continue;
+
+            var source = fs.ReadAllText(candidate);
+            var sidecar = candidate.ChangeExtension(".slang.json");
+            if (!fs.FileExists(sidecar))
+                throw new FileNotFoundException(
+                    $"Shader reflection sidecar '{sidecar}' was not found next to '{candidate}'.",
+                    sidecar.FullName);
+
+            using var json = JsonDocument.Parse(fs.ReadAllText(sidecar));
+            var entryPoints = SlangShaderReflection.DetectEntryPoints(json);
+            var (bindings, structs) = SlangShaderReflection.DetectBindingsAndStructs(json);
+            var techniques = SlangShaderReflection.DetectTechniques(entryPoints);
+            return new Shader(path, candidate, source, entryPoints, bindings, structs, techniques);
         }
 
         throw new FileNotFoundException(
