@@ -363,6 +363,15 @@ public sealed class Model
         if (material.Textures.ContainsKey("emissiveTexture"))
             material.Set("emissive", 1f);
 
+        // glTF render state: alphaMode BLEND composites src-over without
+        // writing depth; alphaMode MASK is alpha-tested, which the engine does
+        // not support yet, so it stays opaque. doubleSided disables culling.
+        material.DoubleSided = GetMaterialInt(source, "$mat.twosided", 0) != 0;
+        var alphaMode = GetMaterialStringValue(source, "$mat.gltf.alphaMode");
+        material.BlendMode = string.Equals(alphaMode, "BLEND", StringComparison.OrdinalIgnoreCase)
+            ? MaterialBlendMode.Blend
+            : MaterialBlendMode.Opaque;
+
         return material;
     }
 
@@ -418,6 +427,23 @@ public sealed class Model
         return Api.GetMaterialFloatArray(material, key, 0, 0, ref value, ref count) == Return.Success
             ? value
             : fallback;
+    }
+
+    private static unsafe int GetMaterialInt(AssimpMaterial* material, string key, int fallback)
+    {
+        int value = fallback;
+        uint count = 1;
+        return Api.GetMaterialIntegerArray(material, key, 0, 0, ref value, ref count) == Return.Success
+            ? value
+            : fallback;
+    }
+
+    private static unsafe string? GetMaterialStringValue(AssimpMaterial* material, string key)
+    {
+        AssimpString value = default;
+        return Api.GetMaterialString(material, key, 0, 0, ref value) == Return.Success
+            ? value.AsString
+            : null;
     }
 
     private static unsafe string GetMaterialName(AssimpMaterial* material, string fallback)

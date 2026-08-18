@@ -143,6 +143,21 @@ public sealed class Renderer : IDisposable
         public required IBindGroup BindGroup { get; init; }
     }
 
+    /// <summary>Pipeline identity: shader, technique and the material's rasterizer state.</summary>
+    private readonly record struct MeshPipelineKey(
+        Shader Shader,
+        string Technique,
+        MaterialBlendMode BlendMode,
+        bool DoubleSided);
+
+    /// <summary>One mesh to draw this frame, pre-sorted into render order.</summary>
+    private readonly record struct MeshDrawItem(
+        MeshRenderer Renderer,
+        Mesh Mesh,
+        Material Material,
+        Matrix4x4 ModelMatrix,
+        float Depth);
+
     [StructLayout(LayoutKind.Sequential)]
     private struct BackdropGpuParams
     {
@@ -223,7 +238,7 @@ public sealed class Renderer : IDisposable
     private ITexture _defaultWhiteTexture = null!;
     private ITexture _defaultBlackTexture = null!;
     private ITexture _defaultNormalTexture = null!;
-    private readonly Dictionary<(Shader Shader, string Technique), IPipeline> _meshPipelines = [];
+    private readonly Dictionary<MeshPipelineKey, IPipeline> _meshPipelines = [];
     private readonly Dictionary<IPipeline, IBindGroup> _sceneBindGroups = [];
     private readonly Dictionary<Mesh, MeshBuffers> _meshBuffers = [];
     private readonly Dictionary<(MeshRenderer Renderer, Material Material), RenderableResources> _renderables = [];
@@ -843,42 +858,60 @@ public sealed class Renderer : IDisposable
         foreach (var stale in _renderables.Keys.Select(key => key.Renderer).Distinct().Except(renderers).ToArray())
             DisposeRenderable(stale);
 
-        IPipeline? currentPipeline = null;
+        // Collect every draw item, then order them: opaque meshes first (stable
+        // order) and transparent meshes after, sorted back-to-front so src-over
+        // alpha blending composites correctly.
+        var cameraPosition = new Vector3(_scene.CameraPosition.X, _scene.CameraPosition.Y, _scene.CameraPosition.Z);
+        var opaque = new List<MeshDrawItem>();
+        var transparent = new List<MeshDrawItem>();
         foreach (var renderer in renderers)
         {
             if (!renderer.IsValid || renderer.Model is null)
                 continue;
 
             var modelMatrix = ToWorldMatrix(renderer.World);
-
+            var depth = Vector3.DistanceSquared(renderer.World.Position, cameraPosition);
             foreach (var mesh in renderer.Model.Meshes)
             {
                 // A renderer material overrides every mesh; otherwise each mesh
                 // uses its own model material, then the engine default.
                 var material = renderer.Material ?? mesh.Material ?? _defaultMaterial!;
-                var pipeline = GetMeshPipeline(material.Shader, material.Technique);
-                var renderable = GetRenderableResources(renderer, material, pipeline);
-
-                if (currentPipeline != pipeline)
-                {
-                    pass.SetPipeline(pipeline);
-                    pass.SetBindGroup(GetSceneBindGroup(pipeline), 0);
-                    currentPipeline = pipeline;
-                }
-                pass.SetBindGroup(renderable.BindGroup, 1);
-
-                renderable.ModelBuffer.Write(in modelMatrix);
-                if (renderable.MaterialBuffer is not null)
-                {
-                    var packed = UniformPacker.Pack(material.Shader.MaterialFields, material.Values);
-                    renderable.MaterialBuffer.Write(packed);
-                }
-
-                var buffers = GetMeshBuffers(mesh);
-                pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
-                pass.SetIndexBuffer(buffers.IndexBuffer, buffers.IndexBuffer.Size);
-                pass.DrawIndexed((uint)mesh.Indices.Length);
+                var item = new MeshDrawItem(renderer, mesh, material, modelMatrix, depth);
+                if (material.BlendMode == MaterialBlendMode.Blend)
+                    transparent.Add(item);
+                else
+                    opaque.Add(item);
             }
+        }
+        transparent.Sort(static (a, b) => b.Depth.CompareTo(a.Depth));
+
+        IPipeline? currentPipeline = null;
+        foreach (var item in opaque.Concat(transparent))
+        {
+            var material = item.Material;
+            var pipeline = GetMeshPipeline(material.Shader, material.Technique, material.BlendMode, material.DoubleSided);
+            var renderable = GetRenderableResources(item.Renderer, material, pipeline);
+
+            if (currentPipeline != pipeline)
+            {
+                pass.SetPipeline(pipeline);
+                pass.SetBindGroup(GetSceneBindGroup(pipeline), 0);
+                currentPipeline = pipeline;
+            }
+            pass.SetBindGroup(renderable.BindGroup, 1);
+
+            var modelMatrix = item.ModelMatrix;
+            renderable.ModelBuffer.Write(in modelMatrix);
+            if (renderable.MaterialBuffer is not null)
+            {
+                var packed = UniformPacker.Pack(material.Shader.MaterialFields, material.Values);
+                renderable.MaterialBuffer.Write(packed);
+            }
+
+            var buffers = GetMeshBuffers(item.Mesh);
+            pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
+            pass.SetIndexBuffer(buffers.IndexBuffer, buffers.IndexBuffer.Size);
+            pass.DrawIndexed((uint)item.Mesh.Indices.Length);
         }
     }
 
@@ -1406,13 +1439,20 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Returns (creating on first use) the pipeline for a shader and technique.
-    /// The group-1 layout is derived from the shader's own bindings, so the
-    /// WGSL source is the single source of truth for the pipeline layout.
+    /// Returns (creating on first use) the pipeline for a shader, technique and
+    /// rasterizer state (blend mode + double-sidedness). Blended materials skip
+    /// depth writes (they still test depth so they respect opaque geometry) and
+    /// single-sided materials cull back faces. The group-1 layout is derived
+    /// from the shader's own bindings, so the WGSL source is the single source
+    /// of truth for the pipeline layout.
     /// </summary>
-    private IPipeline GetMeshPipeline(Shader shader, string techniqueName)
+    private IPipeline GetMeshPipeline(
+        Shader shader,
+        string techniqueName,
+        MaterialBlendMode blendMode,
+        bool doubleSided)
     {
-        var key = (shader, techniqueName);
+        var key = new MeshPipelineKey(shader, techniqueName, blendMode, doubleSided);
         if (_meshPipelines.TryGetValue(key, out var existing))
             return existing;
 
@@ -1432,8 +1472,10 @@ public sealed class Renderer : IDisposable
             FragmentEntryPoint = technique.FragmentEntryPoint,
             ColorFormat = _device.Swapchain.Format,
             DepthFormat = TextureFormat.Depth24Plus,
-            DepthWriteEnabled = true,
+            AlphaBlend = blendMode == MaterialBlendMode.Blend,
+            DepthWriteEnabled = blendMode == MaterialBlendMode.Opaque,
             DepthCompare = CompareFunction.Less,
+            CullMode = doubleSided ? CullMode.None : CullMode.Back,
             VertexLayout = MeshVertexLayout,
             BindGroups = [SceneGroupBindings, bindGroups[1]]
         });

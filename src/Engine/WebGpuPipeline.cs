@@ -143,7 +143,7 @@ public sealed unsafe class WebGpuPipeline : IPipeline
                 {
                     Topology = WebGpuNative.ToNative(description.Topology),
                     FrontFace = FrontFace.Ccw,
-                    CullMode = CullMode.None
+                    CullMode = WebGpuNative.ToNative(description.CullMode)
                 },
                 DepthStencil = &depthStencil,
                 Multisample = new MultisampleState { Count = (uint)Math.Max(1, description.SampleCount), Mask = 0xFFFFFFFF },

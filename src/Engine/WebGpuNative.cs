@@ -8,12 +8,14 @@ using SilkShaderStage = Silk.NET.WebGPU.ShaderStage;
 using SilkCompareFunction = Silk.NET.WebGPU.CompareFunction;
 using SilkVertexFormat = Silk.NET.WebGPU.VertexFormat;
 using SilkPrimitiveTopology = Silk.NET.WebGPU.PrimitiveTopology;
+using SilkCullMode = Silk.NET.WebGPU.CullMode;
 using EngineTextureFormat = Crowbar.Engine.Rendering.TextureFormat;
 using EngineBufferUsage = Crowbar.Engine.Rendering.BufferUsage;
 using EngineShaderStage = Crowbar.Engine.Rendering.ShaderStage;
 using EngineCompareFunction = Crowbar.Engine.Rendering.CompareFunction;
 using EngineVertexFormat = Crowbar.Engine.Rendering.VertexFormat;
 using EnginePrimitiveTopology = Crowbar.Engine.Rendering.PrimitiveTopology;
+using EngineCullMode = Crowbar.Engine.Rendering.CullMode;
 
 namespace Crowbar.Engine;
 
@@ -216,6 +218,14 @@ internal static unsafe class WebGpuNative
         EnginePrimitiveTopology.LineList => SilkPrimitiveTopology.LineList,
         EnginePrimitiveTopology.LineStrip => SilkPrimitiveTopology.LineStrip,
         _ => throw new ArgumentOutOfRangeException(nameof(topology))
+    };
+
+    internal static SilkCullMode ToNative(EngineCullMode cullMode) => cullMode switch
+    {
+        EngineCullMode.None => SilkCullMode.None,
+        EngineCullMode.Back => SilkCullMode.Back,
+        EngineCullMode.Front => SilkCullMode.Front,
+        _ => throw new ArgumentOutOfRangeException(nameof(cullMode))
     };
 
     private static LoadOp ToNative(RenderAttachmentLoadOp op) => op switch

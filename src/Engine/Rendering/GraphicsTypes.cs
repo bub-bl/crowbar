@@ -48,6 +48,14 @@ public enum CompareFunction
     LessEqual
 }
 
+/// <summary>Backend-neutral triangle culling mode.</summary>
+public enum CullMode
+{
+    None,
+    Back,
+    Front
+}
+
 /// <summary>Backend-neutral primitive topology.</summary>
 public enum PrimitiveTopology
 {
@@ -194,6 +202,9 @@ public sealed class PipelineDescription
 
     public bool DepthWriteEnabled { get; init; }
     public CompareFunction DepthCompare { get; init; } = CompareFunction.Always;
+
+    /// <summary>Triangle culling; defaults to none so UI/2D passes are unaffected.</summary>
+    public CullMode CullMode { get; init; } = CullMode.None;
 
     public TextureFormat ColorFormat { get; init; }
     public TextureFormat DepthFormat { get; init; } = TextureFormat.Depth24Plus;

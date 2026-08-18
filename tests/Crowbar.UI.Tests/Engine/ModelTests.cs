@@ -117,6 +117,10 @@ public class ModelTests
         Assert.Equal(0.5f, roughness, 3);
         Assert.Contains("albedoTexture", material.Textures.Keys);
         Assert.Contains("metallicRoughnessTexture", material.Textures.Keys);
+
+        // No alphaMode/doubleSided in the crate: single-sided and opaque.
+        Assert.Equal(MaterialBlendMode.Opaque, material.BlendMode);
+        Assert.False(material.DoubleSided);
     }
 
     [Fact]
@@ -152,6 +156,14 @@ public class ModelTests
         // The bulb's baseColorFactor carries alpha 0.75 through to the shader.
         Assert.True(transparent.TryGet<Vector4>("color", out var transparentColor));
         Assert.Equal(0.75f, transparentColor.W, 3);
+
+        // Render state: the bulb is alpha-blended and both materials are
+        // double-sided, so the renderer disables culling and renders the bulb
+        // without depth writes, back-to-front.
+        Assert.Equal(MaterialBlendMode.Blend, transparent.BlendMode);
+        Assert.Equal(MaterialBlendMode.Opaque, opaque.BlendMode);
+        Assert.True(transparent.DoubleSided);
+        Assert.True(opaque.DoubleSided);
     }
 
     [Fact]

@@ -3,6 +3,16 @@ using Crowbar.FileSystems;
 
 namespace Crowbar.Engine;
 
+/// <summary>How a material's alpha output is composited by the renderer.</summary>
+public enum MaterialBlendMode
+{
+    /// <summary>Fully opaque: depth is written and no blending is applied.</summary>
+    Opaque,
+
+    /// <summary>Alpha blending: depth is not written and pixels blend src-over.</summary>
+    Blend
+}
+
 /// <summary>
 /// Values supplied to a shader for a renderable object: scalar/vector/matrix
 /// parameters validated against the shader's material struct, texture slots
@@ -20,6 +30,12 @@ public sealed class Material
 
     /// <summary>Render pass to use; defaults to the shader's "Main" technique.</summary>
     public string Technique { get; }
+
+    /// <summary>How the material's alpha output is composited (opaque by default).</summary>
+    public MaterialBlendMode BlendMode { get; set; } = MaterialBlendMode.Opaque;
+
+    /// <summary>When true, back-face culling is disabled for this material.</summary>
+    public bool DoubleSided { get; set; }
 
     public IReadOnlyDictionary<string, ShaderParameter> Values => _values;
     public IReadOnlyDictionary<string, Texture2D> Textures => _textures;

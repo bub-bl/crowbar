@@ -35,16 +35,18 @@ float4 fs_main(VertexOutput input) : SV_Target
 {
     // Resolve the surface from the glTF texture set (textures are sRGB and
     // hardware-decoded to linear; metallic lives in the blue channel,
-    // roughness in the green).
+    // roughness in the green). Opacity is the base-color factor alpha times the
+    // albedo texture alpha, so BLEND materials follow the texture's alpha.
     Material m = Material::Init(input);
-    m.BaseColor = albedoTexture.Sample(materialSampler, input.uv).rgb * material.color.rgb;
+    let albedo = albedoTexture.Sample(materialSampler, input.uv);
+    m.BaseColor = albedo.rgb * material.color.rgb;
     m.Normal = Material::NormalFromMap(input, normalTexture.Sample(materialSampler, input.uv).xyz);
     let metallic_roughness = metallicRoughnessTexture.Sample(materialSampler, input.uv);
     m.Metallic = material.metallic * metallic_roughness.b;
     m.Roughness = material.roughness * metallic_roughness.g;
     m.Occlusion = occlusionTexture.Sample(materialSampler, input.uv).r * material.occlusion;
     m.Emissive = emissiveTexture.Sample(materialSampler, input.uv).rgb * material.emissive;
-    m.Opacity = material.color.a;
+    m.Opacity = material.color.a * albedo.a;
 
     return ShadingModelStandard::Shade(m);
 }
