@@ -39,6 +39,31 @@ public class ModelTests
     }
 
     [Fact]
+    public void Winding_MatchesTheLeftHandedEngineConvention()
+    {
+        // The engine renders left-handed (Unity/DirectX): a front face winds
+        // so its geometric normal (right-hand cross product) points opposite
+        // its stored normal. Both procedural and Assimp-imported geometry must
+        // follow that convention, or front faces get culled as back faces.
+        foreach (var model in new[] { Model.CreateCube(), Model.Load("Assets/Models/Crate/Crate.gltf") })
+        {
+            foreach (var mesh in model.Meshes)
+            {
+                for (var i = 0; i + 2 < mesh.Indices.Length; i += 3)
+                {
+                    var v0 = mesh.Vertices[mesh.Indices[i]].Position;
+                    var v1 = mesh.Vertices[mesh.Indices[i + 1]].Position;
+                    var v2 = mesh.Vertices[mesh.Indices[i + 2]].Position;
+                    var geometric = Vector3.Cross(v1 - v0, v2 - v0);
+                    Assert.True(
+                        Vector3.Dot(geometric, mesh.Vertices[mesh.Indices[i]].Normal) < 0f,
+                        $"{model.Name}/{mesh.Name} triangle {i / 3} is wound for the wrong handedness");
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void CreatePlane_ProducesAFlatUpFacingQuad()
     {
         var model = Model.CreatePlane();

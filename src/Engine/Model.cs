@@ -185,11 +185,16 @@ public sealed class Model
 
         ValidateExternalBuffers(path);
 
+        // Assimp imports right-handed content (glTF spec), but the engine
+        // renders left-handed (Unity/DirectX): front faces wind the opposite
+        // way. FlipWindingOrder converts imported meshes to the engine's
+        // convention so their front faces are not culled as back faces.
         const uint postProcess =
             (uint)(PostProcessSteps.Triangulate
                    | PostProcessSteps.GenerateSmoothNormals
                    | PostProcessSteps.CalculateTangentSpace
                    | PostProcessSteps.FlipUVs
+                   | PostProcessSteps.FlipWindingOrder
                    | PostProcessSteps.JoinIdenticalVertices
                    | PostProcessSteps.OptimizeMeshes);
 
@@ -331,8 +336,8 @@ public sealed class Model
         // Each face is defined by its normal and two in-plane axes (u, v).
         var faces = new (Vector3 Normal, Vector3 U, Vector3 V)[]
         {
-            (new Vector3(1, 0, 0), new Vector3(0, 0, 1), new Vector3(0, 1, 0)),
-            (new Vector3(-1, 0, 0), new Vector3(0, 0, -1), new Vector3(0, 1, 0)),
+            (new Vector3(1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, 0, 1)),
+            (new Vector3(-1, 0, 0), new Vector3(0, 1, 0), new Vector3(0, 0, -1)),
             (new Vector3(0, 1, 0), new Vector3(1, 0, 0), new Vector3(0, 0, -1)),
             (new Vector3(0, -1, 0), new Vector3(1, 0, 0), new Vector3(0, 0, 1)),
             (new Vector3(0, 0, 1), new Vector3(1, 0, 0), new Vector3(0, 1, 0)),
