@@ -1,7 +1,9 @@
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Text.Json;
 using Crowbar.FileSystems;
 using Silk.NET.Assimp;
+using AssimpMaterial = Silk.NET.Assimp.Material;
 using AssimpMesh = Silk.NET.Assimp.Mesh;
 
 namespace Crowbar.Engine;
@@ -20,39 +22,196 @@ public sealed class Mesh
     public MeshVertex[] Vertices { get; }
     public uint[] Indices { get; }
 
-    public Mesh(string name, MeshVertex[] vertices, uint[] indices)
+    /// <summary>
+    /// The material this mesh is drawn with, or null to fall back to the
+    /// renderer's material (then the engine default). Imported models attach
+    /// one material per mesh so a single model can carry several PBR surfaces.
+    /// </summary>
+    public Material? Material { get; }
+
+    public Mesh(string name, MeshVertex[] vertices, uint[] indices, Material? material = null)
     {
         Name = string.IsNullOrWhiteSpace(name) ? "Mesh" : name;
         Vertices = vertices ?? throw new ArgumentNullException(nameof(vertices));
         Indices = indices ?? throw new ArgumentNullException(nameof(indices));
+        Material = material;
     }
 }
 
 /// <summary>
-/// A 3D model: a named collection of <see cref="Mesh"/>es. Procedural
-/// primitives (<see cref="CreateCube"/>, <see cref="CreatePlane"/>) are built
-/// in code; files (OBJ, glTF, FBX, …) are imported through Assimp
-/// (<see cref="Load"/>).
+/// A 3D model: a named collection of <see cref="Mesh"/>es plus the
+/// <see cref="Material"/>s referenced by them. Procedural primitives
+/// (<see cref="CreateCube"/>, <see cref="CreatePlane"/>) are built in code;
+/// files (glTF, OBJ, FBX, …) are imported through Assimp
+/// (<see cref="Load"/>), which also converts glTF PBR materials and their
+/// textures into engine <see cref="Material"/>s using the standard PBR shader.
 /// </summary>
 public sealed class Model
 {
     private static readonly Assimp Api = Assimp.GetApi();
+    private static Model? _error;
 
     public string Name { get; }
     public IReadOnlyList<Mesh> Meshes { get; }
 
+    /// <summary>
+    /// Every material referenced by the model's meshes, in the order the
+    /// meshes first use them. Unreferenced importer materials are omitted.
+    /// </summary>
+    public IReadOnlyList<Material> Materials { get; }
+
     /// <summary>Model-space bounding box of all meshes, used by editor picking.</summary>
     public Bounds Bounds { get; }
 
-    private Model(string name, IReadOnlyList<Mesh> meshes)
+    /// <summary>
+    /// The bounds used for view culling. With no LOD system yet this is the
+    /// same as <see cref="Bounds"/>; it exists so LOD-aware render bounds can
+    /// be introduced without changing call sites.
+    /// </summary>
+    public Bounds RenderBounds => Bounds;
+
+    /// <summary>True when the model was built in code (a primitive or the error model).</summary>
+    public bool IsProcedural { get; }
+
+    /// <summary>True for the placeholder <see cref="Error"/> model.</summary>
+    public bool IsError { get; }
+
+    /// <summary>Total number of meshes in this model.</summary>
+    public int MeshCount => Meshes.Count;
+
+    /// <summary>Total number of materials in this model.</summary>
+    public int MaterialCount => Materials.Count;
+
+    private Model(
+        string name,
+        IReadOnlyList<Mesh> meshes,
+        IReadOnlyList<Material>? materials = null,
+        bool isProcedural = false,
+        bool isError = false)
     {
         Name = name;
         Meshes = meshes;
+        Materials = materials ?? [];
         Bounds = Bounds.FromPoints(meshes.SelectMany(mesh => mesh.Vertices).Select(v => v.Position));
+        IsProcedural = isProcedural;
+        IsError = isError;
     }
 
-    /// <summary>A unit cube (1×1×1, centered on the origin) with per-face normals.</summary>
-    public static Model CreateCube()
+    /// <summary>
+    /// A unit cube (1×1×1, centered on the origin) with per-face normals and
+    /// no material (the renderer's default applies).
+    /// </summary>
+    public static Model CreateCube() =>
+        new("Cube", [CreateCubeMesh("Cube")], isProcedural: true);
+
+    /// <summary>
+    /// A unit plane (1×1) lying in the XZ plane with its normal pointing up
+    /// (+Y), centered on the origin. The two triangles share the winding of
+    /// the cube's top face, so the geometry stays consistent with
+    /// <see cref="CreateCube"/>.
+    /// </summary>
+    public static Model CreatePlane() =>
+        new("Plane", [CreatePlaneMesh("Plane")], isProcedural: true);
+
+    /// <summary>
+    /// The engine's placeholder model, returned (or substituted) when a model
+    /// fails to load. A small red cube with the unlit shader, so it is always
+    /// visible without lighting.
+    /// </summary>
+    public static Model Error => _error ??= CreateErrorModel();
+
+    /// <summary>True when <paramref name="model"/> has at least one renderable mesh.</summary>
+    public static bool HasRenderMeshes(Model? model) => model is { MeshCount: > 0 };
+
+    /// <summary>Returns the mesh at <paramref name="index"/>, or null when out of range.</summary>
+    public Mesh? GetMesh(int index) => index >= 0 && index < Meshes.Count ? Meshes[index] : null;
+
+    /// <summary>Returns the material at <paramref name="index"/>, or null when out of range.</summary>
+    public Material? GetMaterial(int index) => index >= 0 && index < Materials.Count ? Materials[index] : null;
+
+    /// <summary>
+    /// Imports a 3D model file through Assimp (glTF, OBJ, FBX, …). The scene
+    /// is triangulated, smoothed and optimized at load time; the Assimp scene
+    /// is released before returning, so the returned model owns only managed
+    /// data. glTF materials are converted to the standard PBR shader with
+    /// their texture set (albedo, normal, metallic-roughness, occlusion,
+    /// emissive) resolved relative to the model file.
+    /// </summary>
+    public static unsafe Model Load(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var fs = FileSystem.Content;
+        if (!fs.FileExists(path))
+            throw new FileNotFoundException("Model file not found.", path);
+
+        ValidateExternalBuffers(path);
+
+        const uint postProcess =
+            (uint)(PostProcessSteps.Triangulate
+                   | PostProcessSteps.GenerateSmoothNormals
+                   | PostProcessSteps.CalculateTangentSpace
+                   | PostProcessSteps.FlipUVs
+                   | PostProcessSteps.JoinIdenticalVertices
+                   | PostProcessSteps.OptimizeMeshes
+                   | PostProcessSteps.PreTransformVertices);
+
+        var systemPath = fs.ToSystemPath(path);
+        Scene* scene = Api.ImportFile(systemPath, postProcess);
+        if (scene == null)
+        {
+            nint error = (nint)Api.GetErrorString();
+            var message = error == 0 ? null : Marshal.PtrToStringUTF8(error);
+            throw new InvalidOperationException(
+                $"Assimp could not import '{path}': {message ?? "unknown error"}");
+        }
+
+        try
+        {
+            var allMaterials = new List<Material>((int)scene->MNumMaterials);
+            for (var i = 0; i < scene->MNumMaterials; i++)
+                allMaterials.Add(ConvertMaterial(scene->MMaterials[i], path));
+
+            var meshes = new List<Mesh>((int)scene->MNumMeshes);
+            for (var i = 0; i < scene->MNumMeshes; i++)
+            {
+                AssimpMesh* source = scene->MMeshes[i];
+                var materialIndex = (int)source->MMaterialIndex;
+                var material = materialIndex >= 0 && materialIndex < allMaterials.Count
+                    ? allMaterials[materialIndex]
+                    : null;
+                meshes.Add(ConvertMesh(source, material));
+            }
+
+            // Assimp can append a default material that no mesh references.
+            // Expose only the materials the meshes actually use (in mesh
+            // order), like s&box's Model.Materials.
+            var materials = meshes
+                .Select(mesh => mesh.Material)
+                .Where(material => material is not null)
+                .Distinct()
+                .Select(material => material!)
+                .ToList();
+
+            return new Model(PathUtil.GetFileNameWithoutExtension(path), meshes, materials);
+        }
+        finally
+        {
+            Api.ReleaseImport(scene);
+        }
+    }
+
+    /// <summary>Loads a model off the calling thread (see <see cref="Load"/>).</summary>
+    public static Task<Model> LoadAsync(string path) => Task.Run(() => Load(path));
+
+    private static Model CreateErrorModel()
+    {
+        var material = Material.FromShader("Surface/Unlit", "Main", "Error")
+            .Set("color", new Vector4(1f, 0.1f, 0.25f, 1f));
+        var mesh = CreateCubeMesh("Error", material);
+        return new Model("Error", [mesh], [material], isProcedural: true, isError: true);
+    }
+
+    private static Mesh CreateCubeMesh(string name, Material? material = null)
     {
         var vertices = new List<MeshVertex>(24);
         var indices = new List<uint>(36);
@@ -85,16 +244,10 @@ public sealed class Model
             indices.AddRange([baseIndex, baseIndex + 1, baseIndex + 2, baseIndex, baseIndex + 2, baseIndex + 3]);
         }
 
-        return new Model("Cube", [new Mesh("Cube", [.. vertices], [.. indices])]);
+        return new Mesh(name, [.. vertices], [.. indices], material);
     }
 
-    /// <summary>
-    /// A unit plane (1×1) lying in the XZ plane with its normal pointing up
-    /// (+Y), centered on the origin. The two triangles share the winding of
-    /// the cube's top face, so the geometry stays consistent with
-    /// <see cref="CreateCube"/>.
-    /// </summary>
-    public static Model CreatePlane()
+    private static Mesh CreatePlaneMesh(string name, Material? material = null)
     {
         MeshVertex[] vertices =
         [
@@ -105,58 +258,163 @@ public sealed class Model
         ];
         uint[] indices = [0, 1, 2, 0, 2, 3];
 
-        return new Model("Plane", [new Mesh("Plane", vertices, indices)]);
+        return new Mesh(name, vertices, indices, material);
     }
 
     /// <summary>
-    /// Imports a 3D model file through Assimp (OBJ, glTF, FBX, …). The scene
-    /// is triangulated, smoothed and optimized at load time; the Assimp scene
-    /// is released before returning, so the returned model owns only managed
-    /// data.
+    /// Converts an Assimp material into an engine <see cref="Material"/> using
+    /// the standard PBR shader. glTF factors (base color, metallic, roughness)
+    /// become shader parameters and the glTF texture set becomes the shader's
+    /// texture slots. Textures that are missing or unreadable are skipped; the
+    /// renderer substitutes its neutral defaults.
     /// </summary>
-    public static unsafe Model Load(string path)
+    private static unsafe Material ConvertMaterial(AssimpMaterial* source, string modelPath)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var fs = FileSystem.Content;
-        if (!fs.FileExists(path))
-            throw new FileNotFoundException("Model file not found.", path);
+        var name = GetMaterialName(source, "Material");
+        var material = Material.FromShader("Surface/StandardPbr", "Main", name);
 
-        const uint postProcess =
-            (uint)(PostProcessSteps.Triangulate
-                   | PostProcessSteps.GenerateSmoothNormals
-                   | PostProcessSteps.CalculateTangentSpace
-                   | PostProcessSteps.FlipUVs
-                   | PostProcessSteps.JoinIdenticalVertices
-                   | PostProcessSteps.OptimizeMeshes);
+        // glTF stores the base color under $clr.base; classic formats (OBJ,
+        // FBX) use $clr.diffuse. The alpha channel carries the material's
+        // opacity, which the PBR shader writes through as color.a.
+        var baseColor = new Vector4(1f);
+        if (!TryGetColor(source, "$clr.base", out baseColor))
+            TryGetColor(source, "$clr.diffuse", out baseColor);
 
-        var systemPath = fs.ToSystemPath(path);
-        Scene* scene = Api.ImportFile(systemPath, postProcess);
-        if (scene == null)
+        material.Set("color", baseColor);
+        material.Set("metallic", GetMaterialFloat(source, "$mat.metallicFactor", 0f));
+        material.Set("roughness", GetMaterialFloat(source, "$mat.roughnessFactor", 0.5f));
+        material.Set("occlusion", 1f);
+        material.Set("emissive", 0f);
+
+        BindTexture(material, source, "albedoTexture", [TextureType.BaseColor, TextureType.Diffuse], modelPath);
+        BindTexture(material, source, "normalTexture", [TextureType.Normals, TextureType.NormalCamera], modelPath);
+        BindTexture(material, source, "metallicRoughnessTexture", [TextureType.GltfMetallicRoughness, TextureType.Metalness], modelPath);
+        BindTexture(material, source, "occlusionTexture", [TextureType.AmbientOcclusion], modelPath);
+        BindTexture(material, source, "emissiveTexture", [TextureType.Emissive, TextureType.EmissionColor], modelPath);
+
+        // The shader treats emissive as an intensity multiplier for the
+        // emissive map; without a map the black fallback keeps emissive at 0.
+        if (material.Textures.ContainsKey("emissiveTexture"))
+            material.Set("emissive", 1f);
+
+        return material;
+    }
+
+    private static unsafe void BindTexture(
+        Material material,
+        AssimpMaterial* source,
+        string slotName,
+        TextureType[] types,
+        string modelPath)
+    {
+        string? relativePath = null;
+        foreach (var type in types)
         {
-            nint error = (nint)Api.GetErrorString();
-            var message = error == 0 ? null : Marshal.PtrToStringUTF8(error);
-            throw new InvalidOperationException(
-                $"Assimp could not import '{path}': {message ?? "unknown error"}");
+            relativePath = GetMaterialTexturePath(source, type);
+            if (relativePath is not null)
+                break;
         }
+
+        if (relativePath is null)
+            return;
 
         try
         {
-            var meshes = new List<Mesh>((int)scene->MNumMeshes);
-            for (var i = 0; i < scene->MNumMeshes; i++)
-            {
-                AssimpMesh* source = scene->MMeshes[i];
-                meshes.Add(ConvertMesh(source));
-            }
-
-            return new Model(PathUtil.GetFileNameWithoutExtension(path), meshes);
+            material.SetTexture(slotName, Texture2D.Load(ResolveRelativePath(modelPath, relativePath)));
         }
-        finally
+        catch (Exception)
         {
-            Api.ReleaseImport(scene);
+            // Missing or corrupt texture: leave the slot unbound. The renderer
+            // binds a neutral 1x1 fallback, so the model still renders.
         }
     }
 
-    private static unsafe Mesh ConvertMesh(AssimpMesh* source)
+    private static unsafe string? GetMaterialTexturePath(AssimpMaterial* material, TextureType type)
+    {
+        AssimpString path = default;
+        if (Api.GetMaterialString(material, "$tex.file", (uint)type, 0, ref path) != Return.Success)
+            return null;
+
+        var value = path.AsString;
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
+
+    private static unsafe bool TryGetColor(AssimpMaterial* material, string key, out Vector4 color)
+    {
+        color = Vector4.One;
+        return Api.GetMaterialColor(material, key, 0, 0, ref color) == Return.Success;
+    }
+
+    private static unsafe float GetMaterialFloat(AssimpMaterial* material, string key, float fallback)
+    {
+        float value = fallback;
+        uint count = 1;
+        return Api.GetMaterialFloatArray(material, key, 0, 0, ref value, ref count) == Return.Success
+            ? value
+            : fallback;
+    }
+
+    private static unsafe string GetMaterialName(AssimpMaterial* material, string fallback)
+    {
+        AssimpString name = default;
+        if (Api.GetMaterialString(material, "?mat.name", 0, 0, ref name) != Return.Success)
+            return fallback;
+
+        var value = name.AsString;
+        return string.IsNullOrWhiteSpace(value) ? fallback : value;
+    }
+
+    /// <summary>
+    /// Resolves a path relative to a model file (a texture or an external
+    /// buffer) into a path the filesystem service can open. OS paths pass
+    /// through unchanged.
+    /// </summary>
+    private static string ResolveRelativePath(string modelPath, string relativePath)
+    {
+        if (FileSystemService.IsRooted(relativePath))
+            return relativePath;
+
+        var directory = new FilePath(modelPath).GetDirectory();
+        return (directory / new FilePath(relativePath)).FullName;
+    }
+
+    /// <summary>
+    /// glTF references geometry through external buffers (a <c>.bin</c> next to
+    /// the <c>.gltf</c>). Check those up front so a missing buffer fails with an
+    /// actionable message instead of Assimp's generic import error.
+    /// </summary>
+    private static void ValidateExternalBuffers(string path)
+    {
+        if (!path.EndsWith(".gltf", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var fs = FileSystem.Content;
+        using var json = JsonDocument.Parse(fs.ReadAllText(path));
+        if (!json.RootElement.TryGetProperty("buffers", out var buffers) ||
+            buffers.ValueKind != JsonValueKind.Array)
+            return;
+
+        foreach (var buffer in buffers.EnumerateArray())
+        {
+            if (!buffer.TryGetProperty("uri", out var uri) || uri.ValueKind != JsonValueKind.String)
+                continue;
+
+            var bufferUri = uri.GetString();
+            if (string.IsNullOrWhiteSpace(bufferUri) || bufferUri.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var bufferPath = ResolveRelativePath(path, bufferUri);
+            if (!fs.FileExists(bufferPath))
+            {
+                throw new FileNotFoundException(
+                    $"The glTF buffer '{bufferUri}' referenced by '{path}' was not found. " +
+                    "The complete model package (the .bin next to the .gltf) is required.",
+                    bufferPath);
+            }
+        }
+    }
+
+    private static unsafe Mesh ConvertMesh(AssimpMesh* source, Material? material)
     {
         var vertexCount = (int)source->MNumVertices;
         var vertices = new MeshVertex[vertexCount];
@@ -200,6 +458,6 @@ public sealed class Model
         }
 
         var name = source->MName.AsString;
-        return new Mesh(string.IsNullOrWhiteSpace(name) ? "Mesh" : name, vertices, [.. indices]);
+        return new Mesh(string.IsNullOrWhiteSpace(name) ? "Mesh" : name, vertices, [.. indices], material);
     }
 }

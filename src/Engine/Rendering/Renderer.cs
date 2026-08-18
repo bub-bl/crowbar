@@ -226,7 +226,7 @@ public sealed class Renderer : IDisposable
     private readonly Dictionary<(Shader Shader, string Technique), IPipeline> _meshPipelines = [];
     private readonly Dictionary<IPipeline, IBindGroup> _sceneBindGroups = [];
     private readonly Dictionary<Mesh, MeshBuffers> _meshBuffers = [];
-    private readonly Dictionary<MeshRenderer, RenderableResources> _renderables = [];
+    private readonly Dictionary<(MeshRenderer Renderer, Material Material), RenderableResources> _renderables = [];
     private readonly Dictionary<Texture2D, ITexture> _materialTextures = [];
     private Material? _defaultMaterial;
 
@@ -840,7 +840,7 @@ public sealed class Renderer : IDisposable
         UpdateSceneUniforms(lights, time);
 
         // Release GPU state for renderables whose component was destroyed.
-        foreach (var stale in _renderables.Keys.Except(renderers).ToArray())
+        foreach (var stale in _renderables.Keys.Select(key => key.Renderer).Distinct().Except(renderers).ToArray())
             DisposeRenderable(stale);
 
         IPipeline? currentPipeline = null;
@@ -849,28 +849,31 @@ public sealed class Renderer : IDisposable
             if (!renderer.IsValid || renderer.Model is null)
                 continue;
 
-            var material = renderer.Material ?? _defaultMaterial!;
-            var pipeline = GetMeshPipeline(material.Shader, material.Technique);
-            var renderable = GetRenderableResources(renderer, material, pipeline);
-
-            if (currentPipeline != pipeline)
-            {
-                pass.SetPipeline(pipeline);
-                pass.SetBindGroup(GetSceneBindGroup(pipeline), 0);
-                currentPipeline = pipeline;
-            }
-            pass.SetBindGroup(renderable.BindGroup, 1);
-
             var modelMatrix = ToWorldMatrix(renderer.World);
-            renderable.ModelBuffer.Write(in modelMatrix);
-            if (renderable.MaterialBuffer is not null)
-            {
-                var packed = UniformPacker.Pack(material.Shader.MaterialFields, material.Values);
-                renderable.MaterialBuffer.Write(packed);
-            }
 
             foreach (var mesh in renderer.Model.Meshes)
             {
+                // A renderer material overrides every mesh; otherwise each mesh
+                // uses its own model material, then the engine default.
+                var material = renderer.Material ?? mesh.Material ?? _defaultMaterial!;
+                var pipeline = GetMeshPipeline(material.Shader, material.Technique);
+                var renderable = GetRenderableResources(renderer, material, pipeline);
+
+                if (currentPipeline != pipeline)
+                {
+                    pass.SetPipeline(pipeline);
+                    pass.SetBindGroup(GetSceneBindGroup(pipeline), 0);
+                    currentPipeline = pipeline;
+                }
+                pass.SetBindGroup(renderable.BindGroup, 1);
+
+                renderable.ModelBuffer.Write(in modelMatrix);
+                if (renderable.MaterialBuffer is not null)
+                {
+                    var packed = UniformPacker.Pack(material.Shader.MaterialFields, material.Values);
+                    renderable.MaterialBuffer.Write(packed);
+                }
+
                 var buffers = GetMeshBuffers(mesh);
                 pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
                 pass.SetIndexBuffer(buffers.IndexBuffer, buffers.IndexBuffer.Size);
@@ -1517,13 +1520,14 @@ public sealed class Renderer : IDisposable
     /// </summary>
     private RenderableResources GetRenderableResources(MeshRenderer renderer, Material material, IPipeline pipeline)
     {
-        if (_renderables.TryGetValue(renderer, out var existing) &&
+        var key = (renderer, material);
+        if (_renderables.TryGetValue(key, out var existing) &&
             existing.Shader == material.Shader &&
             existing.Technique == material.Technique)
             return existing;
 
         if (existing is not null)
-            DisposeRenderable(renderer);
+            DisposeRenderable(key);
 
         var shader = material.Shader;
         var fields = shader.MaterialFields;
@@ -1585,7 +1589,7 @@ public sealed class Renderer : IDisposable
             MaterialBuffer = materialBuffer,
             BindGroup = pipeline.CreateBindGroup(1, bindings)
         };
-        _renderables.Add(renderer, resources);
+        _renderables.Add(key, resources);
         return resources;
     }
 
@@ -1633,10 +1637,17 @@ public sealed class Renderer : IDisposable
         slotName.Contains("albedo", StringComparison.OrdinalIgnoreCase) ||
         slotName.Contains("emissive", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Disposes the GPU state of one renderable and drops its cache entry.</summary>
+    /// <summary>Disposes the GPU state of every renderable owned by a component.</summary>
     private void DisposeRenderable(MeshRenderer renderer)
     {
-        if (!_renderables.Remove(renderer, out var resources))
+        foreach (var key in _renderables.Keys.Where(key => key.Renderer == renderer).ToArray())
+            DisposeRenderable(key);
+    }
+
+    /// <summary>Disposes the GPU state of one renderable and drops its cache entry.</summary>
+    private void DisposeRenderable((MeshRenderer Renderer, Material Material) key)
+    {
+        if (!_renderables.Remove(key, out var resources))
             return;
 
         resources.BindGroup.Dispose();

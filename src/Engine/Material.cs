@@ -33,7 +33,7 @@ public sealed class Material
         Technique = string.IsNullOrWhiteSpace(technique) ? "Main" : technique;
     }
 
-    public static Material FromShader(string shaderName, string technique = "Main")
+    public static Material FromShader(string shaderName, string technique = "Main", string? name = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(shaderName);
 
@@ -50,7 +50,7 @@ public sealed class Material
 
         var shader = Shader.Load(shaderPath);
         shader.GetTechnique(technique); // validate the technique exists now, not at render time
-        return new Material(shader.Name, shader, technique);
+        return new Material(string.IsNullOrWhiteSpace(name) ? shader.Name : name, shader, technique);
     }
 
     public Material Set(string parameterName, ShaderParameter value)

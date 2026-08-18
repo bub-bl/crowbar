@@ -87,6 +87,98 @@ public class ModelTests
     }
 
     [Fact]
+    public void Load_ImportsGltfMaterialsAndTextures()
+    {
+        // The committed sample crate ships next to the engine shaders in the
+        // test output, so it exercises the real content-path resolution.
+        var model = Model.Load("Assets/Models/Crate/Crate.gltf");
+
+        Assert.Equal("Crate", model.Name);
+        Assert.True(Model.HasRenderMeshes(model));
+        Assert.Equal(1, model.MeshCount);
+        Assert.Equal(1, model.MaterialCount);
+        Assert.False(model.IsProcedural);
+        Assert.False(model.IsError);
+
+        var mesh = Assert.Single(model.Meshes);
+        Assert.NotNull(mesh.Material);
+
+        var material = mesh.Material!;
+        Assert.Equal("StandardPbr", material.Shader.Name);
+        Assert.Equal("Crate", material.Name);
+
+        // glTF factors become PBR parameters and the texture set is bound to
+        // the shader's slots.
+        Assert.True(material.TryGet<Vector4>("color", out var baseColor));
+        Assert.Equal(new Vector4(1f, 1f, 1f, 1f), baseColor);
+        Assert.True(material.TryGet<float>("metallic", out var metallic));
+        Assert.Equal(0.12f, metallic, 3);
+        Assert.True(material.TryGet<float>("roughness", out var roughness));
+        Assert.Equal(0.5f, roughness, 3);
+        Assert.Contains("albedoTexture", material.Textures.Keys);
+        Assert.Contains("metallicRoughnessTexture", material.Textures.Keys);
+    }
+
+    [Fact]
+    public void Load_ImportsTheSketchfabWorkLight()
+    {
+        // The real Sketchfab sample (scene.bin + 4 textures committed next to
+        // the .gltf) exercises the whole glTF pipeline on production geometry:
+        // two PBR materials, two meshes, node transforms baked in.
+        var model = Model.Load("Assets/Models/industrial_work_light/industrial_work_light.gltf");
+
+        Assert.Equal("industrial_work_light", model.Name);
+        Assert.True(Model.HasRenderMeshes(model));
+        Assert.False(model.IsProcedural);
+        Assert.False(model.IsError);
+        Assert.Equal(2, model.MeshCount);
+        Assert.Equal(2, model.MaterialCount);
+
+        var transparent = model.Meshes[0].Material;
+        var opaque = model.Meshes[1].Material;
+        Assert.NotNull(transparent);
+        Assert.NotNull(opaque);
+
+        Assert.Equal("Industrial_Light_Transparent", transparent!.Name);
+        Assert.Equal("Industrial_Light", opaque!.Name);
+        Assert.All(new[] { transparent, opaque }, material =>
+        {
+            Assert.Equal("StandardPbr", material.Shader.Name);
+            Assert.Contains("albedoTexture", material.Textures.Keys);
+            Assert.Contains("metallicRoughnessTexture", material.Textures.Keys);
+            Assert.Contains("normalTexture", material.Textures.Keys);
+        });
+
+        // The bulb's baseColorFactor carries alpha 0.75 through to the shader.
+        Assert.True(transparent.TryGet<Vector4>("color", out var transparentColor));
+        Assert.Equal(0.75f, transparentColor.W, 3);
+    }
+
+    [Fact]
+    public void Load_GltfMissingExternalBuffer_ThrowsActionableError()
+    {
+        // A .gltf whose .bin is absent must fail loudly and name the missing
+        // file rather than surfacing Assimp's generic import error.
+        var directory = Path.Combine(Path.GetTempPath(), $"gltf-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(directory);
+        try
+        {
+            File.WriteAllText(Path.Combine(directory, "broken.gltf"), """
+                {"buffers":[{"byteLength":16,"uri":"scene.bin"}],"asset":{"version":"2.0"}}
+                """);
+
+            var error = Assert.Throws<FileNotFoundException>(
+                () => Model.Load(Path.Combine(directory, "broken.gltf")));
+
+            Assert.Contains("scene.bin", error.Message);
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Load_MissingFile_Throws()
     {
         Assert.Throws<FileNotFoundException>(

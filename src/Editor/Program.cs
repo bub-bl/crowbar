@@ -120,6 +120,56 @@ internal sealed class DemoApplication : Application
             Rotation.FromYaw(-20f) * Rotation.FromPitch(10f),
             new Vector3(0.5f));
 
+        // A glTF model imported through Model.Load: Assimp converts its
+        // geometry and the engine turns the glTF PBR material into a
+        // Surface/StandardPbr material with its albedo + metallic-roughness
+        // textures bound. The mesh carries its own material, so no renderer
+        // override is needed.
+        var crate = level.SpawnEntity("Crate");
+        var crateMesh = crate.AddComponent<MeshRenderer>();
+        try
+        {
+            crateMesh.Model = Model.Load("Assets/Models/Crate/Crate.gltf");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Crate model failed to load: {ex.Message}");
+            crateMesh.Model = Model.Error;
+        }
+        crateMesh.Local = new Transform(
+            new Vector3(1.6f, 0.5f, -1.6f),
+            Rotation.FromYaw(35f),
+            Vector3.One);
+
+        // The real-world Sketchfab test: a multi-mesh glTF with a transparent
+        // bulb and a tripod. Its geometry lives in scene.bin next to the .gltf;
+        // when that buffer is present the loader bakes the node transforms
+        // (PreTransformVertices) and converts both PBR materials. Until then it
+        // reports the missing file and falls back to the error model.
+        var workLight = level.SpawnEntity("IndustrialWorkLight");
+        var workLightMesh = workLight.AddComponent<MeshRenderer>();
+        Model workLightModel;
+        try
+        {
+            workLightModel = Model.Load("Assets/Models/industrial_work_light/industrial_work_light.gltf");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Model] industrial_work_light: {ex.Message}");
+            workLightModel = Model.Error;
+        }
+        workLightMesh.Model = workLightModel;
+
+        // Sketchfab models arrive with arbitrary extents; normalize the bounds
+        // to roughly two units so a real asset fits the demo scene.
+        var workLightExtent = workLightModel.Bounds.Max - workLightModel.Bounds.Min;
+        var workLightMaxExtent = MathF.Max(workLightExtent.X, MathF.Max(workLightExtent.Y, workLightExtent.Z));
+        var workLightScale = workLightMaxExtent > 0.001f ? 2f / workLightMaxExtent : 1f;
+        workLightMesh.Local = new Transform(
+            new Vector3(-1.6f, 0.5f, -1.6f),
+            Rotation.FromYaw(-25f),
+            new Vector3(workLightScale));
+
         World.Start();
         Console.WriteLine($"World: {level.Entities.Count} entité(s) dans le level '{level.Name}'.");
 
