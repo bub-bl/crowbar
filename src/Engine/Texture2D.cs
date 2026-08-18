@@ -13,31 +13,78 @@ namespace Crowbar.Engine;
 /// </summary>
 public sealed class Texture2D
 {
+    /// <summary>
+    /// The content path this texture was loaded from, or null for textures
+    /// created in code (<see cref="Create"/>). Shared cache identity:
+    /// <see cref="Retain"/>/<see cref="Release"/> act on this path.
+    /// </summary>
+    public string? ResourcePath { get; }
+
     public string Name { get; }
     public int Width { get; }
     public int Height { get; }
     public byte[] Pixels { get; }
 
-    private Texture2D(string name, int width, int height, byte[] pixels)
+    internal static readonly ResourceCache<Texture2D> Cache = new(Decode);
+
+    private Texture2D(string name, int width, int height, byte[] pixels, string? resourcePath = null)
     {
         Name = name;
         Width = width;
         Height = height;
         Pixels = pixels;
+        ResourcePath = resourcePath;
     }
 
-    /// <summary>Decodes an image file (PNG, JPEG, WebP, …) into RGBA8 pixels.</summary>
+    /// <summary>
+    /// Decodes an image file (PNG, JPEG, WebP, …) into RGBA8 pixels. The same
+    /// path always returns the same instance, so a texture is decoded once per
+    /// path and the renderer uploads a single GPU texture for it.
+    /// </summary>
     public static Texture2D Load(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return Cache.Load(path);
+    }
 
+    /// <summary>Records a holder reference for a file-loaded texture (no-op for created textures).</summary>
+    public void Retain()
+    {
+        if (ResourcePath is not null)
+            Cache.Retain(ResourcePath);
+    }
+
+    /// <summary>Drops a holder reference; the cache entry is discarded when the last holder releases.</summary>
+    public void Release()
+    {
+        if (ResourcePath is not null)
+            Cache.Release(ResourcePath);
+    }
+
+    /// <summary>Discards the cached texture at <paramref name="path"/> so the next load re-decodes it.</summary>
+    public static void Invalidate(string path) => Cache.Invalidate(path);
+
+    /// <summary>Discards every cached texture.</summary>
+    public static void ClearCache() => Cache.Clear();
+
+    internal static int CachedCount => Cache.Count;
+
+    internal static int GetReferenceCount(string path) => Cache.GetReferenceCount(path);
+
+    private static Texture2D Decode(string path)
+    {
         using var stream = FileSystem.Content.OpenRead(path);
         using var image = Image.Load<Rgba32>(stream);
         var width = image.Width;
         var height = image.Height;
         var pixels = new byte[checked(width * height * 4)];
         image.CopyPixelDataTo(pixels);
-        return new Texture2D(PathUtil.GetFileNameWithoutExtension(path), width, height, pixels);
+        return new Texture2D(
+            PathUtil.GetFileNameWithoutExtension(path),
+            width,
+            height,
+            pixels,
+            path);
     }
 
     /// <summary>

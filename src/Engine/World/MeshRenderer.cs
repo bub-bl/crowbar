@@ -11,9 +11,26 @@ namespace Crowbar.Engine;
 [GizmoIcon("mesh")]
 public sealed class MeshRenderer : TransformComponent
 {
-    /// <summary>The geometry to draw, or null to draw nothing.</summary>
+    private Model? _model;
+
+    /// <summary>
+    /// The geometry to draw, or null to draw nothing. The component holds a
+    /// cache reference to the model it renders and releases it when destroyed,
+    /// so a shared model stays loaded exactly as long as it is in use.
+    /// </summary>
     [Property]
-    public Model? Model { get; set; }
+    public Model? Model
+    {
+        get => _model;
+        set
+        {
+            if (ReferenceEquals(_model, value))
+                return;
+            _model?.Release();
+            _model = value;
+            _model?.Retain();
+        }
+    }
 
     /// <summary>
     /// The material (a shader plus its parameter values), or null to use the
@@ -21,4 +38,12 @@ public sealed class MeshRenderer : TransformComponent
     /// </summary>
     [Property]
     public Material? Material { get; set; }
+
+    /// <summary>Releases the cached model reference so unused models are freed.</summary>
+    protected internal override void OnDestroy()
+    {
+        _model?.Release();
+        _model = null;
+        base.OnDestroy();
+    }
 }

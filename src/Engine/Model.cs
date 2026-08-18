@@ -51,8 +51,17 @@ public sealed class Model
     private static readonly Assimp Api = Assimp.GetApi();
     private static Model? _error;
 
+    internal static readonly ResourceCache<Model> Cache = new(ImportModel, static model => model.ReleaseResources());
+
     public string Name { get; }
     public IReadOnlyList<Mesh> Meshes { get; }
+
+    /// <summary>
+    /// The content path this model was loaded from, or null for procedural
+    /// models (primitives and the error model). Shared cache identity:
+    /// <see cref="Retain"/>/<see cref="Release"/> act on this path.
+    /// </summary>
+    public string? ResourcePath { get; }
 
     /// <summary>
     /// Every material referenced by the model's meshes, in the order the
@@ -87,7 +96,8 @@ public sealed class Model
         IReadOnlyList<Mesh> meshes,
         IReadOnlyList<Material>? materials = null,
         bool isProcedural = false,
-        bool isError = false)
+        bool isError = false,
+        string? resourcePath = null)
     {
         Name = name;
         Meshes = meshes;
@@ -95,6 +105,7 @@ public sealed class Model
         Bounds = Bounds.FromPoints(meshes.SelectMany(mesh => mesh.Vertices).Select(v => v.Position));
         IsProcedural = isProcedural;
         IsError = isError;
+        ResourcePath = resourcePath;
     }
 
     /// <summary>
@@ -130,16 +141,26 @@ public sealed class Model
     public Material? GetMaterial(int index) => index >= 0 && index < Materials.Count ? Materials[index] : null;
 
     /// <summary>
-    /// Imports a 3D model file through Assimp (glTF, OBJ, FBX, …). The scene
-    /// is triangulated, smoothed and optimized at load time; the Assimp scene
-    /// is released before returning, so the returned model owns only managed
-    /// data. glTF materials are converted to the standard PBR shader with
-    /// their texture set (albedo, normal, metallic-roughness, occlusion,
-    /// emissive) resolved relative to the model file.
+    /// Imports a 3D model file through Assimp (glTF, OBJ, FBX, …), sharing the
+    /// imported model across every load of the same path. See
+    /// <see cref="ImportModel"/> for the conversion details.
     /// </summary>
-    public static unsafe Model Load(string path)
+    public static Model Load(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return Cache.Load(path);
+    }
+
+    /// <summary>
+    /// The actual Assimp import: the scene is triangulated, smoothed and
+    /// optimized at load time and released before returning, so the returned
+    /// model owns only managed data. glTF materials are converted to the
+    /// standard PBR shader with their texture set (albedo, normal,
+    /// metallic-roughness, occlusion, emissive) resolved relative to the
+    /// model file.
+    /// </summary>
+    private static unsafe Model ImportModel(string path)
+    {
         var fs = FileSystem.Content;
         if (!fs.FileExists(path))
             throw new FileNotFoundException("Model file not found.", path);
@@ -192,7 +213,13 @@ public sealed class Model
                 .Select(material => material!)
                 .ToList();
 
-            return new Model(PathUtil.GetFileNameWithoutExtension(path), meshes, materials);
+            var model = new Model(
+                PathUtil.GetFileNameWithoutExtension(path),
+                meshes,
+                materials,
+                resourcePath: path);
+            model.RetainTextures();
+            return model;
         }
         finally
         {
@@ -202,6 +229,45 @@ public sealed class Model
 
     /// <summary>Loads a model off the calling thread (see <see cref="Load"/>).</summary>
     public static Task<Model> LoadAsync(string path) => Task.Run(() => Load(path));
+
+    /// <summary>Records a holder reference for a file-loaded model (no-op for procedural models).</summary>
+    public void Retain()
+    {
+        if (ResourcePath is not null)
+            Cache.Retain(ResourcePath);
+    }
+
+    /// <summary>Drops a holder reference; the cache entry is discarded when the last holder releases.</summary>
+    public void Release()
+    {
+        if (ResourcePath is not null)
+            Cache.Release(ResourcePath);
+    }
+
+    /// <summary>Discards the cached model at <paramref name="path"/> so the next load re-imports it.</summary>
+    public static void Invalidate(string path) => Cache.Invalidate(path);
+
+    /// <summary>Discards every cached model.</summary>
+    public static void ClearCache() => Cache.Clear();
+
+    internal static int CachedCount => Cache.Count;
+
+    internal static int GetReferenceCount(string path) => Cache.GetReferenceCount(path);
+
+    private IEnumerable<Texture2D> DistinctTextures() =>
+        Materials.SelectMany(material => material.Textures.Values).Distinct();
+
+    private void RetainTextures()
+    {
+        foreach (var texture in DistinctTextures())
+            texture.Retain();
+    }
+
+    private void ReleaseResources()
+    {
+        foreach (var texture in DistinctTextures())
+            texture.Release();
+    }
 
     private static Model CreateErrorModel()
     {
