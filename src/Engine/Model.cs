@@ -56,6 +56,15 @@ public sealed class Model
     public string Name { get; }
     public IReadOnlyList<Mesh> Meshes { get; }
 
+    /// <summary>Every node in the model's hierarchy, flattened in pre-order.</summary>
+    public IReadOnlyList<ModelNode> Nodes { get; }
+
+    /// <summary>The root node of the hierarchy, or null for a model with no nodes.</summary>
+    public ModelNode? Root => Nodes.FirstOrDefault(node => node.Parent is null);
+
+    /// <summary>Every drawable (mesh, node) occurrence; several may share one mesh.</summary>
+    public IReadOnlyList<ModelMeshInstance> MeshInstances { get; }
+
     /// <summary>
     /// The content path this model was loaded from, or null for procedural
     /// models (primitives and the error model). Shared cache identity:
@@ -88,6 +97,9 @@ public sealed class Model
     /// <summary>Total number of meshes in this model.</summary>
     public int MeshCount => Meshes.Count;
 
+    /// <summary>Total number of drawable mesh occurrences (>= <see cref="MeshCount"/>).</summary>
+    public int InstanceCount => MeshInstances.Count;
+
     /// <summary>Total number of materials in this model.</summary>
     public int MaterialCount => Materials.Count;
 
@@ -97,12 +109,18 @@ public sealed class Model
         IReadOnlyList<Material>? materials = null,
         bool isProcedural = false,
         bool isError = false,
-        string? resourcePath = null)
+        string? resourcePath = null,
+        IReadOnlyList<ModelNode>? nodes = null,
+        IReadOnlyList<ModelMeshInstance>? instances = null)
     {
         Name = name;
         Meshes = meshes;
         Materials = materials ?? [];
-        Bounds = Bounds.FromPoints(meshes.SelectMany(mesh => mesh.Vertices).Select(v => v.Position));
+        Nodes = nodes ?? [];
+        MeshInstances = instances ?? [];
+        Bounds = MeshInstances.Count > 0
+            ? ComputeInstanceBounds(MeshInstances)
+            : Bounds.FromPoints(meshes.SelectMany(mesh => mesh.Vertices).Select(v => v.Position));
         IsProcedural = isProcedural;
         IsError = isError;
         ResourcePath = resourcePath;
@@ -113,7 +131,7 @@ public sealed class Model
     /// no material (the renderer's default applies).
     /// </summary>
     public static Model CreateCube() =>
-        new("Cube", [CreateCubeMesh("Cube")], isProcedural: true);
+        CreateSingleInstanceModel("Cube", CreateCubeMesh("Cube"));
 
     /// <summary>
     /// A unit plane (1×1) lying in the XZ plane with its normal pointing up
@@ -122,7 +140,7 @@ public sealed class Model
     /// <see cref="CreateCube"/>.
     /// </summary>
     public static Model CreatePlane() =>
-        new("Plane", [CreatePlaneMesh("Plane")], isProcedural: true);
+        CreateSingleInstanceModel("Plane", CreatePlaneMesh("Plane"));
 
     /// <summary>
     /// The engine's placeholder model, returned (or substituted) when a model
@@ -131,8 +149,8 @@ public sealed class Model
     /// </summary>
     public static Model Error => _error ??= CreateErrorModel();
 
-    /// <summary>True when <paramref name="model"/> has at least one renderable mesh.</summary>
-    public static bool HasRenderMeshes(Model? model) => model is { MeshCount: > 0 };
+    /// <summary>True when <paramref name="model"/> has at least one drawable mesh instance.</summary>
+    public static bool HasRenderMeshes(Model? model) => model is { InstanceCount: > 0 };
 
     /// <summary>Returns the mesh at <paramref name="index"/>, or null when out of range.</summary>
     public Mesh? GetMesh(int index) => index >= 0 && index < Meshes.Count ? Meshes[index] : null;
@@ -173,8 +191,7 @@ public sealed class Model
                    | PostProcessSteps.CalculateTangentSpace
                    | PostProcessSteps.FlipUVs
                    | PostProcessSteps.JoinIdenticalVertices
-                   | PostProcessSteps.OptimizeMeshes
-                   | PostProcessSteps.PreTransformVertices);
+                   | PostProcessSteps.OptimizeMeshes);
 
         var systemPath = fs.ToSystemPath(path);
         Scene* scene = Api.ImportFile(systemPath, postProcess);
@@ -213,11 +230,22 @@ public sealed class Model
                 .Select(material => material!)
                 .ToList();
 
+            // Preserve the node hierarchy instead of baking node transforms
+            // into the vertices: each node keeps its local transform and
+            // references its meshes, so one mesh can be instanced at several
+            // nodes and nodes can be animated later.
+            var nodes = new List<ModelNode>();
+            var instances = new List<ModelMeshInstance>();
+            if (scene->MRootNode != null)
+                ConvertNode(scene->MRootNode, meshes, nodes, instances);
+
             var model = new Model(
                 PathUtil.GetFileNameWithoutExtension(path),
                 meshes,
                 materials,
-                resourcePath: path);
+                resourcePath: path,
+                nodes: nodes,
+                instances: instances);
             model.RetainTextures();
             return model;
         }
@@ -274,7 +302,25 @@ public sealed class Model
         var material = Material.FromShader("Surface/Unlit", "Main", "Error")
             .Set("color", new Vector4(1f, 0.1f, 0.25f, 1f));
         var mesh = CreateCubeMesh("Error", material);
-        return new Model("Error", [mesh], [material], isProcedural: true, isError: true);
+        return CreateSingleInstanceModel("Error", mesh, [material], isError: true);
+    }
+
+    /// <summary>Builds a procedural model around one mesh: a single identity node plus one instance.</summary>
+    private static Model CreateSingleInstanceModel(
+        string name,
+        Mesh mesh,
+        IReadOnlyList<Material>? materials = null,
+        bool isError = false)
+    {
+        var node = new ModelNode(name, Matrix4x4.Identity) { Mesh = mesh };
+        return new Model(
+            name,
+            [mesh],
+            materials,
+            isProcedural: true,
+            isError: isError,
+            nodes: [node],
+            instances: [new ModelMeshInstance(mesh, node)]);
     }
 
     private static Mesh CreateCubeMesh(string name, Material? material = null)
@@ -551,5 +597,57 @@ public sealed class Model
 
         var name = source->MName.AsString;
         return new Mesh(string.IsNullOrWhiteSpace(name) ? "Mesh" : name, vertices, [.. indices], material);
+    }
+
+    /// <summary>
+    /// Converts an Assimp node (and its descendants) into a <see cref="ModelNode"/>
+    /// tree, recording one <see cref="ModelMeshInstance"/> per mesh the node
+    /// references. The same mesh referenced by several nodes yields several
+    /// instances sharing the mesh.
+    /// </summary>
+    private static unsafe ModelNode ConvertNode(
+        Node* source,
+        IReadOnlyList<Mesh> meshes,
+        List<ModelNode> nodes,
+        List<ModelMeshInstance> instances)
+    {
+        // Silk.NET binds Assimp's aiMatrix4x4 (column-vector convention,
+        // translation in the last column) straight into System.Numerics'
+        // field order (row-vector convention, translation in the last row),
+        // so the matrix must be transposed to read a correct transform.
+        var node = new ModelNode(source->MName.AsString, Matrix4x4.Transpose(source->MTransformation));
+        nodes.Add(node);
+
+        for (var i = 0; i < source->MNumMeshes; i++)
+        {
+            var meshIndex = (int)source->MMeshes[i];
+            if (meshIndex < 0 || meshIndex >= meshes.Count)
+                continue;
+
+            var mesh = meshes[meshIndex];
+            node.Mesh ??= mesh;
+            instances.Add(new ModelMeshInstance(mesh, node));
+        }
+
+        for (var i = 0; i < source->MNumChildren; i++)
+            node.AddChild(ConvertNode(source->MChildren[i], meshes, nodes, instances));
+
+        return node;
+    }
+
+    private static Bounds MeshBounds(Mesh mesh) =>
+        Bounds.FromPoints(mesh.Vertices.Select(vertex => vertex.Position));
+
+    private static Bounds ComputeInstanceBounds(IReadOnlyList<ModelMeshInstance> instances)
+    {
+        var min = new Vector3(float.MaxValue);
+        var max = new Vector3(float.MinValue);
+        foreach (var instance in instances)
+        {
+            var bounds = MeshBounds(instance.Mesh).TransformBy(instance.Node.WorldTransform);
+            min = Vector3.Min(min, bounds.Min);
+            max = Vector3.Max(max, bounds.Max);
+        }
+        return new Bounds(min, max);
     }
 }

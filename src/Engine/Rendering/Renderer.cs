@@ -150,11 +150,12 @@ public sealed class Renderer : IDisposable
         MaterialBlendMode BlendMode,
         bool DoubleSided);
 
-    /// <summary>One mesh to draw this frame, pre-sorted into render order.</summary>
+    /// <summary>One mesh instance to draw this frame, pre-sorted into render order.</summary>
     private readonly record struct MeshDrawItem(
         MeshRenderer Renderer,
         Mesh Mesh,
         Material Material,
+        ModelNode Node,
         Matrix4x4 ModelMatrix,
         float Depth);
 
@@ -241,7 +242,7 @@ public sealed class Renderer : IDisposable
     private readonly Dictionary<MeshPipelineKey, IPipeline> _meshPipelines = [];
     private readonly Dictionary<IPipeline, IBindGroup> _sceneBindGroups = [];
     private readonly Dictionary<Mesh, MeshBuffers> _meshBuffers = [];
-    private readonly Dictionary<(MeshRenderer Renderer, Material Material), RenderableResources> _renderables = [];
+    private readonly Dictionary<(MeshRenderer Renderer, Material Material, ModelNode Node), RenderableResources> _renderables = [];
     private readonly Dictionary<Texture2D, ITexture> _materialTextures = [];
     private Material? _defaultMaterial;
 
@@ -258,7 +259,7 @@ public sealed class Renderer : IDisposable
     private IPipeline _shadowPipeline = null!;
     private IBuffer[] _shadowViewProjBuffers = null!;
     private IBindGroup[] _shadowViewProjBindGroups = null!;
-    private readonly Dictionary<MeshRenderer, ShadowRenderable> _shadowRenderables = [];
+    private readonly Dictionary<(MeshRenderer Renderer, ModelNode Node), ShadowRenderable> _shadowRenderables = [];
 
     // Editor ground grid: a fullscreen pass drawn after the meshes inside the
     // scene pass (tests mesh depth without writing it), configurable through
@@ -282,8 +283,8 @@ public sealed class Renderer : IDisposable
     private ITexture _selectionTexture = null!;
     private IPipeline _selectionMaskPipeline = null!;
     private IBindGroup _selectionMaskSceneBindGroup = null!;
-    private IBindGroup _selectionMaskModelBindGroup = null!;
-    private IBuffer _selectionMaskModelBuffer = null!;
+    private readonly Dictionary<ModelNode, IBindGroup> _selectionMaskModelBindGroups = [];
+    private readonly Dictionary<ModelNode, IBuffer> _selectionMaskModelBuffers = [];
     private IPipeline _outlinePipeline = null!;
     private IBindGroup _outlineBindGroup = null!;
     private IBuffer _outlineParamsBuffer = null!;
@@ -869,14 +870,22 @@ public sealed class Renderer : IDisposable
             if (!renderer.IsValid || renderer.Model is null)
                 continue;
 
-            var modelMatrix = ToWorldMatrix(renderer.World);
+            var worldMatrix = ToWorldMatrix(renderer.World);
             var depth = Vector3.DistanceSquared(renderer.World.Position, cameraPosition);
-            foreach (var mesh in renderer.Model.Meshes)
+            foreach (var instance in renderer.Model.MeshInstances)
             {
                 // A renderer material overrides every mesh; otherwise each mesh
-                // uses its own model material, then the engine default.
-                var material = renderer.Material ?? mesh.Material ?? _defaultMaterial!;
-                var item = new MeshDrawItem(renderer, mesh, material, modelMatrix, depth);
+                // uses its own model material, then the engine default. The
+                // instance's node transform is evaluated here (not baked), so
+                // one mesh can appear at several transforms and nodes can move.
+                var material = renderer.Material ?? instance.Mesh.Material ?? _defaultMaterial!;
+                var item = new MeshDrawItem(
+                    renderer,
+                    instance.Mesh,
+                    material,
+                    instance.Node,
+                    instance.Node.WorldTransform * worldMatrix,
+                    depth);
                 if (material.BlendMode == MaterialBlendMode.Blend)
                     transparent.Add(item);
                 else
@@ -890,7 +899,7 @@ public sealed class Renderer : IDisposable
         {
             var material = item.Material;
             var pipeline = GetMeshPipeline(material.Shader, material.Technique, material.BlendMode, material.DoubleSided);
-            var renderable = GetRenderableResources(item.Renderer, material, pipeline);
+            var renderable = GetRenderableResources(item.Renderer, material, item.Node, pipeline);
 
             if (currentPipeline != pipeline)
             {
@@ -1036,7 +1045,7 @@ public sealed class Renderer : IDisposable
             return;
 
         // Release GPU state for renderables whose component was destroyed.
-        foreach (var stale in _shadowRenderables.Keys.Except(renderers).ToArray())
+        foreach (var stale in _shadowRenderables.Keys.Select(key => key.Renderer).Distinct().Except(renderers).ToArray())
             DisposeShadowRenderable(stale);
 
         // Upload each face's matrix into its own tile buffer up front:
@@ -1319,25 +1328,27 @@ public sealed class Renderer : IDisposable
 
         foreach (var renderer in renderers)
         {
-            var shadowRenderable = GetShadowRenderable(renderer);
-            var modelMatrix = ToWorldMatrix(renderer.World);
-            shadowRenderable.ModelBuffer.Write(in modelMatrix);
-            pass.SetBindGroup(shadowRenderable.BindGroup, 1);
-
-            foreach (var mesh in renderer.Model!.Meshes)
+            var worldMatrix = ToWorldMatrix(renderer.World);
+            foreach (var instance in renderer.Model!.MeshInstances)
             {
-                var buffers = GetMeshBuffers(mesh);
+                var shadowRenderable = GetShadowRenderable(renderer, instance.Node);
+                var modelMatrix = instance.Node.WorldTransform * worldMatrix;
+                shadowRenderable.ModelBuffer.Write(in modelMatrix);
+                pass.SetBindGroup(shadowRenderable.BindGroup, 1);
+
+                var buffers = GetMeshBuffers(instance.Mesh);
                 pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
                 pass.SetIndexBuffer(buffers.IndexBuffer, buffers.IndexBuffer.Size);
-                pass.DrawIndexed((uint)mesh.Indices.Length);
+                pass.DrawIndexed((uint)instance.Mesh.Indices.Length);
             }
         }
     }
 
-    /// <summary>Creates (or returns) the shadow pass's per-renderable model bind group.</summary>
-    private ShadowRenderable GetShadowRenderable(MeshRenderer renderer)
+    /// <summary>Creates (or returns) the shadow pass's per-instance model bind group.</summary>
+    private ShadowRenderable GetShadowRenderable(MeshRenderer renderer, ModelNode node)
     {
-        if (_shadowRenderables.TryGetValue(renderer, out var existing))
+        var key = (renderer, node);
+        if (_shadowRenderables.TryGetValue(key, out var existing))
             return existing;
 
         var modelBuffer = _device.CreateBuffer(new BufferDescription
@@ -1353,17 +1364,20 @@ public sealed class Renderer : IDisposable
                 new BindGroupBinding { Slot = 0, Buffer = modelBuffer, BufferSize = 64 }
             ])
         };
-        _shadowRenderables.Add(renderer, shadowRenderable);
+        _shadowRenderables.Add(key, shadowRenderable);
         return shadowRenderable;
     }
 
     private void DisposeShadowRenderable(MeshRenderer renderer)
     {
-        if (!_shadowRenderables.Remove(renderer, out var shadowRenderable))
-            return;
+        foreach (var key in _shadowRenderables.Keys.Where(key => key.Renderer == renderer).ToArray())
+        {
+            if (!_shadowRenderables.Remove(key, out var shadowRenderable))
+                continue;
 
-        shadowRenderable.BindGroup.Dispose();
-        shadowRenderable.ModelBuffer.Dispose();
+            shadowRenderable.BindGroup.Dispose();
+            shadowRenderable.ModelBuffer.Dispose();
+        }
     }
 
     /// <summary>Left-handed look-at view (mirrors <see cref="Camera.ViewMatrix"/>).</summary>
@@ -1560,9 +1574,9 @@ public sealed class Renderer : IDisposable
     /// buffer, the material parameters buffer and the material's textures.
     /// Rebuilt when the component switches shader or technique.
     /// </summary>
-    private RenderableResources GetRenderableResources(MeshRenderer renderer, Material material, IPipeline pipeline)
+    private RenderableResources GetRenderableResources(MeshRenderer renderer, Material material, ModelNode node, IPipeline pipeline)
     {
-        var key = (renderer, material);
+        var key = (renderer, material, node);
         if (_renderables.TryGetValue(key, out var existing) &&
             existing.Shader == material.Shader &&
             existing.Technique == material.Technique)
@@ -1687,7 +1701,7 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>Disposes the GPU state of one renderable and drops its cache entry.</summary>
-    private void DisposeRenderable((MeshRenderer Renderer, Material Material) key)
+    private void DisposeRenderable((MeshRenderer Renderer, Material Material, ModelNode Node) key)
     {
         if (!_renderables.Remove(key, out var resources))
             return;
@@ -1876,7 +1890,6 @@ public sealed class Renderer : IDisposable
     {
         _outlineBindGroup?.Dispose();
         _selectionMaskSceneBindGroup?.Dispose();
-        _selectionMaskModelBindGroup?.Dispose();
         _selectionTexture?.Dispose();
 
         width = Math.Max(1, width);
@@ -1894,11 +1907,6 @@ public sealed class Renderer : IDisposable
             Sampled = true
         });
 
-        _selectionMaskModelBuffer ??= _device.CreateBuffer(new BufferDescription
-        {
-            Size = 64,
-            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
-        });
         _outlineParamsBuffer ??= _device.CreateBuffer(new BufferDescription
         {
             Size = (ulong)sizeof(SelectionOutlineParams),
@@ -1956,10 +1964,6 @@ public sealed class Renderer : IDisposable
         [
             new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = (ulong)sizeof(SceneUniforms) }
         ]);
-        _selectionMaskModelBindGroup = _selectionMaskPipeline.CreateBindGroup(1,
-        [
-            new BindGroupBinding { Slot = 0, Buffer = _selectionMaskModelBuffer, BufferSize = 64 }
-        ]);
         _outlineBindGroup = _outlinePipeline.CreateBindGroup(
         [
             new BindGroupBinding { Slot = 0, Texture = _sceneTexture },
@@ -1982,18 +1986,47 @@ public sealed class Renderer : IDisposable
 
         pass.SetPipeline(_selectionMaskPipeline);
         pass.SetBindGroup(_selectionMaskSceneBindGroup, 0);
-        pass.SetBindGroup(_selectionMaskModelBindGroup, 1);
 
-        var modelMatrix = ToWorldMatrix(renderer.World);
-        _selectionMaskModelBuffer.Write(in modelMatrix);
-
-        foreach (var mesh in renderer.Model.Meshes)
+        var worldMatrix = ToWorldMatrix(renderer.World);
+        foreach (var instance in renderer.Model.MeshInstances)
         {
-            var buffers = GetMeshBuffers(mesh);
+            pass.SetBindGroup(GetSelectionMaskModelBindGroup(instance.Node), 1);
+
+            var modelMatrix = instance.Node.WorldTransform * worldMatrix;
+            GetSelectionMaskModelBuffer(instance.Node).Write(in modelMatrix);
+
+            var buffers = GetMeshBuffers(instance.Mesh);
             pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
             pass.SetIndexBuffer(buffers.IndexBuffer, buffers.IndexBuffer.Size);
-            pass.DrawIndexed((uint)mesh.Indices.Length);
+            pass.DrawIndexed((uint)instance.Mesh.Indices.Length);
         }
+    }
+
+    private IBuffer GetSelectionMaskModelBuffer(ModelNode node)
+    {
+        if (_selectionMaskModelBuffers.TryGetValue(node, out var existing))
+            return existing;
+
+        var buffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = 64,
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+        _selectionMaskModelBuffers.Add(node, buffer);
+        return buffer;
+    }
+
+    private IBindGroup GetSelectionMaskModelBindGroup(ModelNode node)
+    {
+        if (_selectionMaskModelBindGroups.TryGetValue(node, out var existing))
+            return existing;
+
+        var bindGroup = _selectionMaskPipeline.CreateBindGroup(1,
+        [
+            new BindGroupBinding { Slot = 0, Buffer = GetSelectionMaskModelBuffer(node), BufferSize = 64 }
+        ]);
+        _selectionMaskModelBindGroups.Add(node, bindGroup);
+        return bindGroup;
     }
 
     /// <summary>Writes the outline color/size into the composite pass uniform.</summary>
@@ -2145,6 +2178,12 @@ public sealed class Renderer : IDisposable
             shadowRenderable.ModelBuffer.Dispose();
         }
         _shadowRenderables.Clear();
+        foreach (var bindGroup in _selectionMaskModelBindGroups.Values)
+            bindGroup.Dispose();
+        _selectionMaskModelBindGroups.Clear();
+        foreach (var buffer in _selectionMaskModelBuffers.Values)
+            buffer.Dispose();
+        _selectionMaskModelBuffers.Clear();
         if (_shadowViewProjBindGroups is not null)
         {
             foreach (var bindGroup in _shadowViewProjBindGroups)
@@ -2174,8 +2213,6 @@ public sealed class Renderer : IDisposable
         _outlineParamsBuffer?.Dispose();
         _outlinePipeline?.Dispose();
         _selectionMaskSceneBindGroup?.Dispose();
-        _selectionMaskModelBindGroup?.Dispose();
-        _selectionMaskModelBuffer?.Dispose();
         _selectionMaskPipeline?.Dispose();
         _selectionTexture?.Dispose();
         _sceneDepth?.Dispose();

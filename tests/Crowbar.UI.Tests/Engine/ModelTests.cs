@@ -10,6 +10,8 @@ public class ModelTests
         var model = Model.CreateCube();
 
         Assert.Equal("Cube", model.Name);
+        Assert.Equal(1, model.InstanceCount);
+        Assert.Single(model.Nodes);
         var mesh = Assert.Single(model.Meshes);
 
         // 6 faces × 4 corners, 6 faces × 2 triangles.
@@ -164,6 +166,77 @@ public class ModelTests
         Assert.Equal(MaterialBlendMode.Opaque, opaque.BlendMode);
         Assert.True(transparent.DoubleSided);
         Assert.True(opaque.DoubleSided);
+
+        // The node hierarchy is preserved (not baked into the vertices): the
+        // Sketchfab wrapper nodes keep their names and two mesh instances draw
+        // the two meshes.
+        Assert.Equal(2, model.InstanceCount);
+        Assert.Equal(2, model.MeshInstances.Count);
+        Assert.NotNull(model.Root);
+        Assert.Contains(model.Nodes, node => node.Name == "Sketchfab_model");
+        Assert.Contains(model.Nodes, node => node.Name == "RootNode");
+        Assert.Contains(model.Nodes, node => node.Name == "Industrial Light");
+        Assert.NotEqual(model.Bounds.Min, model.Bounds.Max);
+    }
+
+    [Fact]
+    public void Load_PreservesNodesAndInstancesTheSameMeshAtSeveralTransforms()
+    {
+        // A glTF with two nodes referencing one mesh: one unique mesh drawn at
+        // two transforms (the basis of instancing).
+        var buffer = new byte[48];
+        WriteFloat(buffer, 0, 0f);
+        WriteFloat(buffer, 4, 0f);
+        WriteFloat(buffer, 8, 0f);
+        WriteFloat(buffer, 12, 1f);
+        WriteFloat(buffer, 16, 0f);
+        WriteFloat(buffer, 20, 0f);
+        WriteFloat(buffer, 24, 0f);
+        WriteFloat(buffer, 28, 1f);
+        WriteFloat(buffer, 32, 0f);
+        BitConverter.GetBytes(0u).CopyTo(buffer, 36);
+        BitConverter.GetBytes(1u).CopyTo(buffer, 40);
+        BitConverter.GetBytes(2u).CopyTo(buffer, 44);
+
+        var uri = "data:application/octet-stream;base64," + Convert.ToBase64String(buffer);
+        var gltf =
+            "{\"asset\":{\"version\":\"2.0\"}," +
+            "\"buffers\":[{\"byteLength\":48,\"uri\":\"" + uri + "\"}]," +
+            "\"bufferViews\":[{\"buffer\":0,\"byteOffset\":0,\"byteLength\":36},{\"buffer\":0,\"byteOffset\":36,\"byteLength\":12}]," +
+            "\"accessors\":[" +
+            "{\"bufferView\":0,\"componentType\":5126,\"count\":3,\"type\":\"VEC3\",\"min\":[0,0,0],\"max\":[1,1,0]}," +
+            "{\"bufferView\":1,\"componentType\":5125,\"count\":3,\"type\":\"SCALAR\"}]," +
+            "\"meshes\":[{\"primitives\":[{\"attributes\":{\"POSITION\":0},\"indices\":1}]}]," +
+            "\"nodes\":[" +
+            "{\"mesh\":0,\"name\":\"InstanceA\",\"translation\":[0,0,0]}," +
+            "{\"mesh\":0,\"name\":\"InstanceB\",\"translation\":[10,0,0]}]," +
+            "\"scenes\":[{\"nodes\":[0,1]}],\"scene\":0}";
+
+        var path = Path.Combine(Path.GetTempPath(), $"instances-{Guid.NewGuid():N}.gltf");
+        try
+        {
+            File.WriteAllText(path, gltf);
+
+            var model = Model.Load(path);
+
+            Assert.Equal(1, model.MeshCount);
+            Assert.Equal(2, model.InstanceCount);
+            Assert.Equal(2, model.MeshInstances.Count);
+            Assert.Same(model.MeshInstances[0].Mesh, model.MeshInstances[1].Mesh);
+
+            var a = model.MeshInstances[0].Node.WorldTransform.Translation;
+            var b = model.MeshInstances[1].Node.WorldTransform.Translation;
+            Assert.Equal(10f, Vector3.Distance(a, b), 2);
+
+            // The per-instance bounds span both transforms.
+            var extent = model.Bounds.Max - model.Bounds.Min;
+            Assert.True(MathF.Max(extent.X, MathF.Max(extent.Y, extent.Z)) >= 10f);
+        }
+        finally
+        {
+            Model.Invalidate(path);
+            File.Delete(path);
+        }
     }
 
     [Fact]
@@ -196,6 +269,9 @@ public class ModelTests
         Assert.Throws<FileNotFoundException>(
             () => Model.Load(Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.obj")));
     }
+
+    private static void WriteFloat(byte[] buffer, int offset, float value) =>
+        BitConverter.GetBytes(value).CopyTo(buffer, offset);
 
     private static string WriteCubeObj()
     {
