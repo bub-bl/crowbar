@@ -1,5 +1,5 @@
 #language slang 2026;
-import Scene;
+import Camera;
 
 // One widget element. Shafts use pixel sizes; cones and rings use world sizes
 // computed for the element depth by GizmoRenderer.
@@ -41,8 +41,8 @@ LineOutput vs_main(LineInput input, uint instance : SV_InstanceID)
         // The shaft is a screen-space quad. Normalize the perpendicular before
         // converting it to NDC; otherwise the axis length becomes the apparent
         // line thickness.
-        let clipStart = mul(mul(scene.proj, scene.view), element.start);
-        let clipEnd = mul(mul(scene.proj, scene.view), element.end);
+        let clipStart = mul(mul(camera.proj, camera.view), element.start);
+        let clipEnd = mul(mul(camera.proj, camera.view), element.end);
         let ndcStart = clipStart.xy / clipStart.w;
         let ndcEnd = clipEnd.xy / clipEnd.w;
         let pixelsPerNdc = float2(0.5 * element.viewport.x, 0.5 * element.viewport.y);
@@ -73,7 +73,7 @@ LineOutput vs_main(LineInput input, uint instance : SV_InstanceID)
                            + side * (input.shape.x * element.sizes.w)
                            + up * (input.shape.y * element.sizes.w)
                            + axis * (input.shape.z * element.sizes.z);
-        out.clip_position = mul(mul(scene.proj, scene.view), float4(worldPosition, 1.0));
+        out.clip_position = mul(mul(camera.proj, camera.view), float4(worldPosition, 1.0));
     }
     else
     {
@@ -96,7 +96,7 @@ LineOutput vs_main(LineInput input, uint instance : SV_InstanceID)
         let worldPosition = element.start.xyz
                            + ringRadial * radius
                            + axis * (input.shape.w * element.sizes.w);
-        out.clip_position = mul(mul(scene.proj, scene.view), float4(worldPosition, 1.0));
+        out.clip_position = mul(mul(camera.proj, camera.view), float4(worldPosition, 1.0));
     }
 
     out.color = element.color;

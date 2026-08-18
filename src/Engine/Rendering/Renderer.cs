@@ -23,11 +23,11 @@ namespace Crowbar.Engine.Rendering;
 /// </summary>
 public sealed class Renderer : IDisposable
 {
-    // Mirrors SceneUniforms in Shaders/Common/Scene.slang: view, projection,
+    // Mirrors CameraUniforms in Shaders/Common/Camera.slang: view, projection,
     // camera position and the clock. Written once per frame, shared by every
     // mesh pipeline through bind group 0.
     [StructLayout(LayoutKind.Sequential)]
-    private struct SceneUniforms
+    private struct CameraUniforms
     {
         public Matrix4x4 View;
         public Matrix4x4 Projection;
@@ -206,16 +206,16 @@ public sealed class Renderer : IDisposable
     public void SetSceneViewport(UiRect? viewport) => _sceneViewport = viewport;
 
     // Camera: the per-frame view/projection/position, written into the shared
-    // scene buffer each frame.
-    private SceneUniforms _scene;
+    // camera buffer each frame.
+    private CameraUniforms _cameraUniforms;
 
-    // Mesh scene pass. Group 0 holds the per-frame scene + lights buffers;
+    // Mesh scene pass. Group 0 holds the per-frame camera + lights buffers;
     // group 1 is per-renderable (model, material, textures) and its layout is
     // derived from the shader's own bindings, so adding a binding to a WGSL
     // file requires no C# change. Pipelines are cached per (shader, technique),
     // GPU geometry per Mesh, renderable state per component.
     private const int MaxLights = 8;
-    private static readonly BindGroupLayoutBinding[] SceneGroupBindings =
+    private static readonly BindGroupLayoutBinding[] FrameGroupBindings =
     [
         new() { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Vertex | ShaderStage.Fragment },
         new() { Slot = 1, Type = BindingType.UniformBuffer, Stages = ShaderStage.Fragment },
@@ -235,14 +235,14 @@ public sealed class Renderer : IDisposable
             new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 10 * sizeof(float), ShaderLocation = 3 }
         ]
     };
-    private IBuffer _sceneBuffer = null!;
+    private IBuffer _cameraBuffer = null!;
     private IBuffer _lightsBuffer = null!;
     private ISampler _materialSampler = null!;
     private ITexture _defaultWhiteTexture = null!;
     private ITexture _defaultBlackTexture = null!;
     private ITexture _defaultNormalTexture = null!;
     private readonly Dictionary<MeshPipelineKey, IPipeline> _meshPipelines = [];
-    private readonly Dictionary<IPipeline, IBindGroup> _sceneBindGroups = [];
+    private readonly Dictionary<IPipeline, IBindGroup> _cameraBindGroups = [];
     private readonly Dictionary<Mesh, MeshBuffers> _meshBuffers = [];
     private readonly Dictionary<(MeshRenderer Renderer, Material Material, ModelNode Node), RenderableResources> _renderables = [];
     private readonly Dictionary<Texture2D, ITexture> _materialTextures = [];
@@ -355,7 +355,7 @@ public sealed class Renderer : IDisposable
         CreateMeshResources();
         CreateShadowResources();
         CreateGridResources();
-        Gizmos = new GizmoRenderer(_device, _sceneBuffer, (ulong)sizeof(SceneUniforms));
+        Gizmos = new GizmoRenderer(_device, _cameraBuffer, (ulong)sizeof(CameraUniforms));
         CreateBackdropResources();
         CreateUiResources();
         CreateSurfaceDepth(_width, _height);
@@ -582,7 +582,7 @@ public sealed class Renderer : IDisposable
     {
         var viewport = SceneViewport;
         var matrices = CameraMatrices.Compute(camera, Math.Max(1, (int)viewport.Width), Math.Max(1, (int)viewport.Height));
-        _scene = new SceneUniforms
+        _cameraUniforms = new CameraUniforms
         {
             View = matrices.View,
             Projection = matrices.Projection,
@@ -660,9 +660,9 @@ public sealed class Renderer : IDisposable
 
     private void CreateMeshResources()
     {
-        _sceneBuffer = _device.CreateBuffer(new BufferDescription
+        _cameraBuffer = _device.CreateBuffer(new BufferDescription
         {
-            Size = (ulong)sizeof(SceneUniforms),
+            Size = (ulong)sizeof(CameraUniforms),
             Usage = BufferUsage.Uniform | BufferUsage.CopyDst
         });
         _lightsBuffer = _device.CreateBuffer(new BufferDescription
@@ -845,7 +845,7 @@ public sealed class Renderer : IDisposable
     /// </summary>
     private void DrawGrid(IRenderPass pass)
     {
-        var uniforms = Grid.CreateUniforms(_scene.View, _scene.Projection);
+        var uniforms = Grid.CreateUniforms(_cameraUniforms.View, _cameraUniforms.Projection);
         _gridUniformBuffer.Write(in uniforms);
 
         pass.SetPipeline(_gridPipeline);
@@ -863,7 +863,8 @@ public sealed class Renderer : IDisposable
         // Materialize once: components may be destroyed while we draw.
         var renderers = world.Query<MeshRenderer>().ToList();
 
-        UpdateSceneUniforms(lights, time);
+        UpdateCameraUniforms(time);
+        UpdateLights(lights);
 
         // Release GPU state for renderables whose component was destroyed.
         foreach (var stale in _renderables.Keys.Select(key => key.Renderer).Distinct().Except(renderers).ToArray())
@@ -875,7 +876,7 @@ public sealed class Renderer : IDisposable
         _liveTextures.Clear();
         _liveNodes.Clear();
 
-        var cameraPosition = new Vector3(_scene.CameraPosition.X, _scene.CameraPosition.Y, _scene.CameraPosition.Z);
+        var cameraPosition = new Vector3(_cameraUniforms.CameraPosition.X, _cameraUniforms.CameraPosition.Y, _cameraUniforms.CameraPosition.Z);
         var opaque = new List<MeshDrawItem>();
         var transparent = new List<MeshDrawItem>();
         foreach (var renderer in renderers)
@@ -952,7 +953,7 @@ public sealed class Renderer : IDisposable
             if (currentPipeline != pipeline)
             {
                 pass.SetPipeline(pipeline);
-                pass.SetBindGroup(GetSceneBindGroup(pipeline), 0);
+                pass.SetBindGroup(GetCameraBindGroup(pipeline), 0);
                 currentPipeline = pipeline;
             }
             pass.SetBindGroup(renderable.BindGroup, 1);
@@ -1003,14 +1004,21 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Writes the shared scene uniforms (view/projection/camera/clock) and
-    /// packs the world's lights (directional + point, capped at
+    /// Writes the shared camera uniforms (view/projection/position/clock)
+    /// into the camera buffer once per frame.
+    /// </summary>
+    private void UpdateCameraUniforms(double time)
+    {
+        _cameraUniforms.Time = new Vector4((float)time, 0f, 0f, 0f);
+        _cameraBuffer.Write(in _cameraUniforms);
+    }
+
+    /// <summary>
+    /// Packs the world's lights (directional + point, capped at
     /// <see cref="MaxLights"/>) into the light buffer.
     /// </summary>
-    private void UpdateSceneUniforms(List<Light> lights, double time)
+    private void UpdateLights(List<Light> lights)
     {
-        _scene.Time = new Vector4((float)time, 0f, 0f, 0f);
-        _sceneBuffer.Write(in _scene);
 
         // Lay the already-collected lights out exactly as Lighting.slang
         // expects: count at offset 0, array<LightData, 8> at offset 16.
@@ -1096,7 +1104,7 @@ public sealed class Renderer : IDisposable
 
         // Fallback (no casters): unproject the far-clamped camera frustum so
         // the box still covers whatever the camera sees.
-        Matrix4x4.Invert(_scene.View * ClampShadowProjection(_scene.Projection), out var invViewProj);
+        Matrix4x4.Invert(_cameraUniforms.View * ClampShadowProjection(_cameraUniforms.Projection), out var invViewProj);
 
         for (var i = 0; i < lights.Count; i++)
         {
@@ -1550,10 +1558,10 @@ public sealed class Renderer : IDisposable
 
         var technique = shader.GetTechnique(techniqueName);
 
-        // Group 0 is the engine's shared per-frame state (scene, lights, shadow
-        // map) and includes the one binding slangc's reflection cannot classify
-        // — the shadow comparison sampler — so it stays declared in
-        // SceneGroupBindings. Group 1 (per-renderable: model, material,
+        // Group 0 is the engine's shared per-frame state (camera, lights,
+        // shadow map) and includes the one binding slangc's reflection cannot
+        // classify — the shadow comparison sampler — so it stays declared in
+        // FrameGroupBindings. Group 1 (per-renderable: model, material,
         // textures) derives from the shader's reflected bindings.
         var bindGroups = shader.BuildBindGroupLayouts();
 
@@ -1569,27 +1577,27 @@ public sealed class Renderer : IDisposable
             DepthCompare = CompareFunction.Less,
             CullMode = doubleSided ? CullMode.None : CullMode.Back,
             VertexLayout = MeshVertexLayout,
-            BindGroups = [SceneGroupBindings, bindGroups[1]]
+            BindGroups = [FrameGroupBindings, bindGroups[1]]
         });
         _meshPipelines.Add(key, pipeline);
         return pipeline;
     }
 
     /// <summary>Creates (or returns) the per-frame bind group 0 for a mesh pipeline.</summary>
-    private IBindGroup GetSceneBindGroup(IPipeline pipeline)
+    private IBindGroup GetCameraBindGroup(IPipeline pipeline)
     {
-        if (_sceneBindGroups.TryGetValue(pipeline, out var existing))
+        if (_cameraBindGroups.TryGetValue(pipeline, out var existing))
             return existing;
 
         var bindGroup = pipeline.CreateBindGroup(0,
         [
-            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = (ulong)sizeof(SceneUniforms) },
+            new BindGroupBinding { Slot = 0, Buffer = _cameraBuffer, BufferSize = (ulong)sizeof(CameraUniforms) },
             new BindGroupBinding { Slot = 1, Buffer = _lightsBuffer, BufferSize = (ulong)LightsBufferSize },
             new BindGroupBinding { Slot = 2, Buffer = _shadowDataBuffer, BufferSize = (ulong)ShadowBufferSize },
             new BindGroupBinding { Slot = 3, Texture = _shadowAtlas },
             new BindGroupBinding { Slot = 4, Sampler = _shadowSampler }
         ]);
-        _sceneBindGroups.Add(pipeline, bindGroup);
+        _cameraBindGroups.Add(pipeline, bindGroup);
         return bindGroup;
     }
 
@@ -2063,7 +2071,7 @@ public sealed class Renderer : IDisposable
 
         _selectionMaskSceneBindGroup = _selectionMaskPipeline.CreateBindGroup(0,
         [
-            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = (ulong)sizeof(SceneUniforms) }
+            new BindGroupBinding { Slot = 0, Buffer = _cameraBuffer, BufferSize = (ulong)sizeof(CameraUniforms) }
         ]);
         _outlineBindGroup = _outlinePipeline.CreateBindGroup(
         [
@@ -2264,9 +2272,9 @@ public sealed class Renderer : IDisposable
             buffers.IndexBuffer.Dispose();
         }
         _meshBuffers.Clear();
-        foreach (var bindGroup in _sceneBindGroups.Values)
+        foreach (var bindGroup in _cameraBindGroups.Values)
             bindGroup.Dispose();
-        _sceneBindGroups.Clear();
+        _cameraBindGroups.Clear();
         foreach (var pipeline in _meshPipelines.Values)
             pipeline.Dispose();
         _meshPipelines.Clear();
@@ -2304,7 +2312,7 @@ public sealed class Renderer : IDisposable
         _defaultNormalTexture?.Dispose();
         _materialSampler?.Dispose();
         _lightsBuffer?.Dispose();
-        _sceneBuffer?.Dispose();
+        _cameraBuffer?.Dispose();
         _gridBindGroup?.Dispose();
         _gridUniformBuffer?.Dispose();
         _gridVertexBuffer?.Dispose();

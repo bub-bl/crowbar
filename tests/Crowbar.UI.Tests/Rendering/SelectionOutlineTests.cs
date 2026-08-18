@@ -15,7 +15,7 @@ public class SelectionOutlineTests
 
         var bindings = shader.Bindings;
         Assert.Equal(2, bindings.Count);
-        Assert.Equal((0, 0u, ShaderBindingKind.UniformBuffer, "scene", "SceneUniforms"),
+        Assert.Equal((0, 0u, ShaderBindingKind.UniformBuffer, "camera", "CameraUniforms"),
             (bindings[0].Group, bindings[0].Slot, bindings[0].Kind, bindings[0].VariableName, bindings[0].TypeName));
         Assert.Equal((1, 0u, ShaderBindingKind.UniformBuffer, "model", "mat4x4<f32>"),
             (bindings[1].Group, bindings[1].Slot, bindings[1].Kind, bindings[1].VariableName, bindings[1].TypeName));

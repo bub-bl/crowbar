@@ -19,11 +19,11 @@ public class ShaderReflectionTests
     {
         var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
 
-        // Group 0 = per-frame scene + lights + shadows (from the includes);
+        // Group 0 = per-frame camera + lights + shadows (from the includes);
         // group 1 = per-renderable model + material.
         var expected = new[]
         {
-            (0, 0u, ShaderBindingKind.UniformBuffer, "scene", "SceneUniforms"),
+            (0, 0u, ShaderBindingKind.UniformBuffer, "camera", "CameraUniforms"),
             (0, 1u, ShaderBindingKind.UniformBuffer, "lights", "LightsUniform"),
             (0, 2u, ShaderBindingKind.UniformBuffer, "shadows", "ShadowUniforms"),
             (0, 3u, ShaderBindingKind.Texture, "shadowMap", "texture_depth_2d"),
@@ -94,11 +94,11 @@ public class ShaderReflectionTests
     [Fact]
     public void BuildBindGroupLayouts_DerivesTheMeshPipelineLayout()
     {
-        // Group 0 = per-frame scene + lights + shadows (with the depth map);
+        // Group 0 = per-frame camera + lights + shadows (with the depth map);
         // group 1 = per-renderable model + material. The one binding slangc's
         // reflection cannot classify — the shadow comparison sampler — comes
         // back as a plain sampler, which is why the engine keeps that shared
-        // group explicit in Renderer.SceneGroupBindings.
+        // group explicit in Renderer.FrameGroupBindings.
         var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
         var layouts = shader.BuildBindGroupLayouts();
 

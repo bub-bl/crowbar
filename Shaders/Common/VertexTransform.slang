@@ -6,7 +6,7 @@
 // reuses this instead of hand-writing the transform.
 module VertexTransform;
 
-import Scene;
+import Camera;
 import Vertex;
 
 public struct VertexTransform
@@ -21,7 +21,7 @@ public struct VertexTransform
         output.normal = normalize(mul(normal_matrix, input.normal));
         output.tangent = float4(normalize(mul(normal_matrix, input.tangent.xyz)), input.tangent.w);
         output.uv = input.uv;
-        output.clip_position = mul(mul(scene.proj, scene.view), world_position);
+        output.clip_position = mul(mul(camera.proj, camera.view), world_position);
         return output;
     }
 };

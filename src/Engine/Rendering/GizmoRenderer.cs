@@ -77,8 +77,8 @@ public sealed class GizmoRenderer : IDisposable
     private const float RingTubeRadiusPx = 3f;    // 6px thick ring tube, matching the shafts
 
     private readonly IGraphicsDevice _device;
-    private readonly IBuffer _sceneBuffer;
-    private readonly ulong _sceneBufferSize;
+    private readonly IBuffer _cameraBuffer;
+    private readonly ulong _cameraBufferSize;
     private GizmoIconAtlas _iconAtlas = null!;
     private readonly GizmoSpriteParams[] _spriteParams = new GizmoSpriteParams[MaxSprites];
     private readonly GizmoWidgetElement[] _widgetElements = new GizmoWidgetElement[6];
@@ -105,11 +105,11 @@ public sealed class GizmoRenderer : IDisposable
     private bool _disposed;
     private GizmoMode _mode = GizmoMode.Translate;
 
-    public GizmoRenderer(IGraphicsDevice device, IBuffer sceneBuffer, ulong sceneBufferSize)
+    public GizmoRenderer(IGraphicsDevice device, IBuffer cameraBuffer, ulong cameraBufferSize)
     {
         _device = device ?? throw new ArgumentNullException(nameof(device));
-        _sceneBuffer = sceneBuffer ?? throw new ArgumentNullException(nameof(sceneBuffer));
-        _sceneBufferSize = sceneBufferSize;
+        _cameraBuffer = cameraBuffer ?? throw new ArgumentNullException(nameof(cameraBuffer));
+        _cameraBufferSize = cameraBufferSize;
         CreateResources();
     }
 
@@ -780,7 +780,7 @@ public sealed class GizmoRenderer : IDisposable
         _spriteParamsBuffer = CreateBuffer((ulong)(MaxSprites * sizeof(GizmoSpriteParams)), BufferUsage.Storage | BufferUsage.CopyDst);
         _iconAtlas = GizmoIconAtlas.Load(_device);
 
-        // Both gizmo shaders include Common/Scene.slang, which slangc
+        // Both gizmo shaders include Common/Camera.slang, which slangc
         // flattens into the WGSL that Shader.Load returns.
         var widgetShader = Shader.Load(PathUtil.Combine("Shaders", "Editor/GizmoLine.wgsl"));
         var spriteShader = Shader.Load(PathUtil.Combine("Shaders", "Editor/GizmoSprite.wgsl"));
@@ -806,22 +806,22 @@ public sealed class GizmoRenderer : IDisposable
         });
         _shaftBindGroup = _widgetPipeline.CreateBindGroup(
         [
-            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
+            new BindGroupBinding { Slot = 0, Buffer = _cameraBuffer, BufferSize = _cameraBufferSize },
             new BindGroupBinding { Slot = 1, Buffer = _shaftElementsBuffer, BufferSize = (ulong)(3 * sizeof(GizmoWidgetElement)) }
         ]);
         _coneBindGroup = _widgetPipeline.CreateBindGroup(
         [
-            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
+            new BindGroupBinding { Slot = 0, Buffer = _cameraBuffer, BufferSize = _cameraBufferSize },
             new BindGroupBinding { Slot = 1, Buffer = _coneElementsBuffer, BufferSize = (ulong)(3 * sizeof(GizmoWidgetElement)) }
         ]);
         _ringBindGroup = _widgetPipeline.CreateBindGroup(
         [
-            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
+            new BindGroupBinding { Slot = 0, Buffer = _cameraBuffer, BufferSize = _cameraBufferSize },
             new BindGroupBinding { Slot = 1, Buffer = _ringElementsBuffer, BufferSize = (ulong)(3 * sizeof(GizmoWidgetElement)) }
         ]);
         _gizmoBindGroup = _widgetPipeline.CreateBindGroup(
         [
-            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
+            new BindGroupBinding { Slot = 0, Buffer = _cameraBuffer, BufferSize = _cameraBufferSize },
             new BindGroupBinding { Slot = 1, Buffer = _gizmoElementsBuffer, BufferSize = (ulong)(MaxGizmoElements * sizeof(GizmoWidgetElement)) }
         ]);
 
@@ -847,7 +847,7 @@ public sealed class GizmoRenderer : IDisposable
         });
         _spriteBindGroup = _spritePipeline.CreateBindGroup(
         [
-            new BindGroupBinding { Slot = 0, Buffer = _sceneBuffer, BufferSize = _sceneBufferSize },
+            new BindGroupBinding { Slot = 0, Buffer = _cameraBuffer, BufferSize = _cameraBufferSize },
             new BindGroupBinding { Slot = 1, Buffer = _spriteParamsBuffer, BufferSize = (ulong)(MaxSprites * sizeof(GizmoSpriteParams)) },
             new BindGroupBinding { Slot = 2, Texture = _iconAtlas.Texture },
             new BindGroupBinding { Slot = 3, Sampler = _iconAtlas.Sampler }

@@ -1,5 +1,5 @@
 #language slang 2026;
-import Scene;
+import Camera;
 
 // Selection mask pass: renders the selected entity's mesh as a flat white
 // silhouette into the mask texture (Rgba8Unorm, red channel used). Depth is
@@ -18,7 +18,7 @@ struct VertexInput
 float4 vs_main(VertexInput input) : SV_Position
 {
     let world_position = mul(model, float4(input.position, 1.0));
-    return mul(mul(scene.proj, scene.view), world_position);
+    return mul(mul(camera.proj, camera.view), world_position);
 }
 
 [shader("fragment")]

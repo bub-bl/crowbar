@@ -61,7 +61,7 @@ public class LightTests
         light.Enabled = false;
 
         // The world gathers them; the renderer filters on Enabled (covered by
-        // the UpdateSceneUniforms collection, not unit-tested here).
+        // the UpdateLights collection, not unit-tested here).
         var gathered = world.Query<Light>().ToList();
         Assert.Single(gathered);
         Assert.False(gathered[0].Enabled);

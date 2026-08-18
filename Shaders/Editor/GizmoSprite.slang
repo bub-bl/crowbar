@@ -1,5 +1,5 @@
 #language slang 2026;
-import Scene;
+import Camera;
 
 // One instanced billboard: world center, tint, shape/scale and an atlas region.
 struct GizmoSpriteParams
@@ -35,13 +35,13 @@ SpriteOutput vs_main(SpriteInput input, uint instance : SV_InstanceID)
 
     // Camera basis from the view matrix: with the engine's storage layout the
     // first row of the view holds (right, up, forward) per component.
-    let right = scene.view[0].xyz;
-    let up = scene.view[1].xyz;
+    let right = camera.view[0].xyz;
+    let up = camera.view[1].xyz;
 
     SpriteOutput out;
     let offset = right * (input.corner.x * params.scaleKind.x) + up * (input.corner.y * params.scaleKind.x);
     let world_position = params.center.xyz + offset;
-    out.clip_position = mul(mul(scene.proj, scene.view), float4(world_position, 1.0));
+    out.clip_position = mul(mul(camera.proj, camera.view), float4(world_position, 1.0));
     out.uv = input.corner;
     out.color = params.color;
     out.kind = params.scaleKind.y;

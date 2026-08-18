@@ -12,7 +12,7 @@ public class GizmoShaderTests
 
         var bindings = shader.Bindings;
         Assert.Equal(2, bindings.Count);
-        Assert.Equal((0, 0u, ShaderBindingKind.UniformBuffer, "scene", "SceneUniforms"),
+        Assert.Equal((0, 0u, ShaderBindingKind.UniformBuffer, "camera", "CameraUniforms"),
             (bindings[0].Group, bindings[0].Slot, bindings[0].Kind, bindings[0].VariableName, bindings[0].TypeName));
         // The widget is instanced from a storage array (thick shafts + arrowheads);
         // colors are computed on the CPU, so there is no widget uniform anymore.
