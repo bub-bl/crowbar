@@ -66,6 +66,24 @@ public class MaterialTests
         Assert.Throws<ArgumentException>(() => material.SetTexture("diffuseMap", CreateTexture()));
     }
 
+    [Fact]
+    public void Revision_TracksParameterAndTextureChanges()
+    {
+        // The renderer keys its cached packed uniforms by this revision, so it
+        // must advance whenever the material's parameters or textures change
+        // (and only then) — a static material is never repacked.
+        var material = Material.FromShader("Surface/StandardPbr");
+        var initial = material.Revision;
+
+        Assert.Equal(initial, material.Revision);
+        material.Set("color", new Vector4(1f, 0f, 0f, 1f));
+        Assert.True(material.Revision > initial);
+
+        var afterSet = material.Revision;
+        material.SetTexture("albedoTexture", CreateTexture());
+        Assert.True(material.Revision > afterSet);
+    }
+
     private static Texture2D CreateTexture()
     {
         var path = Path.Combine(Path.GetTempPath(), $"crowbar-mat-{Guid.NewGuid():N}.png");

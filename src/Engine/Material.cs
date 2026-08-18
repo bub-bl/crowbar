@@ -28,6 +28,13 @@ public sealed class Material
     public string Name { get; }
     public Shader Shader { get; }
 
+    /// <summary>
+    /// Increments whenever the material's parameters or textures change. The
+    /// renderer caches the packed uniform buffer (and bind group) per revision,
+    /// so a static material is never repacked or rewritten after it is built.
+    /// </summary>
+    internal int Revision { get; private set; }
+
     /// <summary>Render pass to use; defaults to the shader's "Main" technique.</summary>
     public string Technique { get; }
 
@@ -79,6 +86,7 @@ public sealed class Material
                             nameof(parameterName));
 
         _values[parameterName] = value;
+        Revision++;
         return this;
     }
 
@@ -94,6 +102,7 @@ public sealed class Material
                           nameof(slotName));
 
         _textures[binding.VariableName] = texture;
+        Revision++;
         return this;
     }
 

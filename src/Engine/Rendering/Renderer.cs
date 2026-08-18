@@ -131,6 +131,7 @@ public sealed class Renderer : IDisposable
     {
         public required Shader Shader { get; init; }
         public required string Technique { get; init; }
+        public required int MaterialRevision { get; init; }
         public required IBuffer ModelBuffer { get; init; }
         public IBuffer? MaterialBuffer { get; init; }
         public required IBindGroup BindGroup { get; init; }
@@ -156,6 +157,7 @@ public sealed class Renderer : IDisposable
         Mesh Mesh,
         Material Material,
         ModelNode Node,
+        IPipeline Pipeline,
         Matrix4x4 ModelMatrix,
         float Depth);
 
@@ -245,6 +247,12 @@ public sealed class Renderer : IDisposable
     private readonly Dictionary<(MeshRenderer Renderer, Material Material, ModelNode Node), RenderableResources> _renderables = [];
     private readonly Dictionary<Texture2D, ITexture> _materialTextures = [];
     private Material? _defaultMaterial;
+
+    // Reused across frames to collect the meshes/textures/nodes still referenced
+    // by the world, so GPU resources whose CPU owner is gone can be released.
+    private readonly HashSet<Mesh> _liveMeshes = [];
+    private readonly HashSet<Texture2D> _liveTextures = [];
+    private readonly HashSet<ModelNode> _liveNodes = [];
 
     // Shadow mapping: the depth atlas, its comparison sampler, the per-light
     // shadow metadata buffer and the depth-only pipeline that renders each
@@ -850,8 +858,6 @@ public sealed class Renderer : IDisposable
 
         // Materialize once: components may be destroyed while we draw.
         var renderers = world.Query<MeshRenderer>().ToList();
-        if (renderers.Count == 0)
-            return;
 
         UpdateSceneUniforms(lights, time);
 
@@ -859,15 +865,18 @@ public sealed class Renderer : IDisposable
         foreach (var stale in _renderables.Keys.Select(key => key.Renderer).Distinct().Except(renderers).ToArray())
             DisposeRenderable(stale);
 
-        // Collect every draw item, then order them: opaque meshes first (stable
-        // order) and transparent meshes after, sorted back-to-front so src-over
-        // alpha blending composites correctly.
+        // Collect every draw item plus the set of meshes/textures/nodes still
+        // referenced by the world, so orphaned GPU state can be pruned after.
+        _liveMeshes.Clear();
+        _liveTextures.Clear();
+        _liveNodes.Clear();
+
         var cameraPosition = new Vector3(_scene.CameraPosition.X, _scene.CameraPosition.Y, _scene.CameraPosition.Z);
         var opaque = new List<MeshDrawItem>();
         var transparent = new List<MeshDrawItem>();
         foreach (var renderer in renderers)
         {
-            if (!renderer.IsValid || renderer.Model is null)
+            if (renderer.Model is null)
                 continue;
 
             var worldMatrix = ToWorldMatrix(renderer.World);
@@ -879,11 +888,21 @@ public sealed class Renderer : IDisposable
                 // instance's node transform is evaluated here (not baked), so
                 // one mesh can appear at several transforms and nodes can move.
                 var material = renderer.Material ?? instance.Mesh.Material ?? _defaultMaterial!;
+                _liveMeshes.Add(instance.Mesh);
+                _liveNodes.Add(instance.Node);
+                foreach (var texture in material.Textures.Values)
+                    _liveTextures.Add(texture);
+
+                if (!renderer.IsValid)
+                    continue;
+
+                var pipeline = GetMeshPipeline(material.Shader, material.Technique, material.BlendMode, material.DoubleSided);
                 var item = new MeshDrawItem(
                     renderer,
                     instance.Mesh,
                     material,
                     instance.Node,
+                    pipeline,
                     instance.Node.WorldTransform * worldMatrix,
                     depth);
                 if (material.BlendMode == MaterialBlendMode.Blend)
@@ -892,14 +911,39 @@ public sealed class Renderer : IDisposable
                     opaque.Add(item);
             }
         }
+
+        PruneStaleResources();
+
+        // Order the draws to minimize state changes: opaque meshes are grouped
+        // by pipeline, then material, then mesh (depth is irrelevant because
+        // they are depth-tested); transparent meshes stay sorted back-to-front
+        // so src-over alpha blending composites correctly.
+        var pipelineOrder = new Dictionary<IPipeline, int>();
+        var materialOrder = new Dictionary<Material, int>();
+        var meshOrder = new Dictionary<Mesh, int>();
+        foreach (var item in opaque)
+        {
+            pipelineOrder.TryAdd(item.Pipeline, pipelineOrder.Count);
+            materialOrder.TryAdd(item.Material, materialOrder.Count);
+            meshOrder.TryAdd(item.Mesh, meshOrder.Count);
+        }
+        opaque.Sort((a, b) =>
+        {
+            var order = pipelineOrder[a.Pipeline].CompareTo(pipelineOrder[b.Pipeline]);
+            if (order != 0)
+                return order;
+            order = materialOrder[a.Material].CompareTo(materialOrder[b.Material]);
+            if (order != 0)
+                return order;
+            return meshOrder[a.Mesh].CompareTo(meshOrder[b.Mesh]);
+        });
         transparent.Sort(static (a, b) => b.Depth.CompareTo(a.Depth));
 
         IPipeline? currentPipeline = null;
         foreach (var item in opaque.Concat(transparent))
         {
-            var material = item.Material;
-            var pipeline = GetMeshPipeline(material.Shader, material.Technique, material.BlendMode, material.DoubleSided);
-            var renderable = GetRenderableResources(item.Renderer, material, item.Node, pipeline);
+            var pipeline = item.Pipeline;
+            var renderable = GetRenderableResources(item.Renderer, item.Material, item.Node, pipeline);
 
             if (currentPipeline != pipeline)
             {
@@ -911,16 +955,46 @@ public sealed class Renderer : IDisposable
 
             var modelMatrix = item.ModelMatrix;
             renderable.ModelBuffer.Write(in modelMatrix);
-            if (renderable.MaterialBuffer is not null)
-            {
-                var packed = UniformPacker.Pack(material.Shader.MaterialFields, material.Values);
-                renderable.MaterialBuffer.Write(packed);
-            }
 
             var buffers = GetMeshBuffers(item.Mesh);
             pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
             pass.SetIndexBuffer(buffers.IndexBuffer, buffers.IndexBuffer.Size);
             pass.DrawIndexed((uint)item.Mesh.Indices.Length);
+        }
+    }
+
+    /// <summary>
+    /// Releases GPU state (mesh buffers, material textures, selection-mask
+    /// bind groups) whose CPU-side owner is no longer referenced by any mesh
+    /// renderer in the world. Called once per frame after the live set is
+    /// collected; a resource is simply re-uploaded if it is used again later.
+    /// </summary>
+    private void PruneStaleResources()
+    {
+        foreach (var mesh in _meshBuffers.Keys.Where(mesh => !_liveMeshes.Contains(mesh)).ToArray())
+        {
+            var buffers = _meshBuffers[mesh];
+            buffers.VertexBuffer.Dispose();
+            buffers.IndexBuffer.Dispose();
+            _meshBuffers.Remove(mesh);
+        }
+
+        foreach (var texture in _materialTextures.Keys.Where(texture => !_liveTextures.Contains(texture)).ToArray())
+        {
+            _materialTextures[texture].Dispose();
+            _materialTextures.Remove(texture);
+        }
+
+        foreach (var node in _selectionMaskModelBindGroups.Keys.Where(node => !_liveNodes.Contains(node)).ToArray())
+        {
+            _selectionMaskModelBindGroups[node].Dispose();
+            _selectionMaskModelBindGroups.Remove(node);
+        }
+
+        foreach (var node in _selectionMaskModelBuffers.Keys.Where(node => !_liveNodes.Contains(node)).ToArray())
+        {
+            _selectionMaskModelBuffers[node].Dispose();
+            _selectionMaskModelBuffers.Remove(node);
         }
     }
 
@@ -1572,14 +1646,17 @@ public sealed class Renderer : IDisposable
     /// <summary>
     /// Creates (or returns) the per-component group-1 bind group: the model
     /// buffer, the material parameters buffer and the material's textures.
-    /// Rebuilt when the component switches shader or technique.
+    /// Rebuilt when the component switches shader/technique or the material's
+    /// parameters/textures change; otherwise the packed uniforms are uploaded
+    /// once and reused across frames.
     /// </summary>
     private RenderableResources GetRenderableResources(MeshRenderer renderer, Material material, ModelNode node, IPipeline pipeline)
     {
         var key = (renderer, material, node);
         if (_renderables.TryGetValue(key, out var existing) &&
             existing.Shader == material.Shader &&
-            existing.Technique == material.Technique)
+            existing.Technique == material.Technique &&
+            existing.MaterialRevision == material.Revision)
             return existing;
 
         if (existing is not null)
@@ -1594,6 +1671,9 @@ public sealed class Renderer : IDisposable
                 Size = (ulong)UniformPacker.ComputeStructSize(fields),
                 Usage = BufferUsage.Uniform | BufferUsage.CopyDst
             });
+        if (materialBuffer is not null)
+            materialBuffer.Write(UniformPacker.Pack(fields, material.Values));
+
         var modelBuffer = _device.CreateBuffer(new BufferDescription
         {
             Size = 64,
@@ -1641,6 +1721,7 @@ public sealed class Renderer : IDisposable
         {
             Shader = shader,
             Technique = material.Technique,
+            MaterialRevision = material.Revision,
             ModelBuffer = modelBuffer,
             MaterialBuffer = materialBuffer,
             BindGroup = pipeline.CreateBindGroup(1, bindings)
