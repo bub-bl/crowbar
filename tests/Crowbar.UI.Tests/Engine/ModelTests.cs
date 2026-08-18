@@ -295,6 +295,59 @@ public class ModelTests
             () => Model.Load(Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.obj")));
     }
 
+    [Fact]
+    public async Task LoadAsync_ReturnsTheSharedInstanceAndReportsProgress()
+    {
+        var path = WriteCubeObj();
+        try
+        {
+            var progress = new RecordingProgress<ModelLoadProgress>();
+            var model = await Model.LoadAsync(path, progress);
+
+            // The async import installs into the same cache the sync Load
+            // reads, so the import runs once for the path.
+            Assert.Same(model, Model.Load(path));
+
+            Assert.NotEmpty(progress.Reports);
+            Assert.Equal(ModelLoadStage.Done, progress.Reports[^1].Stage);
+            Assert.Equal(1f, progress.Reports[^1].Fraction);
+        }
+        finally
+        {
+            Model.Invalidate(path);
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task LoadAsync_PreCancelledToken_CancelsWithoutImporting()
+    {
+        var path = WriteCubeObj();
+        try
+        {
+            using var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => Model.LoadAsync(path, cancellationToken: cts.Token));
+
+            // Nothing was imported, so a later load still works from scratch.
+            var model = Model.Load(path);
+            Assert.NotNull(model);
+        }
+        finally
+        {
+            Model.Invalidate(path);
+            File.Delete(path);
+        }
+    }
+
+    private sealed class RecordingProgress<T> : IProgress<T>
+    {
+        public List<T> Reports { get; } = [];
+        public void Report(T value) => Reports.Add(value);
+    }
+
     private static void WriteFloat(byte[] buffer, int offset, float value) =>
         BitConverter.GetBytes(value).CopyTo(buffer, offset);
 

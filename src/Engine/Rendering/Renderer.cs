@@ -1743,22 +1743,30 @@ public sealed class Renderer : IDisposable
             if (_materialTextures.TryGetValue(cpuTexture, out var existing))
                 return existing;
 
-            var srgb = IsColorTextureSlot(slotName);
-            var gpu = _device.CreateTexture(new TextureDescription
+            try
             {
-                Width = cpuTexture.Width,
-                Height = cpuTexture.Height,
-                Format = srgb ? TextureFormat.Rgba8UnormSrgb : TextureFormat.Rgba8Unorm,
-                Sampled = true,
-                CopyDestination = true
-            });
-            unsafe
-            {
-                fixed (byte* pixels = cpuTexture.Pixels)
-                    gpu.Write((nint)pixels, cpuTexture.Width * 4, 0, 0, cpuTexture.Width, cpuTexture.Height);
+                var srgb = IsColorTextureSlot(slotName);
+                var gpu = _device.CreateTexture(new TextureDescription
+                {
+                    Width = cpuTexture.Width,
+                    Height = cpuTexture.Height,
+                    Format = srgb ? TextureFormat.Rgba8UnormSrgb : TextureFormat.Rgba8Unorm,
+                    Sampled = true,
+                    CopyDestination = true
+                });
+                unsafe
+                {
+                    fixed (byte* pixels = cpuTexture.Pixels)
+                        gpu.Write((nint)pixels, cpuTexture.Width * 4, 0, 0, cpuTexture.Width, cpuTexture.Height);
+                }
+                _materialTextures.Add(cpuTexture, gpu);
+                return gpu;
             }
-            _materialTextures.Add(cpuTexture, gpu);
-            return gpu;
+            catch (Exception)
+            {
+                // Lazy decode (or the upload) failed for this texture: leave the
+                // slot on its neutral default so the model still renders.
+            }
         }
 
         // Unbound slots get a flat blue normal map, a black emissive map, and

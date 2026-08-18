@@ -41,4 +41,34 @@ public class Texture2DTests
         Assert.ThrowsAny<IOException>(
             () => Texture2D.Load(Path.Combine(Path.GetTempPath(), $"missing-{Guid.NewGuid():N}.png")));
     }
+
+    [Fact]
+    public void Load_DefersDecodeUntilPixelsAreFirstRead()
+    {
+        // Decoding is lazy: importing a model must record its texture set
+        // without decoding every image up front. Loading only validates the
+        // file; the pixels are read on first access.
+        var path = Path.Combine(Path.GetTempPath(), $"crowbar-lazy-{Guid.NewGuid():N}.png");
+        using (var image = new Image<Rgba32>(2, 1))
+        {
+            image[0, 0] = new Rgba32(255, 0, 0, 255);
+            image[1, 0] = new Rgba32(0, 255, 0, 128);
+            image.Save(path);
+        }
+
+        try
+        {
+            var texture = Texture2D.Load(path); // succeeds without decoding
+
+            // Remove the backing file: decoding hasn't happened yet, so the
+            // first read now fails, proving the decode was deferred.
+            File.Delete(path);
+            Assert.ThrowsAny<IOException>(() => texture.Width);
+        }
+        finally
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+    }
 }

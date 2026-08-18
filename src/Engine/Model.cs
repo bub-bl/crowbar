@@ -38,6 +38,24 @@ public sealed class Mesh
     }
 }
 
+/// <summary>Coarse-grained stage of a <see cref="Model"/> import.</summary>
+public enum ModelLoadStage
+{
+    /// <summary>Checking the file and its external buffers.</summary>
+    Validating,
+    /// <summary>Running the Assimp importer.</summary>
+    Importing,
+    /// <summary>Converting materials and their texture bindings.</summary>
+    ConvertingMaterials,
+    /// <summary>Converting mesh geometry.</summary>
+    ConvertingMeshes,
+    /// <summary>The model is ready.</summary>
+    Done
+}
+
+/// <summary>A progress update emitted by <see cref="Model.LoadAsync"/>.</summary>
+public readonly record struct ModelLoadProgress(ModelLoadStage Stage, float Fraction);
+
 /// <summary>
 /// A 3D model: a named collection of <see cref="Mesh"/>es plus the
 /// <see cref="Material"/>s referenced by them. Procedural primitives
@@ -51,7 +69,9 @@ public sealed class Model
     private static readonly Assimp Api = Assimp.GetApi();
     private static Model? _error;
 
-    internal static readonly ResourceCache<Model> Cache = new(ImportModel, static model => model.ReleaseResources());
+    internal static readonly ResourceCache<Model> Cache = new(
+        static path => ImportModel(path, null, CancellationToken.None),
+        static model => model.ReleaseResources());
 
     public string Name { get; }
     public IReadOnlyList<Mesh> Meshes { get; }
@@ -177,13 +197,18 @@ public sealed class Model
     /// metallic-roughness, occlusion, emissive) resolved relative to the
     /// model file.
     /// </summary>
-    private static unsafe Model ImportModel(string path)
+    private static unsafe Model ImportModel(string path, IProgress<ModelLoadProgress>? progress, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
+        progress?.Report(new ModelLoadProgress(ModelLoadStage.Validating, 0f));
+
         var fs = FileSystem.Content;
         if (!fs.FileExists(path))
             throw new FileNotFoundException("Model file not found.", path);
 
         ValidateExternalBuffers(path);
+        cancellationToken.ThrowIfCancellationRequested();
+        progress?.Report(new ModelLoadProgress(ModelLoadStage.Validating, 0.05f));
 
         // Assimp imports right-handed content (glTF spec), but the engine
         // renders left-handed (Unity/DirectX): front faces wind the opposite
@@ -198,8 +223,11 @@ public sealed class Model
                    | PostProcessSteps.JoinIdenticalVertices
                    | PostProcessSteps.OptimizeMeshes);
 
+        progress?.Report(new ModelLoadProgress(ModelLoadStage.Importing, 0.1f));
         var systemPath = fs.ToSystemPath(path);
         Scene* scene = Api.ImportFile(systemPath, postProcess);
+        cancellationToken.ThrowIfCancellationRequested();
+        progress?.Report(new ModelLoadProgress(ModelLoadStage.Importing, 0.5f));
         if (scene == null)
         {
             nint error = (nint)Api.GetErrorString();
@@ -212,17 +240,27 @@ public sealed class Model
         {
             var allMaterials = new List<Material>((int)scene->MNumMaterials);
             for (var i = 0; i < scene->MNumMaterials; i++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
                 allMaterials.Add(ConvertMaterial(scene->MMaterials[i], path));
+                progress?.Report(new ModelLoadProgress(
+                    ModelLoadStage.ConvertingMaterials,
+                    0.5f + 0.2f * (i + 1) / Math.Max(1, (int)scene->MNumMaterials)));
+            }
 
             var meshes = new List<Mesh>((int)scene->MNumMeshes);
             for (var i = 0; i < scene->MNumMeshes; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 AssimpMesh* source = scene->MMeshes[i];
                 var materialIndex = (int)source->MMaterialIndex;
                 var material = materialIndex >= 0 && materialIndex < allMaterials.Count
                     ? allMaterials[materialIndex]
                     : null;
                 meshes.Add(ConvertMesh(source, material));
+                progress?.Report(new ModelLoadProgress(
+                    ModelLoadStage.ConvertingMeshes,
+                    0.7f + 0.28f * (i + 1) / Math.Max(1, (int)scene->MNumMeshes)));
             }
 
             // Assimp can append a default material that no mesh references.
@@ -244,6 +282,7 @@ public sealed class Model
             if (scene->MRootNode != null)
                 ConvertNode(scene->MRootNode, meshes, nodes, instances);
 
+            cancellationToken.ThrowIfCancellationRequested();
             var model = new Model(
                 PathUtil.GetFileNameWithoutExtension(path),
                 meshes,
@@ -252,6 +291,7 @@ public sealed class Model
                 nodes: nodes,
                 instances: instances);
             model.RetainTextures();
+            progress?.Report(new ModelLoadProgress(ModelLoadStage.Done, 1f));
             return model;
         }
         finally
@@ -260,8 +300,22 @@ public sealed class Model
         }
     }
 
-    /// <summary>Loads a model off the calling thread (see <see cref="Load"/>).</summary>
-    public static Task<Model> LoadAsync(string path) => Task.Run(() => Load(path));
+    /// <summary>
+    /// Loads a model off the calling thread (see <see cref="Load"/>). Reports
+    /// <see cref="ModelLoadProgress"/> as the import advances and checks
+    /// <paramref name="cancellationToken"/> between stages. The result is shared
+    /// with <see cref="Load"/> through the same cache; a cancelled token skips
+    /// the import and the returned task faults with
+    /// <see cref="OperationCanceledException"/>.
+    /// </summary>
+    public static Task<Model> LoadAsync(
+        string path,
+        IProgress<ModelLoadProgress>? progress = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return Cache.LoadAsync(path, token => ImportModel(path, progress, token), cancellationToken);
+    }
 
     /// <summary>Records a holder reference for a file-loaded model (no-op for procedural models).</summary>
     public void Retain()

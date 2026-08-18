@@ -24,6 +24,7 @@ internal sealed class ResourceCache<T> where T : class
     }
 
     private readonly Dictionary<string, Entry> _entries = [];
+    private readonly Dictionary<string, Task<T>> _inFlight = [];
     private readonly Func<string, T> _load;
     private readonly Action<T>? _released;
 
@@ -43,6 +44,23 @@ internal sealed class ResourceCache<T> where T : class
         }
     }
 
+    /// <summary>Returns the cached instance for <paramref name="path"/>, or false when not loaded.</summary>
+    public bool TryGet(string path, out T value)
+    {
+        var key = CanonicalKey(path);
+        lock (_entries)
+        {
+            if (_entries.TryGetValue(key, out var entry))
+            {
+                value = entry.Value;
+                return true;
+            }
+        }
+
+        value = null!;
+        return false;
+    }
+
     /// <summary>
     /// Returns the shared instance for <paramref name="path"/>, loading it on
     /// first use. Does not record a holder; call <see cref="Retain"/> when the
@@ -60,6 +78,63 @@ internal sealed class ResourceCache<T> where T : class
             _entries.Add(key, new Entry { Value = value });
             return value;
         }
+    }
+
+    /// <summary>
+    /// Returns the shared instance for <paramref name="path"/>, running the
+    /// given loader off the calling thread when the entry is not cached yet.
+    /// Concurrent loads of the same path share one in-flight task, and the
+    /// completed value is installed into the cache so later (sync or async)
+    /// loads reuse it. A pre-cancelled token skips the load entirely.
+    /// </summary>
+    public Task<T> LoadAsync(string path, Func<CancellationToken, T> load, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(load);
+
+        var key = CanonicalKey(path);
+        Task<T> task;
+        lock (_entries)
+        {
+            if (_entries.TryGetValue(key, out var entry))
+                return Task.FromResult(entry.Value);
+            if (_inFlight.TryGetValue(key, out var inFlight))
+                return inFlight;
+
+            task = Task.Run(() =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var value = load(cancellationToken);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                lock (_entries)
+                {
+                    if (_entries.TryGetValue(key, out var existing))
+                    {
+                        // Another load finished first: keep the shared instance
+                        // and release the duplicate we just produced.
+                        _released?.Invoke(value);
+                        return existing.Value;
+                    }
+
+                    _entries.Add(key, new Entry { Value = value });
+                    return value;
+                }
+            }, cancellationToken);
+
+            _inFlight.Add(key, task);
+        }
+
+        _ = task.ContinueWith(
+            _ =>
+            {
+                lock (_entries)
+                    _inFlight.Remove(key);
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+
+        return task;
     }
 
     /// <summary>Records an additional holder for the entry at <paramref name="path"/>.</summary>
