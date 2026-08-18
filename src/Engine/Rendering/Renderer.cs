@@ -672,7 +672,11 @@ public sealed class Renderer : IDisposable
         });
         _materialSampler = _device.CreateSampler(new SamplerDescription
         {
-            AddressMode = SamplerAddressMode.Repeat
+            AddressMode = SamplerAddressMode.Repeat,
+            // Trilinear (linear across mip levels) + anisotropic to keep model
+            // textures crisp at distance and at grazing angles.
+            MipmapFilter = SamplerFilter.Linear,
+            MaxAnisotropy = 16
         });
 
         // 1x1 fallbacks for texture slots the material does not bind. Flat
@@ -1746,18 +1750,26 @@ public sealed class Renderer : IDisposable
             try
             {
                 var srgb = IsColorTextureSlot(slotName);
+                var mipLevels = cpuTexture.MipLevelCount;
                 var gpu = _device.CreateTexture(new TextureDescription
                 {
                     Width = cpuTexture.Width,
                     Height = cpuTexture.Height,
                     Format = srgb ? TextureFormat.Rgba8UnormSrgb : TextureFormat.Rgba8Unorm,
                     Sampled = true,
-                    CopyDestination = true
+                    CopyDestination = true,
+                    MipLevelCount = mipLevels
                 });
                 unsafe
                 {
-                    fixed (byte* pixels = cpuTexture.Pixels)
-                        gpu.Write((nint)pixels, cpuTexture.Width * 4, 0, 0, cpuTexture.Width, cpuTexture.Height);
+                    for (var mip = 0; mip < mipLevels; mip++)
+                    {
+                        var mipWidth = cpuTexture.GetMipWidth(mip);
+                        var mipHeight = cpuTexture.GetMipHeight(mip);
+                        var mipPixels = cpuTexture.GetMipPixels(mip);
+                        fixed (byte* pixels = mipPixels)
+                            gpu.Write((nint)pixels, mipWidth * 4, 0, 0, mipWidth, mipHeight, mip);
+                    }
                 }
                 _materialTextures.Add(cpuTexture, gpu);
                 return gpu;

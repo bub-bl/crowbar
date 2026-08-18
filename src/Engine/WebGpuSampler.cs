@@ -36,7 +36,7 @@ public sealed unsafe class WebGpuSampler : ISampler
                 : MipmapFilterMode.Linear,
             LodMinClamp = 0,
             LodMaxClamp = 32,
-            MaxAnisotropy = 1,
+            MaxAnisotropy = (ushort)Math.Clamp(Math.Max(1, description.MaxAnisotropy), 1, 16),
             Compare = description.Compare is { } compare
                 ? WebGpuNative.ToNative(compare)
                 : Silk.NET.WebGPU.CompareFunction.Undefined

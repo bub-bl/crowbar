@@ -111,6 +111,12 @@ public sealed class TextureDescription
     /// single-sample texture before sampling.
     /// </summary>
     public int SampleCount { get; init; } = 1;
+
+    /// <summary>
+    /// Number of mip levels (default 1 = base only). Sampled textures upload
+    /// the full chain for trilinear/anisotropic filtering at distance.
+    /// </summary>
+    public int MipLevelCount { get; init; } = 1;
 }
 
 /// <summary>Describes a GPU buffer the runtime wants to create.</summary>
@@ -145,6 +151,13 @@ public sealed class SamplerDescription
     public SamplerFilter Filter { get; init; } = SamplerFilter.Linear;
     public SamplerAddressMode AddressMode { get; init; } = SamplerAddressMode.ClampToEdge;
     public SamplerFilter MipmapFilter { get; init; } = SamplerFilter.Nearest;
+
+    /// <summary>
+    /// Anisotropic filtering level (1 = isotropic). Values above 1 sharpen
+    /// textures viewed at grazing angles; the backend clamps to [1, 16] and to
+    /// whatever the device supports.
+    /// </summary>
+    public int MaxAnisotropy { get; init; } = 1;
 
     /// <summary>
     /// When set, the sampler compares depth samples against a reference value

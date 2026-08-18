@@ -43,6 +43,49 @@ public class Texture2DTests
     }
 
     [Fact]
+    public void GetMipPixels_AveragesEach2x2Block()
+    {
+        // Per-pixel values chosen so every channel averages exactly, avoiding
+        // rounding ambiguity in the box filter.
+        var texture = Texture2D.Create("mip", 2, 2,
+        [
+            0, 0, 0, 0,       // (0,0)
+            4, 8, 12, 16,     // (1,0)
+            8, 16, 24, 32,    // (0,1)
+            12, 24, 36, 48    // (1,1)
+        ]);
+
+        Assert.Equal(2, texture.MipLevelCount); // 2x2 -> 1x1
+        Assert.Equal(2, texture.GetMipWidth(0));
+        Assert.Equal(2, texture.GetMipHeight(0));
+        Assert.Equal(1, texture.GetMipWidth(1));
+        Assert.Equal(1, texture.GetMipHeight(1));
+
+        var mip = texture.GetMipPixels(1);
+        Assert.Equal([6, 12, 18, 24], mip);
+        Assert.Same(mip, texture.GetMipPixels(1)); // cached
+    }
+
+    [Fact]
+    public void MipLevels_HalveEachDimensionDownToOne()
+    {
+        // Non-power-of-two: 5x3 -> 2x1 -> 1x1.
+        var texture = Texture2D.Create("mip", 5, 3, new byte[5 * 3 * 4]);
+
+        Assert.Equal(3, texture.MipLevelCount);
+        Assert.Equal(5, texture.GetMipWidth(0));
+        Assert.Equal(2, texture.GetMipWidth(1));
+        Assert.Equal(1, texture.GetMipWidth(2));
+        Assert.Equal(3, texture.GetMipHeight(0));
+        Assert.Equal(1, texture.GetMipHeight(1));
+        Assert.Equal(1, texture.GetMipHeight(2));
+
+        Assert.Equal(5 * 3 * 4, texture.GetMipPixels(0).Length);
+        Assert.Equal(2 * 1 * 4, texture.GetMipPixels(1).Length);
+        Assert.Equal(1 * 1 * 4, texture.GetMipPixels(2).Length);
+    }
+
+    [Fact]
     public void Load_DefersDecodeUntilPixelsAreFirstRead()
     {
         // Decoding is lazy: importing a model must record its texture set

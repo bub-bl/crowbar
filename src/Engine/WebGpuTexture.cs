@@ -66,7 +66,7 @@ public sealed unsafe class WebGpuTexture : ITexture
                 DepthOrArrayLayers = 1
             },
             Format = WebGpuNative.ToNative(description.Format),
-            MipLevelCount = 1,
+            MipLevelCount = (uint)Math.Max(1, description.MipLevelCount),
             SampleCount = (uint)Math.Max(1, description.SampleCount)
         };
         var texture = runtime.Api.DeviceCreateTexture(device.UnsafeHandle, in descriptor);
@@ -92,7 +92,7 @@ public sealed unsafe class WebGpuTexture : ITexture
         EngineTextureFormat format) =>
         new(runtime, queue, texture, view, width, height, format, ownsTexture: false);
 
-    public void Write(nint source, int sourceRowBytes, int x, int y, int width, int height)
+    public void Write(nint source, int sourceRowBytes, int x, int y, int width, int height, int mipLevel = 0)
     {
         if (_disposed || Texture == null || source == 0)
             return;
@@ -107,6 +107,7 @@ public sealed unsafe class WebGpuTexture : ITexture
         var destination = new ImageCopyTexture
         {
             Texture = Texture,
+            MipLevel = (uint)Math.Max(0, mipLevel),
             Origin = new Origin3D { X = (uint)x, Y = (uint)y, Z = 0 }
         };
 

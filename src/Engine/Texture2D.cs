@@ -21,6 +21,13 @@ public sealed class Texture2D
     private (int Width, int Height, byte[] Pixels)? _decoded;
 
     /// <summary>
+    /// Downsampled mip levels, index 0 = level 1 (half resolution). Built
+    /// lazily on first request so textures used only at level 0 never pay
+    /// for the chain.
+    /// </summary>
+    private readonly List<byte[]> _mips = [];
+
+    /// <summary>
     /// The content path this texture was loaded from, or null for textures
     /// created in code (<see cref="Create"/>). Shared cache identity:
     /// <see cref="Retain"/>/<see cref="Release"/> act on this path.
@@ -32,6 +39,61 @@ public sealed class Texture2D
     public int Width => EnsureDecoded().Width;
     public int Height => EnsureDecoded().Height;
     public byte[] Pixels => EnsureDecoded().Pixels;
+
+    /// <summary>Total mip levels (base + each halving down to 1×1).</summary>
+    public int MipLevelCount
+    {
+        get
+        {
+            var (width, height, _) = EnsureDecoded();
+            return 1 + (int)Math.Floor(Math.Log2(Math.Max(width, height)));
+        }
+    }
+
+    /// <summary>Width of mip <paramref name="level"/> (0 = base).</summary>
+    public int GetMipWidth(int level)
+    {
+        if (level < 0)
+            throw new ArgumentOutOfRangeException(nameof(level));
+        return Math.Max(1, EnsureDecoded().Width >> level);
+    }
+
+    /// <summary>Height of mip <paramref name="level"/> (0 = base).</summary>
+    public int GetMipHeight(int level)
+    {
+        if (level < 0)
+            throw new ArgumentOutOfRangeException(nameof(level));
+        return Math.Max(1, EnsureDecoded().Height >> level);
+    }
+
+    /// <summary>
+    /// Returns the RGBA8 pixels of mip <paramref name="level"/> (0 = base),
+    /// generating the chain on first request by 2×2 box-averaging the level
+    /// above. Levels are cached so each is computed at most once.
+    /// </summary>
+    public byte[] GetMipPixels(int level)
+    {
+        if (level < 0)
+            throw new ArgumentOutOfRangeException(nameof(level));
+        if (level == 0)
+            return Pixels;
+
+        lock (_decodeLock)
+        {
+            var (baseWidth, baseHeight, basePixels) = EnsureDecodedLocked();
+            while (_mips.Count < level)
+            {
+                // The level being generated is (_mips.Count + 1); its source is
+                // the level below, either the base image or the previous mip.
+                var sourceLevel = _mips.Count;
+                var sourceWidth = Math.Max(1, baseWidth >> sourceLevel);
+                var sourceHeight = Math.Max(1, baseHeight >> sourceLevel);
+                var source = sourceLevel == 0 ? basePixels : _mips[sourceLevel - 1];
+                _mips.Add(Downsample(sourceWidth, sourceHeight, source));
+            }
+            return _mips[level - 1];
+        }
+    }
 
     internal static readonly ResourceCache<Texture2D> Cache = new(CreateLazy);
 
@@ -97,17 +159,55 @@ public sealed class Texture2D
             return decoded;
 
         lock (_decodeLock)
+            return EnsureDecodedLocked();
+    }
+
+    /// <summary>Decodes the source image; assumes <see cref="_decodeLock"/> is held.</summary>
+    private (int Width, int Height, byte[] Pixels) EnsureDecodedLocked()
+    {
+        if (_decoded is { } current)
+            return current;
+
+        if (ResourcePath is null)
+            throw new InvalidOperationException("A texture created in code has no file to decode.");
+
+        var result = Decode(ResourcePath);
+        _decoded = result;
+        return result;
+    }
+
+    /// <summary>
+    /// Box-averages an RGBA8 image down to half resolution (minimum 1×1).
+    /// Odd dimensions repeat the last row/column so every destination pixel
+    /// still reads exactly four source texels.
+    /// </summary>
+    private static byte[] Downsample(int sourceWidth, int sourceHeight, byte[] source)
+    {
+        var dstWidth = Math.Max(1, sourceWidth / 2);
+        var dstHeight = Math.Max(1, sourceHeight / 2);
+        var dst = new byte[dstWidth * dstHeight * 4];
+
+        for (var y = 0; y < dstHeight; y++)
         {
-            if (_decoded is { } current)
-                return current;
-
-            if (ResourcePath is null)
-                throw new InvalidOperationException("A texture created in code has no file to decode.");
-
-            var result = Decode(ResourcePath);
-            _decoded = result;
-            return result;
+            var y0 = Math.Min(y * 2, sourceHeight - 1);
+            var y1 = Math.Min(y * 2 + 1, sourceHeight - 1);
+            for (var x = 0; x < dstWidth; x++)
+            {
+                var x0 = Math.Min(x * 2, sourceWidth - 1);
+                var x1 = Math.Min(x * 2 + 1, sourceWidth - 1);
+                var d = (y * dstWidth + x) * 4;
+                for (var c = 0; c < 4; c++)
+                {
+                    var sum = source[(y0 * sourceWidth + x0) * 4 + c]
+                            + source[(y0 * sourceWidth + x1) * 4 + c]
+                            + source[(y1 * sourceWidth + x0) * 4 + c]
+                            + source[(y1 * sourceWidth + x1) * 4 + c];
+                    dst[d + c] = (byte)((sum + 2) >> 2);
+                }
+            }
         }
+
+        return dst;
     }
 
     private static (int Width, int Height, byte[] Pixels) Decode(string path)
