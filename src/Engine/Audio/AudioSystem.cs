@@ -58,6 +58,9 @@ public sealed class AudioSystem : IDisposable
     /// <summary>Enregistreur (tap master + capture micro).</summary>
     public AudioRecorder Recorder { get; }
 
+    /// <summary>Buffer d'entrée micro en mémoire (lecture/replay temps réel).</summary>
+    public Microphone Microphone { get; }
+
     public IAudioBackend? Backend => _backend;
     public bool IsRunning => _running;
 
@@ -86,6 +89,7 @@ public sealed class AudioSystem : IDisposable
         Voice = new AudioBus("Voice", BlockSize);
         _leafBuses = [Music, Sfx, Ui, Voice];
         Recorder = new AudioRecorder(this);
+        Microphone = new Microphone(backend);
     }
 
     /// <summary>Retourne un bus par son nom.</summary>
@@ -306,6 +310,7 @@ public sealed class AudioSystem : IDisposable
         _dspThread = null;
         _commands.Clear();
         Recorder.Dispose();
+        Microphone.Dispose();
         _backend?.Dispose();
     }
 

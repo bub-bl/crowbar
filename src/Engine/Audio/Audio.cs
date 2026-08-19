@@ -29,6 +29,9 @@ public static class Audio
     /// <summary>L'écouteur 3D (position/orientation pour <see cref="Play3D"/>).</summary>
     public static AudioListener Listener => _system?.Listener ?? throw new InvalidOperationException("Audio n'est pas lié : appelez Audio.Bind(...) au démarrage.");
 
+    /// <summary>Le buffer micro en mémoire (null tant qu'Audio n'est pas lié).</summary>
+    public static Microphone? Microphone => _system?.Microphone;
+
     /// <summary>Joue un clip court (SFX) et retourne sa poignée.</summary>
     public static VoiceHandle Play(
         AudioClip clip,
@@ -107,6 +110,16 @@ public static class Audio
 
     /// <summary>Arrête l'enregistrement en cours.</summary>
     public static void StopRecording() => _system?.Recorder.Stop();
+
+    /// <summary>Démarre la capture micro en mémoire (voir <see cref="Microphone"/>).</summary>
+    public static bool StartMicrophone(string? device = null, float bufferSeconds = 5f) =>
+        _system?.Microphone.Start(device, bufferSeconds) ?? false;
+
+    /// <summary>Arrête la capture micro (le buffer reste lisible).</summary>
+    public static void StopMicrophone() => _system?.Microphone.Stop();
+
+    /// <summary>Instantané des derniers instants capturés, prêt à rejouer via <see cref="Play(AudioClip, float, float, float, bool, float, int, AudioBusName)"/>.</summary>
+    public static AudioClip? MicrophoneClip(float seconds = 0f) => _system?.Microphone.TakeClip(seconds);
 
     /// <summary>Vrai pendant un enregistrement (sortie ou micro).</summary>
     public static bool IsRecording => _system?.Recorder is { } recorder && (recorder.IsRecordingOutput || recorder.IsRecordingInput);
