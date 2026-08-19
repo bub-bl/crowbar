@@ -49,6 +49,9 @@ public interface IAudioBackend : IDisposable
     /// <summary>Available capture devices.</summary>
     IReadOnlyList<AudioDevice> InputDevices { get; }
 
+    /// <summary>Re-enumerates the available playback and capture devices (hot-plug).</summary>
+    void RefreshDevices();
+
     /// <summary>True as long as the backend can accept blocks.</summary>
     bool IsRunning { get; }
 

@@ -75,6 +75,20 @@ public class MicrophoneTests
         Assert.False(system.Microphone.IsActive);
     }
 
+    [Fact]
+    public void Push_UpdatesLevelMeters()
+    {
+        using var system = new AudioSystem();
+        var microphone = system.Microphone;
+
+        var block = new[] { 0.5f, 0.5f, 0.5f, 0.5f };
+        for (var i = 0; i < 6; i++)
+            microphone.Push(block); // converge the smoothed rms toward 0.5.
+
+        Assert.Equal(0.5f, microphone.Peak, 1e-4f);
+        Assert.Equal(0.5f, microphone.Rms, 1e-3f);
+    }
+
     private sealed class FakeAudioBackend(IAudioCaptureDevice? capture) : IAudioBackend
     {
         public string BackendName => "Fake";
@@ -88,6 +102,7 @@ public class MicrophoneTests
         public bool QueueSamples(ReadOnlySpan<float> interleaved) => true;
         public void Start() { }
         public void Stop() { }
+        public void RefreshDevices() { }
         public IAudioCaptureDevice? OpenCapture(string? device) => capture;
         public void Dispose() { }
     }

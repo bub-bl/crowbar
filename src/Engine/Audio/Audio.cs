@@ -189,6 +189,15 @@ public static class Audio
     /// <summary>Available capture devices (empty without a backend).</summary>
     public static IReadOnlyList<AudioDevice> InputDevices => _system?.Backend?.InputDevices ?? [];
 
+    /// <summary>Re-enumerates the available playback and capture devices (hot-plug).</summary>
+    public static void RefreshDevices() => _system?.Backend?.RefreshDevices();
+
+    /// <summary>Peak level of the microphone input (0..1), smoothed.</summary>
+    public static float MicrophonePeak => _system?.Microphone.Peak ?? 0f;
+
+    /// <summary>RMS level of the microphone input (0..1), smoothed.</summary>
+    public static float MicrophoneRms => _system?.Microphone.Rms ?? 0f;
+
     /// <summary>Records the master output ("record what you hear") to a project file.</summary>
     public static void StartOutputRecording(string path) => _system?.Recorder.StartOutput(path);
 

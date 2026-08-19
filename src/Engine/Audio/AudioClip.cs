@@ -130,6 +130,103 @@ public sealed class AudioClip
 
     internal static int CachedCount => Cache.Count;
 
+    /// <summary>
+    /// Merges <paramref name="clips"/> into one stereo clip (same sample rate).
+    /// Use <see cref="Resample"/> to align rates first.
+    /// </summary>
+    public static AudioClip Concat(params AudioClip[] clips)
+    {
+        ArgumentNullException.ThrowIfNull(clips);
+        if (clips.Length == 0)
+            throw new ArgumentException("At least one clip is required.", nameof(clips));
+
+        var rate = clips[0].SampleRate;
+        var totalFrames = 0;
+        foreach (var clip in clips)
+        {
+            ArgumentNullException.ThrowIfNull(clip);
+            if (clip.SampleRate != rate)
+                throw new ArgumentException($"Clip '{clip.Name}' has a different sample rate ({clip.SampleRate} vs {rate}). Use Resample first.", nameof(clips));
+            totalFrames += clip.Frames;
+        }
+
+        var data = new float[totalFrames * 2];
+        var offset = 0;
+        foreach (var clip in clips)
+        {
+            clip.Data.AsSpan().CopyTo(data.AsSpan(offset));
+            offset += clip.Data.Length;
+        }
+        return new AudioClip(clips[0].Name, null, rate, 2, data);
+    }
+
+    /// <summary>Mixes the clip to mono (average of both channels), returned as stereo.</summary>
+    public static AudioClip ToMono(AudioClip clip)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        var data = new float[clip.Data.Length];
+        for (var i = 0; i < clip.Frames; i++)
+        {
+            var value = (clip.Data[i * 2] + clip.Data[i * 2 + 1]) * 0.5f;
+            data[i * 2] = value;
+            data[i * 2 + 1] = value;
+        }
+        return new AudioClip(clip.Name, null, clip.SampleRate, 2, data);
+    }
+
+    /// <summary>Scales the clip so its peak absolute sample equals <paramref name="peak"/>.</summary>
+    public static AudioClip Normalize(AudioClip clip, float peak = 0.9f)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (!(peak > 0f))
+            throw new ArgumentOutOfRangeException(nameof(peak));
+
+        var max = 0f;
+        foreach (var sample in clip.Data)
+        {
+            var magnitude = MathF.Abs(sample);
+            if (magnitude > max)
+                max = magnitude;
+        }
+        if (max <= 1e-6f)
+            return clip;
+
+        var scale = peak / max;
+        var data = new float[clip.Data.Length];
+        for (var i = 0; i < data.Length; i++)
+            data[i] = clip.Data[i] * scale;
+        return new AudioClip(clip.Name, null, clip.SampleRate, 2, data);
+    }
+
+    /// <summary>Linear-interpolation resample to <paramref name="newSampleRate"/>.</summary>
+    public static AudioClip Resample(AudioClip clip, int newSampleRate)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        if (newSampleRate <= 0)
+            throw new ArgumentOutOfRangeException(nameof(newSampleRate));
+        if (newSampleRate == clip.SampleRate)
+            return clip;
+
+        var ratio = clip.SampleRate / (double)newSampleRate;
+        var frames = Math.Max(1, (int)(clip.Frames * (newSampleRate / (double)clip.SampleRate)));
+        var data = new float[frames * 2];
+
+        for (var i = 0; i < frames; i++)
+        {
+            var position = i * ratio;
+            var floor = (int)position;
+            var fraction = (float)(position - floor);
+            var next = Math.Min(floor + 1, clip.Frames - 1);
+            for (var c = 0; c < 2; c++)
+            {
+                var a = clip.Data[floor * 2 + c];
+                var b = clip.Data[next * 2 + c];
+                data[i * 2 + c] = a + (b - a) * fraction;
+            }
+        }
+        return new AudioClip(clip.Name, null, newSampleRate, 2, data);
+    }
+
     private static float[] ComputeEnvelope(float[] data, int channels, int frames, int buckets)
     {
         var envelope = new float[buckets * 2];

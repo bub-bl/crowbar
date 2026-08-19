@@ -27,8 +27,8 @@ internal sealed unsafe class SdlAudioBackend : IAudioBackend
     public string BackendName => "SDL2 (queue push)";
     public int SampleRate { get; }
     public int Channels => _channels;
-    public IReadOnlyList<AudioDevice> OutputDevices { get; }
-    public IReadOnlyList<AudioDevice> InputDevices { get; }
+    public IReadOnlyList<AudioDevice> OutputDevices { get; private set; }
+    public IReadOnlyList<AudioDevice> InputDevices { get; private set; }
     public bool IsRunning => _running && !_disposed;
     public uint QueuedSamples => _sdl.GetQueuedAudioSize(_device) / (uint)Math.Max(1, _channels * BytesPerSample(_format));
 
@@ -61,6 +61,13 @@ internal sealed unsafe class SdlAudioBackend : IAudioBackend
         _format = obtained.Format;
         _channels = obtained.Channels is 1 or 2 ? obtained.Channels : 2;
         _scratch = new byte[AudioSystem.BlockSize * 2 * 4];
+    }
+
+    public void RefreshDevices()
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        OutputDevices = Enumerate(_sdl, isCapture: 0);
+        InputDevices = Enumerate(_sdl, isCapture: 1);
     }
 
     public void Start()

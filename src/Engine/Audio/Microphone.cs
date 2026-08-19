@@ -25,6 +25,8 @@ public sealed class Microphone : IDisposable
     private Thread? _thread;
     private volatile bool _running;
     private bool _disposed;
+    private volatile float _peak;
+    private volatile float _rms;
 
     public int SampleRate { get; private set; } = AudioSystem.SampleRate;
 
@@ -63,6 +65,12 @@ public sealed class Microphone : IDisposable
                 return _totalFrames;
         }
     }
+
+    /// <summary>Peak level of the captured input (0..1), smoothed.</summary>
+    public float Peak => _peak;
+
+    /// <summary>RMS level of the captured input (0..1), smoothed.</summary>
+    public float Rms => _rms;
 
     internal Microphone(IAudioBackend? backend)
     {
@@ -192,6 +200,8 @@ public sealed class Microphone : IDisposable
         if (frames == 0)
             return;
 
+        var peak = 0f;
+        var sumSquares = 0f;
         lock (_gate)
         {
             if (_capacityFrames == 0)
@@ -199,14 +209,28 @@ public sealed class Microphone : IDisposable
 
             for (var i = 0; i < frames; i++)
             {
-                _buffer[_writeIndex * 2] = stereo[i * 2];
-                _buffer[_writeIndex * 2 + 1] = stereo[i * 2 + 1];
+                var left = stereo[i * 2];
+                var right = stereo[i * 2 + 1];
+                _buffer[_writeIndex * 2] = left;
+                _buffer[_writeIndex * 2 + 1] = right;
                 _writeIndex = (_writeIndex + 1) % _capacityFrames;
+
+                var magnitude = MathF.Abs(left);
+                if (magnitude > peak)
+                    peak = magnitude;
+                magnitude = MathF.Abs(right);
+                if (magnitude > peak)
+                    peak = magnitude;
+                sumSquares += left * left + right * right;
             }
 
             _available = Math.Min(_available + frames, _capacityFrames);
             _totalFrames += frames;
         }
+
+        // Level meters, smoothed like the buses (peak holds, rms decays).
+        _peak = Math.Max(peak, _peak * 0.8f);
+        _rms = MathF.Sqrt(sumSquares / (frames * 2f)) * 0.7f + _rms * 0.3f;
     }
 
     private void CaptureLoop()
