@@ -14,6 +14,16 @@ internal interface IAudioSource
     /// <summary>Total number of frames, or <c>-1</c> if unknown.</summary>
     long TotalFrames { get; }
 
+    /// <summary>
+    /// Whether the source should loop. Sources that loop internally
+    /// (<see cref="LoopsInternally"/>) never report end of stream; the voice
+    /// rewinds the others via <see cref="Reset"/>.
+    /// </summary>
+    bool Loop { get; set; }
+
+    /// <summary>True when the source loops by itself (e.g. a streaming decoder).</summary>
+    bool LoopsInternally { get; }
+
     /// <summary>Rewinds playback to the start.</summary>
     void Reset();
 
@@ -34,6 +44,11 @@ internal sealed class ClipSource : IAudioSource
     public int SampleRate { get; }
     public int Channels => 2;
     public long TotalFrames => _frames;
+
+    /// <summary>Looping is handled by the voice through <see cref="Reset"/>.</summary>
+    public bool Loop { get; set; }
+
+    public bool LoopsInternally => false;
 
     public ClipSource(AudioClip clip)
     {

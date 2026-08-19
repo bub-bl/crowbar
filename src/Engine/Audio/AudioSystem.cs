@@ -326,6 +326,10 @@ public sealed class AudioSystem : IDisposable
         bool spatial,
         Vector3 position)
     {
+        // Sources that loop internally (threaded streams) read this flag from
+        // the decoder thread; clip sources ignore it (the voice rewinds them).
+        source.Loop = loop;
+
         var (slot, generation) = _voices.Reserve(priority);
         var command = new AudioCommand
         {

@@ -202,11 +202,25 @@ internal sealed class AudioVoice
 
     private void AdvanceSilent(int frames, float pitch)
     {
-        // The source is not consumed here: when the voice becomes audible again,
-        // the `while (_nextIndex <= floor)` loop of FillScratch catches the
-        // source up forward (the stream only reads forward). For a looped clip,
-        // the position is bounded and the head realigned to avoid an
-        // O(silence duration) catch-up.
+        if (Source is { LoopsInternally: true })
+        {
+            // A live stream cannot be skipped: advance through it at the normal
+            // pitch (discarding the samples) so the read head stays aligned
+            // with the source cursor. Resuming audibility then needs no catch-up.
+            for (var i = 0; i < frames; i++)
+            {
+                while (_nextIndex <= (int)_readPosition)
+                    AdvanceFrame();
+                _readPosition += pitch;
+            }
+            return;
+        }
+
+        // In-memory clip: skip ahead without reading samples. When the voice
+        // becomes audible again, the `while (_nextIndex <= floor)` loop of
+        // FillScratch catches the source up forward. For a looped clip, the
+        // position is bounded and the head realigned to avoid an O(silence
+        // duration) catch-up.
         _readPosition += pitch * frames;
         if (Loop && Source is not null && Source.TotalFrames > 0)
         {
@@ -236,7 +250,7 @@ internal sealed class AudioVoice
         }
 
         // End of stream.
-        if (Loop)
+        if (Loop && !Source.LoopsInternally)
         {
             // _nextIndex here is the number of frames consumed in this pass: rewind
             // _readPosition by that amount (the fractional part is kept) before
@@ -248,6 +262,10 @@ internal sealed class AudioVoice
         }
         else
         {
+            // A source that loops internally never reports end of stream, so
+            // reaching this point means the decoder truly stalled (or a
+            // non-looping stream ended): report the end instead of blocking the
+            // DSP thread on a cross-thread rewind.
             _nextL = _curL;
             _nextR = _curR;
             _ended = true;
