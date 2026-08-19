@@ -67,6 +67,7 @@ internal sealed class AudioSound
     private float _currentPanR = 0.7071068f;
     private float _distanceGain = 1f;
     private float _spatialPan;
+    private float _dopplerPitch = 1f;
 
     // Air absorption: a dedicated low-pass whose cutoff follows the source
     // distance. Coefficients are only recomputed when the cutoff changes by a
@@ -92,6 +93,7 @@ internal sealed class AudioSound
         _fadeDuration = FadeInSeconds;
         _distanceGain = 1f;
         _spatialPan = 0;
+        _dopplerPitch = 1f;
         _airCutoff = 20000f;
         _airActive = false;
         _airFilter.SetParameter(1, 20000f);
@@ -176,7 +178,7 @@ internal sealed class AudioSound
 
         var audible = _currentGain > 0.0005f && target.Gain > 0.0005f;
         var scratch = _scratch;
-        var pitch = Pitch > 0f ? Pitch : 0f;
+        var pitch = Pitch > 0f ? Pitch * _dopplerPitch : 0f;
 
         if (Volatile.Read(ref Paused))
         {
@@ -398,6 +400,7 @@ internal sealed class AudioSound
         {
             _distanceGain = 1f;
             _spatialPan = 0f;
+            _dopplerPitch = 1f;
             _airActive = false;
             return;
         }
@@ -413,6 +416,11 @@ internal sealed class AudioSound
         var normalized = delta / safe;
         var lateral = Vector3.Dot(normalized, listener.Right);
         _spatialPan = Math.Clamp(lateral, -1f, 1f);
+
+        // Doppler: pitch = (c + approaching) / c, where approaching is the
+        // closing speed along the listener->source axis (positive = closing).
+        var approach = Vector3.Dot(listener.Velocity - Velocity, normalized);
+        _dopplerPitch = Math.Clamp((listener.SpeedOfSound + approach) / Math.Max(1f, listener.SpeedOfSound), 0.5f, 2f);
 
         // Air absorption: high frequencies fade with distance. The cutoff only
         // updates when it moves by more than 2% so the biquad coefficients are

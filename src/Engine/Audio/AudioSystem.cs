@@ -565,19 +565,46 @@ public sealed class AudioSystem : IDisposable
             bus.ProcessEffects(frames, time);
             ComputeMeters(bus, frames);
 
-            var gain = bus.Gain;
+            // Smooth the bus gain over the block (~10 ms ramp) so volume
+            // changes do not produce audible steps.
             var accumulator = bus.Accumulator;
-            for (var i = 0; i < frames * Channels; i++)
-                masterAccumulator[i] += accumulator[i] * gain;
+            var count = frames * Channels;
+            var g0 = bus.SmoothedGain;
+            var g1 = bus.Gain;
+            bus.SmoothedGain = g1;
+            if (g0 == g1)
+            {
+                for (var i = 0; i < count; i++)
+                    masterAccumulator[i] += accumulator[i] * g1;
+            }
+            else
+            {
+                var inv = 1f / count;
+                for (var i = 0; i < count; i++)
+                    masterAccumulator[i] += accumulator[i] * (g0 + (g1 - g0) * (i * inv));
+            }
         }
 
         // 3. Master effects and gain, then copy to the output.
         Master.ProcessEffects(frames, time);
         ComputeMeters(Master, frames);
 
-        var masterGain = Master.Gain;
-        for (var i = 0; i < frames * Channels; i++)
-            output[i] = masterAccumulator[i] * masterGain;
+        var masterAccumulator2 = Master.Accumulator;
+        var masterCount = frames * Channels;
+        var mg0 = Master.SmoothedGain;
+        var mg1 = Master.Gain;
+        Master.SmoothedGain = mg1;
+        if (mg0 == mg1)
+        {
+            for (var i = 0; i < masterCount; i++)
+                output[i] = masterAccumulator2[i] * mg1;
+        }
+        else
+        {
+            var inv = 1f / masterCount;
+            for (var i = 0; i < masterCount; i++)
+                output[i] = masterAccumulator2[i] * (mg0 + (mg1 - mg0) * (i * inv));
+        }
 
         // 4. Output recording (tap after the mix), then advance the clock.
         Recorder.TapOutput(output, frames);

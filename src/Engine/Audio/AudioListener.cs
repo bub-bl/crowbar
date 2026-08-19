@@ -13,6 +13,12 @@ public sealed class AudioListener
     /// <summary>Listener position (world units).</summary>
     public Vector3 Position;
 
+    /// <summary>Listener velocity (world units per second), used for Doppler.</summary>
+    public Vector3 Velocity;
+
+    /// <summary>Speed of sound in world units per second (Doppler factor).</summary>
+    public float SpeedOfSound = 343f;
+
     /// <summary>Listening direction (normalized by the computation).</summary>
     public Vector3 Forward = Vector3.UnitZ;
 

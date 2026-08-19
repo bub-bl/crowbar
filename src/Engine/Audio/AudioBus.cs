@@ -33,6 +33,9 @@ public sealed class AudioBus
     /// <summary>Accumulation buffer of the current block (frames x 2, stereo).</summary>
     internal float[] Accumulator { get; }
 
+    /// <summary>Smoothed output gain, ramped over a block when <see cref="Gain"/> changes (avoids stepping).</summary>
+    internal float SmoothedGain = 1f;
+
     /// <summary>Peak of the last rendered block (0..1), smoothed.</summary>
     public float Peak => _peak;
 
