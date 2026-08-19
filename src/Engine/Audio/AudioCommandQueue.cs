@@ -17,10 +17,15 @@ internal enum AudioCommandType : byte
     SetPan,
     FadeTo,
     SetPosition,
+    SetVelocity,
     AddEffect,
     SetEffectParam,
     SetEffectParamByName,
     StopAll,
+    StopBus,
+    Pause,
+    Resume,
+    FadeStop,
     SoundEnded
 }
 
@@ -42,6 +47,9 @@ internal struct AudioCommand
     public Vector3 Position;
     public float A, B, C, D, E;
     public int Param0, Param1;
+
+    /// <summary>Absolute audio time (seconds) at which a scheduled play becomes audible; 0 = immediate.</summary>
+    public double ScheduledAt;
 }
 
 /// <summary>

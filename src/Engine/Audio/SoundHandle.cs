@@ -31,6 +31,21 @@ public readonly struct SoundHandle
     /// <summary>Stops the sound (the slot becomes free at the end of the current block).</summary>
     public void Stop() => System?.EnqueueStop(Slot, Generation);
 
+    /// <summary>Pauses the sound: the read head freezes and the last frame keeps playing.</summary>
+    public void Pause() => System?.EnqueuePause(Slot, Generation);
+
+    /// <summary>Resumes a paused sound.</summary>
+    public void Resume() => System?.EnqueueResume(Slot, Generation);
+
+    /// <summary>True while the sound is paused (live read, safe from any thread).</summary>
+    public bool IsPaused => System?.IsSoundPaused(Slot, Generation) ?? false;
+
+    /// <summary>Current playback position in seconds (0 for an unknown/invalid handle).</summary>
+    public float PositionSeconds => System?.GetSoundPositionSeconds(Slot, Generation) ?? 0f;
+
+    /// <summary>Known source duration in seconds, or -1 when unknown (streams).</summary>
+    public float DurationSeconds => System?.GetSoundDurationSeconds(Slot, Generation) ?? -1f;
+
     /// <summary>Sets the volume (linear, 0..infinity, 1 = unity).</summary>
     public void SetVolume(float volume) => System?.EnqueueSetVolume(Slot, Generation, volume);
 
@@ -45,6 +60,12 @@ public readonly struct SoundHandle
 
     /// <summary>Repositions the 3D source (see <see cref="Audio.Play3D"/>).</summary>
     public void SetPosition(Vector3 position) => System?.EnqueueSetPosition(Slot, Generation, position);
+
+    /// <summary>Sets the source velocity (used for Doppler on spatialized sounds).</summary>
+    public void SetVelocity(Vector3 velocity) => System?.EnqueueSetVelocity(Slot, Generation, velocity);
+
+    /// <summary>Ramps the volume to zero over <paramref name="duration"/> seconds, then stops.</summary>
+    public void FadeToStop(float duration) => System?.EnqueueFadeStop(Slot, Generation, duration);
 
     /// <summary>Writes a parameter of an effect in the sound's effect chain.</summary>
     public void SetEffectParameter(int effectIndex, int parameterIndex, float value) =>

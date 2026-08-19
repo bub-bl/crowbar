@@ -19,6 +19,9 @@ internal sealed class AudioSound
     /// <summary>Slot generation, incremented on every reservation.</summary>
     public volatile int Generation;
 
+    /// <summary>True while the sound is paused (the read head is frozen).</summary>
+    public volatile bool Paused;
+
     // --- Control state (written by the DSP while processing commands) ---
     public IAudioSource? Source;
     public float Volume = 1f;
@@ -28,7 +31,17 @@ internal sealed class AudioSound
     public int Priority;
     public bool Spatial;
     public Vector3 Position;
+    public Vector3 Velocity;
     public float FadeInSeconds;
+
+    /// <summary>Sample rate of the current source (for position reporting).</summary>
+    public volatile float SourceSampleRate = AudioSystem.SampleRate;
+
+    /// <summary>Known duration of the current source in seconds, or -1 when unknown.</summary>
+    public volatile float DurationSeconds = -1f;
+
+    /// <summary>Playback position in seconds, published each block (read from the game thread).</summary>
+    public volatile float PlaybackSeconds;
 
     /// <summary>Invoked on the game thread when the sound finishes naturally.</summary>
     public Action? Completed;
@@ -48,6 +61,7 @@ internal sealed class AudioSound
     private float _fadeTarget = 1f;
     private float _fadeRemaining;
     private float _fadeDuration;
+    private bool _stopAfterFade;
     private float _currentGain = 1f;
     private float _currentPanL = 0.7071068f;
     private float _currentPanR = 0.7071068f;
@@ -69,6 +83,8 @@ internal sealed class AudioSound
     {
         _readPosition = 0;
         _ended = false;
+        _stopAfterFade = false;
+        PlaybackSeconds = 0f;
         _fadeGain = FadeInSeconds > 0f ? 0f : 1f;
         _fadeFrom = _fadeGain;
         _fadeTarget = 1f;
@@ -123,12 +139,19 @@ internal sealed class AudioSound
 
     public void FadeTo(float target, float duration)
     {
-        _fadeTarget = Math.Clamp(target, 0f, 1f);
+        _fadeTarget = Math.Max(0f, target);
         _fadeFrom = _fadeGain;
         _fadeDuration = Math.Max(0f, duration);
         _fadeRemaining = _fadeDuration;
         if (_fadeDuration <= 0f)
             _fadeGain = _fadeTarget;
+    }
+
+    /// <summary>Ramps the gain to zero then marks the sound ended (frees its slot).</summary>
+    public void FadeToStop(float duration)
+    {
+        _stopAfterFade = true;
+        FadeTo(0f, duration);
     }
 
     public void Render(AudioListener listener, int frames, double time)
@@ -155,7 +178,19 @@ internal sealed class AudioSound
         var scratch = _scratch;
         var pitch = Pitch > 0f ? Pitch : 0f;
 
-        if (!audible)
+        if (Volatile.Read(ref Paused))
+        {
+            // Paused: freeze the read head and hold the current frame.
+            for (var i = 0; i < frames; i++)
+            {
+                scratch[i * 2] = _curL * _currentGain * _currentPanL;
+                scratch[i * 2 + 1] = _curR * _currentGain * _currentPanR;
+            }
+            var acc = target.Accumulator;
+            for (var i = 0; i < frames * 2; i++)
+                acc[i] += scratch[i];
+        }
+        else if (!audible)
         {
             // Virtual sound: advance the read head without producing sound or
             // touching the buffers (state is kept for resumption).
@@ -175,6 +210,7 @@ internal sealed class AudioSound
         }
 
         UpdateFade(frames);
+        PlaybackSeconds = (float)(_readPosition / Math.Max(1f, SourceSampleRate));
     }
 
     private void FillScratch(float[] scratch, int frames, float pitch)
@@ -337,6 +373,8 @@ internal sealed class AudioSound
         if (_fadeRemaining <= 0f)
         {
             _fadeGain = _fadeTarget;
+            if (_stopAfterFade)
+                _ended = true;
             return;
         }
 
@@ -345,6 +383,8 @@ internal sealed class AudioSound
         {
             _fadeGain = _fadeTarget;
             _fadeRemaining = 0f;
+            if (_stopAfterFade)
+                _ended = true;
             return;
         }
 

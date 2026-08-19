@@ -110,17 +110,54 @@ public static class Audio
         Action? onCompleted = null) =>
         _system?.Play3D(clip, position, volume, pitch, loop, fadeIn, priority, bus, onCompleted) ?? SoundHandle.Invalid;
 
+    /// <summary>Plays a clip on a bus looked up by name (throws when the bus does not exist).</summary>
+    public static SoundHandle Play(AudioClip clip, string bus, float volume = 1f, float pitch = 1f, float pan = 0f, bool loop = false, float fadeIn = 0f, int priority = 0, Action? onCompleted = null) =>
+        _system?.Play(clip, bus, volume, pitch, pan, loop, fadeIn, priority, onCompleted) ?? SoundHandle.Invalid;
+
+    /// <summary>Plays a clip on a specific bus.</summary>
+    public static SoundHandle Play(AudioClip clip, AudioBus bus, float volume = 1f, float pitch = 1f, float pan = 0f, bool loop = false, float fadeIn = 0f, int priority = 0, Action? onCompleted = null) =>
+        _system?.Play(clip, bus, volume, pitch, pan, loop, fadeIn, priority, onCompleted) ?? SoundHandle.Invalid;
+
+    /// <summary>Plays a long stream on a bus looked up by name.</summary>
+    public static SoundHandle Play(AudioStream stream, string bus, float volume = 1f, float pitch = 1f, float pan = 0f, bool loop = false, float fadeIn = 0f, int priority = 0, Action? onCompleted = null) =>
+        _system?.Play(stream, bus, volume, pitch, pan, loop, fadeIn, priority, onCompleted) ?? SoundHandle.Invalid;
+
+    /// <summary>Plays a spatialized clip on a bus looked up by name.</summary>
+    public static SoundHandle Play3D(AudioClip clip, Vector3 position, string bus, float volume = 1f, float pitch = 1f, bool loop = false, float fadeIn = 0f, int priority = 0, Action? onCompleted = null) =>
+        _system?.Play3D(clip, position, bus, volume, pitch, loop, fadeIn, priority, onCompleted) ?? SoundHandle.Invalid;
+
     /// <summary>Sets the master bus volume (linear).</summary>
     public static void SetMasterVolume(float volume) => _system?.SetBusVolume(AudioBusName.Master, volume);
 
     /// <summary>Sets the linear volume of a bus.</summary>
     public static void SetBusVolume(AudioBusName name, float volume) => _system?.SetBusVolume(name, volume);
 
+    /// <summary>Sets the linear volume of a bus by name.</summary>
+    public static void SetBusVolume(string name, float volume) => _system?.SetBusVolume(name, volume);
+
     /// <summary>Returns a bus (meters, mute/solo, effects).</summary>
     public static AudioBus? GetBus(AudioBusName name) => _system?.GetBus(name);
 
+    /// <summary>Returns a bus by name (built-in or user-created), or null when unknown.</summary>
+    public static AudioBus? GetBus(string name) => _system?.GetBus(name);
+
+    /// <summary>Creates a new user bus that sums into the master.</summary>
+    public static AudioBus? CreateBus(string name) => _system?.CreateBus(name);
+
+    /// <summary>Removes a user bus (stops its sounds). Returns false when it does not exist.</summary>
+    public static bool RemoveBus(string name) => _system?.RemoveBus(name) ?? false;
+
+    /// <summary>Names of the leaf buses (built-in + user-created).</summary>
+    public static string[] BusNames => _system?.BusNames ?? [];
+
     /// <summary>Stops every sound.</summary>
     public static void StopAll() => _system?.StopAll();
+
+    /// <summary>Stops every sound routed to a built-in bus.</summary>
+    public static void StopAll(AudioBusName bus) => _system?.StopAll(bus);
+
+    /// <summary>Stops every sound routed to a bus looked up by name.</summary>
+    public static void StopAll(string bus) => _system?.StopAll(bus);
 
     /// <summary>Available playback devices (empty without a backend).</summary>
     public static IReadOnlyList<AudioDevice> OutputDevices => _system?.Backend?.OutputDevices ?? [];

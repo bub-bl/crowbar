@@ -36,11 +36,12 @@ public sealed class AudioSystem : IDisposable
     public const int Channels = 2;
 
     private readonly IAudioBackend? _backend;
-    private readonly AudioBus[] _leafBuses;
+    private AudioBus[] _leafBuses;
     private readonly SoundPool _sounds = new();
     private readonly AudioCommandQueue _commands = new();
     private readonly AudioCommandQueue _events = new();
     private readonly float[] _dspBuffer = new float[BlockSize * Channels];
+    private readonly List<AudioCommand> _pendingPlays = new();
     private Thread? _dspThread;
     private volatile bool _running;
     private bool _disposed;
@@ -94,7 +95,7 @@ public sealed class AudioSystem : IDisposable
         Microphone = new Microphone(backend);
     }
 
-    /// <summary>Returns a bus by its name.</summary>
+    /// <summary>Returns a built-in bus by its name.</summary>
     public AudioBus GetBus(AudioBusName name) => name switch
     {
         AudioBusName.Master => Master,
@@ -105,8 +106,91 @@ public sealed class AudioSystem : IDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(name))
     };
 
+    /// <summary>Returns a bus by its name (built-in or user-created), or null when unknown.</summary>
+    public AudioBus? GetBus(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+        if (string.Equals(name, Master.Name, StringComparison.OrdinalIgnoreCase))
+            return Master;
+        foreach (var bus in Volatile.Read(ref _leafBuses))
+        {
+            if (string.Equals(bus.Name, name, StringComparison.OrdinalIgnoreCase))
+                return bus;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Creates a new leaf bus that sums into the master, usable immediately (also
+    /// while the DSP thread is running). The name must not collide with an
+    /// existing bus or with the built-in <c>Master</c>.
+    /// </summary>
+    public AudioBus CreateBus(string name)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (string.Equals(name, Master.Name, StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException($"The bus name '{name}' is reserved.", nameof(name));
+
+        var buses = Volatile.Read(ref _leafBuses);
+        foreach (var bus in buses)
+        {
+            if (string.Equals(bus.Name, name, StringComparison.OrdinalIgnoreCase))
+                throw new ArgumentException($"A bus named '{name}' already exists.", nameof(name));
+        }
+
+        var created = new AudioBus(name, BlockSize);
+        var copy = new AudioBus[buses.Length + 1];
+        Array.Copy(buses, copy, buses.Length);
+        copy[^1] = created;
+        Volatile.Write(ref _leafBuses, copy);
+        return created;
+    }
+
+    /// <summary>
+    /// Removes a user-created bus: stops every sound routed to it and drops it
+    /// from the mixing tree. Returns false when no such bus exists. Built-in
+    /// buses cannot be removed.
+    /// </summary>
+    public bool RemoveBus(string name)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (string.IsNullOrWhiteSpace(name))
+            return false;
+
+        var buses = Volatile.Read(ref _leafBuses);
+        for (var i = 0; i < buses.Length; i++)
+        {
+            if (!string.Equals(buses[i].Name, name, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            var bus = buses[i];
+            if (ReferenceEquals(bus, Music) || ReferenceEquals(bus, Sfx) || ReferenceEquals(bus, Ui) || ReferenceEquals(bus, Voice))
+                throw new InvalidOperationException($"The built-in bus '{name}' cannot be removed.");
+            _commands.Enqueue(new AudioCommand { Type = AudioCommandType.StopBus, Bus = bus });
+
+            var copy = new AudioBus[buses.Length - 1];
+            Array.Copy(buses, 0, copy, 0, i);
+            Array.Copy(buses, i + 1, copy, i, buses.Length - i - 1);
+            Volatile.Write(ref _leafBuses, copy);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>Names of the leaf buses (built-in + user-created), master excluded.</summary>
+    public string[] BusNames => Volatile.Read(ref _leafBuses).Select(bus => bus.Name).ToArray();
+
     /// <summary>Sets the linear volume of a bus.</summary>
     public void SetBusVolume(AudioBusName name, float volume) => GetBus(name).Gain = Math.Clamp(volume, 0f, 16f);
+
+    /// <summary>Sets the linear volume of a bus by name.</summary>
+    public void SetBusVolume(string name, float volume)
+    {
+        var bus = GetBus(name) ?? throw new ArgumentException($"Bus '{name}' not found.", nameof(name));
+        bus.Gain = Math.Clamp(volume, 0f, 16f);
+    }
 
     /// <summary>Starts the DSP thread (only when a backend is attached).</summary>
     public void Start()
@@ -155,7 +239,40 @@ public sealed class AudioSystem : IDisposable
         Action? onCompleted = null)
     {
         ArgumentNullException.ThrowIfNull(clip);
+        return PlaySource(new ClipSource(clip), volume, pitch, pan, loop, fadeIn, priority, GetBus(bus), spatial: false, position: default, onCompleted);
+    }
+
+    /// <summary>Plays a clip on a user-created bus (see <see cref="CreateBus"/>).</summary>
+    public SoundHandle Play(
+        AudioClip clip,
+        AudioBus bus,
+        float volume = 1f,
+        float pitch = 1f,
+        float pan = 0f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(bus);
         return PlaySource(new ClipSource(clip), volume, pitch, pan, loop, fadeIn, priority, bus, spatial: false, position: default, onCompleted);
+    }
+
+    /// <summary>Plays a clip on a bus looked up by name (throws when the bus does not exist).</summary>
+    public SoundHandle Play(
+        AudioClip clip,
+        string bus,
+        float volume = 1f,
+        float pitch = 1f,
+        float pan = 0f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        return PlaySource(new ClipSource(clip), volume, pitch, pan, loop, fadeIn, priority, GetBus(bus) ?? throw new ArgumentException($"Bus '{bus}' not found.", nameof(bus)), spatial: false, position: default, onCompleted);
     }
 
     /// <summary>
@@ -211,7 +328,40 @@ public sealed class AudioSystem : IDisposable
         Action? onCompleted = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        return PlaySource(stream, volume, pitch, pan, loop, fadeIn, priority, GetBus(bus), spatial: false, position: default, onCompleted);
+    }
+
+    /// <summary>Plays a long stream on a user-created bus (see <see cref="CreateBus"/>).</summary>
+    public SoundHandle Play(
+        AudioStream stream,
+        AudioBus bus,
+        float volume = 1f,
+        float pitch = 1f,
+        float pan = 0f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(bus);
         return PlaySource(stream, volume, pitch, pan, loop, fadeIn, priority, bus, spatial: false, position: default, onCompleted);
+    }
+
+    /// <summary>Plays a long stream on a bus looked up by name.</summary>
+    public SoundHandle Play(
+        AudioStream stream,
+        string bus,
+        float volume = 1f,
+        float pitch = 1f,
+        float pan = 0f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return PlaySource(stream, volume, pitch, pan, loop, fadeIn, priority, GetBus(bus) ?? throw new ArgumentException($"Bus '{bus}' not found.", nameof(bus)), spatial: false, position: default, onCompleted);
     }
 
     /// <summary>Plays a spatialized clip (inverse-distance attenuation + equal-power pan).</summary>
@@ -227,14 +377,77 @@ public sealed class AudioSystem : IDisposable
         Action? onCompleted = null)
     {
         ArgumentNullException.ThrowIfNull(clip);
+        return PlaySource(new ClipSource(clip), volume, pitch, 0f, loop, fadeIn, priority, GetBus(bus), spatial: true, position, onCompleted);
+    }
+
+    /// <summary>Plays a spatialized clip on a user-created bus.</summary>
+    public SoundHandle Play3D(
+        AudioClip clip,
+        Vector3 position,
+        AudioBus bus,
+        float volume = 1f,
+        float pitch = 1f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        ArgumentNullException.ThrowIfNull(bus);
         return PlaySource(new ClipSource(clip), volume, pitch, 0f, loop, fadeIn, priority, bus, spatial: true, position, onCompleted);
     }
 
-    /// <summary>Stops every sound (takes effect on the next block).</summary>
-    public void StopAll()
+    /// <summary>Plays a spatialized clip on a bus looked up by name.</summary>
+    public SoundHandle Play3D(
+        AudioClip clip,
+        Vector3 position,
+        string bus,
+        float volume = 1f,
+        float pitch = 1f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        Action? onCompleted = null)
     {
-        var command = new AudioCommand { Type = AudioCommandType.StopAll };
-        _commands.Enqueue(command);
+        ArgumentNullException.ThrowIfNull(clip);
+        return PlaySource(new ClipSource(clip), volume, pitch, 0f, loop, fadeIn, priority, GetBus(bus) ?? throw new ArgumentException($"Bus '{bus}' not found.", nameof(bus)), spatial: true, position, onCompleted);
+    }
+
+    /// <summary>Plays a spatialized stream at <paramref name="position"/> (ambience).</summary>
+    public SoundHandle Play3D(
+        AudioStream stream,
+        Vector3 position,
+        float volume = 1f,
+        float pitch = 1f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return PlaySource(stream, volume, pitch, 0f, loop, fadeIn, priority, GetBus(bus), spatial: true, position, onCompleted);
+    }
+
+    /// <summary>Stops every sound on every bus (takes effect on the next block).</summary>
+    public void StopAll() =>
+        _commands.Enqueue(new AudioCommand { Type = AudioCommandType.StopAll });
+
+    /// <summary>Stops every sound routed to a built-in bus.</summary>
+    public void StopAll(AudioBusName bus) => StopAll(GetBus(bus));
+
+    /// <summary>Stops every sound routed to a bus looked up by name.</summary>
+    public void StopAll(string bus)
+    {
+        var target = GetBus(bus) ?? throw new ArgumentException($"Bus '{bus}' not found.", nameof(bus));
+        StopAll(target);
+    }
+
+    /// <summary>Stops every sound routed to a specific bus.</summary>
+    public void StopAll(AudioBus bus)
+    {
+        ArgumentNullException.ThrowIfNull(bus);
+        _commands.Enqueue(new AudioCommand { Type = AudioCommandType.StopBus, Bus = bus });
     }
 
     /// <summary>True as long as the handle designates the current generation of its slot.</summary>
@@ -259,6 +472,27 @@ public sealed class AudioSystem : IDisposable
     internal void EnqueueSetPosition(int slot, int generation, Vector3 position) =>
         _commands.Enqueue(new AudioCommand { Type = AudioCommandType.SetPosition, Slot = slot, Generation = generation, Position = position });
 
+    internal void EnqueueSetVelocity(int slot, int generation, Vector3 velocity) =>
+        _commands.Enqueue(new AudioCommand { Type = AudioCommandType.SetVelocity, Slot = slot, Generation = generation, Position = velocity });
+
+    internal void EnqueuePause(int slot, int generation) =>
+        _commands.Enqueue(new AudioCommand { Type = AudioCommandType.Pause, Slot = slot, Generation = generation });
+
+    internal void EnqueueResume(int slot, int generation) =>
+        _commands.Enqueue(new AudioCommand { Type = AudioCommandType.Resume, Slot = slot, Generation = generation });
+
+    internal void EnqueueFadeStop(int slot, int generation, float duration) =>
+        _commands.Enqueue(new AudioCommand { Type = AudioCommandType.FadeStop, Slot = slot, Generation = generation, A = duration });
+
+    internal bool IsSoundPaused(int slot, int generation) =>
+        slot >= 0 && slot < SoundPool.Capacity && _sounds[slot].Generation == generation && _sounds[slot].Paused;
+
+    internal float GetSoundPositionSeconds(int slot, int generation) =>
+        slot >= 0 && slot < SoundPool.Capacity && _sounds[slot].Generation == generation ? _sounds[slot].PlaybackSeconds : 0f;
+
+    internal float GetSoundDurationSeconds(int slot, int generation) =>
+        slot >= 0 && slot < SoundPool.Capacity && _sounds[slot].Generation == generation ? _sounds[slot].DurationSeconds : 0f;
+
     internal void EnqueueSetEffectParameter(int slot, int generation, int effectIndex, int parameterIndex, float value) =>
         _commands.Enqueue(new AudioCommand { Type = AudioCommandType.SetEffectParam, Slot = slot, Generation = generation, Param0 = effectIndex, Param1 = parameterIndex, A = value });
 
@@ -279,10 +513,12 @@ public sealed class AudioSystem : IDisposable
             throw new ArgumentException($"The output buffer must hold at least {BlockSize * Channels} samples.", nameof(output));
 
         DrainCommands();
+        ProcessPendingPlays();
         var frames = BlockSize;
         var time = Clock.TimeSeconds;
 
-        foreach (var bus in _leafBuses)
+        var buses = Volatile.Read(ref _leafBuses);
+        foreach (var bus in buses)
             bus.Clear();
         Master.Clear();
 
@@ -310,9 +546,18 @@ public sealed class AudioSystem : IDisposable
         }
 
         // 2. The leaf buses apply their effects then sum into the master.
-        var anySolo = Music.Solo || Sfx.Solo || Ui.Solo || Voice.Solo;
+        var anySolo = false;
+        foreach (var bus in buses)
+        {
+            if (bus.Solo)
+            {
+                anySolo = true;
+                break;
+            }
+        }
+
         var masterAccumulator = Master.Accumulator;
-        foreach (var bus in _leafBuses)
+        foreach (var bus in buses)
         {
             if (bus.Mute || (anySolo && !bus.Solo))
                 continue;
@@ -362,10 +607,11 @@ public sealed class AudioSystem : IDisposable
         bool loop,
         float fadeIn,
         int priority,
-        AudioBusName bus,
+        AudioBus targetBus,
         bool spatial,
         Vector3 position,
-        Action? onCompleted)
+        Action? onCompleted,
+        double scheduledAt = 0d)
     {
         // Sources that loop internally (threaded streams) read this flag from
         // the decoder thread; clip sources ignore it (the sound rewinds them).
@@ -378,7 +624,7 @@ public sealed class AudioSystem : IDisposable
             Slot = slot,
             Generation = generation,
             Source = source,
-            Bus = GetBus(bus),
+            Bus = targetBus,
             Callback = onCompleted,
             A = volume,
             B = pitch,
@@ -387,7 +633,8 @@ public sealed class AudioSystem : IDisposable
             E = fadeIn,
             Param0 = priority,
             Param1 = spatial ? 1 : 0,
-            Position = position
+            Position = position,
+            ScheduledAt = scheduledAt
         };
         _commands.Enqueue(command);
         return new SoundHandle(this, slot, generation);
@@ -423,6 +670,14 @@ public sealed class AudioSystem : IDisposable
                 if (sound.Generation != command.Generation)
                     return;
 
+                // Scheduled play (PlayAt): keep it parked until the clock
+                // reaches the target instant, then apply it like any other.
+                if (command.ScheduledAt > Clock.TimeSeconds)
+                {
+                    _pendingPlays.Add(command);
+                    return;
+                }
+
                 sound.Source = command.Source;
                 sound.Target = command.Bus ?? Sfx;
                 sound.Volume = command.A;
@@ -433,7 +688,15 @@ public sealed class AudioSystem : IDisposable
                 sound.Priority = command.Param0;
                 sound.Spatial = command.Param1 != 0;
                 sound.Position = command.Position;
+                sound.Velocity = default;
+                sound.Paused = false;
                 sound.Completed = command.Callback;
+                sound.SourceSampleRate = command.Source?.SampleRate ?? SampleRate;
+                sound.DurationSeconds = command.Source is null
+                    ? 0f
+                    : command.Source.TotalFrames > 0
+                        ? command.Source.TotalFrames / (float)command.Source.SampleRate
+                        : -1f;
                 sound.ClearEffects();
                 sound.ResetRender();
                 sound.State = (int)SoundState.Active;
@@ -448,6 +711,7 @@ public sealed class AudioSystem : IDisposable
                     sound.Source = null;
                     sound.Completed = null;
                 }
+                CancelPendingPlay(command.Slot);
                 break;
             }
             case AudioCommandType.SetVolume:
@@ -485,6 +749,34 @@ public sealed class AudioSystem : IDisposable
                     sound.Position = command.Position;
                 break;
             }
+            case AudioCommandType.SetVelocity:
+            {
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
+                    sound.Velocity = command.Position;
+                break;
+            }
+            case AudioCommandType.Pause:
+            {
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
+                    sound.Paused = true;
+                break;
+            }
+            case AudioCommandType.Resume:
+            {
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
+                    sound.Paused = false;
+                break;
+            }
+            case AudioCommandType.FadeStop:
+            {
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
+                    sound.FadeToStop(command.A);
+                break;
+            }
             case AudioCommandType.AddEffect:
             {
                 var sound = _sounds[command.Slot];
@@ -507,6 +799,7 @@ public sealed class AudioSystem : IDisposable
                 break;
             }
             case AudioCommandType.StopAll:
+                _pendingPlays.Clear();
                 for (var i = 0; i < SoundPool.Capacity; i++)
                 {
                     var sound = _sounds[i];
@@ -515,6 +808,61 @@ public sealed class AudioSystem : IDisposable
                     sound.Completed = null;
                 }
                 break;
+            case AudioCommandType.StopBus:
+            {
+                var bus = command.Bus;
+                if (bus is not null)
+                    CancelPendingPlays(bus);
+                for (var i = 0; i < SoundPool.Capacity; i++)
+                {
+                    var sound = _sounds[i];
+                    if (ReferenceEquals(sound.Target, bus) && sound.State != (int)SoundState.Free)
+                    {
+                        sound.State = (int)SoundState.Free;
+                        sound.Source = null;
+                        sound.Completed = null;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
+    private void ProcessPendingPlays()
+    {
+        if (_pendingPlays.Count == 0)
+            return;
+
+        for (var i = 0; i < _pendingPlays.Count;)
+        {
+            var command = _pendingPlays[i];
+            if (command.ScheduledAt <= Clock.TimeSeconds)
+            {
+                _pendingPlays.RemoveAt(i);
+                ApplyCommand(command);
+            }
+            else
+            {
+                i++;
+            }
+        }
+    }
+
+    private void CancelPendingPlay(int slot)
+    {
+        for (var i = _pendingPlays.Count - 1; i >= 0; i--)
+        {
+            if (_pendingPlays[i].Slot == slot)
+                _pendingPlays.RemoveAt(i);
+        }
+    }
+
+    private void CancelPendingPlays(AudioBus bus)
+    {
+        for (var i = _pendingPlays.Count - 1; i >= 0; i--)
+        {
+            if (ReferenceEquals(_pendingPlays[i].Bus, bus))
+                _pendingPlays.RemoveAt(i);
         }
     }
 
