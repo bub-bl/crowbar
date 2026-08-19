@@ -41,8 +41,9 @@ public static class Audio
         bool loop = false,
         float fadeIn = 0f,
         int priority = 0,
-        AudioBusName bus = AudioBusName.Sfx) =>
-        _system?.Play(clip, volume, pitch, pan, loop, fadeIn, priority, bus) ?? VoiceHandle.Invalid;
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null) =>
+        _system?.Play(clip, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? VoiceHandle.Invalid;
 
     /// <summary>
     /// Loads a clip from a content path then plays it (short SFX). Throws if the
@@ -56,8 +57,9 @@ public static class Audio
         bool loop = false,
         float fadeIn = 0f,
         int priority = 0,
-        AudioBusName bus = AudioBusName.Sfx) =>
-        _system?.Play(path, volume, pitch, pan, loop, fadeIn, priority, bus) ?? VoiceHandle.Invalid;
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null) =>
+        _system?.Play(path, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? VoiceHandle.Invalid;
 
     /// <summary>Plays long music (stream) and returns its handle.</summary>
     public static VoiceHandle Play(
@@ -68,8 +70,9 @@ public static class Audio
         bool loop = false,
         float fadeIn = 0f,
         int priority = 0,
-        AudioBusName bus = AudioBusName.Music) =>
-        _system?.Play(stream, volume, pitch, pan, loop, fadeIn, priority, bus) ?? VoiceHandle.Invalid;
+        AudioBusName bus = AudioBusName.Music,
+        Action? onCompleted = null) =>
+        _system?.Play(stream, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? VoiceHandle.Invalid;
 
     /// <summary>Plays a spatialized clip at <paramref name="position"/>.</summary>
     public static VoiceHandle Play3D(
@@ -80,8 +83,9 @@ public static class Audio
         bool loop = false,
         float fadeIn = 0f,
         int priority = 0,
-        AudioBusName bus = AudioBusName.Sfx) =>
-        _system?.Play3D(clip, position, volume, pitch, loop, fadeIn, priority, bus) ?? VoiceHandle.Invalid;
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null) =>
+        _system?.Play3D(clip, position, volume, pitch, loop, fadeIn, priority, bus, onCompleted) ?? VoiceHandle.Invalid;
 
     /// <summary>Sets the master bus volume (linear).</summary>
     public static void SetMasterVolume(float volume) => _system?.SetBusVolume(AudioBusName.Master, volume);

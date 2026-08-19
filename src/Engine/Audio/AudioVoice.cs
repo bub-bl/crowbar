@@ -30,6 +30,9 @@ internal sealed class AudioVoice
     public Vector3 Position;
     public float FadeInSeconds;
 
+    /// <summary>Invoked on the game thread when the voice finishes naturally.</summary>
+    public Action? Completed;
+
     // --- Effect chain (owned by the DSP) ---
     private readonly IAudioEffect?[] _effects = new IAudioEffect?[MaxEffects];
     private int _effectCount;

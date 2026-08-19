@@ -39,6 +39,7 @@ public sealed class AudioSystem : IDisposable
     private readonly AudioBus[] _leafBuses;
     private readonly VoicePool _voices = new();
     private readonly AudioCommandQueue _commands = new();
+    private readonly AudioCommandQueue _events = new();
     private readonly float[] _dspBuffer = new float[BlockSize * Channels];
     private Thread? _dspThread;
     private volatile bool _running;
@@ -130,12 +131,15 @@ public sealed class AudioSystem : IDisposable
     /// <summary>
     /// Game-thread tick (update phase). In offline mode (no backend), drains the
     /// command queue so <c>Play</c>/<c>Stop</c> take effect before the next
-    /// render; with a DSP thread, the queue is already consumed by it.
+    /// render; with a DSP thread, the queue is already consumed by it. Always
+    /// dispatches voice-completion callbacks produced by the DSP thread.
     /// </summary>
     public void Update(float deltaTime)
     {
         if (_backend is null)
             DrainCommands();
+
+        DrainEvents();
     }
 
     /// <summary>Plays a clip (SFX by default) and returns its handle.</summary>
@@ -147,10 +151,11 @@ public sealed class AudioSystem : IDisposable
         bool loop = false,
         float fadeIn = 0f,
         int priority = 0,
-        AudioBusName bus = AudioBusName.Sfx)
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null)
     {
         ArgumentNullException.ThrowIfNull(clip);
-        return PlaySource(new ClipSource(clip), volume, pitch, pan, loop, fadeIn, priority, bus, spatial: false, position: default);
+        return PlaySource(new ClipSource(clip), volume, pitch, pan, loop, fadeIn, priority, bus, spatial: false, position: default, onCompleted);
     }
 
     /// <summary>
@@ -166,10 +171,11 @@ public sealed class AudioSystem : IDisposable
         bool loop = false,
         float fadeIn = 0f,
         int priority = 0,
-        AudioBusName bus = AudioBusName.Sfx)
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return Play(AudioClip.Load(path), volume, pitch, pan, loop, fadeIn, priority, bus);
+        return Play(AudioClip.Load(path), volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted);
     }
 
     /// <summary>Plays a long stream (music) and returns its handle.</summary>
@@ -181,10 +187,11 @@ public sealed class AudioSystem : IDisposable
         bool loop = false,
         float fadeIn = 0f,
         int priority = 0,
-        AudioBusName bus = AudioBusName.Music)
+        AudioBusName bus = AudioBusName.Music,
+        Action? onCompleted = null)
     {
         ArgumentNullException.ThrowIfNull(stream);
-        return PlaySource(stream, volume, pitch, pan, loop, fadeIn, priority, bus, spatial: false, position: default);
+        return PlaySource(stream, volume, pitch, pan, loop, fadeIn, priority, bus, spatial: false, position: default, onCompleted);
     }
 
     /// <summary>Plays a spatialized clip (inverse-distance attenuation + equal-power pan).</summary>
@@ -196,10 +203,11 @@ public sealed class AudioSystem : IDisposable
         bool loop = false,
         float fadeIn = 0f,
         int priority = 0,
-        AudioBusName bus = AudioBusName.Sfx)
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null)
     {
         ArgumentNullException.ThrowIfNull(clip);
-        return PlaySource(new ClipSource(clip), volume, pitch, 0f, loop, fadeIn, priority, bus, spatial: true, position);
+        return PlaySource(new ClipSource(clip), volume, pitch, 0f, loop, fadeIn, priority, bus, spatial: true, position, onCompleted);
     }
 
     /// <summary>Stops every voice (takes effect on the next block).</summary>
@@ -262,11 +270,19 @@ public sealed class AudioSystem : IDisposable
             if (voice.State == (int)VoiceState.Active)
             {
                 voice.Render(Listener, frames, time);
-                // The voice reached end of stream: free the slot. The
-                // State == Active check guards against a concurrent steal (the
-                // game thread may have re-reserved the slot in between).
+                // The voice reached end of stream: free the slot and publish
+                // its completion callback (if any). The State == Active check
+                // guards against a concurrent steal (the game thread may have
+                // re-reserved the slot in between).
                 if (voice.HasEnded && voice.State == (int)VoiceState.Active)
+                {
+                    var completed = voice.Completed;
+                    voice.Completed = null;
+                    voice.Source = null;
                     voice.State = (int)VoiceState.Free;
+                    if (completed is not null)
+                        _events.Enqueue(new AudioCommand { Type = AudioCommandType.VoiceEnded, Callback = completed });
+                }
             }
         }
 
@@ -309,6 +325,7 @@ public sealed class AudioSystem : IDisposable
         _dspThread?.Join(2000);
         _dspThread = null;
         _commands.Clear();
+        _events.Clear();
         Recorder.Dispose();
         Microphone.Dispose();
         _backend?.Dispose();
@@ -324,7 +341,8 @@ public sealed class AudioSystem : IDisposable
         int priority,
         AudioBusName bus,
         bool spatial,
-        Vector3 position)
+        Vector3 position,
+        Action? onCompleted)
     {
         // Sources that loop internally (threaded streams) read this flag from
         // the decoder thread; clip sources ignore it (the voice rewinds them).
@@ -338,6 +356,7 @@ public sealed class AudioSystem : IDisposable
             Generation = generation,
             Source = source,
             Bus = GetBus(bus),
+            Callback = onCompleted,
             A = volume,
             B = pitch,
             C = pan,
@@ -355,6 +374,20 @@ public sealed class AudioSystem : IDisposable
     {
         while (_commands.TryDequeue(out var command))
             ApplyCommand(command);
+    }
+
+    /// <summary>
+    /// Dispatches voice-completion callbacks on the game thread. The DSP thread
+    /// (or <see cref="RenderBlock"/> in offline mode) produces them through the
+    /// reverse SPSC queue.
+    /// </summary>
+    private void DrainEvents()
+    {
+        while (_events.TryDequeue(out var command))
+        {
+            if (command.Type == AudioCommandType.VoiceEnded)
+                command.Callback?.Invoke();
+        }
     }
 
     private void ApplyCommand(in AudioCommand command)
@@ -377,6 +410,7 @@ public sealed class AudioSystem : IDisposable
                 voice.Priority = command.Param0;
                 voice.Spatial = command.Param1 != 0;
                 voice.Position = command.Position;
+                voice.Completed = command.Callback;
                 voice.ClearEffects();
                 voice.ResetRender();
                 voice.State = (int)VoiceState.Active;
@@ -389,6 +423,7 @@ public sealed class AudioSystem : IDisposable
                 {
                     voice.State = (int)VoiceState.Free;
                     voice.Source = null;
+                    voice.Completed = null;
                 }
                 break;
             }
@@ -447,6 +482,7 @@ public sealed class AudioSystem : IDisposable
                     var voice = _voices[i];
                     voice.State = (int)VoiceState.Free;
                     voice.Source = null;
+                    voice.Completed = null;
                 }
                 break;
         }

@@ -150,6 +150,47 @@ public class AudioSystemTests
         Assert.Equal(expected, buffer[0], 1e-5f);
     }
 
+    [Fact]
+    public void Play_OnCompleted_FiresOnceWhenVoiceEnds()
+    {
+        using var system = new AudioSystem();
+        var clip = AudioClip.Create("short", 48000, AudioTestData.Constant(0.5f, AudioSystem.BlockSize), 1);
+        var buffer = new float[AudioSystem.BlockSize * AudioSystem.Channels];
+
+        var calls = 0;
+        system.Play(clip, onCompleted: () => calls++);
+
+        // The block consumes the whole clip, so the voice ends during render,
+        // but the callback is only dispatched on the game-thread tick.
+        system.RenderBlock(buffer);
+        Assert.Equal(0, calls);
+
+        system.Update(0f);
+        Assert.Equal(1, calls);
+
+        // A second tick must not re-fire the same completion.
+        system.Update(0f);
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public void Play_OnCompleted_NotFiredWhenStopped()
+    {
+        using var system = new AudioSystem();
+        var clip = AudioClip.Create("loop", 48000, AudioTestData.Constant(0.5f, AudioSystem.BlockSize), 1);
+        var buffer = new float[AudioSystem.BlockSize * AudioSystem.Channels];
+
+        var calls = 0;
+        var handle = system.Play(clip, loop: true, onCompleted: () => calls++);
+
+        system.RenderBlock(buffer);
+        handle.Stop();
+        system.RenderBlock(buffer); // applies the stop and releases the voice.
+
+        system.Update(0f);
+        Assert.Equal(0, calls);
+    }
+
     private static float[] RenderOneBlock(AudioSystem system)
     {
         var buffer = new float[AudioSystem.BlockSize * AudioSystem.Channels];

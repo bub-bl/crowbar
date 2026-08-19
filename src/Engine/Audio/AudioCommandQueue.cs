@@ -2,7 +2,12 @@ using System.Numerics;
 
 namespace Crowbar.Engine.Audio;
 
-/// <summary>Command type exchanged between the game thread and the DSP thread.</summary>
+/// <summary>
+/// Command type exchanged between the game thread and the DSP thread. The
+/// <c>VoiceEnded</c> value is the reverse direction (DSP to game): it is
+/// produced by the DSP thread when a voice finishes and consumed by
+/// <see cref="AudioSystem.Update"/>.
+/// </summary>
 internal enum AudioCommandType : byte
 {
     Play,
@@ -14,7 +19,8 @@ internal enum AudioCommandType : byte
     SetPosition,
     AddEffect,
     SetEffectParam,
-    StopAll
+    StopAll,
+    VoiceEnded
 }
 
 /// <summary>
@@ -30,6 +36,7 @@ internal struct AudioCommand
     public IAudioSource? Source;
     public IAudioEffect? Effect;
     public AudioBus? Bus;
+    public Action? Callback;
     public Vector3 Position;
     public float A, B, C, D, E;
     public int Param0, Param1;
