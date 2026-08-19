@@ -17,6 +17,9 @@ public sealed class AudioClip
 {
     internal static readonly ResourceCache<AudioClip> Cache = new(CreateLoaded);
 
+    /// <summary>Maximum number of min/max buckets in the waveform <see cref="Envelope"/>.</summary>
+    public const int MaxEnvelopeBuckets = 1024;
+
     /// <summary>
     /// The content path the clip came from, or null for a clip created in code
     /// (<see cref="Create"/>). Identity of the shared cache.
@@ -31,7 +34,19 @@ public sealed class AudioClip
     /// <summary>Interleaved stereo samples (length = <see cref="Frames"/> x 2).</summary>
     public float[] Data { get; }
 
+    /// <summary>Number of (min, max) buckets in <see cref="Envelope"/>.</summary>
+    public int EnvelopeBucketCount { get; }
+
+    private readonly float[] _envelope;
+
     public TimeSpan Duration => TimeSpan.FromSeconds(Frames / (double)SampleRate);
+
+    /// <summary>
+    /// Precomputed min/max waveform envelope, one (min, max) pair per bucket.
+    /// Computed once at decode time so a waveform or a peak meter can be drawn
+    /// in O(buckets) without scanning the samples every frame.
+    /// </summary>
+    public ReadOnlySpan<float> Envelope => _envelope.AsSpan(0, EnvelopeBucketCount * 2);
 
     private AudioClip(string name, string? resourcePath, int sampleRate, int channels, float[] data)
     {
@@ -41,6 +56,8 @@ public sealed class AudioClip
         Channels = channels;
         Data = data;
         Frames = data.Length / channels;
+        EnvelopeBucketCount = Frames == 0 ? 0 : Math.Min(MaxEnvelopeBuckets, Frames);
+        _envelope = ComputeEnvelope(data, channels, Frames, EnvelopeBucketCount);
     }
 
     /// <summary>
@@ -112,6 +129,50 @@ public sealed class AudioClip
     }
 
     internal static int CachedCount => Cache.Count;
+
+    private static float[] ComputeEnvelope(float[] data, int channels, int frames, int buckets)
+    {
+        var envelope = new float[buckets * 2];
+        if (frames == 0)
+            return envelope;
+
+        // Frame-accurate bucket bounds (double avoids drift for large clips).
+        var framesPerBucket = frames / (double)buckets;
+        for (var b = 0; b < buckets; b++)
+        {
+            var start = (int)(b * framesPerBucket);
+            var end = (int)((b + 1) * framesPerBucket);
+            if (end <= start)
+                end = start + 1;
+            if (end > frames)
+                end = frames;
+
+            var min = float.PositiveInfinity;
+            var max = float.NegativeInfinity;
+            for (var i = start; i < end; i++)
+            {
+                for (var c = 0; c < channels; c++)
+                {
+                    var value = data[i * channels + c];
+                    if (value < min)
+                        min = value;
+                    if (value > max)
+                        max = value;
+                }
+            }
+
+            if (min > max)
+            {
+                min = 0f;
+                max = 0f;
+            }
+
+            envelope[b * 2] = min;
+            envelope[b * 2 + 1] = max;
+        }
+
+        return envelope;
+    }
 
     private static AudioClip CreateLoaded(string path)
     {
