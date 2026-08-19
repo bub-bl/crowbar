@@ -23,6 +23,7 @@ internal enum AudioCommandType : byte
     SetEffectParamByName,
     StopAll,
     StopBus,
+    Crossfade,
     Pause,
     Resume,
     FadeStop,

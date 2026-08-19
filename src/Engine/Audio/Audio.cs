@@ -126,6 +126,22 @@ public static class Audio
     public static SoundHandle Play3D(AudioClip clip, Vector3 position, string bus, float volume = 1f, float pitch = 1f, bool loop = false, float fadeIn = 0f, int priority = 0, Action? onCompleted = null) =>
         _system?.Play3D(clip, position, bus, volume, pitch, loop, fadeIn, priority, onCompleted) ?? SoundHandle.Invalid;
 
+    /// <summary>Plays a clip after <paramref name="delay"/> seconds.</summary>
+    public static SoundHandle PlayAt(AudioClip clip, float delay, float volume = 1f, float pitch = 1f, float pan = 0f, bool loop = false, float fadeIn = 0f, int priority = 0, AudioBusName bus = AudioBusName.Sfx, Action? onCompleted = null) =>
+        _system?.PlayAt(clip, delay, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? SoundHandle.Invalid;
+
+    /// <summary>Plays a stream after <paramref name="delay"/> seconds.</summary>
+    public static SoundHandle PlayAt(AudioStream stream, float delay, float volume = 1f, float pitch = 1f, float pan = 0f, bool loop = false, float fadeIn = 0f, int priority = 0, AudioBusName bus = AudioBusName.Music, Action? onCompleted = null) =>
+        _system?.PlayAt(stream, delay, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? SoundHandle.Invalid;
+
+    /// <summary>Crossfades the music on a bus: old sounds fade out while the stream fades in.</summary>
+    public static SoundHandle Crossfade(AudioStream stream, float duration, AudioBusName bus = AudioBusName.Music, Action? onCompleted = null) =>
+        _system?.Crossfade(stream, duration, bus, onCompleted) ?? SoundHandle.Invalid;
+
+    /// <summary>Crossfades the sounds on a bus looked up by name.</summary>
+    public static SoundHandle Crossfade(AudioStream stream, float duration, string bus, Action? onCompleted = null) =>
+        _system?.Crossfade(stream, duration, bus, onCompleted) ?? SoundHandle.Invalid;
+
     /// <summary>Sets the master bus volume (linear).</summary>
     public static void SetMasterVolume(float volume) => _system?.SetBusVolume(AudioBusName.Master, volume);
 

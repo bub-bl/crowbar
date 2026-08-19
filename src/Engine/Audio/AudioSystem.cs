@@ -429,6 +429,107 @@ public sealed class AudioSystem : IDisposable
         return PlaySource(stream, volume, pitch, 0f, loop, fadeIn, priority, GetBus(bus), spatial: true, position, onCompleted);
     }
 
+    /// <summary>
+    /// Plays a clip after <paramref name="delay"/> seconds (measured from the
+    /// audio clock). The handle is valid immediately and the sound starts when
+    /// the clock reaches the target instant; callbacks fire once it ends.
+    /// </summary>
+    public SoundHandle PlayAt(
+        AudioClip clip,
+        float delay,
+        float volume = 1f,
+        float pitch = 1f,
+        float pan = 0f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(clip);
+        return PlaySource(new ClipSource(clip), volume, pitch, pan, loop, fadeIn, priority, GetBus(bus), spatial: false, position: default, onCompleted, Clock.TimeSeconds + Math.Max(0f, delay));
+    }
+
+    /// <summary>Plays a stream after <paramref name="delay"/> seconds.</summary>
+    public SoundHandle PlayAt(
+        AudioStream stream,
+        float delay,
+        float volume = 1f,
+        float pitch = 1f,
+        float pan = 0f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        AudioBusName bus = AudioBusName.Music,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return PlaySource(stream, volume, pitch, pan, loop, fadeIn, priority, GetBus(bus), spatial: false, position: default, onCompleted, Clock.TimeSeconds + Math.Max(0f, delay));
+    }
+
+    /// <summary>
+    /// Crossfades the music on a bus: every sound currently routed to it fades
+    /// out over <paramref name="duration"/> seconds while <paramref name="stream"/>
+    /// fades in over the same window. Any still-parked <see cref="PlayAt"/>
+    /// scheduled on that bus is cancelled.
+    /// </summary>
+    public SoundHandle Crossfade(
+        AudioStream stream,
+        float duration,
+        AudioBusName bus = AudioBusName.Music,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return Crossfade(stream, duration, GetBus(bus), onCompleted);
+    }
+
+    /// <summary>Crossfades the sounds on a bus looked up by name.</summary>
+    public SoundHandle Crossfade(
+        AudioStream stream,
+        float duration,
+        string bus,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        return Crossfade(stream, duration, GetBus(bus) ?? throw new ArgumentException($"Bus '{bus}' not found.", nameof(bus)), onCompleted);
+    }
+
+    /// <summary>Crossfades the sounds on a specific bus.</summary>
+    public SoundHandle Crossfade(
+        AudioStream stream,
+        float duration,
+        AudioBus bus,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(bus);
+
+        var (slot, generation) = _sounds.Reserve(0);
+        _commands.Enqueue(new AudioCommand
+        {
+            Type = AudioCommandType.Crossfade,
+            Slot = slot,
+            Generation = generation,
+            Bus = bus,
+            B = duration
+        });
+        _commands.Enqueue(new AudioCommand
+        {
+            Type = AudioCommandType.Play,
+            Slot = slot,
+            Generation = generation,
+            Source = stream,
+            Bus = bus,
+            Callback = onCompleted,
+            A = 1f,
+            B = 1f,
+            C = 0f,
+            D = 1f,
+            E = duration
+        });
+        return new SoundHandle(this, slot, generation);
+    }
+
     /// <summary>Stops every sound on every bus (takes effect on the next block).</summary>
     public void StopAll() =>
         _commands.Enqueue(new AudioCommand { Type = AudioCommandType.StopAll });
@@ -823,6 +924,24 @@ public sealed class AudioSystem : IDisposable
                 var sound = _sounds[command.Slot];
                 if (sound.Generation == command.Generation && command.Name is not null)
                     sound.SetEffectParameter(command.Param0, command.Name, command.A);
+                break;
+            }
+            case AudioCommandType.Crossfade:
+            {
+                var bus = command.Bus;
+                if (bus is null)
+                    break;
+
+                // Cancel still-parked PlayAt commands on this bus, then fade
+                // every sound currently routed there down to silence. The new
+                // stream (with a matching fade-in) is enqueued right after.
+                CancelPendingPlays(bus);
+                for (var i = 0; i < SoundPool.Capacity; i++)
+                {
+                    var sound = _sounds[i];
+                    if (ReferenceEquals(sound.Target, bus) && sound.State != (int)SoundState.Free)
+                        sound.FadeToStop(command.B);
+                }
                 break;
             }
             case AudioCommandType.StopAll:
