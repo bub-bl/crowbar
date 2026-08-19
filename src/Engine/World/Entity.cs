@@ -21,7 +21,11 @@ public sealed class Entity : IDisposable, IValid
         Name = string.IsNullOrWhiteSpace(name) ? $"Entity {world.EntityCount}" : name;
     }
 
-    public Guid Id { get; } = Guid.NewGuid();
+    /// <summary>
+    /// The stable identity of the entity, preserved by level serialization (the
+    /// serializer restores the persisted id instead of generating a new one).
+    /// </summary>
+    public Guid Id { get; internal set; } = Guid.NewGuid();
 
     public string Name { get; set; }
 

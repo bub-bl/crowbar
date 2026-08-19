@@ -12,9 +12,9 @@ public abstract class ResourceFile : IValid, IDisposable
 {
     public string Path { get; internal set; } = string.Empty;
     public Stream? Data { get; private set; }
-    public bool IsValid { get; private set; }
+    public bool IsValid { get; protected set; }
 
-    public void Load()
+    public virtual void Load()
     {
         if (FileSystem.Content.FileExists(Path))
         {
@@ -30,7 +30,7 @@ public abstract class ResourceFile : IValid, IDisposable
         }
     }
 
-    public void Unload()
+    public virtual void Unload()
     {
         Data?.Dispose();
         Data = null;

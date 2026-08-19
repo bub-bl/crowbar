@@ -39,6 +39,15 @@ internal sealed class ZioFileSystem : IFileSystem
 
     public void DeleteFile(FilePath path) => _inner.DeleteFile(ToUPath(path));
 
+    public void MoveFile(FilePath source, FilePath destination, bool overwrite = false)
+    {
+        // Zio's MoveFile has no overwrite flag: replace the destination first
+        // so a temp-file save can land atomically over an existing asset.
+        if (overwrite && _inner.FileExists(ToUPath(destination)))
+            _inner.DeleteFile(ToUPath(destination));
+        _inner.MoveFile(ToUPath(source), ToUPath(destination));
+    }
+
     public IEnumerable<FilePath> EnumerateFiles(FilePath directory, string pattern = "*", bool recursive = false)
         => _inner.EnumerateFiles(
                 ToUPath(directory),

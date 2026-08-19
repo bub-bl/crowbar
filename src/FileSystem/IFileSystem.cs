@@ -30,6 +30,9 @@ internal interface IFileSystem : IDisposable
 
     void DeleteFile(FilePath path);
 
+    /// <summary>Moves a file to a new path, replacing the destination when requested.</summary>
+    void MoveFile(FilePath source, FilePath destination, bool overwrite = false);
+
     IEnumerable<FilePath> EnumerateFiles(FilePath directory, string pattern = "*", bool recursive = false);
 
     /// <summary>The file's last write time in UTC.</summary>

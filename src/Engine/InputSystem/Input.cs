@@ -61,6 +61,34 @@ public static class Input
     public static bool IsPressed(string action) =>
         Actions.TryGetValue(action, out var keys) && Array.Exists(keys, static key => IsDown(key));
 
+    /// <summary>
+    /// True when the chord's main key transitioned to down this frame while
+    /// exactly <see cref="KeyChord.Modifiers"/> were held (either side counts).
+    /// A chord matches only on the main key's press edge, so holding Ctrl and
+    /// pressing S fires once per press.
+    /// </summary>
+    public static bool WasPressed(KeyChord chord) =>
+        WasPressed(chord.Key) && HeldModifiers() == chord.Modifiers;
+
+    /// <summary>True while the chord's main key is down and exactly its modifiers are held.</summary>
+    public static bool IsDown(KeyChord chord) =>
+        IsDown(chord.Key) && HeldModifiers() == chord.Modifiers;
+
+    /// <summary>True when the chord's main key transitioned to up this frame while exactly its modifiers were held.</summary>
+    public static bool WasReleased(KeyChord chord) =>
+        WasReleased(chord.Key) && HeldModifiers() == chord.Modifiers;
+
+    /// <summary>The modifier keys currently held (left and right sides of a modifier both count).</summary>
+    public static KeyModifiers HeldModifiers()
+    {
+        var modifiers = KeyModifiers.None;
+        if (IsDown(Key.LeftControl) || IsDown(Key.RightControl)) modifiers |= KeyModifiers.Control;
+        if (IsDown(Key.LeftShift) || IsDown(Key.RightShift)) modifiers |= KeyModifiers.Shift;
+        if (IsDown(Key.LeftAlt) || IsDown(Key.RightAlt)) modifiers |= KeyModifiers.Alt;
+        if (IsDown(Key.LeftSuper) || IsDown(Key.RightSuper)) modifiers |= KeyModifiers.Super;
+        return modifiers;
+    }
+
     /// <summary>True if any bound key transitioned to down this frame.</summary>
     public static bool WasPressed(string action) =>
         Actions.TryGetValue(action, out var keys) && Array.Exists(keys, static key => WasPressed(key));

@@ -153,6 +153,12 @@ public sealed class FileSystemService
 
     public void DeleteFile(FilePath path) => Backend.DeleteFile(path);
 
+    public void MoveFile(string source, string destination, bool overwrite = false)
+        => Backend.MoveFile(ToFilePath(source), ToFilePath(destination), overwrite);
+
+    public void MoveFile(FilePath source, FilePath destination, bool overwrite = false)
+        => Backend.MoveFile(source, destination, overwrite);
+
     public bool CanWatch(string directory) => Backend.CanWatch(ToFilePath(directory));
 
     public bool CanWatch(FilePath directory) => Backend.CanWatch(directory);

@@ -18,7 +18,7 @@ public sealed class Level : IDisposable, IValid
         Name = string.IsNullOrWhiteSpace(name) ? "Level" : name;
     }
 
-    public Guid Id { get; } = Guid.NewGuid();
+    public Guid Id { get; internal set; } = Guid.NewGuid();
 
     public string Name { get; set; }
 
@@ -28,12 +28,26 @@ public sealed class Level : IDisposable, IValid
 
     public bool IsValid => !_disposed;
 
+    /// <summary>Raised when an entity is added to this level (e.g. by spawning).</summary>
+    public event Action<Entity>? EntityAdded;
+
+    /// <summary>Raised when an entity is removed from this level (e.g. by destruction).</summary>
+    public event Action<Entity>? EntityRemoved;
+
     /// <summary>Spawns an entity owned by this level (so it will be serialized with it).</summary>
     public Entity SpawnEntity(string? name = null) => World.SpawnEntity(name, this);
 
-    internal void AddEntityInternal(Entity entity) => _entities.Add(entity);
+    internal void AddEntityInternal(Entity entity)
+    {
+        _entities.Add(entity);
+        EntityAdded?.Invoke(entity);
+    }
 
-    internal void RemoveEntityInternal(Entity entity) => _entities.Remove(entity);
+    internal void RemoveEntityInternal(Entity entity)
+    {
+        _entities.Remove(entity);
+        EntityRemoved?.Invoke(entity);
+    }
 
     /// <summary>Destroys every entity in the level and removes it from its world.</summary>
     public void Dispose()

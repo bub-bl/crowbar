@@ -33,17 +33,116 @@ internal sealed class DemoApplication : Application
     private Level? _demoLevel;
     private string _lastWindowTitle = string.Empty;
 
+    /// <summary>The project-relative path the open level is saved to and loaded from (Ctrl+S).</summary>
+    private const string LevelSavePath = "Demo.level";
+
     protected override void OnInitialize()
     {
         // The translation gizmo snap follows the grid cell size.
         if (Renderer is { } renderer)
             renderer.Gizmos.SnapSize = renderer.Grid.CellSize;
 
-        // Demo scene: a level with a directional light (key), a point light
-        // (fill), a floor plane and three cubes rendered by MeshRenderers
-        // through the world system (World).
+        // Persistence: the project's saved level is loaded when it exists (so
+        // edits survive a restart), otherwise the demo scene is built from
+        // scratch. The open level is then dirty-tracked for the title bar's "●".
+        _demoLevel = LoadOrCreateLevel();
+        LevelDirtyTracker.Track(_demoLevel);
+
+        World.Start();
+        Console.WriteLine($"World: {_demoLevel.Entities.Count} entité(s) dans le level '{_demoLevel.Name}'.");
+
+        // Initial selection: the main cube (or the first mesh in a loaded
+        // level), to show the widget.
+        Renderer?.Gizmos.Selection = SelectInitialEntity(_demoLevel);
+
+        // Editor shortcuts: Ctrl+S saves the level. Shortcuts never fire while
+        // a text field owns the keyboard (the UI consumes it then).
+        ShortcutManager.Instance.IsEnabled = () => !Ui.KeyboardConsumed;
+        ShortcutManager.Instance.Register(new KeyChord(Key.S, KeyModifiers.Control), SaveLevel);
+
+        // Publish the real world hierarchy for the Explorer panel: the page
+        // reads it through EditorExplorerState on every render. The inspector
+        // reads the same selection through EditorInspectorState.
+        ExplorerTreeBuilder.Publish(World, Renderer?.Gizmos.Selection);
+        InspectorStateBuilder.Publish(Renderer?.Gizmos.Selection);
+
+        // Automatic registration of the whole Ui/ folder: files with @page
+        // become routable pages, the others become components.
+        const string uiDirectory = "/Ui";
+        var registeredCount = Ui.RegisterRazorComponentsFromDirectory(uiDirectory);
+        // The property dispatcher is native code (it resolves editors from the
+        // [EditorProperty] registry at render time), so it is registered here
+        // alongside the .razor components found in the directory.
+        Ui.RegisterComponent("PropertyEditor", () => new PropertyEditor());
+        Console.WriteLine($"Razor UI: registered {registeredCount} file(s) from {uiDirectory}");
+        // Parallel precompilation: the first render (Navigate) is only cache
+        // hits. Timed to validate the gains.
+        var precompileWatch = Stopwatch.StartNew();
+        Ui.PrecompileAll();
+        Console.WriteLine($"Razor UI: precompiled in {precompileWatch.ElapsedMilliseconds} ms");
+        var navigateWatch = Stopwatch.StartNew();
+        Ui.Navigate("/editor");
+        Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
+        Ui.WatchDirectory(uiDirectory);
+
+        // Demo gamemode: the Game/ folder is compiled by a ScriptHost and
+        // hot-reloaded on every edit (IL fast path when only method bodies
+        // change, otherwise a full reload with state migration).
+        _scriptHost = new ScriptHost();
+        _scriptHost.Reloaded += OnScriptReloaded;
+        _scriptHost.ReloadFailed += OnScriptReloadFailed;
+        try
+        {
+            // The gamemode is the whole project (FileSystem.Project): "." is its root.
+            const string gameDirectory = ".";
+            _scriptHost.WatchDirectory(gameDirectory, "DemoGamemode");
+            ((GamemodeHolder)_gamemodeHolder!).Current = _scriptHost.Current!.CreateInstance("Game.DemoGamemode");
+            _scriptHost.WatchInstance(_gamemodeHolder!);
+            ResolveDescribe();
+            Console.WriteLine($"[Scripting] Gamemode chargé : {_scriptHost.Current!.TypesByFullName.Count} type(s) depuis le projet gamemode");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Scripting] Initial script load failed: {ex.Message}");
+            UiNotifications.Show("Script", "Échec du chargement initial du gamemode", "error");
+        }
+    }
+
+    /// <summary>
+    /// The open level: the project's <see cref="LevelSavePath"/> when it was
+    /// saved before, otherwise the freshly built demo scene. A saved file that
+    /// fails to parse or references removed content falls back to the demo
+    /// scene instead of blocking startup.
+    /// </summary>
+    private Level LoadOrCreateLevel()
+    {
+        if (FileSystem.Project.FileExists(LevelSavePath))
+        {
+            try
+            {
+                var file = LevelFile.Load(LevelSavePath);
+                var level = file.CreateLevel(World);
+                Console.WriteLine($"[Level] Chargé '{LevelSavePath}' : {level.Entities.Count} entité(s).");
+                return level;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Level] Impossible de charger '{LevelSavePath}' : {ex.Message} — construction de la scène de démo.");
+                UiNotifications.Show("Level", $"Niveau '{LevelSavePath}' illisible — scène de démo chargée", "error");
+            }
+        }
+
+        return BuildDemoLevel();
+    }
+
+    /// <summary>
+    /// Builds the demo scene: a level with a directional light (key), a point
+    /// light (fill), a floor plane and several cubes/models rendered by
+    /// MeshRenderers through the world system (World).
+    /// </summary>
+    private Level BuildDemoLevel()
+    {
         var level = World.CreateLevel("Demo");
-        _demoLevel = level;
 
         var sun = level.SpawnEntity("Sun");
         var sunLight = sun.AddComponent<DirectionalLight>();
@@ -170,57 +269,36 @@ internal sealed class DemoApplication : Application
             Rotation.FromYaw(-25f),
             new Vector3(workLightScale));
 
-        World.Start();
-        Console.WriteLine($"World: {level.Entities.Count} entité(s) dans le level '{level.Name}'.");
+        return level;
+    }
 
-        // Initial selection: the main cube, to show the widget.
-        Renderer?.Gizmos.Selection = cube;
+    /// <summary>The entity selected at startup: the main cube, else the first mesh, else the first entity.</summary>
+    private static Entity? SelectInitialEntity(Level level) =>
+        level.Entities.FirstOrDefault(e => e.Name == "Cube")
+        ?? level.Entities.FirstOrDefault(e => e.GetComponent<MeshRenderer>() is not null)
+        ?? level.Entities.FirstOrDefault();
 
-        // Publish the real world hierarchy for the Explorer panel: the page
-        // reads it through EditorExplorerState on every render. The inspector
-        // reads the same selection through EditorInspectorState.
-        ExplorerTreeBuilder.Publish(World, Renderer?.Gizmos.Selection);
-        InspectorStateBuilder.Publish(Renderer?.Gizmos.Selection);
+    /// <summary>
+    /// Saves the open level to <see cref="LevelSavePath"/> (Ctrl+S) and clears
+    /// the dirty flag. Failures surface as an error notification and keep the
+    /// document dirty, so nothing is silently lost.
+    /// </summary>
+    private void SaveLevel()
+    {
+        if (_demoLevel is not { IsValid: true })
+            return;
 
-        // Automatic registration of the whole Ui/ folder: files with @page
-        // become routable pages, the others become components.
-        const string uiDirectory = "/Ui";
-        var registeredCount = Ui.RegisterRazorComponentsFromDirectory(uiDirectory);
-        // The property dispatcher is native code (it resolves editors from the
-        // [EditorProperty] registry at render time), so it is registered here
-        // alongside the .razor components found in the directory.
-        Ui.RegisterComponent("PropertyEditor", () => new PropertyEditor());
-        Console.WriteLine($"Razor UI: registered {registeredCount} file(s) from {uiDirectory}");
-        // Parallel precompilation: the first render (Navigate) is only cache
-        // hits. Timed to validate the gains.
-        var precompileWatch = Stopwatch.StartNew();
-        Ui.PrecompileAll();
-        Console.WriteLine($"Razor UI: precompiled in {precompileWatch.ElapsedMilliseconds} ms");
-        var navigateWatch = Stopwatch.StartNew();
-        Ui.Navigate("/editor");
-        Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
-        Ui.WatchDirectory(uiDirectory);
-
-        // Demo gamemode: the Game/ folder is compiled by a ScriptHost and
-        // hot-reloaded on every edit (IL fast path when only method bodies
-        // change, otherwise a full reload with state migration).
-        _scriptHost = new ScriptHost();
-        _scriptHost.Reloaded += OnScriptReloaded;
-        _scriptHost.ReloadFailed += OnScriptReloadFailed;
         try
         {
-            // The gamemode is the whole project (FileSystem.Project): "." is its root.
-            const string gameDirectory = ".";
-            _scriptHost.WatchDirectory(gameDirectory, "DemoGamemode");
-            ((GamemodeHolder)_gamemodeHolder!).Current = _scriptHost.Current!.CreateInstance("Game.DemoGamemode");
-            _scriptHost.WatchInstance(_gamemodeHolder!);
-            ResolveDescribe();
-            Console.WriteLine($"[Scripting] Gamemode chargé : {_scriptHost.Current!.TypesByFullName.Count} type(s) depuis le projet gamemode");
+            LevelFile.Save(_demoLevel, LevelSavePath);
+            LevelDirtyTracker.Clear();
+            Console.WriteLine($"[Level] Sauvegardé : {LevelSavePath}");
+            UiNotifications.Show("Level", $"Niveau sauvegardé : {LevelSavePath}", "success");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Scripting] Initial script load failed: {ex.Message}");
-            UiNotifications.Show("Script", "Échec du chargement initial du gamemode", "error");
+            Console.WriteLine($"[Level] Échec de la sauvegarde : {ex}");
+            UiNotifications.Show("Level", $"Échec de la sauvegarde : {ex.Message}", "error");
         }
     }
 
@@ -234,10 +312,14 @@ internal sealed class DemoApplication : Application
     {
         base.OnUpdate(deltaTime);
 
-        // Document shown in the custom title bar (the open level; the dirty
-        // flag will come from the asset/save system). The OS title follows the
-        // same document, so Alt-Tab shows the open level too.
-        EditorDocumentState.Publish(_demoLevel?.Name ?? string.Empty, isDirty: false);
+        // Fire the registered editor shortcuts (Ctrl+S saves the level);
+        // Input.Poll already ran this frame, so the press edges are fresh.
+        ShortcutManager.Instance.Update();
+
+        // Document shown in the custom title bar: the open level with its real
+        // dirty state (unsaved edits → "●"). The OS title follows the same
+        // document, so Alt-Tab shows the open level too.
+        EditorDocumentState.Publish(_demoLevel?.Name ?? string.Empty, LevelDirtyTracker.IsDirty);
         SyncWindowTitle();
 
         // Live values for the editor status bar (FPS, memory, latency). The
@@ -264,7 +346,8 @@ internal sealed class DemoApplication : Application
 
         // Edits queued by the inspector (UI → host) are written back to the
         // selected entity before the snapshots are republished, so the panels
-        // reflect the new values on the same frame.
+        // reflect the new values on the same frame. A successful edit marks
+        // the level dirty through LevelDirtyTracker (inside ApplyEdit).
         var selected = Renderer?.Gizmos.Selection;
         if (selected is not null)
         {

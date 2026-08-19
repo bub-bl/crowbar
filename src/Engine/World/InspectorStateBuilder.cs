@@ -68,64 +68,79 @@ public static class InspectorStateBuilder
     /// transform field (<c>transform.position</c>), a component property
     /// (<c>PointLight.Intensity</c>) or a material shader parameter
     /// (<c>MeshRenderer.Material.metallic</c>). Malformed keys and values are
-    /// ignored, so a bad keystroke never crashes the host.
+    /// ignored, so a bad keystroke never crashes the host. A successfully
+    /// applied edit marks the level dirty through
+    /// <see cref="LevelDirtyTracker"/>.
     /// </summary>
     public static void ApplyEdit(Entity entity, string key, string value)
     {
         if (entity is null || !entity.IsValid || string.IsNullOrEmpty(key))
             return;
 
+        var applied = false;
         if (key.StartsWith("transform.", StringComparison.Ordinal))
         {
-            ApplyTransformEdit(entity, key["transform.".Length..], value);
-            return;
+            applied = ApplyTransformEdit(entity, key["transform.".Length..], value);
         }
-
-        var parts = key.Split('.');
-        if (parts.Length < 2)
-            return;
-
-        var component = entity.Components.FirstOrDefault(c =>
-            c.GetType().Name.Equals(parts[0], StringComparison.Ordinal));
-        if (component is null)
-            return;
-
-        if (parts.Length == 2)
+        else
         {
-            var property = component.GetType().GetProperty(parts[1], InstancePublic);
-            if (property?.CanWrite == true && TryParseValue(value, property.PropertyType, out var parsed))
-                property.SetValue(component, parsed);
-            return;
-        }
-
-        if (parts.Length == 3 && parts[1].Equals("Material", StringComparison.Ordinal))
-        {
-            var materialProperty = component.GetType().GetProperty("Material", InstancePublic);
-            if (materialProperty?.GetValue(component) is Material material)
+            var parts = key.Split('.');
+            if (parts.Length == 2)
             {
-                var parameterType = material.Shader.Parameters.FirstOrDefault(p => p.Name == parts[2])?.Type;
-                if (parameterType is not null && TryParseValue(value, parameterType, out var parsed))
-                    material.Set(parts[2], ToShaderParameter(parsed!));
+                var component = entity.Components.FirstOrDefault(c =>
+                    c.GetType().Name.Equals(parts[0], StringComparison.Ordinal));
+                if (component is not null)
+                {
+                    var property = component.GetType().GetProperty(parts[1], InstancePublic);
+                    if (property?.CanWrite == true && TryParseValue(value, property.PropertyType, out var parsed))
+                    {
+                        property.SetValue(component, parsed);
+                        applied = true;
+                    }
+                }
+            }
+            else if (parts.Length == 3 && parts[1].Equals("Material", StringComparison.Ordinal))
+            {
+                var component = entity.Components.FirstOrDefault(c =>
+                    c.GetType().Name.Equals(parts[0], StringComparison.Ordinal));
+                if (component is not null)
+                {
+                    var materialProperty = component.GetType().GetProperty("Material", InstancePublic);
+                    if (materialProperty?.GetValue(component) is Material material)
+                    {
+                        var parameterType = material.Shader.Parameters.FirstOrDefault(p => p.Name == parts[2])?.Type;
+                        if (parameterType is not null && TryParseValue(value, parameterType, out var parsed))
+                        {
+                            material.Set(parts[2], ToShaderParameter(parsed!));
+                            applied = true;
+                        }
+                    }
+                }
             }
         }
+
+        if (applied)
+            LevelDirtyTracker.NotifyEdit(entity);
     }
 
-    private static void ApplyTransformEdit(Entity entity, string field, string value)
+    private static bool ApplyTransformEdit(Entity entity, string field, string value)
     {
         if (entity.GetComponent<TransformComponent>() is not { } transform)
-            return;
+            return false;
 
         switch (field)
         {
             case "position" when TryParseVector3(value, out var position):
                 transform.Local = transform.Local.WithPosition(position);
-                break;
+                return true;
             case "scale" when TryParseVector3(value, out var scale):
                 transform.Local = transform.Local.WithScale(scale);
-                break;
+                return true;
             case "rotation" when TryParseEulerDegrees(value, out var rotation):
                 transform.Local = transform.Local.WithRotation(rotation);
-                break;
+                return true;
+            default:
+                return false;
         }
     }
 

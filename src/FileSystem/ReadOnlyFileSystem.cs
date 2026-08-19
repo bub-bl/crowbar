@@ -37,6 +37,10 @@ internal sealed class ReadOnlyFileSystem : IFileSystem
     public void DeleteFile(FilePath path)
         => throw new UnauthorizedAccessException($"The filesystem is read-only: '{path}' cannot be deleted.");
 
+    public void MoveFile(FilePath source, FilePath destination, bool overwrite = false)
+        => throw new UnauthorizedAccessException(
+            $"The filesystem is read-only: '{source}' cannot be moved to '{destination}'.");
+
     public IEnumerable<FilePath> EnumerateFiles(FilePath directory, string pattern = "*", bool recursive = false)
         => _inner.EnumerateFiles(directory, pattern, recursive);
 
