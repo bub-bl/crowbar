@@ -1,9 +1,9 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Panoramique equal-power stéréo. Le paramètre <c>0</c> est la position dans le
-/// champ stéréo, de <c>-1</c> (tout à gauche) à <c>+1</c> (tout à droite),
-/// <c>0</c> étant le centre. Les gains gauche/droite sont lissés par échantillon.
+/// Stereo equal-power panning. Parameter <c>0</c> is the position in the stereo
+/// field, from <c>-1</c> (hard left) to <c>+1</c> (hard right), with <c>0</c> in
+/// the center. The left/right gains are smoothed per sample.
 /// </summary>
 public sealed class PanEffect : IAudioEffect
 {
@@ -41,8 +41,8 @@ public sealed class PanEffect : IAudioEffect
 
     public void Reset()
     {
-        // Snap sur la cible courante : Reset place l'effet directement dans son
-        // état stationnaire (pas de lissage depuis le centre).
+        // Snap to the current target: Reset places the effect directly in its
+        // steady state (no smoothing from the center).
         var clamped = Math.Clamp(_pan, -1f, 1f);
         var angle = (clamped + 1f) * (MathF.PI / 4f);
         _currentLeft = MathF.Cos(angle);

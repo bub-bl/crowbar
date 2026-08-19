@@ -3,10 +3,9 @@ using System.Buffers.Binary;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Décodeur AIFF (FORM/AIFF) écrit maison, en big-endian. Gère les PCM signés
-/// 8/16/24/32 bits (contrairement au WAV, le 8 bits AIFF est signé). La sortie
-/// est normalisée en stéréo <see cref="float"/> entrelacé, comme
-/// <see cref="WavDecoder"/>.
+/// Hand-written AIFF (FORM/AIFF) decoder, big-endian. Handles signed 8/16/24/32
+/// bit PCM (unlike WAV, 8-bit AIFF is signed). Output is normalized to
+/// interleaved stereo <see cref="float"/>, like <see cref="WavDecoder"/>.
 /// </summary>
 public sealed class AiffDecoder : IAudioDecoder
 {
@@ -29,7 +28,7 @@ public sealed class AiffDecoder : IAudioDecoder
         _data = data;
 
         if (data.Length < 12 || ReadTag(data, 0) != "FORM" || ReadTag(data, 8) != "AIFF")
-            throw new InvalidDataException("Ce fichier n'est pas un AIFF (FORM/AIFF) valide.");
+            throw new InvalidDataException("This file is not a valid AIFF (FORM/AIFF).");
 
         var offset = 12;
         var channels = 0;
@@ -47,7 +46,7 @@ public sealed class AiffDecoder : IAudioDecoder
             if (id == "COMM")
             {
                 if (body + 18 > data.Length)
-                    throw new InvalidDataException("Chunk AIFF 'COMM' tronqué.");
+                    throw new InvalidDataException("Truncated AIFF 'COMM' chunk.");
 
                 channels = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(body));
                 totalFrames = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(body + 2));
@@ -56,7 +55,7 @@ public sealed class AiffDecoder : IAudioDecoder
             }
             else if (id == "SSND")
             {
-                // offset (4) + blockSize (4), puis les données audio.
+                // offset (4) + blockSize (4), then the audio data.
                 var dataStart = body + 8;
                 _dataOffset = dataStart;
                 _dataLength = (int)Math.Min(size - 8, data.Length - dataStart);
@@ -67,7 +66,7 @@ public sealed class AiffDecoder : IAudioDecoder
         }
 
         if (!foundData || _dataLength <= 0)
-            throw new InvalidDataException("L'AIFF ne contient pas de chunk 'SSND'.");
+            throw new InvalidDataException("The AIFF contains no 'SSND' chunk.");
 
         SampleRate = sampleRate > 0 ? sampleRate : 48000;
         _sourceChannels = channels > 0 ? channels : 1;
@@ -140,8 +139,8 @@ public sealed class AiffDecoder : IAudioDecoder
     }
 
     /// <summary>
-    /// Lit un flottant 80 bits IEEE 754 étendu (le format du taux
-    /// d'échantillonnage AIFF) et le convertit en <see cref="double"/>.
+    /// Reads an 80-bit IEEE 754 extended float (the AIFF sample-rate format) and
+    /// converts it to <see cref="double"/>.
     /// </summary>
     private double ReadExtended80(int offset)
     {
@@ -152,8 +151,8 @@ public sealed class AiffDecoder : IAudioDecoder
         if (exponent == 0 && mantissa == 0)
             return 0;
 
-        // La mantisse a son bit entier explicite en tête : c'est un point fixe
-        // à 63 bits fractionnaires, décalé par (exposant - biais).
+        // The mantissa has its explicit integer bit at the head: it is a fixed
+        // point with 63 fractional bits, shifted by (exponent - bias).
         return sign * (double)mantissa * Math.Pow(2, exponent - 16383 - 63);
     }
 

@@ -1,9 +1,9 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Gain linéaire avec lissage par échantillon : évite le zipper noise quand le
-/// volume change entre deux blocs. Le paramètre <c>0</c> est le gain cible
-/// (linéaire, 1 = pas de changement, 0 = silence).
+/// Linear gain with per-sample smoothing: avoids zipper noise when the volume
+/// changes between two blocks. Parameter <c>0</c> is the target gain (linear,
+/// 1 = no change, 0 = silence).
 /// </summary>
 public sealed class GainEffect : IAudioEffect
 {
@@ -24,7 +24,7 @@ public sealed class GainEffect : IAudioEffect
             return;
         }
 
-        // Lissage exponentiel : convergence de ~10 ms.
+        // Exponential smoothing: ~10 ms convergence.
         var coefficient = MathF.Pow(0.0001f, 1f / (context.SampleRate * 0.01f));
         for (var i = 0; i < buffer.Length; i++)
         {

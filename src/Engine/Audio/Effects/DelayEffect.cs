@@ -1,12 +1,12 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Délai/écho simple avec feedback : <c>y[n] = x[n] + wet * x[n - d]</c> avec la
-/// boucle <c>x[n - d] = x[n] + feedback * x[n - d]</c>. Une ligne de délai par
-/// canal, pré-allouée pour une durée maximale de 2 secondes.
+/// Simple delay/echo with feedback: <c>y[n] = x[n] + wet * x[n - d]</c> with the
+/// loop <c>x[n - d] = x[n] + feedback * x[n - d]</c>. One delay line per
+/// channel, pre-allocated for a maximum duration of 2 seconds.
 ///
-/// Paramètres : <c>0</c> = temps de délai (s), <c>1</c> = feedback (0..1),
-/// <c>2</c> = mix humide (0..1).
+/// Parameters: <c>0</c> = delay time (s), <c>1</c> = feedback (0..1),
+/// <c>2</c> = wet mix (0..1).
 /// </summary>
 public sealed class DelayEffect : IAudioEffect
 {

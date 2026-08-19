@@ -1,6 +1,6 @@
 namespace Crowbar.Engine.Audio;
 
-/// <summary>Type de filtre biquad (RBJ cookbook).</summary>
+/// <summary>Biquad filter type (RBJ cookbook).</summary>
 public enum BiquadType
 {
     LowPass = 0,
@@ -9,13 +9,13 @@ public enum BiquadType
 }
 
 /// <summary>
-/// Biquad RBJ (passe-bas, passe-haut, paramétrique/peaking) en forme directe
-/// transposée II, avec un état par canal. Les coefficients ne sont recalculés
-/// que lorsqu'un paramètre change (drapeau volatil), donc le chemin DSP en
-/// régime permanent est une simple récurrence, sans allocation ni trigonométrie.
+/// RBJ biquad (low-pass, high-pass, parametric/peaking) in transposed direct
+/// form II, with one state per channel. Coefficients are only recomputed when a
+/// parameter changes (volatile flag), so the steady-state DSP path is a simple
+/// recurrence, without allocation or trigonometry.
 ///
-/// Paramètres : <c>0</c> = type (<see cref="BiquadType"/>), <c>1</c> = fréquence
-/// (Hz), <c>2</c> = Q, <c>3</c> = gain (dB, peaking uniquement).
+/// Parameters: <c>0</c> = type (<see cref="BiquadType"/>), <c>1</c> = frequency
+/// (Hz), <c>2</c> = Q, <c>3</c> = gain (dB, peaking only).
 /// </summary>
 public sealed class BiquadFilter : IAudioEffect
 {

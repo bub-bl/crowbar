@@ -4,13 +4,13 @@ using Crowbar.FileSystems;
 namespace Crowbar.Audio.Tests;
 
 /// <summary>
-/// Rendu hors ligne déterministe du mixer : aucun backend, le buffer mémoire est
-/// comparé aux valeurs attendues. Ces tests couvrent l'arbre de buses, les voix,
-/// le volume, le mute et l'horloge.
+/// Deterministic offline rendering of the mixer: no backend, the memory buffer
+/// is compared to expected values. These tests cover the bus tree, voices,
+/// volume, mute and the clock.
 /// </summary>
 public class AudioSystemTests
 {
-    private const float CenterPan = 0.7071068f; // cos(π/4) = gain equal-power au centre.
+    private const float CenterPan = 0.7071068f; // cos(pi/4) = equal-power gain at center.
 
     [Fact]
     public void RenderBlock_WithNoVoices_OutputsSilence()
@@ -76,7 +76,7 @@ public class AudioSystemTests
         system.Play(clip, bus: AudioBusName.Music);
 
         var buffer = RenderOneBlock(system);
-        var expected = 0.5f * CenterPan; // 0.25 + 0.25, pan centre.
+        var expected = 0.5f * CenterPan; // 0.25 + 0.25, center pan.
 
         Assert.Equal(expected, buffer[0], 1e-5f);
         Assert.Equal(expected, buffer[1], 1e-5f);
@@ -146,7 +146,7 @@ public class AudioSystemTests
         system.Music.Solo = true;
 
         var buffer = RenderOneBlock(system);
-        var expected = 0.5f * CenterPan; // seul Music passe.
+        var expected = 0.5f * CenterPan; // only Music passes.
         Assert.Equal(expected, buffer[0], 1e-5f);
     }
 

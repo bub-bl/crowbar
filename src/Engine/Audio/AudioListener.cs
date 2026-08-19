@@ -3,32 +3,32 @@ using System.Numerics;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Écouteur 3D : la position/les axes de la caméra d'écoute, utilisés par les
-/// voix spatialisées (<see cref="Audio.Play3D"/>) pour calculer l'atténuation
-/// inverse-distance et le panoramique equal-power. Le Doppler et le HRTF sont
-/// volontairement différés (extensions futures : Steam Audio ou binaural C#).
+/// 3D listener: the position/axes of the listening camera, used by spatialized
+/// voices (<see cref="Audio.Play3D"/>) to compute inverse-distance attenuation
+/// and equal-power panning. Doppler and HRTF are deliberately deferred (future
+/// extensions: Steam Audio or C# binaural).
 /// </summary>
 public sealed class AudioListener
 {
-    /// <summary>Position de l'écouteur (unités monde).</summary>
+    /// <summary>Listener position (world units).</summary>
     public Vector3 Position;
 
-    /// <summary>Direction d'écoute (normalisée par le calcul).</summary>
+    /// <summary>Listening direction (normalized by the computation).</summary>
     public Vector3 Forward = Vector3.UnitZ;
 
-    /// <summary>Haut de l'écouteur (normalisé par le calcul).</summary>
+    /// <summary>Listener up vector (normalized by the computation).</summary>
     public Vector3 Up = Vector3.UnitY;
 
     /// <summary>
-    /// Facteur d'atténuation : <c>1 / (1 + distance * Rolloff)</c>. Plus la
-    /// valeur est grande, plus le son décroît vite.
+    /// Attenuation factor: <c>1 / (1 + distance * Rolloff)</c>. The larger the
+    /// value, the faster the sound fades.
     /// </summary>
     public float Rolloff = 1f;
 
-    /// <summary>Vecteur droit, dérivé de <see cref="Forward"/> et <see cref="Up"/>.</summary>
+    /// <summary>Right vector, derived from <see cref="Forward"/> and <see cref="Up"/>.</summary>
     public Vector3 Right => Vector3.Normalize(Vector3.Cross(Forward, Up));
 
-    /// <summary>Place l'écouteur à partir d'une position et d'une direction de visée.</summary>
+    /// <summary>Places the listener from a position and a look direction.</summary>
     public void SetOrientation(Vector3 position, Vector3 forward, Vector3 up)
     {
         Position = position;

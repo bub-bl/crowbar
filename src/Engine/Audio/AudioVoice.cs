@@ -3,23 +3,23 @@ using System.Numerics;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Une voix du pool : elle lit une <see cref="IAudioSource"/> (clip ou stream),
-/// ré-échantillonne à la volée (pitch par interpolation linéaire), applique
-/// volume/fade/pan/atténuation 3D puis sa chaîne d'effets, et somme le bloc
-/// dans le bus cible. Tout l'état de rendu vit uniquement sur le thread DSP ;
-/// le thread de jeu ne fait que réserver le slot et envoyer des commandes.
+/// A pool voice: it reads an <see cref="IAudioSource"/> (clip or stream),
+/// resamples on the fly (pitch via linear interpolation), applies
+/// volume/fade/pan/3D attenuation then its effect chain, and sums the block into
+/// the target bus. All render state lives only on the DSP thread; the game
+/// thread only reserves the slot and sends commands.
 /// </summary>
 internal sealed class AudioVoice
 {
     private const int MaxEffects = 8;
 
-    /// <summary>État cross-thread du slot (Free/Reserved/Active).</summary>
+    /// <summary>Cross-thread state of the slot (Free/Reserved/Active).</summary>
     public volatile int State;
 
-    /// <summary>Génération du slot, incrémentée à chaque réservation.</summary>
+    /// <summary>Slot generation, incremented on every reservation.</summary>
     public volatile int Generation;
 
-    // --- État de contrôle (écrit par le DSP lors du traitement des commandes) ---
+    // --- Control state (written by the DSP while processing commands) ---
     public IAudioSource? Source;
     public float Volume = 1f;
     public float Pitch = 1f;
@@ -30,11 +30,11 @@ internal sealed class AudioVoice
     public Vector3 Position;
     public float FadeInSeconds;
 
-    // --- Chaîne d'effets (possédée par le DSP) ---
+    // --- Effect chain (owned by the DSP) ---
     private readonly IAudioEffect?[] _effects = new IAudioEffect?[MaxEffects];
     private int _effectCount;
 
-    // --- État de rendu (DSP uniquement) ---
+    // --- Render state (DSP only) ---
     private readonly float[] _scratch = new float[AudioSystem.BlockSize * AudioSystem.Channels];
     private double _readPosition;
     private int _nextIndex;
@@ -67,8 +67,8 @@ internal sealed class AudioVoice
         _distanceGain = 1f;
         _spatialPan = 0;
 
-        // Snap des gains/pan au réglage courant : une voix neuve démarre à son
-        // volume cible, sans artefact de lissage depuis une valeur arbitraire.
+        // Snap gain/pan to the current setting: a fresh voice starts at its
+        // target volume, without smoothing artifacts from an arbitrary value.
         var initialPan = Math.Clamp(Pan, -1f, 1f);
         var initialAngle = (initialPan + 1f) * (MathF.PI / 4f);
         _currentPanL = MathF.Cos(initialAngle);
@@ -114,7 +114,7 @@ internal sealed class AudioVoice
 
         UpdateSpatial(listener);
 
-        // Gain et pan par bloc, lissés sur quelques millisecondes.
+        // Per-block gain and pan, smoothed over a few milliseconds.
         var gainTarget = Math.Clamp(Volume * _fadeGain * _distanceGain, 0f, 16f);
         var effectivePan = Math.Clamp(Pan + _spatialPan, -1f, 1f);
         var angle = (effectivePan + 1f) * (MathF.PI / 4f);
@@ -132,8 +132,8 @@ internal sealed class AudioVoice
 
         if (!audible)
         {
-            // Voix virtuelle : on avance la tête de lecture sans produire de son
-            // ni toucher aux buffers (l'état est conservé pour la reprise).
+            // Virtual voice: advance the read head without producing sound or
+            // touching the buffers (state is kept for resumption).
             AdvanceSilent(frames, pitch);
             Array.Clear(scratch);
         }
@@ -161,7 +161,7 @@ internal sealed class AudioVoice
 
         if (pitch == 0f)
         {
-            // Moteur arrêté : sortie figée sur la frame courante (pas de lecture).
+            // Engine stopped: output frozen on the current frame (no read).
             for (var i = 0; i < frames; i++)
             {
                 scratch[i * 2] = _curL * _currentGain * _currentPanL;
@@ -179,16 +179,15 @@ internal sealed class AudioVoice
                 continue;
             }
 
-            // Avance la source jusqu'à encadrer la position fractionnaire. Le
-            // plancher est recalculé à chaque itération : un bouclage (loop)
-            // ré-écrit _readPosition, il ne faut donc jamais réutiliser un
-            // plancher périmé.
+            // Advance the source until it brackets the fractional position. The
+            // floor is recomputed every iteration: a loop rewrites
+            // _readPosition, so a stale floor must never be reused.
             while (_nextIndex <= (int)_readPosition)
                 AdvanceFrame();
 
-            // Quand AdvanceFrame vient de détecter la fin de flux, _cur porte
-            // encore la dernière frame valide : on l'émet une dernière fois ici
-            // (la prochaine itération verra _ended et produira du silence).
+            // When AdvanceFrame has just detected end of stream, _cur still
+            // holds the last valid frame: emit it one last time here (the next
+            // iteration will see _ended and produce silence).
             var floor = (int)_readPosition;
             var fraction = (float)(_readPosition - floor);
             var left = _curL + (_nextL - _curL) * fraction;
@@ -203,11 +202,11 @@ internal sealed class AudioVoice
 
     private void AdvanceSilent(int frames, float pitch)
     {
-        // La source n'est pas consommée ici : quand la voix redevient audible,
-        // la boucle `while (_nextIndex <= floor)` de FillScratch rattrape la
-        // source vers l'avant (le flux ne se lit que vers l'avant). Pour un
-        // clip bouclé, on borne la position et on réaligne la tête pour éviter
-        // un rattrapage O(temps de silence).
+        // The source is not consumed here: when the voice becomes audible again,
+        // the `while (_nextIndex <= floor)` loop of FillScratch catches the
+        // source up forward (the stream only reads forward). For a looped clip,
+        // the position is bounded and the head realigned to avoid an
+        // O(silence duration) catch-up.
         _readPosition += pitch * frames;
         if (Loop && Source is not null && Source.TotalFrames > 0)
         {
@@ -236,12 +235,12 @@ internal sealed class AudioVoice
             return;
         }
 
-        // Fin de flux.
+        // End of stream.
         if (Loop)
         {
-            // _nextIndex vaut ici le nombre de frames consommées dans ce
-            // passage : on rebobine _readPosition d'autant (la partie
-            // fractionnaire est conservée) avant de relire la tête du flux.
+            // _nextIndex here is the number of frames consumed in this pass: rewind
+            // _readPosition by that amount (the fractional part is kept) before
+            // re-reading the head of the stream.
             var consumed = _nextIndex;
             Source.Reset();
             _readPosition -= consumed;
@@ -321,10 +320,10 @@ internal sealed class AudioVoice
         var distance = delta.Length();
         var safe = Math.Max(0.01f, distance);
 
-        // Atténuation inverse-distance bornée : 1 / (1 + d * rolloff).
+        // Bounded inverse-distance attenuation: 1 / (1 + d * rolloff).
         _distanceGain = Math.Clamp(1f / (1f + safe * listener.Rolloff), 0f, 1f);
 
-        // Panoramique latéral dans l'espace du listener.
+        // Lateral panning in listener space.
         var normalized = delta / safe;
         var lateral = Vector3.Dot(normalized, listener.Right);
         _spatialPan = Math.Clamp(lateral, -1f, 1f);

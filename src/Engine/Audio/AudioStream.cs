@@ -1,12 +1,12 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Musique longue décodée par morceaux : un <see cref="IAudioDecoder"/> alimente
-/// un ring buffer stéréo, et la voix consomme les frames au fil de l'eau. Le
-/// fichier est chargé une fois et le décodage s'effectue en place, sans
-/// allocation sur le thread DSP en régime permanent.
+/// Long music decoded in chunks: an <see cref="IAudioDecoder"/> feeds a stereo
+/// ring buffer, and the voice consumes the frames as it goes. The file is loaded
+/// once and decoding happens in place, without allocation on the DSP thread in
+/// steady state.
 ///
-/// La lecture est toujours en stéréo (le décodeur normalise déjà les canaux).
+/// Playback is always stereo (the decoder already normalizes the channels).
 /// </summary>
 public sealed class AudioStream : IDisposable, IAudioSource
 {
@@ -22,7 +22,7 @@ public sealed class AudioStream : IDisposable, IAudioSource
     public int Channels => 2;
     public long TotalFrames => _decoder.TotalFrames;
 
-    /// <summary>Durée connue du flux, ou <see cref="TimeSpan.Zero"/> si inconnue.</summary>
+    /// <summary>Known stream duration, or <see cref="TimeSpan.Zero"/> if unknown.</summary>
     public TimeSpan Duration =>
         TotalFrames >= 0 ? TimeSpan.FromSeconds(TotalFrames / (double)SampleRate) : TimeSpan.Zero;
 
@@ -35,7 +35,7 @@ public sealed class AudioStream : IDisposable, IAudioSource
     {
         _decoder = decoder ?? throw new ArgumentNullException(nameof(decoder));
         SampleRate = decoder.SampleRate;
-        // ~0,68 s de tampon, en stéréo.
+        // ~0.68 s of buffer, stereo.
         _ringFrames = 1 << 15;
         _ring = new float[_ringFrames * 2];
         _chunk = new float[AudioSystem.BlockSize * 2];

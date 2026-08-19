@@ -1,19 +1,19 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Réverbération de Schroeder : quatre filtres en peigne en parallèle suivis de
-/// deux filtres passe-tout en série, avec amortissement dans la boucle des
-/// peignes. Lignes de délai par canal, pré-allouées à la construction.
+/// Schroeder reverb: four comb filters in parallel followed by two all-pass
+/// filters in series, with damping inside the comb loop. Per-channel delay
+/// lines, pre-allocated at construction.
 ///
-/// Paramètres : <c>0</c> = mix humide (0..1), <c>1</c> = taille de la pièce
-/// (0..1), <c>2</c> = amortissement (0..1), <c>3</c> = feedback (0..1).
+/// Parameters: <c>0</c> = wet mix (0..1), <c>1</c> = room size (0..1),
+/// <c>2</c> = damping (0..1), <c>3</c> = feedback (0..1).
 /// </summary>
 public sealed class SchroederReverb : IAudioEffect
 {
     private const int CombCount = 4;
     private const int AllPassCount = 2;
 
-    // Délais de base (échantillons @ 48 kHz), valeurs classiques de Schroeder.
+    // Base delays (samples @ 48 kHz), classic Schroeder values.
     private static readonly int[] CombDelays = [1557, 1617, 1491, 1422];
     private static readonly int[] AllPassDelays = [225, 556];
 
@@ -42,8 +42,8 @@ public sealed class SchroederReverb : IAudioEffect
 
         for (var i = 0; i < CombCount; i++)
         {
-            // La taille de la pièce peut étirer le délai jusqu'à ×1,5 : on
-            // dimensionne pour le maximum afin de ne jamais déborder.
+            // Room size can stretch the delay up to x1.5: size for the maximum
+            // so we never overflow.
             var size = DelaySamples(CombDelays[i], 1.5f);
             _combL[i] = new float[size];
             _combR[i] = new float[size];
@@ -78,7 +78,7 @@ public sealed class SchroederReverb : IAudioEffect
                 wetR += ProcessComb(c, inputR, damping, feedback, _combR[c], ref _combFilterStateR[c], ref _combIndices[c]);
             }
 
-            // Les peignes sont en parallèle : moyenne simple.
+            // The combs are in parallel: simple average.
             wetL /= CombCount;
             wetR /= CombCount;
 

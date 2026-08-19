@@ -3,12 +3,11 @@ using System.Numerics;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Poignée vers une voix jouée, retournée par <see cref="AudioSystem.Play"/> et
-/// <see cref="Audio.Play"/>. C'est un <see cref="ValueType"/> léger : il porte
-/// l'index du slot, sa génération et une référence vers le
-/// <see cref="AudioSystem"/> propriétaire. Toutes les méthodes envoient une
-/// commande à la file SPSC ; elles sont sûres depuis n'importe quel thread de
-/// jeu (y compris un gamemode scripté).
+/// Handle to a playing voice, returned by <see cref="AudioSystem.Play"/> and
+/// <see cref="Audio.Play"/>. It is a lightweight <see cref="ValueType"/>: it
+/// carries the slot index, its generation and a reference to the owning
+/// <see cref="AudioSystem"/>. Every method enqueues a command into the SPSC
+/// queue; they are safe from any game thread (including a scripted gamemode).
 /// </summary>
 public readonly struct VoiceHandle
 {
@@ -23,34 +22,34 @@ public readonly struct VoiceHandle
         Generation = generation;
     }
 
-    /// <summary>Poignée invalide (jamais jouée).</summary>
+    /// <summary>Invalid handle (never played).</summary>
     public static VoiceHandle Invalid => default;
 
-    /// <summary>Vrai tant que le slot correspond toujours à cette génération.</summary>
+    /// <summary>True as long as the slot still matches this generation.</summary>
     public bool IsValid => System is not null && System.IsVoiceAlive(Slot, Generation);
 
-    /// <summary>Arrête la voix (le slot redevient libre à la fin du bloc courant).</summary>
+    /// <summary>Stops the voice (the slot becomes free at the end of the current block).</summary>
     public void Stop() => System?.EnqueueStop(Slot, Generation);
 
-    /// <summary>Règle le volume (linéaire, 0..∞, 1 = unité).</summary>
+    /// <summary>Sets the volume (linear, 0..infinity, 1 = unity).</summary>
     public void SetVolume(float volume) => System?.EnqueueSetVolume(Slot, Generation, volume);
 
-    /// <summary>Règle le pitch (1 = vitesse normale, 2 = une octave au-dessus).</summary>
+    /// <summary>Sets the pitch (1 = normal speed, 2 = one octave up).</summary>
     public void SetPitch(float pitch) => System?.EnqueueSetPitch(Slot, Generation, pitch);
 
-    /// <summary>Règle le panoramique (-1 = gauche, +1 = droite).</summary>
+    /// <summary>Sets the panning (-1 = left, +1 = right).</summary>
     public void SetPan(float pan) => System?.EnqueueSetPan(Slot, Generation, pan);
 
-    /// <summary>Fait glisser le volume vers <paramref name="volume"/> sur <paramref name="duration"/> secondes.</summary>
+    /// <summary>Glides the volume toward <paramref name="volume"/> over <paramref name="duration"/> seconds.</summary>
     public void FadeTo(float volume, float duration) => System?.EnqueueFadeTo(Slot, Generation, volume, duration);
 
-    /// <summary>Repositionne la source 3D (voir <see cref="Audio.Play3D"/>).</summary>
+    /// <summary>Repositions the 3D source (see <see cref="Audio.Play3D"/>).</summary>
     public void SetPosition(Vector3 position) => System?.EnqueueSetPosition(Slot, Generation, position);
 
-    /// <summary>Écrit un paramètre d'un effet de la chaîne de la voix.</summary>
+    /// <summary>Writes a parameter of an effect in the voice's effect chain.</summary>
     public void SetEffectParameter(int effectIndex, int parameterIndex, float value) =>
         System?.EnqueueSetEffectParameter(Slot, Generation, effectIndex, parameterIndex, value);
 
-    /// <summary>Ajoute un effet en fin de chaîne de la voix (nouvelle instance par voix).</summary>
+    /// <summary>Appends an effect to the voice's chain (a new instance per voice).</summary>
     public void AddEffect(IAudioEffect effect) => System?.EnqueueAddEffect(Slot, Generation, effect);
 }

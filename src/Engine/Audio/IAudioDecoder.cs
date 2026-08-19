@@ -1,36 +1,36 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Décodeur audio maison : il produit des échantillons <see cref="float"/> en
-/// stéréo entrelacé à partir d'un buffer d'octets chargé une seule fois. Le
-/// décodeur garde sa propre position de lecture, donc le thread DSP ne relit
-/// jamais un flux système : <see cref="Read"/> ne doit rien allouer.
+/// Homegrown audio decoder: it produces interleaved stereo <see cref="float"/>
+/// samples from a byte buffer loaded once. The decoder keeps its own read
+/// position, so the DSP thread never re-reads a system stream:
+/// <see cref="Read"/> must not allocate.
 ///
-/// Les implémentations fournies sont <see cref="WavDecoder"/> (RIFF/WAVE) et
-/// <see cref="AiffDecoder"/> (FORM/AIFF). OGG/Vorbis (NVorbis) et MP3 (NLayer)
-/// se brancheront ici plus tard, derrière la même interface — voir
+/// The provided implementations are <see cref="WavDecoder"/> (RIFF/WAVE) and
+/// <see cref="AiffDecoder"/> (FORM/AIFF). OGG/Vorbis (NVorbis) and MP3 (NLayer)
+/// will plug in here later, behind the same interface — see
 /// <see cref="AudioDecoderFactory"/>.
 /// </summary>
 public interface IAudioDecoder : IDisposable
 {
-    /// <summary>Fréquence d'échantillonnage (Hz).</summary>
+    /// <summary>Sample rate (Hz).</summary>
     int SampleRate { get; }
 
-    /// <summary>Nombre de canaux du flux (le moteur normalise en stéréo).</summary>
+    /// <summary>Channel count of the stream (the engine normalizes to stereo).</summary>
     int Channels { get; }
 
-    /// <summary>Nombre total de frames, ou <c>-1</c> quand il est inconnu.</summary>
+    /// <summary>Total number of frames, or <c>-1</c> when unknown.</summary>
     long TotalFrames { get; }
 
-    /// <summary>Position courante, en frames.</summary>
+    /// <summary>Current position, in frames.</summary>
     long Position { get; }
 
     /// <summary>
-    /// Décode jusqu'à <c>destination.Length / 2</c> frames en stéréo entrelacé.
-    /// Retourne le nombre de frames effectivement décodées (0 en fin de flux).
+    /// Decodes up to <c>destination.Length / 2</c> frames into interleaved
+    /// stereo. Returns the number of frames actually decoded (0 at end of stream).
     /// </summary>
     int Read(Span<float> destination);
 
-    /// <summary>Repositionne la lecture à <paramref name="frame"/>.</summary>
+    /// <summary>Repositions the read cursor at <paramref name="frame"/>.</summary>
     void Seek(long frame);
 }

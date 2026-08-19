@@ -1,30 +1,30 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Source d'échantillons consommée frame par frame par une voix. Cache la
-/// différence entre un clip décodé en mémoire (<see cref="ClipSource"/>) et un
-/// flux décodé par morceaux (<see cref="AudioStream"/>) : la voix ne connaît
-/// que cette interface et n'alloue jamais en lecture.
+/// Sample source consumed frame by frame by a voice. Hides the difference
+/// between an in-memory decoded clip (<see cref="ClipSource"/>) and a stream
+/// decoded in chunks (<see cref="AudioStream"/>): the voice only knows this
+/// interface and never allocates while reading.
 /// </summary>
 internal interface IAudioSource
 {
     int SampleRate { get; }
     int Channels { get; }
 
-    /// <summary>Nombre total de frames, ou <c>-1</c> si inconnu.</summary>
+    /// <summary>Total number of frames, or <c>-1</c> if unknown.</summary>
     long TotalFrames { get; }
 
-    /// <summary>Remet la lecture au début.</summary>
+    /// <summary>Rewinds playback to the start.</summary>
     void Reset();
 
     /// <summary>
-    /// Lit la frame suivante (stéréo) et avance. Retourne <c>false</c> en fin
-    /// de flux (les sorties sont alors mises à zéro).
+    /// Reads the next frame (stereo) and advances. Returns <c>false</c> at end of
+    /// stream (outputs are then zeroed).
     /// </summary>
     bool TryReadFrame(out float left, out float right);
 }
 
-/// <summary>Source sur un <see cref="AudioClip"/> entièrement en mémoire.</summary>
+/// <summary>Source over a fully in-memory <see cref="AudioClip"/>.</summary>
 internal sealed class ClipSource : IAudioSource
 {
     private readonly float[] _data;

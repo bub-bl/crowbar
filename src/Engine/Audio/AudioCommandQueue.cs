@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace Crowbar.Engine.Audio;
 
-/// <summary>Type de commande échangée entre le thread de jeu et le thread DSP.</summary>
+/// <summary>Command type exchanged between the game thread and the DSP thread.</summary>
 internal enum AudioCommandType : byte
 {
     Play,
@@ -18,9 +18,9 @@ internal enum AudioCommandType : byte
 }
 
 /// <summary>
-/// Une commande audio. Les champs sont surchargés selon
-/// <see cref="AudioCommandType"/> ; la structure reste de taille fixe, allouée
-/// une fois pour toute dans le ring du producteur.
+/// An audio command. Fields are overloaded depending on
+/// <see cref="AudioCommandType"/>; the struct stays fixed-size, allocated once
+/// for all in the producer ring.
 /// </summary>
 internal struct AudioCommand
 {
@@ -36,11 +36,10 @@ internal struct AudioCommand
 }
 
 /// <summary>
-/// File de commandes SPSC (single producer / single consumer) sans verrou : le
-/// thread de jeu produit, le thread DSP consomme. Le ring est pré-dimensionné ;
-/// un producteur plus rapide que le consommateur patiente en spin (le DSP vide
-/// la file à chaque bloc, donc la situation est transitoire). Aucune allocation
-/// en régime permanent.
+/// Lock-free SPSC (single producer / single consumer) command queue: the game
+/// thread produces, the DSP thread consumes. The ring is pre-sized; a producer
+/// faster than the consumer spins (the DSP drains the queue every block, so the
+/// situation is transient). No allocation in steady state.
 /// </summary>
 internal sealed class AudioCommandQueue
 {
@@ -55,10 +54,10 @@ internal sealed class AudioCommandQueue
         _ring = new AudioCommand[_capacity];
     }
 
-    /// <summary>Nombre de commandes en attente (diagnostic).</summary>
+    /// <summary>Number of pending commands (diagnostic).</summary>
     public int Count => Volatile.Read(ref _head) - Volatile.Read(ref _tail);
 
-    /// <summary>Ajoute une commande (appelé uniquement depuis le thread de jeu).</summary>
+    /// <summary>Adds a command (called only from the game thread).</summary>
     public void Enqueue(in AudioCommand command)
     {
         var spin = new SpinWait();
@@ -79,7 +78,7 @@ internal sealed class AudioCommandQueue
         }
     }
 
-    /// <summary>Dépile une commande, ou retourne false quand la file est vide (DSP uniquement).</summary>
+    /// <summary>Dequeues a command, or returns false when the queue is empty (DSP only).</summary>
     public bool TryDequeue(out AudioCommand command)
     {
         var head = Volatile.Read(ref _head);
@@ -95,7 +94,7 @@ internal sealed class AudioCommandQueue
         return true;
     }
 
-    /// <summary>Vide la file (à n'appeler que lorsque le DSP est arrêté).</summary>
+    /// <summary>Empties the queue (only call once the DSP is stopped).</summary>
     public void Clear()
     {
         while (TryDequeue(out _))

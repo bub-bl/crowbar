@@ -3,8 +3,8 @@ using Crowbar.Engine.Audio;
 namespace Crowbar.Audio.Tests;
 
 /// <summary>
-/// Tests headless des décodeurs WAV/AIFF : fixtures générées en mémoire, PCM
-/// comparé après décodage. Aucun fichier ni périphérique audio.
+/// Headless tests for the WAV/AIFF decoders: in-memory generated fixtures, PCM
+/// compared after decoding. No file or audio device.
 /// </summary>
 public class WavDecoderTests
 {
@@ -36,7 +36,7 @@ public class WavDecoderTests
         var output = new float[6];
         Assert.Equal(3, decoder.Read(output));
 
-        // Mono dupliqué en stéréo : les deux canaux portent la même valeur.
+        // Mono duplicated to stereo: both channels carry the same value.
         for (var i = 0; i < 3; i++)
         {
             Assert.Equal(mono[i], output[i * 2], 2);

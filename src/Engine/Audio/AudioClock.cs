@@ -1,15 +1,14 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Compteur d'échantillons <see cref="long"/> monotone qui sert de base de temps
-/// au moteur audio : c'est lui qui relie le rendu temps réel, le rendu hors
-/// ligne (tests/export) et la future synchronisation image/audio. Le thread DSP
-/// l'avance de <c>frames</c> échantillons à chaque bloc rendu ; le thread de jeu
-/// ne fait que le lire.
+/// Monotonic <see cref="long"/> sample counter that acts as the audio engine's
+/// time base: it links real-time rendering, offline rendering (tests/export)
+/// and future image/audio synchronization. The DSP thread advances it by
+/// <c>frames</c> samples on every rendered block; the game thread only reads it.
 /// </summary>
 public sealed class AudioClock
 {
-    /// <summary>Fréquence d'échantillonnage du moteur (Hz).</summary>
+    /// <summary>Engine sample rate (Hz).</summary>
     public int SampleRate { get; }
 
     private long _samples;
@@ -21,18 +20,18 @@ public sealed class AudioClock
         SampleRate = sampleRate;
     }
 
-    /// <summary>Position courante, en échantillons (frames) depuis le démarrage.</summary>
+    /// <summary>Current position, in samples (frames) since startup.</summary>
     public long PositionSamples => Interlocked.Read(ref _samples);
 
-    /// <summary>Position courante, en secondes.</summary>
+    /// <summary>Current position, in seconds.</summary>
     public double TimeSeconds => PositionSamples / (double)SampleRate;
 
     /// <summary>
-    /// Avance le compteur de <paramref name="frames"/> échantillons. Appelé
-    /// uniquement par le thread DSP (ou par un rendu hors ligne).
+    /// Advances the counter by <paramref name="frames"/> samples. Called only by
+    /// the DSP thread (or by an offline render).
     /// </summary>
     public void Advance(int frames) => Interlocked.Add(ref _samples, frames);
 
-    /// <summary>Remet le compteur à zéro.</summary>
+    /// <summary>Resets the counter to zero.</summary>
     public void Reset() => Interlocked.Exchange(ref _samples, 0);
 }

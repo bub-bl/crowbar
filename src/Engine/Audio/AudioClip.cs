@@ -3,23 +3,23 @@ using Crowbar.FileSystems;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Son court entièrement décodé en mémoire, prêt à être joué par le mixer.
-/// C'est l'équivalent audio de <see cref="Texture2D"/> : un asset fichier chargé
-/// via le <see cref="ResourceCache{T}"/> global (chemin canonique, partage par
-/// chemin, <see cref="Invalidate"/> pour le rechargement à chaud) et une
-/// représentation CPU pure, sans aucune dépendance au backend.
+/// Short sound fully decoded in memory, ready to be played by the mixer. It is
+/// the audio equivalent of <see cref="Texture2D"/>: a file asset loaded through
+/// the global <see cref="ResourceCache{T}"/> (canonical path, sharing by path,
+/// <see cref="Invalidate"/> for hot reload) and a pure CPU representation, with
+/// no backend dependency.
 ///
-/// Les fichiers sont décodés à l'ouverture (ils sont courts par nature ; la
-/// musique longue passe par <see cref="AudioStream"/>). Les canaux sont
-/// normalisés en stéréo <see cref="float"/> entrelacé.
+/// Files are decoded on open (they are short by nature; long music goes through
+/// <see cref="AudioStream"/>). Channels are normalized to interleaved stereo
+/// <see cref="float"/>.
 /// </summary>
 public sealed class AudioClip
 {
     internal static readonly ResourceCache<AudioClip> Cache = new(CreateLoaded);
 
     /// <summary>
-    /// Le chemin de contenu d'où provient le clip, ou null pour un clip créé en
-    /// code (<see cref="Create"/>). Identité du cache partagé.
+    /// The content path the clip came from, or null for a clip created in code
+    /// (<see cref="Create"/>). Identity of the shared cache.
     /// </summary>
     public string? ResourcePath { get; }
 
@@ -28,7 +28,7 @@ public sealed class AudioClip
     public int Channels { get; }
     public int Frames { get; }
 
-    /// <summary>Échantillons stéréo entrelacés (length = <see cref="Frames"/> × 2).</summary>
+    /// <summary>Interleaved stereo samples (length = <see cref="Frames"/> x 2).</summary>
     public float[] Data { get; }
 
     public TimeSpan Duration => TimeSpan.FromSeconds(Frames / (double)SampleRate);
@@ -44,8 +44,8 @@ public sealed class AudioClip
     }
 
     /// <summary>
-    /// Ouvre un fichier audio (WAV, AIFF, ...) et le décode intégralement. Le
-    /// même chemin renvoie toujours la même instance (décodé une fois).
+    /// Opens an audio file (WAV, AIFF, ...) and decodes it fully. The same path
+    /// always returns the same instance (decoded once).
     /// </summary>
     public static AudioClip Load(string path)
     {
@@ -54,8 +54,8 @@ public sealed class AudioClip
     }
 
     /// <summary>
-    /// Charge asynchrone d'un fichier audio : le décodage s'exécute hors du
-    /// thread appelant et l'instance est installée dans le cache partagé.
+    /// Asynchronously loads an audio file: decoding runs off the calling thread
+    /// and the instance is installed in the shared cache.
     /// </summary>
     public static Task<AudioClip> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
@@ -64,9 +64,9 @@ public sealed class AudioClip
     }
 
     /// <summary>
-    /// Crée un clip depuis des échantillons <see cref="float"/> entrelacés.
-    /// Mono et stéréo sont acceptés ; le contenu est copié et normalisé en
-    /// stéréo. Utile pour les sons procéduraux (test-tone, UI, ...).
+    /// Creates a clip from interleaved <see cref="float"/> samples. Mono and
+    /// stereo are accepted; the content is copied and normalized to stereo.
+    /// Useful for procedural sounds (test tone, UI, ...).
     /// </summary>
     public static AudioClip Create(string name, int sampleRate, ReadOnlySpan<float> interleaved, int channels = 2)
     {
@@ -74,9 +74,9 @@ public sealed class AudioClip
         if (sampleRate <= 0)
             throw new ArgumentOutOfRangeException(nameof(sampleRate));
         if (channels is not (1 or 2))
-            throw new ArgumentOutOfRangeException(nameof(channels), "Mono (1) ou stéréo (2) uniquement.");
+            throw new ArgumentOutOfRangeException(nameof(channels), "Mono (1) or stereo (2) only.");
         if (interleaved.Length % channels != 0)
-            throw new ArgumentException("Le nombre d'échantillons n'est pas un multiple du nombre de canaux.", nameof(interleaved));
+            throw new ArgumentException("The sample count is not a multiple of the channel count.", nameof(interleaved));
 
         var frames = interleaved.Length / channels;
         var data = new float[frames * 2];
@@ -91,20 +91,20 @@ public sealed class AudioClip
         return new AudioClip(name, null, sampleRate, 2, data);
     }
 
-    /// <summary>Discarde le clip en cache à <paramref name="path"/> pour le re-décoder au prochain chargement.</summary>
+    /// <summary>Drops the cached clip at <paramref name="path"/> so it is re-decoded on next load.</summary>
     public static void Invalidate(string path) => Cache.Invalidate(path);
 
-    /// <summary>Discarde tous les clips en cache.</summary>
+    /// <summary>Drops every cached clip.</summary>
     public static void ClearCache() => Cache.Clear();
 
-    /// <summary>Enregistre une référence conservatrice pour un clip chargé depuis un fichier.</summary>
+    /// <summary>Registers a retaining reference for a clip loaded from a file.</summary>
     public void Retain()
     {
         if (ResourcePath is not null)
             Cache.Retain(ResourcePath);
     }
 
-    /// <summary>Libère une référence conservatrice (l'entrée est jetée à la dernière libération).</summary>
+    /// <summary>Releases a retaining reference (the entry is dropped on the last release).</summary>
     public void Release()
     {
         if (ResourcePath is not null)
@@ -116,7 +116,7 @@ public sealed class AudioClip
     private static AudioClip CreateLoaded(string path)
     {
         if (!FileSystem.Content.FileExists(path))
-            throw new FileNotFoundException("Fichier audio introuvable.", path);
+            throw new FileNotFoundException("Audio file not found.", path);
 
         return DecodeFile(path, CancellationToken.None);
     }
@@ -138,7 +138,7 @@ public sealed class AudioClip
         }
 
         if (buffer.Count == 0)
-            throw new InvalidDataException($"Le fichier audio '{path}' ne contient aucun échantillon.");
+            throw new InvalidDataException($"The audio file '{path}' contains no samples.");
 
         return new AudioClip(
             PathUtil.GetFileNameWithoutExtension(path),

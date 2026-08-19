@@ -3,12 +3,12 @@ using System.Buffers.Binary;
 namespace Crowbar.Audio.Tests;
 
 /// <summary>
-/// Fabrique des fixtures audio en mémoire (WAV/AIFF, tonalités) pour les tests
-/// headless : aucune dépendance à un périphérique, tout est déterministe.
+/// Builds in-memory audio fixtures (WAV/AIFF, tones) for headless tests: no
+/// device dependency, everything is deterministic.
 /// </summary>
 internal static class AudioTestData
 {
-    /// <summary>Construit un WAV PCM 16 bits stéréo en mémoire.</summary>
+    /// <summary>Builds an in-memory 16-bit PCM stereo WAV.</summary>
     public static byte[] BuildWav(ReadOnlySpan<float> interleaved, int channels, int sampleRate = 48000)
     {
         var dataSize = interleaved.Length * 2;
@@ -37,7 +37,7 @@ internal static class AudioTestData
         return bytes;
     }
 
-    /// <summary>Construit un AIFF PCM 16 bits stéréo (big-endian) en mémoire.</summary>
+    /// <summary>Builds an in-memory 16-bit PCM stereo AIFF (big-endian).</summary>
     public static byte[] BuildAiff(ReadOnlySpan<float> interleaved, int channels, int sampleRate = 48000)
     {
         var frames = interleaved.Length / channels;
@@ -72,7 +72,7 @@ internal static class AudioTestData
         return bytes;
     }
 
-    /// <summary>Génère une sinusoïde mono de <paramref name="seconds"/> secondes.</summary>
+    /// <summary>Generates a mono sine wave of <paramref name="seconds"/> seconds.</summary>
     public static float[] Tone(float frequency, float seconds, int sampleRate = 48000, float amplitude = 0.5f)
     {
         var frames = (int)(sampleRate * seconds);
@@ -82,7 +82,7 @@ internal static class AudioTestData
         return samples;
     }
 
-    /// <summary>Construit un clip constant (pratique pour les tests golden du mixer).</summary>
+    /// <summary>Builds a constant clip (handy for the mixer golden tests).</summary>
     public static float[] Constant(float value, int frames) => Enumerable.Repeat(value, frames).ToArray();
 
     private static void WriteAscii(byte[] buffer, int offset, string text)
@@ -91,7 +91,7 @@ internal static class AudioTestData
             buffer[offset + i] = (byte)text[i];
     }
 
-    /// <summary>Écrit un entier sous forme de flottant 80 bits étendu (taux AIFF).</summary>
+    /// <summary>Writes an integer as an 80-bit extended float (AIFF rate).</summary>
     private static void WriteExtended80(Span<byte> destination, int value)
     {
         if (value <= 0)

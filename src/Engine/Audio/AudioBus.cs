@@ -1,13 +1,13 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Nœud de l'arbre de mixage : le master agrège ses bus enfants (Musique, SFX,
-/// UI, Voix), chaque bus somme les voix qui lui sont routées puis applique sa
-/// chaîne d'effets. Gain, mute et solo sont des champs volatils lisibles/écrits
-/// sans verrou depuis le thread de jeu.
+/// Node of the mixing tree: the master aggregates its child buses (Music, SFX,
+/// UI, Voice), each bus sums the voices routed to it then applies its effect
+/// chain. Gain, mute and solo are volatile fields read/written lock-free from
+/// the game thread.
 ///
-/// La chaîne d'effets est configurée avant <see cref="AudioSystem.Start"/> (les
-/// paramètres, eux, restent modifiables à chaud via
+/// The effect chain is configured before <see cref="AudioSystem.Start"/> (the
+/// parameters themselves stay hot-modifiable via
 /// <see cref="SetEffectParameter"/>).
 /// </summary>
 public sealed class AudioBus
@@ -21,22 +21,22 @@ public sealed class AudioBus
 
     public string Name { get; }
 
-    /// <summary>Gain linéaire du bus (1 = unité).</summary>
+    /// <summary>Linear gain of the bus (1 = unity).</summary>
     public volatile float Gain = 1f;
 
-    /// <summary>Coupe le bus (sortie à zéro) sans détruire ses voix.</summary>
+    /// <summary>Cuts the bus (zero output) without destroying its voices.</summary>
     public volatile bool Mute;
 
-    /// <summary>Fait passer ce bus en solo (les autres bus sont coupés).</summary>
+    /// <summary>Solos this bus (the other buses are cut).</summary>
     public volatile bool Solo;
 
-    /// <summary>Buffer d'accumulation du bloc en cours (frames × 2, stéréo).</summary>
+    /// <summary>Accumulation buffer of the current block (frames x 2, stereo).</summary>
     internal float[] Accumulator { get; }
 
-    /// <summary>Crête du dernier bloc rendu (0..1), lissée.</summary>
+    /// <summary>Peak of the last rendered block (0..1), smoothed.</summary>
     public float Peak => _peak;
 
-    /// <summary>RMS du dernier bloc rendu (0..1), lissé.</summary>
+    /// <summary>RMS of the last rendered block (0..1), smoothed.</summary>
     public float Rms => _rms;
 
     public int EffectCount => _effectCount;
@@ -47,19 +47,19 @@ public sealed class AudioBus
         Accumulator = new float[blockFrames * 2];
     }
 
-    /// <summary>Ajoute un effet en fin de chaîne (avant <see cref="AudioSystem.Start"/>).</summary>
+    /// <summary>Appends an effect to the chain (before <see cref="AudioSystem.Start"/>).</summary>
     public void AddEffect(IAudioEffect effect)
     {
         ArgumentNullException.ThrowIfNull(effect);
         if (_effectCount >= MaxEffects)
-            throw new InvalidOperationException($"Un bus accepte au plus {MaxEffects} effets.");
+            throw new InvalidOperationException($"A bus accepts at most {MaxEffects} effects.");
         _effects[_effectCount++] = effect;
     }
 
-    /// <summary>Retourne l'effet à <paramref name="index"/>, ou null.</summary>
+    /// <summary>Returns the effect at <paramref name="index"/>, or null.</summary>
     public IAudioEffect? GetEffect(int index) => index >= 0 && index < _effectCount ? _effects[index] : null;
 
-    /// <summary>Écrit un paramètre d'un effet de la chaîne (atomique, sans verrou).</summary>
+    /// <summary>Writes a parameter of an effect in the chain (atomic, lock-free).</summary>
     public void SetEffectParameter(int effectIndex, int parameterIndex, float value) =>
         _effects[effectIndex]?.SetParameter(parameterIndex, value);
 

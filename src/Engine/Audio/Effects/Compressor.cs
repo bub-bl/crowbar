@@ -1,13 +1,12 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Compresseur/limiteur feed-forward à détection de crête, une enveloppe par
-/// canal, avec temps d'attaque/relâchement et gain de maquillage. Utile en fin
-/// de chaîne sur le bus master pour contenir les crêtes.
+/// Feed-forward peak-detecting compressor/limiter, one envelope per channel,
+/// with attack/release times and makeup gain. Useful at the end of the master
+/// bus chain to contain peaks.
 ///
-/// Paramètres : <c>0</c> = seuil (dB, négatif), <c>1</c> = ratio (&gt;= 1),
-/// <c>2</c> = attaque (s), <c>3</c> = relâchement (s), <c>4</c> = gain de
-/// maquillage (dB).
+/// Parameters: <c>0</c> = threshold (dB, negative), <c>1</c> = ratio (&gt;= 1),
+/// <c>2</c> = attack (s), <c>3</c> = release (s), <c>4</c> = makeup gain (dB).
 /// </summary>
 public sealed class Compressor : IAudioEffect
 {
@@ -39,7 +38,7 @@ public sealed class Compressor : IAudioEffect
                     ? 1f
                     : (threshold + (level - threshold) / ratio) / level;
 
-                // Attaque quand on doit réduire, relâchement vers 1 sinon.
+                // Attack when gain reduction is needed, release toward 1 otherwise.
                 var envelope = target < _envelope[channel]
                     ? _envelope[channel] * attackCoef + target * (1f - attackCoef)
                     : _envelope[channel] * releaseCoef + target * (1f - releaseCoef);

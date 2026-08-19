@@ -3,11 +3,11 @@ using System.Buffers.Binary;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Décodeur WAV (RIFF/WAVE) écrit maison. Gère les formats PCM 8/16/24/32 bits,
-/// le flottant 32 bits et l'en-tête extensible (<c>WAVE_FORMAT_EXTENSIBLE</c>).
-/// Le contenu est lu depuis un <c>byte[]</c> chargé une fois, et la sortie est
-/// toujours normalisée en stéréo <see cref="float"/> entrelacé (mono dupliqué,
-/// les canaux surnuméraires sont ignorés).
+/// Hand-written WAV (RIFF/WAVE) decoder. Handles 8/16/24/32-bit PCM, 32-bit
+/// float and the extensible header (<c>WAVE_FORMAT_EXTENSIBLE</c>). Content is
+/// read from a <c>byte[]</c> loaded once, and the output is always normalized to
+/// interleaved stereo <see cref="float"/> (mono duplicated, extra channels
+/// ignored).
 /// </summary>
 public sealed class WavDecoder : IAudioDecoder
 {
@@ -32,7 +32,7 @@ public sealed class WavDecoder : IAudioDecoder
         _data = data;
 
         if (data.Length < 12 || ReadTag(data, 0) != "RIFF" || ReadTag(data, 8) != "WAVE")
-            throw new InvalidDataException("Ce fichier n'est pas un WAV (RIFF/WAVE) valide.");
+            throw new InvalidDataException("This file is not a valid WAV (RIFF/WAVE).");
 
         var offset = 12;
         short format = 0;
@@ -50,7 +50,7 @@ public sealed class WavDecoder : IAudioDecoder
             if (id == "fmt ")
             {
                 if (body + 16 > data.Length)
-                    throw new InvalidDataException("En-tête WAV 'fmt ' tronqué.");
+                    throw new InvalidDataException("Truncated WAV 'fmt ' header.");
 
                 format = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(body));
                 channels = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(body + 2));
@@ -58,8 +58,8 @@ public sealed class WavDecoder : IAudioDecoder
                 _blockAlign = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(body + 12));
                 bits = BinaryPrimitives.ReadUInt16LittleEndian(data.AsSpan(body + 14));
 
-                // WAVE_FORMAT_EXTENSIBLE : le vrai format est le début du GUID
-                // de sous-format, placé après les champs extensibles.
+                // WAVE_FORMAT_EXTENSIBLE: the real format is the start of the
+                // sub-format GUID, placed after the extensible fields.
                 if (format == unchecked((short)0xFFFE) && body + 40 <= data.Length)
                     format = BinaryPrimitives.ReadInt16LittleEndian(data.AsSpan(body + 24));
             }
@@ -74,7 +74,7 @@ public sealed class WavDecoder : IAudioDecoder
         }
 
         if (!foundData || _dataLength <= 0)
-            throw new InvalidDataException("Le WAV ne contient pas de chunk 'data'.");
+            throw new InvalidDataException("The WAV contains no 'data' chunk.");
 
         SampleRate = sampleRate > 0 ? sampleRate : 48000;
         _sourceChannels = channels > 0 ? channels : 1;

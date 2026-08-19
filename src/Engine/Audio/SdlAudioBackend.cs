@@ -4,15 +4,15 @@ using Silk.NET.SDL;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Backend audio SDL2 en mode poussée : ouvre un périphérique de sortie avec
-/// <c>SDL_OpenAudioDevice</c> et alimente la file avec <c>SDL_QueueAudio</c>.
-/// Le runtime produit du stéréo <see cref="float"/> entrelacé ; cette classe est
-/// la seule à connaître SDL et convertit vers le format réellement négocié
-/// (float32, s16, s32 ou u8, mono ou stéréo) dans un buffer réutilisé.
+/// SDL2 audio backend in push mode: opens an output device with
+/// <c>SDL_OpenAudioDevice</c> and feeds the queue with <c>SDL_QueueAudio</c>.
+/// The runtime produces interleaved stereo <see cref="float"/>; this class is
+/// the only one that knows SDL and converts to the format actually negotiated
+/// (float32, s16, s32 or u8, mono or stereo) in a reused buffer.
 ///
-/// Migration SDL3 : remplacer le couple <c>SDL_OpenAudioDevice</c>/
-/// <c>SDL_QueueAudio</c> par <c>SDL_OpenAudioDeviceStream</c>/
-/// <c>SDL_PutAudioStreamData</c> — seule cette classe change, pas le runtime.
+/// SDL3 migration: replace the <c>SDL_OpenAudioDevice</c>/<c>SDL_QueueAudio</c>
+/// pair with <c>SDL_OpenAudioDeviceStream</c>/<c>SDL_PutAudioStreamData</c> —
+/// only this class changes, not the runtime.
 /// </summary>
 internal sealed unsafe class SdlAudioBackend : IAudioBackend
 {
@@ -41,8 +41,8 @@ internal sealed unsafe class SdlAudioBackend : IAudioBackend
         OutputDevices = Enumerate(_sdl, isCapture: 0);
         InputDevices = Enumerate(_sdl, isCapture: 1);
 
-        // Le moteur est calé sur 48 kHz : on n'autorise pas SDL à changer la
-        // fréquence, mais on accepte tout format/canaux et on convertit.
+        // The engine is locked to 48 kHz: SDL is not allowed to change the
+        // frequency, but any format/channels are accepted and converted.
         var desired = new AudioSpec
         {
             Freq = AudioSystem.SampleRate,
@@ -109,7 +109,7 @@ internal sealed unsafe class SdlAudioBackend : IAudioBackend
         _sdl.Dispose();
     }
 
-    /// <summary>Convertit un bloc stéréo float vers le format/canaux négociés, dans le scratch.</summary>
+    /// <summary>Converts a stereo float block to the negotiated format/channels, into the scratch.</summary>
     private int Convert(ReadOnlySpan<float> interleaved, int frames)
     {
         var bytesPerSample = BytesPerSample(_format);
@@ -203,7 +203,7 @@ internal sealed unsafe class SdlAudioBackend : IAudioBackend
         return devices;
     }
 
-    /// <summary>Périphérique de capture SDL2 : <c>SDL_DequeueAudio</c> en mono/stéréo float.</summary>
+    /// <summary>SDL2 capture device: <c>SDL_DequeueAudio</c> as mono/stereo float.</summary>
     private sealed class SdlCaptureDevice : IAudioCaptureDevice
     {
         private readonly Sdl _sdl;

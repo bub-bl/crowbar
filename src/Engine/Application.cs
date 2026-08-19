@@ -273,7 +273,7 @@ public abstract class Application : IDisposable
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"[Audio] Backend indisponible ({exception.Message}) : moteur muet.");
+            Console.WriteLine($"[Audio] Backend unavailable ({exception.Message}): silent engine.");
             _audio = new AudioSystem();
             AudioFacade.Bind(_audio);
         }

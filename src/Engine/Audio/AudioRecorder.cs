@@ -3,15 +3,15 @@ using Crowbar.FileSystems;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Enregistreur : deux modes complémentaires.
+/// Recorder: two complementary modes.
 /// <list type="bullet">
-/// <item><b>Sortie</b> (« record ce que tu entends ») : le thread DSP tape le
-/// bus master après le mix et l'écrit en WAV — gratuit car le mixer est maison,
-/// et c'est un différenciateur clé ;</item>
-/// <item><b>Entrée</b> (micro) : un thread de capture défile le périphérique et
-/// écrit le WAV.</item>
+/// <item><b>Output</b> ("record what you hear"): the DSP thread taps the master
+/// bus after the mix and writes it as WAV — free because the mixer is homegrown,
+/// and a key differentiator;</item>
+/// <item><b>Input</b> (microphone): a capture thread drains the device and
+/// writes the WAV.</item>
 /// </list>
-/// La boucle système (enregistrer les autres applications) est hors périmètre.
+/// The system loop (recording other applications) is out of scope.
 /// </summary>
 public sealed class AudioRecorder : IDisposable
 {
@@ -24,13 +24,13 @@ public sealed class AudioRecorder : IDisposable
     private volatile bool _capturing;
     private volatile bool _disposed;
 
-    /// <summary>Vrai pendant un enregistrement de sortie (tap du master).</summary>
+    /// <summary>True during an output recording (master tap).</summary>
     public bool IsRecordingOutput => _outputWriter is not null;
 
-    /// <summary>Vrai pendant une capture micro.</summary>
+    /// <summary>True during a microphone capture.</summary>
     public bool IsRecordingInput => _capturing;
 
-    /// <summary>Chemin du fichier en cours d'écriture, ou null.</summary>
+    /// <summary>Path of the file being written, or null.</summary>
     public string? RecordingPath { get; private set; }
 
     internal AudioRecorder(AudioSystem system)
@@ -38,7 +38,7 @@ public sealed class AudioRecorder : IDisposable
         _system = system;
     }
 
-    /// <summary>Commence à enregistrer la sortie master vers <paramref name="path"/> (projet).</summary>
+    /// <summary>Starts recording the master output to <paramref name="path"/> (project).</summary>
     public void StartOutput(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -50,7 +50,7 @@ public sealed class AudioRecorder : IDisposable
         RecordingPath = path;
     }
 
-    /// <summary>Commence à capturer le micro vers <paramref name="path"/> (projet).</summary>
+    /// <summary>Starts capturing the microphone to <paramref name="path"/> (project).</summary>
     public void StartInput(string path, string? device = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -76,7 +76,7 @@ public sealed class AudioRecorder : IDisposable
         _captureThread.Start();
     }
 
-    /// <summary>Arrête tous les enregistrements en cours et finalise les fichiers.</summary>
+    /// <summary>Stops every ongoing recording and finalizes the files.</summary>
     public void Stop()
     {
         if (_capturing)
@@ -99,7 +99,7 @@ public sealed class AudioRecorder : IDisposable
         RecordingPath = null;
     }
 
-    /// <summary>Tape le buffer master (appelé par le thread DSP après le mix).</summary>
+    /// <summary>Taps the master buffer (called by the DSP thread after the mix).</summary>
     internal void TapOutput(ReadOnlySpan<float> interleaved, int frames)
     {
         var writer = _outputWriter;

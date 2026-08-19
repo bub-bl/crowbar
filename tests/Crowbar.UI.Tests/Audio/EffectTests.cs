@@ -3,9 +3,9 @@ using Crowbar.Engine.Audio;
 namespace Crowbar.Audio.Tests;
 
 /// <summary>
-/// Tests headless des effets DSP : pass-through, silence, panoramique,
-/// réponse impulsionnelle et non-linéarité du compresseur. Chaque effet est un
-/// bloc stéréo pur C#, sans backend.
+/// Headless tests for the DSP effects: pass-through, silence, panning, impulse
+/// response and compressor non-linearity. Each effect is a pure C# stereo block,
+/// without a backend.
 /// </summary>
 public class EffectTests
 {
@@ -77,9 +77,9 @@ public class EffectTests
         effect.Reset();
         effect.Process(second, Context);
 
-        // Déterminisme après Reset.
+        // Deterministic after Reset.
         Assert.Equal(first, second);
-        // Une réponse impulsionnelle : première sortie non nulle puis décroissance.
+        // An impulse response: non-zero first output then decay.
         Assert.NotEqual(0f, first[0]);
         Assert.True(MathF.Abs(first[2]) < 1f);
     }
@@ -90,14 +90,14 @@ public class EffectTests
         var effect = new DelayEffect();
         var delayFrames = 100;
         effect.SetParameter(0, delayFrames / 48000f);
-        effect.SetParameter(1, 0f);   // pas de feedback
-        effect.SetParameter(2, 1f);   // tout humide
+        effect.SetParameter(1, 0f);   // no feedback
+        effect.SetParameter(2, 1f);   // fully wet
         effect.Reset();
 
         var buffer = Impulse();
         effect.Process(buffer, Context);
 
-        // L'écho du sample 0 arrive à la frame 100, soit l'index stéréo 200.
+        // The echo of sample 0 arrives at frame 100, i.e. stereo index 200.
         Assert.Equal(1f, buffer[200], 1e-5f);
         Assert.Equal(1f, buffer[201], 1e-5f);
     }
@@ -106,13 +106,13 @@ public class EffectTests
     public void Reverb_ExtendsImpulseIntoATail()
     {
         var effect = new SchroederReverb();
-        effect.SetParameter(0, 0.9f); // humide
+        effect.SetParameter(0, 0.9f); // wet
         effect.Reset();
 
         var buffer = Impulse();
         effect.Process(buffer, Context);
 
-        // La queue réverbérée apparaît quelques blocs après l'impulsion.
+        // The reverberated tail appears a few blocks after the impulse.
         var tailEnergy = 0f;
         for (var block = 0; block < 12; block++)
         {
@@ -129,11 +129,11 @@ public class EffectTests
     public void Compressor_ReducesLoudPeaks()
     {
         var effect = new Compressor();
-        effect.SetParameter(0, -12f);  // seuil -12 dB ≈ 0.25
-        effect.SetParameter(1, 8f);    // ratio
-        effect.SetParameter(2, 0.001f); // attaque rapide
-        effect.SetParameter(3, 0.05f);  // relâchement court
-        effect.SetParameter(4, 0f);     // pas de maquillage
+        effect.SetParameter(0, -12f);   // threshold -12 dB ~= 0.25
+        effect.SetParameter(1, 8f);     // ratio
+        effect.SetParameter(2, 0.001f); // fast attack
+        effect.SetParameter(3, 0.05f);  // short release
+        effect.SetParameter(4, 0f);     // no makeup
         effect.Reset();
 
         var loud = new float[AudioSystem.BlockSize * 2];

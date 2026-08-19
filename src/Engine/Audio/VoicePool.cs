@@ -1,23 +1,23 @@
 namespace Crowbar.Engine.Audio;
 
-/// <summary>État cross-thread d'un slot du pool.</summary>
+/// <summary>Cross-thread state of a pool slot.</summary>
 internal enum VoiceState : int
 {
-    /// <summary>Slot libre.</summary>
+    /// <summary>Slot is free.</summary>
     Free = 0,
-    /// <summary>Réservé par le thread de jeu, en attente d'activation par le DSP.</summary>
+    /// <summary>Reserved by the game thread, waiting for DSP activation.</summary>
     Reserved = 1,
-    /// <summary>Actif : le DSP le rend à chaque bloc.</summary>
+    /// <summary>Active: the DSP renders it every block.</summary>
     Active = 2
 }
 
 /// <summary>
-/// Pool de voix de taille fixe. Le thread de jeu réserve un slot (et peut voler
-/// la voix la moins prioritaire quand le pool est plein) ; le thread DSP active
-/// la voix quand il traite la commande <c>Play</c> et libère le slot quand la
-/// voix se termine. Seuls <see cref="AudioVoice.State"/> et
-/// <see cref="AudioVoice.Generation"/> sont partagés (écritures volatiles
-/// atomiques) ; le reste de la voix appartient au DSP.
+/// Fixed-size voice pool. The game thread reserves a slot (and can steal the
+/// lowest-priority voice when the pool is full); the DSP thread activates the
+/// voice when it processes the <c>Play</c> command and frees the slot when the
+/// voice ends. Only <see cref="AudioVoice.State"/> and
+/// <see cref="AudioVoice.Generation"/> are shared (atomic volatile writes); the
+/// rest of the voice belongs to the DSP.
 /// </summary>
 internal sealed class VoicePool
 {
@@ -34,9 +34,9 @@ internal sealed class VoicePool
     public AudioVoice this[int index] => _voices[index];
 
     /// <summary>
-    /// Réserve un slot depuis le thread de jeu : d'abord un slot libre, sinon la
-    /// voix active/réservée de plus basse priorité. Retourne l'index du slot et
-    /// sa nouvelle génération.
+    /// Reserves a slot from the game thread: first a free slot, otherwise the
+    /// active/reserved voice with the lowest priority. Returns the slot index
+    /// and its new generation.
     /// </summary>
     public (int Slot, int Generation) Reserve(int priority)
     {
@@ -52,9 +52,9 @@ internal sealed class VoicePool
 
         if (slot < 0)
         {
-            // Pool plein : on vole la voix de plus basse priorité (à défaut la
-            // première). La priorité lue ici peut être légèrement en retard,
-            // ce qui est un compromis acceptable pour une heuristique.
+            // Pool full: steal the lowest-priority voice (or the first one as a
+            // fallback). The priority read here can be slightly stale, which is
+            // an acceptable trade-off for a heuristic.
             var lowest = int.MaxValue;
             for (var i = 0; i < Capacity; i++)
             {

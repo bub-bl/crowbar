@@ -129,10 +129,10 @@ public sealed class FileSystemService
 
     public Stream OpenRead(FilePath path) => Backend.OpenRead(path);
 
-    /// <summary>Ouvre (ou crée) un fichier en écriture, en écrasant le contenu existant.</summary>
+    /// <summary>Opens (or creates) a file for writing, overwriting the existing content.</summary>
     public Stream OpenWrite(string path) => Backend.OpenFile(ToFilePath(path), FileMode.Create, FileAccess.Write, FileShare.None);
 
-    /// <summary>Ouvre (ou crée) un fichier en écriture, en écrasant le contenu existant.</summary>
+    /// <summary>Opens (or creates) a file for writing, overwriting the existing content.</summary>
     public Stream OpenWrite(FilePath path) => Backend.OpenFile(path, FileMode.Create, FileAccess.Write, FileShare.None);
 
     public bool FileExists(string path) => Backend.FileExists(ToFilePath(path));

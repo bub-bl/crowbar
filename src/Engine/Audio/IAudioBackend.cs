@@ -1,12 +1,12 @@
 namespace Crowbar.Engine.Audio;
 
-/// <summary>Un périphérique audio énuméré (lecture ou capture).</summary>
+/// <summary>An enumerated audio device (playback or capture).</summary>
 public readonly record struct AudioDevice(string Name, bool IsDefault);
 
 /// <summary>
-/// Flux de capture audio (micro) ouvert par un <see cref="IAudioBackend"/> : il
-/// fournit des frames <see cref="float"/> stéréo (mono dupliqué par le backend)
-/// via <see cref="Read"/>, dans un buffer réutilisé par l'appelant.
+/// Audio capture stream (microphone) opened by an <see cref="IAudioBackend"/>:
+/// it provides interleaved stereo <see cref="float"/> frames (mono duplicated by
+/// the backend) via <see cref="Read"/>, into a caller-reused buffer.
 /// </summary>
 public interface IAudioCaptureDevice : IDisposable
 {
@@ -14,56 +14,56 @@ public interface IAudioCaptureDevice : IDisposable
     int Channels { get; }
 
     /// <summary>
-    /// Défile jusqu'à <c>destination.Length / 2</c> frames capturées ; retourne
-    /// le nombre de frames lues (0 si rien n'est encore disponible).
+    /// Drains up to <c>destination.Length / 2</c> captured frames; returns the
+    /// number of frames read (0 if none is available yet).
     /// </summary>
     int Read(Span<float> destination);
 
-    /// <summary>Démarre la capture (une fois le device ouvert).</summary>
+    /// <summary>Starts capture (once the device has been opened).</summary>
     void Start();
 }
 
 /// <summary>
-/// Backend audio : l'unique couche qui parle à la plateforme. L'implémentation
-/// actuelle (<see cref="SdlAudioBackend"/>) utilise l'API de poussée SDL2
-/// (<c>SDL_OpenAudioDevice</c> + <c>SDL_QueueAudio</c>). La migration vers SDL3
-/// (<c>SDL_PutAudioStreamData</c> + streams) ne modifiera que cette classe, pas
-/// le runtime (<see cref="AudioSystem"/>) ni les effets.
+/// Audio backend: the single layer that talks to the platform. The current
+/// implementation (<see cref="SdlAudioBackend"/>) uses the SDL2 push API
+/// (<c>SDL_OpenAudioDevice</c> + <c>SDL_QueueAudio</c>). Migrating to SDL3
+/// (<c>SDL_PutAudioStreamData</c> + streams) will only touch this class, not the
+/// runtime (<see cref="AudioSystem"/>) nor the effects.
 ///
-/// Le runtime pousse des blocs stéréo <see cref="float"/> entrelacés et ne
-/// touche jamais aux buffers natifs.
+/// The runtime pushes interleaved stereo <see cref="float"/> blocks and never
+/// touches the native buffers.
 /// </summary>
 public interface IAudioBackend : IDisposable
 {
     string BackendName { get; }
 
-    /// <summary>Fréquence d'échantillonnage effective du périphérique de sortie.</summary>
+    /// <summary>Effective sample rate of the output device.</summary>
     int SampleRate { get; }
 
-    /// <summary>Nombre de canaux effectifs de la sortie (le runtime produit du stéréo).</summary>
+    /// <summary>Effective channel count of the output (the runtime produces stereo).</summary>
     int Channels { get; }
 
-    /// <summary>Périphériques de lecture disponibles.</summary>
+    /// <summary>Available playback devices.</summary>
     IReadOnlyList<AudioDevice> OutputDevices { get; }
 
-    /// <summary>Périphériques de capture disponibles.</summary>
+    /// <summary>Available capture devices.</summary>
     IReadOnlyList<AudioDevice> InputDevices { get; }
 
-    /// <summary>Vrai tant que le backend peut accepter des blocs.</summary>
+    /// <summary>True as long as the backend can accept blocks.</summary>
     bool IsRunning { get; }
 
-    /// <summary>Nombre d'échantillons encore en file dans le périphérique (latence).</summary>
+    /// <summary>Number of samples still queued in the device (latency).</summary>
     uint QueuedSamples { get; }
 
-    /// <summary>Pousse un bloc stéréo entrelacé. Retourne false en cas d'échec.</summary>
+    /// <summary>Pushes an interleaved stereo block. Returns false on failure.</summary>
     bool QueueSamples(ReadOnlySpan<float> interleaved);
 
-    /// <summary>Démarre la lecture (sort le périphérique de pause).</summary>
+    /// <summary>Starts playback (takes the device out of pause).</summary>
     void Start();
 
-    /// <summary>Met la lecture en pause.</summary>
+    /// <summary>Pauses playback.</summary>
     void Stop();
 
-    /// <summary>Ouvre un périphérique de capture (micro), ou null si indisponible.</summary>
+    /// <summary>Opens a capture device (microphone), or null if unavailable.</summary>
     IAudioCaptureDevice? OpenCapture(string? device);
 }

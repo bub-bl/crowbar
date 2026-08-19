@@ -4,9 +4,9 @@ using Crowbar.FileSystems;
 namespace Crowbar.Audio.Tests;
 
 /// <summary>
-/// Tests headless de l'écriture WAV et du tap d'enregistrement : on écrit, on
-/// relit avec <see cref="WavDecoder"/> et on compare le PCM. Le mode micro
-/// (périphérique de capture) est volontairement hors de ces tests sans device.
+/// Headless tests for WAV writing and the recording tap: write, re-read with
+/// <see cref="WavDecoder"/> and compare the PCM. The microphone mode (capture
+/// device) is deliberately outside these device-less tests.
 /// </summary>
 public class RecordingTests
 {
@@ -32,7 +32,7 @@ public class RecordingTests
         var output = new float[stereo.Length];
         Assert.Equal(mono.Length, decoder.Read(output));
 
-        // Tolérance PCM 16 bits (quantification ≈ 1/32767).
+        // 16-bit PCM tolerance (quantization ~= 1/32767).
         const float tolerance = 1f / 32767f;
         for (var i = 0; i < stereo.Length; i++)
             Assert.InRange(output[i], stereo[i] - tolerance, stereo[i] + tolerance);

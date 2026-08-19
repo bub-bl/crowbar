@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace Crowbar.Engine.Audio;
 
-/// <summary>Les bus nommés de l'arbre de mixage.</summary>
+/// <summary>The named buses of the mixing tree.</summary>
 public enum AudioBusName
 {
     Master,
@@ -13,25 +13,26 @@ public enum AudioBusName
 }
 
 /// <summary>
-/// Le moteur audio : arbre de bus (Master → Musique/SFX/UI/Voix), pool de voix,
-/// effets, file de commandes SPSC et thread DSP. Le mixer est 100 % C# et
-/// déterministe : <see cref="RenderBlock"/> rend un bloc dans un buffer fourni,
-/// sans aucun backend — c'est ce que les tests (et le rendu hors ligne)
-/// appellent directement. Quand un <see cref="IAudioBackend"/> est fourni,
-/// <see cref="Start"/> lance le thread DSP qui rend les blocs et les pousse.
+/// The audio engine: bus tree (Master -> Music/SFX/UI/Voice), voice pool,
+/// effects, SPSC command queue and DSP thread. The mixer is 100% C# and
+/// deterministic: <see cref="RenderBlock"/> renders a block into a provided
+/// buffer, without any backend — that is what the tests (and offline rendering)
+/// call directly. When an <see cref="IAudioBackend"/> is provided,
+/// <see cref="Start"/> launches the DSP thread that renders the blocks and
+/// pushes them.
 ///
-/// Le thread de jeu ne touche jamais aux buffers : il réserve des voix et
-/// envoie des commandes (Play, Stop, SetVolume, SetEffectParam, ...).
+/// The game thread never touches the buffers: it reserves voices and sends
+/// commands (Play, Stop, SetVolume, SetEffectParam, ...).
 /// </summary>
 public sealed class AudioSystem : IDisposable
 {
-    /// <summary>Fréquence d'échantillonnage du moteur (Hz).</summary>
+    /// <summary>Engine sample rate (Hz).</summary>
     public const int SampleRate = 48000;
 
-    /// <summary>Taille d'un bloc DSP, en frames (480 échantillons @ 48 kHz = 10 ms).</summary>
+    /// <summary>Size of one DSP block, in frames (480 samples @ 48 kHz = 10 ms).</summary>
     public const int BlockSize = 480;
 
-    /// <summary>Canaux du mixer (stéréo entrelacé).</summary>
+    /// <summary>Mixer channels (interleaved stereo).</summary>
     public const int Channels = 2;
 
     private readonly IAudioBackend? _backend;
@@ -43,10 +44,10 @@ public sealed class AudioSystem : IDisposable
     private volatile bool _running;
     private bool _disposed;
 
-    /// <summary>Horloge d'échantillons, base de la synchronisation et du rendu offline.</summary>
+    /// <summary>Sample clock, the base of synchronization and offline rendering.</summary>
     public AudioClock Clock { get; } = new(SampleRate);
 
-    /// <summary>Écouteur 3D pour la spatialisation.</summary>
+    /// <summary>3D listener for spatialization.</summary>
     public AudioListener Listener { get; } = new();
 
     public AudioBus Master { get; }
@@ -55,16 +56,16 @@ public sealed class AudioSystem : IDisposable
     public AudioBus Ui { get; }
     public AudioBus Voice { get; }
 
-    /// <summary>Enregistreur (tap master + capture micro).</summary>
+    /// <summary>Recorder (master tap + microphone capture).</summary>
     public AudioRecorder Recorder { get; }
 
-    /// <summary>Buffer d'entrée micro en mémoire (lecture/replay temps réel).</summary>
+    /// <summary>In-memory microphone input buffer (live read/replay).</summary>
     public Microphone Microphone { get; }
 
     public IAudioBackend? Backend => _backend;
     public bool IsRunning => _running;
 
-    /// <summary>Nombre de voix actuellement actives (diagnostic).</summary>
+    /// <summary>Number of currently active voices (diagnostic).</summary>
     public int ActiveVoiceCount
     {
         get
@@ -92,7 +93,7 @@ public sealed class AudioSystem : IDisposable
         Microphone = new Microphone(backend);
     }
 
-    /// <summary>Retourne un bus par son nom.</summary>
+    /// <summary>Returns a bus by its name.</summary>
     public AudioBus GetBus(AudioBusName name) => name switch
     {
         AudioBusName.Master => Master,
@@ -103,10 +104,10 @@ public sealed class AudioSystem : IDisposable
         _ => throw new ArgumentOutOfRangeException(nameof(name))
     };
 
-    /// <summary>Règle le volume linéaire d'un bus.</summary>
+    /// <summary>Sets the linear volume of a bus.</summary>
     public void SetBusVolume(AudioBusName name, float volume) => GetBus(name).Gain = Math.Clamp(volume, 0f, 16f);
 
-    /// <summary>Démarre le thread DSP (uniquement quand un backend est attaché).</summary>
+    /// <summary>Starts the DSP thread (only when a backend is attached).</summary>
     public void Start()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
@@ -127,10 +128,9 @@ public sealed class AudioSystem : IDisposable
     }
 
     /// <summary>
-    /// Tick du thread de jeu (phase update). En mode hors ligne (sans backend),
-    /// draine la file de commandes pour que <c>Play</c>/<c>Stop</c> prennent
-    /// effet avant le prochain rendu ; avec un thread DSP, la file est déjà
-    /// consommée par ce dernier.
+    /// Game-thread tick (update phase). In offline mode (no backend), drains the
+    /// command queue so <c>Play</c>/<c>Stop</c> take effect before the next
+    /// render; with a DSP thread, the queue is already consumed by it.
     /// </summary>
     public void Update(float deltaTime)
     {
@@ -138,7 +138,7 @@ public sealed class AudioSystem : IDisposable
             DrainCommands();
     }
 
-    /// <summary>Joue un clip (SFX par défaut) et retourne sa poignée.</summary>
+    /// <summary>Plays a clip (SFX by default) and returns its handle.</summary>
     public VoiceHandle Play(
         AudioClip clip,
         float volume = 1f,
@@ -154,9 +154,9 @@ public sealed class AudioSystem : IDisposable
     }
 
     /// <summary>
-    /// Charge un clip depuis un chemin de contenu puis le joue (SFX court).
-    /// Équivalent de <c>Play(AudioClip.Load(path), ...)</c> ; pour une musique
-    /// longue, préférez <see cref="Play(AudioStream, float, float, float, bool, float, int, AudioBusName)"/>.
+    /// Loads a clip from a content path then plays it (short SFX). Equivalent to
+    /// <c>Play(AudioClip.Load(path), ...)</c>; for long music, prefer
+    /// <see cref="Play(AudioStream, float, float, float, bool, float, int, AudioBusName)"/>.
     /// </summary>
     public VoiceHandle Play(
         string path,
@@ -172,7 +172,7 @@ public sealed class AudioSystem : IDisposable
         return Play(AudioClip.Load(path), volume, pitch, pan, loop, fadeIn, priority, bus);
     }
 
-    /// <summary>Joue un flux long (musique) et retourne sa poignée.</summary>
+    /// <summary>Plays a long stream (music) and returns its handle.</summary>
     public VoiceHandle Play(
         AudioStream stream,
         float volume = 1f,
@@ -187,7 +187,7 @@ public sealed class AudioSystem : IDisposable
         return PlaySource(stream, volume, pitch, pan, loop, fadeIn, priority, bus, spatial: false, position: default);
     }
 
-    /// <summary>Joue un clip spatialisé (atténuation inverse-distance + pan equal-power).</summary>
+    /// <summary>Plays a spatialized clip (inverse-distance attenuation + equal-power pan).</summary>
     public VoiceHandle Play3D(
         AudioClip clip,
         Vector3 position,
@@ -202,14 +202,14 @@ public sealed class AudioSystem : IDisposable
         return PlaySource(new ClipSource(clip), volume, pitch, 0f, loop, fadeIn, priority, bus, spatial: true, position);
     }
 
-    /// <summary>Arrête toutes les voix (prend effet au prochain bloc).</summary>
+    /// <summary>Stops every voice (takes effect on the next block).</summary>
     public void StopAll()
     {
         var command = new AudioCommand { Type = AudioCommandType.StopAll };
         _commands.Enqueue(command);
     }
 
-    /// <summary>Vrai tant que la poignée désigne la génération courante de son slot.</summary>
+    /// <summary>True as long as the handle designates the current generation of its slot.</summary>
     internal bool IsVoiceAlive(int slot, int generation) =>
         slot >= 0 && slot < VoicePool.Capacity && _voices[slot].State != (int)VoiceState.Free && _voices[slot].Generation == generation;
 
@@ -238,14 +238,14 @@ public sealed class AudioSystem : IDisposable
         _commands.Enqueue(new AudioCommand { Type = AudioCommandType.AddEffect, Slot = slot, Generation = generation, Effect = effect });
 
     /// <summary>
-    /// Rend un bloc stéréo entrelacé dans <paramref name="output"/>. Déterministe
-    /// et sans allocation : draine d'abord la file de commandes, somme les voix
-    /// dans les bus, applique les chaînes d'effets et recopie le master.
+    /// Renders an interleaved stereo block into <paramref name="output"/>.
+    /// Deterministic and allocation-free: first drains the command queue, sums
+    /// the voices into the buses, applies the effect chains and copies the master.
     /// </summary>
     public void RenderBlock(Span<float> output)
     {
         if (output.Length < BlockSize * Channels)
-            throw new ArgumentException($"Le buffer de sortie doit contenir au moins {BlockSize * Channels} échantillons.", nameof(output));
+            throw new ArgumentException($"The output buffer must hold at least {BlockSize * Channels} samples.", nameof(output));
 
         DrainCommands();
         var frames = BlockSize;
@@ -255,22 +255,22 @@ public sealed class AudioSystem : IDisposable
             bus.Clear();
         Master.Clear();
 
-        // 1. Les voix somment dans leur bus cible.
+        // 1. The voices sum into their target bus.
         for (var i = 0; i < VoicePool.Capacity; i++)
         {
             var voice = _voices[i];
             if (voice.State == (int)VoiceState.Active)
             {
                 voice.Render(Listener, frames, time);
-                // La voix est arrivée en fin de flux : on libère le slot. Le
-                // test sur State == Active protège contre un vol concurrent
-                // (le thread de jeu a pu re-réserver le slot entre-temps).
+                // The voice reached end of stream: free the slot. The
+                // State == Active check guards against a concurrent steal (the
+                // game thread may have re-reserved the slot in between).
                 if (voice.HasEnded && voice.State == (int)VoiceState.Active)
                     voice.State = (int)VoiceState.Free;
             }
         }
 
-        // 2. Les bus feuilles appliquent leurs effets puis somment dans le master.
+        // 2. The leaf buses apply their effects then sum into the master.
         var anySolo = Music.Solo || Sfx.Solo || Ui.Solo || Voice.Solo;
         var masterAccumulator = Master.Accumulator;
         foreach (var bus in _leafBuses)
@@ -287,7 +287,7 @@ public sealed class AudioSystem : IDisposable
                 masterAccumulator[i] += accumulator[i] * gain;
         }
 
-        // 3. Effets et gain du master, puis copie vers la sortie.
+        // 3. Master effects and gain, then copy to the output.
         Master.ProcessEffects(frames, time);
         ComputeMeters(Master, frames);
 
@@ -295,7 +295,7 @@ public sealed class AudioSystem : IDisposable
         for (var i = 0; i < frames * Channels; i++)
             output[i] = masterAccumulator[i] * masterGain;
 
-        // 4. Enregistrement de sortie (tap après le mix), puis avance de l'horloge.
+        // 4. Output recording (tap after the mix), then advance the clock.
         Recorder.TapOutput(output, frames);
         Clock.Advance(frames);
     }
@@ -467,8 +467,8 @@ public sealed class AudioSystem : IDisposable
 
     private void DspLoop()
     {
-        // ~8 blocs en file = ~80 ms de marge : assez pour absorber les
-        // irrégularités de scheduling sans ajouter de latence perceptible.
+        // ~8 queued blocks = ~80 ms of headroom: enough to absorb scheduling
+        // jitter without adding perceptible latency.
         const uint maxQueued = BlockSize * 8;
 
         while (_running)

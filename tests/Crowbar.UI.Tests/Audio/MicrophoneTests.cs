@@ -3,9 +3,9 @@ using Crowbar.Engine.Audio;
 namespace Crowbar.Audio.Tests;
 
 /// <summary>
-/// Tests headless du buffer micro : on pousse des frames connues (ou on laisse
-/// un faux périphérique remplir le ring buffer) puis on vérifie la lecture en
-/// flux et l'instantané rejouable. Aucun vrai périphérique n'est requis.
+/// Headless tests for the microphone buffer: push known frames (or let a fake
+/// device fill the ring buffer) then verify streamed reading and the replayable
+/// snapshot. No real device is required.
 /// </summary>
 public class MicrophoneTests
 {
@@ -36,7 +36,7 @@ public class MicrophoneTests
         Assert.Equal(1f, clip.Data[0]);
         Assert.Equal(3f, clip.Data[4]);
 
-        // Non destructif : la lecture en flux retrouve toujours les 3 frames.
+        // Non-destructive: streamed reading still finds the 3 frames.
         var destination = new float[6];
         Assert.Equal(3, microphone.Read(destination));
         Assert.Equal(1f, destination[0]);

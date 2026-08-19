@@ -3,10 +3,10 @@ using Crowbar.Engine.Audio;
 namespace Crowbar.Audio.Tests;
 
 /// <summary>
-/// Mesure que le chemin de rendu DSP n'alloue rien en régime permanent, sur le
-/// modèle des tests <c>Renderer2D</c>. On chauffe d'abord le JIT, puis on rend
-/// des centaines de blocs avec une voix bouclée + un effet : le compteur
-/// d'allocations du thread ne doit pas bouger.
+/// Verifies that the DSP render path allocates nothing in steady state, on the
+/// model of the <c>Renderer2D</c> tests. The JIT is warmed up first, then
+/// hundreds of blocks are rendered with a looped voice + an effect: the thread's
+/// allocation counter must not move.
 /// </summary>
 public class ZeroAllocationTests
 {
@@ -20,7 +20,7 @@ public class ZeroAllocationTests
 
         var buffer = new float[AudioSystem.BlockSize * AudioSystem.Channels];
 
-        // Chauffe le JIT et atteint l'état stationnaire (buffers pré-dimensionnés).
+        // Warm up the JIT and reach steady state (pre-sized buffers).
         for (var i = 0; i < 200; i++)
             system.RenderBlock(buffer);
 

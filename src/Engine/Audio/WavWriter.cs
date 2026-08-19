@@ -3,11 +3,11 @@ using System.Buffers.Binary;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Écrivain WAV maison (PCM 16 bits, stéréo) : il écrit un en-tête provisoire,
-/// puis les échantillons au fil de l'eau, et finalise les tailles à la
-/// fermeture. Le stream sous-jacent est fourni par l'appelant (fichier projet,
-/// mémoire, réseau) ; la conversion float → int16 se fait dans un buffer
-/// réutilisé, sans allocation en régime permanent.
+/// Hand-written WAV writer (16-bit PCM, stereo): it writes a provisional header,
+/// then samples as they come, and finalizes the sizes on close. The underlying
+/// stream is provided by the caller (project file, memory, network); the float
+/// -> int16 conversion happens in a reused buffer, with no allocation in steady
+/// state.
 /// </summary>
 public sealed class WavWriter : IDisposable
 {
@@ -21,7 +21,7 @@ public sealed class WavWriter : IDisposable
     public WavWriter(Stream stream, int sampleRate, int channels = 2, int bitsPerSample = 16)
     {
         if (bitsPerSample != 16)
-            throw new ArgumentOutOfRangeException(nameof(bitsPerSample), "Seul le PCM 16 bits est écrit pour l'instant.");
+            throw new ArgumentOutOfRangeException(nameof(bitsPerSample), "Only 16-bit PCM is written for now.");
         if (channels < 1)
             throw new ArgumentOutOfRangeException(nameof(channels));
 
@@ -33,17 +33,17 @@ public sealed class WavWriter : IDisposable
         WriteHeader(0);
     }
 
-    /// <summary>Nombre de frames écrites jusqu'ici.</summary>
+    /// <summary>Number of frames written so far.</summary>
     public long Frames => _frames;
 
     /// <summary>
-    /// Écrit un bloc d'échantillons <see cref="float"/> entrelacés, convertis en
-    /// PCM 16 bits signé.
+    /// Writes a block of interleaved <see cref="float"/> samples, converted to
+    /// signed 16-bit PCM.
     /// </summary>
     public void WriteInterleaved(ReadOnlySpan<float> interleaved)
     {
         if (_finalized)
-            throw new InvalidOperationException("Le WAV est déjà finalisé.");
+            throw new InvalidOperationException("The WAV is already finalized.");
 
         var offset = 0;
         while (offset < interleaved.Length)
@@ -65,10 +65,10 @@ public sealed class WavWriter : IDisposable
         _frames += interleaved.Length / _channels;
     }
 
-    /// <summary>Finalise les tailles de l'en-tête et libère le flux.</summary>
+    /// <summary>Finalizes the header sizes and releases the stream.</summary>
     public void Dispose() => Close();
 
-    /// <summary>Finalise les tailles de l'en-tête (peut être appelé une seule fois).</summary>
+    /// <summary>Finalizes the header sizes (can only be called once).</summary>
     public void Close()
     {
         if (_finalized)
@@ -93,7 +93,7 @@ public sealed class WavWriter : IDisposable
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4), (uint)(36 + dataSize));
         System.Text.Encoding.ASCII.GetBytes("WAVE").CopyTo(header, 8);
         System.Text.Encoding.ASCII.GetBytes("fmt ").CopyTo(header, 12);
-        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(16), 16);            // taille fmt
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(16), 16);            // fmt size
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(20), 1);             // PCM
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(22), (ushort)_channels);
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(24), (uint)_sampleRate);

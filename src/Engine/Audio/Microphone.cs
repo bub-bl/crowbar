@@ -1,14 +1,14 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Tampon d'entrée micro en mémoire : un thread de capture défile le
-/// périphérique et remplit un ring buffer stéréo flottant. Le jeu peut alors
-/// soit <see cref="Read"/> (consommer en flux, pour du traitement temps réel),
-/// soit <see cref="TakeClip"/> (instantané des derniers instants, à rejouer via
+/// In-memory microphone input buffer: a capture thread drains the device and
+/// fills a stereo float ring buffer. The game can then either <see cref="Read"/>
+/// (consume as a stream, for real-time processing) or <see cref="TakeClip"/> (a
+/// snapshot of the last moments, to replay via
 /// <see cref="Audio.Play(AudioClip, float, float, float, bool, float, int, AudioBusName)"/>).
 ///
-/// Complémentaire de <see cref="AudioRecorder.StartInput"/> : ici rien n'est
-/// écrit sur disque, les échantillons restent disponibles côté CPU.
+/// Complementary to <see cref="AudioRecorder.StartInput"/>: here nothing is
+/// written to disk, the samples stay available on the CPU side.
 /// </summary>
 public sealed class Microphone : IDisposable
 {
@@ -28,13 +28,13 @@ public sealed class Microphone : IDisposable
 
     public int SampleRate { get; private set; } = AudioSystem.SampleRate;
 
-    /// <summary>Le moteur normalise toujours en stéréo entrelacé.</summary>
+    /// <summary>The engine always normalizes to interleaved stereo.</summary>
     public int Channels => 2;
 
-    /// <summary>Vrai pendant que la capture tourne.</summary>
+    /// <summary>True while capture is running.</summary>
     public bool IsActive => _running;
 
-    /// <summary>Capacité du ring buffer, en frames.</summary>
+    /// <summary>Ring buffer capacity, in frames.</summary>
     public int CapacityFrames
     {
         get
@@ -44,7 +44,7 @@ public sealed class Microphone : IDisposable
         }
     }
 
-    /// <summary>Frames capturées disponibles à la lecture (non consommées).</summary>
+    /// <summary>Captured frames available to read (not yet consumed).</summary>
     public int AvailableFrames
     {
         get
@@ -54,7 +54,7 @@ public sealed class Microphone : IDisposable
         }
     }
 
-    /// <summary>Nombre total de frames capturées depuis le démarrage.</summary>
+    /// <summary>Total number of frames captured since startup.</summary>
     public long TotalFrames
     {
         get
@@ -67,15 +67,14 @@ public sealed class Microphone : IDisposable
     internal Microphone(IAudioBackend? backend)
     {
         _backend = backend;
-        // Un tampon par défaut d'une seconde ; Start peut le redimensionner.
+        // A default one-second buffer; Start can resize it.
         _capacityFrames = AudioSystem.SampleRate;
         _buffer = new float[_capacityFrames * 2];
     }
 
     /// <summary>
-    /// Ouvre le périphérique de capture et démarre le thread qui remplit le
-    /// ring buffer. Retourne false si aucun backend ou périphérique n'est
-    /// disponible.
+    /// Opens the capture device and starts the thread that fills the ring
+    /// buffer. Returns false if no backend or device is available.
     /// </summary>
     public bool Start(string? device = null, float bufferSeconds = 5f)
     {
@@ -109,7 +108,7 @@ public sealed class Microphone : IDisposable
         return true;
     }
 
-    /// <summary>Arrête la capture et libère le périphérique (le buffer reste lisible).</summary>
+    /// <summary>Stops capture and releases the device (the buffer stays readable).</summary>
     public void Stop()
     {
         if (!_running)
@@ -123,8 +122,8 @@ public sealed class Microphone : IDisposable
     }
 
     /// <summary>
-    /// Consomme jusqu'à <c>destination.Length / 2</c> frames (les plus
-    /// anciennes) et retourne le nombre de frames lues.
+    /// Consumes up to <c>destination.Length / 2</c> frames (the oldest ones) and
+    /// returns the number of frames read.
     /// </summary>
     public int Read(Span<float> destination)
     {
@@ -145,10 +144,10 @@ public sealed class Microphone : IDisposable
     }
 
     /// <summary>
-    /// Instantané non destructif des derniers instants capturés, prêt à être
-    /// rejoué. <paramref name="seconds"/> vaut 0 pour tout le buffer ; sinon le
-    /// clip contient au plus <paramref name="seconds"/> secondes (les plus
-    /// récentes).
+    /// Non-destructive snapshot of the last captured moments, ready to be
+    /// replayed. <paramref name="seconds"/> is 0 for the whole buffer; otherwise
+    /// the clip holds at most <paramref name="seconds"/> seconds (the most
+    /// recent ones).
     /// </summary>
     public AudioClip TakeClip(float seconds = 0f)
     {
@@ -186,7 +185,7 @@ public sealed class Microphone : IDisposable
         Stop();
     }
 
-    /// <summary>Écrit des frames stéréo dans le ring buffer (thread capture, ou test).</summary>
+    /// <summary>Writes stereo frames into the ring buffer (capture thread, or test).</summary>
     internal void Push(ReadOnlySpan<float> stereo)
     {
         var frames = stereo.Length / 2;
@@ -228,8 +227,8 @@ public sealed class Microphone : IDisposable
 
     private int ReadStart()
     {
-        // Frame la plus ancienne encore disponible (le ring buffer se
-        // réécrit par-dessus les frames consommées/anciennes).
+        // Oldest frame still available (the ring buffer overwrites
+        // consumed/older frames).
         var offset = _writeIndex - _available;
         return offset >= 0 ? offset : offset + _capacityFrames;
     }

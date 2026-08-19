@@ -3,19 +3,18 @@ using Crowbar.FileSystems;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Fabrique de décodeurs : choisit l'implémentation selon l'extension du
-/// fichier. WAV et AIFF sont écrits maison (pur C#). OGG/Vorbis (NVorbis) et
-/// MP3 (NLayer), tous deux sous licence MIT, se brancheront ici sans changer
-/// l'interface <see cref="IAudioDecoder"/> — ajout volontairement différé tant
-/// que les paquets NuGet ne sont pas vérifiés/restaurés. FLAC est reporté
-/// (dr_flac demande un hand-binding C single-file non trivial).
+/// Decoder factory: picks the implementation based on the file extension. WAV
+/// and AIFF are hand-written (pure C#). OGG/Vorbis (NVorbis) and MP3 (NLayer),
+/// both MIT-licensed, will plug in here without changing the
+/// <see cref="IAudioDecoder"/> interface — deliberately deferred until the
+/// NuGet packages are verified/restored. FLAC is deferred (dr_flac requires a
+/// non-trivial single-file C hand-binding).
 /// </summary>
 public static class AudioDecoderFactory
 {
     /// <summary>
-    /// Ouvre un décodeur sur le contenu complet du fichier <paramref name="path"/>
-    /// (les octets sont chargés une fois, le décodage reste sans allocation sur
-    /// le thread DSP).
+    /// Opens a decoder over the full contents of <paramref name="path"/> (the
+    /// bytes are loaded once; decoding stays allocation-free on the DSP thread).
     /// </summary>
     public static IAudioDecoder Create(string path)
     {
@@ -23,7 +22,7 @@ public static class AudioDecoderFactory
         return CreateFromBytes(path, FileSystem.Content.ReadAllBytes(path));
     }
 
-    /// <summary>Ouvre un décodeur sur des octets déjà chargés, selon l'extension.</summary>
+    /// <summary>Opens a decoder over already-loaded bytes, based on the extension.</summary>
     public static IAudioDecoder CreateFromBytes(string path, byte[] data)
     {
         var extension = new FilePath(path).GetExtensionWithDot() ?? string.Empty;
@@ -32,12 +31,12 @@ public static class AudioDecoderFactory
             ".wav" or ".wave" => new WavDecoder(data),
             ".aiff" or ".aif" => new AiffDecoder(data),
             ".ogg" or ".oga" => throw new NotSupportedException(
-                "OGG/Vorbis (NVorbis) n'est pas encore intégré : ajoutez le paquet NVorbis puis branchez un décodeur dans AudioDecoderFactory."),
+                "OGG/Vorbis (NVorbis) is not integrated yet: add the NVorbis package, then plug a decoder into AudioDecoderFactory."),
             ".mp3" => throw new NotSupportedException(
-                "MP3 (NLayer) n'est pas encore intégré : ajoutez le paquet NLayer puis branchez un décodeur dans AudioDecoderFactory."),
+                "MP3 (NLayer) is not integrated yet: add the NLayer package, then plug a decoder into AudioDecoderFactory."),
             ".flac" => throw new NotSupportedException(
-                "FLAC est reporté (dr_flac demande un hand-binding C single-file)."),
-            _ => throw new NotSupportedException($"Format audio non pris en charge : {extension}")
+                "FLAC is deferred (dr_flac requires a single-file C hand-binding)."),
+            _ => throw new NotSupportedException($"Unsupported audio format: {extension}")
         };
     }
 }

@@ -1,22 +1,22 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Contexte d'exécution passé à chaque <see cref="IAudioEffect.Process"/> : il
-/// décrit le bloc en cours (format, taille, temps) sans aucune dépendance au
-/// backend. Les effets restent ainsi du C# pur, testables hors ligne.
+/// Execution context passed to every <see cref="IAudioEffect.Process"/>: it
+/// describes the current block (format, size, time) without any backend
+/// dependency. Effects therefore remain pure C#, testable offline.
 /// </summary>
 public readonly struct AudioEffectContext
 {
-    /// <summary>Fréquence d'échantillonnage (Hz).</summary>
+    /// <summary>Sample rate (Hz).</summary>
     public readonly int SampleRate;
 
-    /// <summary>Nombre de canaux (le moteur travaille en stéréo entrelacé).</summary>
+    /// <summary>Channel count (the engine works in interleaved stereo).</summary>
     public readonly int Channels;
 
-    /// <summary>Nombre de frames (échantillons par canal) dans le buffer.</summary>
+    /// <summary>Number of frames (samples per channel) in the buffer.</summary>
     public readonly int Frames;
 
-    /// <summary>Temps audio au début du bloc (secondes), depuis le démarrage du moteur.</summary>
+    /// <summary>Audio time at the start of the block (seconds), since engine startup.</summary>
     public readonly double TimeSeconds;
 
     public AudioEffectContext(int sampleRate, int channels, int frames, double timeSeconds)
@@ -29,29 +29,29 @@ public readonly struct AudioEffectContext
 }
 
 /// <summary>
-/// Effet DSP maison, en C# pur : il traite un bloc stéréo entrelacé en place.
-/// Les implémentations gardent leur état interne (lignes de délai, coefficients,
-/// enveloppes) dans des buffers alloués à la construction, afin que
-/// <see cref="Process"/> n'alloue rien en régime permanent sur le thread DSP.
+/// Homegrown DSP effect, in pure C#: it processes an interleaved stereo block in
+/// place. Implementations keep their internal state (delay lines, coefficients,
+/// envelopes) in buffers allocated at construction time, so that
+/// <see cref="Process"/> allocates nothing in steady state on the DSP thread.
 ///
-/// Les paramètres sont des <c>float</c> volatils : leur écriture depuis le
-/// thread de jeu est atomique et sans verrou, et l'effet applique le lissage
-/// nécessaire pour éviter les artefacts (zipper noise) côté DSP.
+/// Parameters are volatile <c>float</c> values: writing them from the game
+/// thread is atomic and lock-free, and the effect applies whatever smoothing is
+/// needed to avoid artifacts (zipper noise) on the DSP side.
 /// </summary>
 public interface IAudioEffect
 {
-    /// <summary>Nombre de paramètres exposés par <see cref="GetParameter"/>.</summary>
+    /// <summary>Number of parameters exposed by <see cref="GetParameter"/>.</summary>
     int ParameterCount { get; }
 
-    /// <summary>Traite le bloc stéréo entrelacé en place.</summary>
+    /// <summary>Processes the interleaved stereo block in place.</summary>
     void Process(Span<float> buffer, AudioEffectContext context);
 
-    /// <summary>Lit la valeur du paramètre <paramref name="index"/>.</summary>
+    /// <summary>Reads the value of parameter <paramref name="index"/>.</summary>
     float GetParameter(int index);
 
-    /// <summary>Écrit la valeur du paramètre <paramref name="index"/> (atomique, sans verrou).</summary>
+    /// <summary>Writes the value of parameter <paramref name="index"/> (atomic, lock-free).</summary>
     void SetParameter(int index, float value);
 
-    /// <summary>Réinitialise l'état interne (lignes de délai, enveloppes, ...).</summary>
+    /// <summary>Resets internal state (delay lines, envelopes, ...).</summary>
     void Reset();
 }
