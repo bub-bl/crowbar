@@ -56,6 +56,18 @@ public sealed record ShaderParameterDefinition(string Name, Type Type);
 /// </summary>
 public sealed class Shader
 {
+    /// <summary>
+    /// Process-wide cache keyed by the canonical content path, like
+    /// <see cref="Model"/> and <see cref="Texture2D"/>: loading the same
+    /// shader twice returns the same instance. Shaders are compiled at build
+    /// time (slangc) and never hot-reloaded, so the loaded instance never
+    /// goes stale; <see cref="Invalidate"/> and <see cref="ClearCache"/> exist
+    /// for tooling and tests. This cache is what keeps material restore cheap:
+    /// without it, every undo/redo re-read the WGSL file and its reflection
+    /// sidecar once per material.
+    /// </summary>
+    private static readonly ResourceCache<Shader> Cache = new(static path => LoadUncached(path));
+
     public string Path { get; }
 
     public string FilePath { get; }
@@ -174,7 +186,17 @@ public sealed class Shader
     public static Shader Load(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return Cache.Load(path);
+    }
 
+    /// <summary>Discards the cached shader at <paramref name="path"/> so the next load re-reads it.</summary>
+    public static void Invalidate(string path) => Cache.Invalidate(path);
+
+    /// <summary>Discards every cached shader.</summary>
+    public static void ClearCache() => Cache.Clear();
+
+    private static Shader LoadUncached(string path)
+    {
         var fs = FileSystem.Content;
         var candidates = FileSystemService.IsRooted(path)
             ? [fs.ToFilePath(path)]

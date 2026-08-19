@@ -5,6 +5,18 @@ namespace Crowbar.Engine.Tests;
 public class ShaderReflectionTests
 {
     [Fact]
+    public void Load_ReturnsTheSameInstanceForTheSamePath()
+    {
+        // Shaders are cached by content path (like models and textures): the
+        // disk read + reflection sidecar parse happens once per shader. This
+        // is what keeps material restore cheap — every undo/redo rebuilds each
+        // material through Material.FromShader, which must not re-read files.
+        Assert.Same(
+            Shader.Load("Shaders/Surface/Standard.wgsl"),
+            Shader.Load("Shaders/Surface/Standard.wgsl"));
+    }
+
+    [Fact]
     public void StandardShader_ExposesTheMainTechnique()
     {
         var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
