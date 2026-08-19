@@ -54,6 +54,13 @@ internal sealed class AudioVoice
     private float _distanceGain = 1f;
     private float _spatialPan;
 
+    // Air absorption: a dedicated low-pass whose cutoff follows the source
+    // distance. Coefficients are only recomputed when the cutoff changes by a
+    // meaningful amount, so the steady-state path stays cheap and allocation-free.
+    private readonly BiquadFilter _airFilter = new(BiquadType.LowPass, 20000f, 0.707f);
+    private float _airCutoff = 20000f;
+    private bool _airActive;
+
     public AudioBus? Target { get; set; }
 
     public bool HasEnded => _ended;
@@ -69,6 +76,10 @@ internal sealed class AudioVoice
         _fadeDuration = FadeInSeconds;
         _distanceGain = 1f;
         _spatialPan = 0;
+        _airCutoff = 20000f;
+        _airActive = false;
+        _airFilter.SetParameter(1, 20000f);
+        _airFilter.Reset();
 
         // Snap gain/pan to the current setting: a fresh voice starts at its
         // target volume, without smoothing artifacts from an arbitrary value.
@@ -143,6 +154,8 @@ internal sealed class AudioVoice
         else
         {
             FillScratch(scratch, frames, pitch);
+            if (_airActive)
+                _airFilter.Process(scratch, new AudioEffectContext(AudioSystem.SampleRate, AudioSystem.Channels, frames, time));
             ApplyEffects(scratch, frames, time);
 
             var acc = target.Accumulator;
@@ -334,6 +347,7 @@ internal sealed class AudioVoice
         {
             _distanceGain = 1f;
             _spatialPan = 0f;
+            _airActive = false;
             return;
         }
 
@@ -348,5 +362,28 @@ internal sealed class AudioVoice
         var normalized = delta / safe;
         var lateral = Vector3.Dot(normalized, listener.Right);
         _spatialPan = Math.Clamp(lateral, -1f, 1f);
+
+        // Air absorption: high frequencies fade with distance. The cutoff only
+        // updates when it moves by more than 2% so the biquad coefficients are
+        // not recomputed every single block while a source travels.
+        if (listener.AirAbsorption <= 0f)
+        {
+            _airActive = false;
+            return;
+        }
+
+        var cutoff = 20000f * MathF.Exp(-safe * listener.AirAbsorption);
+        if (cutoff >= 20000f)
+        {
+            _airActive = false;
+            return;
+        }
+
+        if (!_airActive || MathF.Abs(cutoff - _airCutoff) / _airCutoff > 0.02f)
+        {
+            _airCutoff = cutoff;
+            _airFilter.SetParameter(1, Math.Clamp(cutoff, 100f, 20000f));
+            _airActive = true;
+        }
     }
 }

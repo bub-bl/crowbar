@@ -25,6 +25,13 @@ public sealed class AudioListener
     /// </summary>
     public float Rolloff = 1f;
 
+    /// <summary>
+    /// Air absorption: spatialized voices roll off high frequencies with
+    /// distance (<c>cutoff = 20000 * exp(-distance * AirAbsorption)</c>).
+    /// <c>0</c> (the default) disables the effect.
+    /// </summary>
+    public float AirAbsorption;
+
     /// <summary>Right vector, derived from <see cref="Forward"/> and <see cref="Up"/>.</summary>
     public Vector3 Right => Vector3.Normalize(Vector3.Cross(Forward, Up));
 
