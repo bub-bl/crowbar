@@ -85,6 +85,27 @@ internal static class AudioTestData
     /// <summary>Builds a constant clip (handy for the mixer golden tests).</summary>
     public static float[] Constant(float value, int frames) => Enumerable.Repeat(value, frames).ToArray();
 
+    /// <summary>
+    /// Builds a minimal but valid MPEG-1 Layer III bitstream in memory (based on
+    /// the NLayer test vector, MIT): each frame is 44.1 kHz, 128 kbps, stereo
+    /// with zeroed side info, so every frame decodes to 1152 samples of silence
+    /// per channel.
+    /// </summary>
+    public static byte[] BuildSilentMp3(int frameCount = 4)
+    {
+        if (frameCount < 1)
+            throw new ArgumentOutOfRangeException(nameof(frameCount));
+
+        // MPEG-1 Layer III, 44.1 kHz, 128 kbps, stereo, no CRC, no padding.
+        var header = new byte[] { 0xFF, 0xFB, 0x90, 0x00 };
+        const int frameLength = 417; // 144 * 128000 / 44100, integer truncation.
+
+        var data = new byte[frameLength * frameCount];
+        for (var i = 0; i < frameCount; i++)
+            Array.Copy(header, 0, data, i * frameLength, header.Length);
+        return data;
+    }
+
     private static void WriteAscii(byte[] buffer, int offset, string text)
     {
         for (var i = 0; i < text.Length; i++)

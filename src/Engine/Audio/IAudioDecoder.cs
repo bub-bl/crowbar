@@ -6,9 +6,9 @@ namespace Crowbar.Engine.Audio;
 /// position, so the DSP thread never re-reads a system stream:
 /// <see cref="Read"/> must not allocate.
 ///
-/// The provided implementations are <see cref="WavDecoder"/> (RIFF/WAVE) and
-/// <see cref="AiffDecoder"/> (FORM/AIFF). OGG/Vorbis (NVorbis) and MP3 (NLayer)
-/// will plug in here later, behind the same interface — see
+/// The provided implementations are <see cref="WavDecoder"/> (RIFF/WAVE),
+/// <see cref="AiffDecoder"/> (FORM/AIFF), <see cref="VorbisDecoder"/>
+/// (Ogg/Vorbis via NVorbis) and <see cref="Mp3Decoder"/> (MP3 via NLayer) — see
 /// <see cref="AudioDecoderFactory"/>.
 /// </summary>
 public interface IAudioDecoder : IDisposable
