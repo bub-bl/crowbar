@@ -67,6 +67,8 @@ public static class ExplorerTreeBuilder
 
     private static string IconFor(Entity entity)
     {
+        if (entity.GetComponent<Camera>() is not null)
+            return "Solar/video/Bold/camera";
         if (entity.GetComponent<Light>() is not null)
             return "Solar/devices/Bold/lightbulb";
         if (entity.GetComponent<MeshRenderer>() is not null)

@@ -379,6 +379,7 @@ public static class InspectorStateBuilder
 
     private static string? IconFor(Component component) => component switch
     {
+        Camera => "Solar/video/Bold/camera",
         Light => "Solar/devices/Bold/lightbulb",
         MeshRenderer => "Solar/ui/Bold/box-minimalistic",
         _ => "Solar/ui/Bold/box"

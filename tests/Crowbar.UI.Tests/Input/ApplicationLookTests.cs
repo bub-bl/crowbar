@@ -22,6 +22,18 @@ public class ApplicationLookTests
     private const uint RightDown = 1u << (int)MouseButton.Right;
 
     [Fact]
+    public void Camera_IsAComponentOnAWorldEntity()
+    {
+        using var app = new LookTestApp();
+
+        // The viewport camera is a Camera component owned by a world entity,
+        // so the editor hierarchy lists it and the inspector can edit it.
+        Assert.NotNull(app.TestCamera.Entity);
+        Assert.Equal("Camera", app.TestCamera.Entity!.Name);
+        Assert.Same(app.TestCamera, app.TestCamera.Entity!.GetComponent<Camera>());
+    }
+
+    [Fact]
     public void OrbitHidesTheCursorWhileTheRightButtonIsHeld()
     {
         using var app = new LookTestApp();

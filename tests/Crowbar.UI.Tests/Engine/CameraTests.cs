@@ -75,6 +75,52 @@ public class CameraTests
     }
 
     [Fact]
+    public void Camera_FieldOfViewIsInDegreesAndClamped()
+    {
+        var camera = new Camera();
+
+        // The default PI/3 radians is 60 degrees: the inspector's unit.
+        Assert.Equal(60f, camera.FieldOfView, 3);
+
+        camera.FieldOfView = 90f;
+        Assert.Equal(90f, camera.FieldOfView, 3);
+
+        // Degenerate values are clamped so the projection never inverts or
+        // degenerates (tan of a half-angle above 90° goes negative). The
+        // degrees round-trip through radians, so the bounds get a small
+        // tolerance.
+        camera.FieldOfView = 0f;
+        Assert.InRange(camera.FieldOfView, 1f - 1e-4f, 179f + 1e-4f);
+        camera.FieldOfView = 300f;
+        Assert.InRange(camera.FieldOfView, 1f - 1e-4f, 179f + 1e-4f);
+
+        // The projection keeps a positive vertical scale over the whole range.
+        var projection = camera.ProjectionMatrix(16f / 9f);
+        Assert.True(projection.M22 > 0f);
+        Assert.True(float.IsFinite(projection.M22));
+    }
+
+    [Fact]
+    public void Camera_NearAndFarPlanesStayOrdered()
+    {
+        var camera = new Camera();
+        Assert.Equal(0.1f, camera.NearPlane);
+        Assert.Equal(100f, camera.FarPlane);
+
+        // Crossing the planes is clamped back to a valid frustum.
+        camera.NearPlane = 5f;
+        camera.FarPlane = 3f;
+        Assert.True(camera.FarPlane > camera.NearPlane);
+
+        camera.NearPlane = 500f;
+        Assert.True(camera.NearPlane < camera.FarPlane);
+
+        // The projection never divides by a zero or negative depth range.
+        var projection = camera.ProjectionMatrix(16f / 9f);
+        Assert.True(float.IsFinite(projection.M33));
+    }
+
+    [Fact]
     public void Camera_PivotAndDistanceDefineTheOrbitSphere()
     {
         var camera = new Camera();

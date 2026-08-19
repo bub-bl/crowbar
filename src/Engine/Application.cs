@@ -18,7 +18,7 @@ public abstract class Application : IDisposable
     private readonly IPlatform _platform;
     private readonly IWindow _window;
     private readonly UiSystem _ui = new();
-    private readonly Camera _camera = new();
+    private Camera? _camera;
     private readonly World _world = new();
     private IGraphicsDevice? _graphics;
     private Renderer? _renderer;
@@ -55,7 +55,16 @@ public abstract class Application : IDisposable
     protected IWindow Window => _window;
     protected UiSystem Ui => _ui;
     protected IGraphicsDevice? Graphics => _graphics;
-    protected Camera Camera => _camera;
+
+    /// <summary>
+    /// The viewport camera. It is a <see cref="Camera"/> component owned by a
+    /// world entity, so the editor hierarchy lists it and its properties are
+    /// editable from the inspector like any other component. Created lazily on
+    /// first access (and eagerly before <see cref="OnInitialize"/> by
+    /// <see cref="OnWindowLoaded"/>).
+    /// </summary>
+    protected Camera Camera => _camera ??= CreateCameraEntity();
+
     protected IInputSource InputSource => _window.Input;
 
     /// <summary>The viewport renderer (null until the window is loaded, or headless).</summary>
@@ -89,7 +98,24 @@ public abstract class Application : IDisposable
             _ui.Prepare();
         }
         WireUiInput();
+        // The viewport camera is a world entity (a "Camera" entity with a
+        // Camera component), so it is part of the world before subclasses wire
+        // their content — the first hierarchy publish already lists it.
+        CreateCameraEntity();
         OnInitialize();
+    }
+
+    /// <summary>
+    /// Spawns the viewport camera as a world-only entity (not part of any
+    /// level, so it never serializes with level content) and attaches the
+    /// <see cref="Camera"/> component to it.
+    /// </summary>
+    private Camera CreateCameraEntity()
+    {
+        var entity = World.SpawnEntity("Camera");
+        var camera = entity.AddComponent<Camera>();
+        _camera = camera;
+        return camera;
     }
 
     /// <summary>
@@ -190,7 +216,7 @@ public abstract class Application : IDisposable
             return;
 
         OnRender((float)delta);
-        _renderer?.Render(World, _camera, delta, _ui);
+        _renderer?.Render(World, Camera, delta, _ui);
 
         // Renderer.Render runs Ui.Prepare(), which is the moment Yoga has
         // resolved the current title-bar rectangles. Push that freshly laid-out

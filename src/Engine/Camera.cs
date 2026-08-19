@@ -16,9 +16,13 @@ namespace Crowbar.Engine;
 public sealed class Camera : TransformComponent
 {
     private const float RadiansToDegrees = 180f / MathF.PI;
+    private const float DegreesToRadians = MathF.PI / 180f;
 
     private float _yaw = -MathF.PI / 4f;
     private float _pitch = -0.42f;
+    private float _fieldOfView = MathF.PI / 3f;
+    private float _nearPlane = 0.1f;
+    private float _farPlane = 100f;
 
     public Camera()
     {
@@ -49,9 +53,11 @@ public sealed class Camera : TransformComponent
     /// the controller keeps
     /// <c>Position == Pivot - Forward * Distance</c> after every control.
     /// </summary>
+    [Property]
     public Vector3 Pivot { get; set; }
 
     /// <summary>Distance between the camera and <see cref="Pivot"/> (orbit radius).</summary>
+    [Property]
     public float Distance { get; set; }
 
     /// <summary>Look yaw in radians (free-camera convention).</summary>
@@ -76,11 +82,40 @@ public sealed class Camera : TransformComponent
         }
     }
 
-    public float FieldOfView { get; set; } = MathF.PI / 3f;
+    /// <summary>
+    /// Vertical field of view in degrees (60 by default — the editor's unit,
+    /// like the transform rotation). Stored in radians internally; the
+    /// projection and the gizmo screen-size math convert back. Clamped to
+    /// [1, 179] so the projection can never invert or degenerate.
+    /// </summary>
+    [Property]
+    public float FieldOfView
+    {
+        get => _fieldOfView * RadiansToDegrees;
+        set => _fieldOfView = Math.Clamp(value, 1f, 179f) * DegreesToRadians;
+    }
 
-    public float NearPlane { get; set; } = 0.1f;
+    /// <summary>
+    /// Near clip plane distance in world units. Kept strictly below
+    /// <see cref="FarPlane"/> so the projection stays valid.
+    /// </summary>
+    [Property]
+    public float NearPlane
+    {
+        get => _nearPlane;
+        set => _nearPlane = Math.Clamp(value, 1e-4f, _farPlane - 1e-4f);
+    }
 
-    public float FarPlane { get; set; } = 100f;
+    /// <summary>
+    /// Far clip plane distance in world units. Kept strictly above
+    /// <see cref="NearPlane"/> so the projection stays valid.
+    /// </summary>
+    [Property]
+    public float FarPlane
+    {
+        get => _farPlane;
+        set => _farPlane = Math.Max(value, _nearPlane + 1e-4f);
+    }
 
     /// <summary>World-space look direction (the transform's forward).</summary>
     public Vector3 Forward => Local.Rotation.Forward;
@@ -115,8 +150,9 @@ public sealed class Camera : TransformComponent
     public Matrix4x4 ProjectionMatrix(float aspect)
     {
         // Left-handed perspective (Unity/DirectX): view +Z (forward) maps to
-        // NDC z in [0, 1], WebGPU's depth range. Row-vector layout.
-        var yScale = 1f / MathF.Tan(FieldOfView * 0.5f);
+        // NDC z in [0, 1], WebGPU's depth range. Row-vector layout. The FOV
+        // is radians here (the public property is degrees).
+        var yScale = 1f / MathF.Tan(_fieldOfView * 0.5f);
         var xScale = yScale / Math.Max(1e-6f, aspect);
         var zScale = FarPlane / (FarPlane - NearPlane);
         var zOffset = -(NearPlane * FarPlane) / (FarPlane - NearPlane);

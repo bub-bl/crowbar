@@ -72,6 +72,42 @@ public class InspectorStateBuilderTests
     }
 
     [Fact]
+    public void Camera_ReflectsItsMarkedPropertiesAndWritesBack()
+    {
+        using var world = new World();
+        var cameraEntity = world.SpawnEntity("Camera");
+        var camera = cameraEntity.AddComponent<Camera>();
+        camera.Pivot = new Vector3(2f, 1f, 0f);
+        camera.Distance = 5f;
+        camera.FieldOfView = 60f; // degrees, the inspector's unit
+        camera.NearPlane = 0.05f;
+        camera.FarPlane = 200f;
+
+        var sections = InspectorStateBuilder.Build(cameraEntity);
+
+        // The camera is a TransformComponent: it gets the dedicated transform
+        // section (from its Local) plus its own component section.
+        Assert.Contains(sections, s => s.Id == "transform");
+        var section = sections.Single(s => s.Id == "Camera");
+        var byName = section.Properties.ToDictionary(p => p.Name);
+
+        Assert.Equal("2, 1, 0", byName["Pivot"].Value);
+        Assert.Equal("5", byName["Distance"].Value);
+        Assert.Equal("60", byName["FieldOfView"].Value);
+        Assert.Equal("0.05", byName["NearPlane"].Value);
+        Assert.Equal("200", byName["FarPlane"].Value);
+
+        // Edits resolve to the camera component's properties (FOV round-trips
+        // through the radians storage, so it is compared with tolerance).
+        InspectorStateBuilder.ApplyEdit(cameraEntity, "Camera.FieldOfView", "45");
+        InspectorStateBuilder.ApplyEdit(cameraEntity, "Camera.NearPlane", "0.01");
+        InspectorStateBuilder.ApplyEdit(cameraEntity, "Camera.Pivot", "3, 4, 5");
+        Assert.Equal(45f, camera.FieldOfView, 3);
+        Assert.Equal(0.01f, camera.NearPlane);
+        Assert.Equal(new Vector3(3, 4, 5), camera.Pivot);
+    }
+
+    [Fact]
     public void UnmarkedPropertiesAreNotInspected()
     {
         using var world = new World();

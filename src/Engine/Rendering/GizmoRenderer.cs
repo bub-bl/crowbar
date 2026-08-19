@@ -480,12 +480,17 @@ public sealed class GizmoRenderer : IDisposable
     private static float ScreenHalfSize(Vector3 position, float pixels, Camera camera, int height)
     {
         var depth = Vector3.Dot(camera.Forward, position - camera.Position);
-        return pixels * 2f * Math.Max(1e-4f, depth) * MathF.Tan(camera.FieldOfView * 0.5f) / Math.Max(1, height);
+        // FieldOfView is degrees; the screen-size math needs the half-angle in radians.
+        var tanHalfFov = MathF.Tan(camera.FieldOfView * MathF.PI / 180f * 0.5f);
+        return pixels * 2f * Math.Max(1e-4f, depth) * tanHalfFov / Math.Max(1, height);
     }
 
     /// <summary>World size of an object spanning <paramref name="pixels"/> on screen at the given forward <paramref name="depth"/>.</summary>
-    private static float ScreenWorldSize(float pixels, float depth, Camera camera, int height) =>
-        pixels * 2f * Math.Max(1e-4f, depth) * MathF.Tan(camera.FieldOfView * 0.5f) / Math.Max(1, height);
+    private static float ScreenWorldSize(float pixels, float depth, Camera camera, int height)
+    {
+        var tanHalfFov = MathF.Tan(camera.FieldOfView * MathF.PI / 180f * 0.5f);
+        return pixels * 2f * Math.Max(1e-4f, depth) * tanHalfFov / Math.Max(1, height);
+    }
 
     /// <summary>
     /// Picks a visible light icon by its screen-space billboard first, then

@@ -21,7 +21,8 @@ public class GizmoScreenSizeTests
         var projection = camera.ProjectionMatrix(Aspect);
 
         var depth = Math.Max(1e-4f, Vector3.Dot(camera.Forward, origin - camera.Position));
-        var expected = 100f * 2f * depth * MathF.Tan(camera.FieldOfView * 0.5f) / Height;
+        // FieldOfView is degrees; the screen-size math needs the half-angle in radians.
+        var expected = 100f * 2f * depth * MathF.Tan(camera.FieldOfView * MathF.PI / 180f * 0.5f) / Height;
 
         var actual = Gizmo.ScreenConstantWorldSize(origin, view, projection, Height, 100f);
 
