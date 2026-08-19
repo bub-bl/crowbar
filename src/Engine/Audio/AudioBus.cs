@@ -18,6 +18,7 @@ public sealed class AudioBus
     private int _effectCount;
     private volatile float _peak;
     private volatile float _rms;
+    private readonly List<(AudioBus Target, float Level)> _sends = [];
 
     public string Name { get; }
 
@@ -35,6 +36,27 @@ public sealed class AudioBus
 
     /// <summary>Smoothed output gain, ramped over a block when <see cref="Gain"/> changes (avoids stepping).</summary>
     internal float SmoothedGain = 1f;
+
+    /// <summary>
+    /// Bus to duck (lower its gain) while this bus produces sound. Configure it
+    /// with <see cref="Duck"/> so dialogue ducking lowers the music automatically.
+    /// </summary>
+    public AudioBus? DuckTarget;
+
+    /// <summary>Level the ducked bus drops to while this bus is audible (0..1).</summary>
+    public float DuckAmount = 0.3f;
+
+    /// <summary>How fast the duck kicks in (seconds).</summary>
+    public float DuckAttackSeconds = 0.05f;
+
+    /// <summary>How fast the duck releases (seconds).</summary>
+    public float DuckReleaseSeconds = 0.5f;
+
+    /// <summary>Smoothed duck level of this bus (1 = no duck, <see cref="DuckAmount"/> = ducking).</summary>
+    internal float DuckLevel = 1f;
+
+    /// <summary>Accumulated duck gain applied to this bus this block (product of ducking sources).</summary>
+    internal float DuckGain = 1f;
 
     /// <summary>Peak of the last rendered block (0..1), smoothed.</summary>
     public float Peak => _peak;
@@ -65,6 +87,48 @@ public sealed class AudioBus
     /// <summary>Writes a parameter of an effect in the chain (atomic, lock-free).</summary>
     public void SetEffectParameter(int effectIndex, int parameterIndex, float value) =>
         _effects[effectIndex]?.SetParameter(parameterIndex, value);
+
+    /// <summary>
+    /// Routes a post-effects copy of this bus to <paramref name="target"/> at
+    /// <paramref name="level"/> (auxiliary send, e.g. a reverb bus). Cycles are
+    /// rejected. Configure before <see cref="AudioSystem.Start"/>.
+    /// </summary>
+    public void AddSend(AudioBus target, float level)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        if (ReferenceEquals(target, this))
+            throw new ArgumentException("A bus cannot send to itself.", nameof(target));
+        if (level < 0f)
+            throw new ArgumentOutOfRangeException(nameof(level), "Send levels must be non-negative.");
+        if (Targets(target, this))
+            throw new ArgumentException("Sending to this target would create a cycle in the send graph.", nameof(target));
+
+        _sends.Add((target, level));
+    }
+
+    /// <summary>Makes this bus duck <paramref name="target"/> while it is audible.</summary>
+    public void Duck(AudioBus? target, float amount = 0.3f, float attackSeconds = 0.05f, float releaseSeconds = 0.5f)
+    {
+        DuckTarget = target;
+        DuckAmount = Math.Clamp(amount, 0f, 1f);
+        DuckAttackSeconds = Math.Max(0f, attackSeconds);
+        DuckReleaseSeconds = Math.Max(0f, releaseSeconds);
+    }
+
+    internal List<(AudioBus Target, float Level)> Sends => _sends;
+
+    private static bool Targets(AudioBus from, AudioBus target)
+    {
+        // True when a send chain reaches `target` starting from `from`.
+        if (ReferenceEquals(from, target))
+            return true;
+        foreach (var (next, _) in from._sends)
+        {
+            if (Targets(next, target))
+                return true;
+        }
+        return false;
+    }
 
     internal void Clear() => Array.Clear(Accumulator);
 

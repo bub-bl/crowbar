@@ -42,6 +42,8 @@ public sealed class AudioSystem : IDisposable
     private readonly AudioCommandQueue _events = new();
     private readonly float[] _dspBuffer = new float[BlockSize * Channels];
     private readonly List<AudioCommand> _pendingPlays = new();
+    private int[] _topoIn = new int[8];
+    private bool[] _topoDone = new bool[8];
     private Thread? _dspThread;
     private volatile bool _running;
     private bool _disposed;
@@ -683,7 +685,9 @@ E = duration
             }
         }
 
-        // 2. The leaf buses apply their effects then sum into the master.
+        // 2. The leaf buses apply their effects and push their auxiliary sends
+        //    (processed in dependency order so a reverb bus receives the wet
+        //    signal before its own effect chain runs).
         var anySolo = false;
         foreach (var bus in buses)
         {
@@ -693,22 +697,23 @@ E = duration
                 break;
             }
         }
+        ProcessLeafBuses(buses, anySolo, frames, time);
 
+        // 3. Ducking: buses duck their targets based on this block's loudness,
+        //    with attack/release smoothing.
+        ApplyDucking(buses, frames);
+
+        // 4. The leaf buses sum into the master with smoothed gain x duck.
         var masterAccumulator = Master.Accumulator;
         foreach (var bus in buses)
         {
             if (bus.Mute || (anySolo && !bus.Solo))
                 continue;
 
-            bus.ProcessEffects(frames, time);
-            ComputeMeters(bus, frames);
-
-            // Smooth the bus gain over the block (~10 ms ramp) so volume
-            // changes do not produce audible steps.
             var accumulator = bus.Accumulator;
             var count = frames * Channels;
             var g0 = bus.SmoothedGain;
-            var g1 = bus.Gain;
+            var g1 = bus.Gain * bus.DuckGain;
             bus.SmoothedGain = g1;
             if (g0 == g1)
             {
@@ -723,14 +728,15 @@ E = duration
             }
         }
 
-        // 3. Master effects and gain, then copy to the output.
+        // 5. Master effects and gain (including any duck applied to the master),
+        //    then copy to the output.
         Master.ProcessEffects(frames, time);
         ComputeMeters(Master, frames);
 
         var masterAccumulator2 = Master.Accumulator;
         var masterCount = frames * Channels;
         var mg0 = Master.SmoothedGain;
-        var mg1 = Master.Gain;
+        var mg1 = Master.Gain * Master.DuckGain;
         Master.SmoothedGain = mg1;
         if (mg0 == mg1)
         {
@@ -744,7 +750,7 @@ E = duration
                 output[i] = masterAccumulator2[i] * (mg0 + (mg1 - mg0) * (i * inv));
         }
 
-        // 4. Output recording (tap after the mix), then advance the clock.
+        // 6. Output recording (tap after the mix), then advance the clock.
         Recorder.TapOutput(output, frames);
         Clock.Advance(frames);
     }
@@ -1064,6 +1070,123 @@ E = duration
         }
 
         bus.SetMeters(peak, MathF.Sqrt(sumSquares / (frames * Channels)), 0.9f);
+    }
+
+    /// <summary>
+    /// Runs the leaf buses in dependency order: effects then meters, followed by
+    /// the auxiliary sends (a send copies the processed output into the target's
+    /// accumulator so its own effect chain, e.g. reverb, processes it wet).
+    /// </summary>
+    private void ProcessLeafBuses(AudioBus[] buses, bool anySolo, int frames, double time)
+    {
+        var n = buses.Length;
+        if (n > _topoIn.Length)
+        {
+            Array.Resize(ref _topoIn, n);
+            Array.Resize(ref _topoDone, n);
+        }
+
+        for (var i = 0; i < n; i++)
+        {
+            _topoIn[i] = 0;
+            _topoDone[i] = false;
+        }
+        for (var i = 0; i < n; i++)
+        {
+            foreach (var (target, _) in buses[i].Sends)
+            {
+                var j = IndexOf(buses, n, target);
+                if (j >= 0)
+                    _topoIn[j]++;
+            }
+        }
+
+        var remaining = n;
+        while (remaining > 0)
+        {
+            var progressed = false;
+            for (var i = 0; i < n; i++)
+            {
+                if (_topoDone[i] || _topoIn[i] != 0)
+                    continue;
+
+                _topoDone[i] = true;
+                remaining--;
+                progressed = true;
+
+                var bus = buses[i];
+                var skipped = bus.Mute || (anySolo && !bus.Solo);
+                if (!skipped)
+                {
+                    bus.ProcessEffects(frames, time);
+                    ComputeMeters(bus, frames);
+                }
+
+                // Push the sends; a skipped bus contributes silence but still
+                // releases the targets' in-degree so the graph can progress.
+                foreach (var (target, level) in bus.Sends)
+                {
+                    var j = IndexOf(buses, n, target);
+                    if (j < 0)
+                        continue;
+                    _topoIn[j]--;
+                    if (skipped || level == 0f)
+                        continue;
+                    var dst = target.Accumulator;
+                    var src = bus.Accumulator;
+                    for (var k = 0; k < dst.Length; k++)
+                        dst[k] += src[k] * level;
+                }
+            }
+
+            if (!progressed)
+                throw new InvalidOperationException("Cycle in the auxiliary send graph (AddSend).");
+        }
+    }
+
+    private static int IndexOf(AudioBus[] buses, int n, AudioBus target)
+    {
+        for (var i = 0; i < n; i++)
+        {
+            if (ReferenceEquals(buses[i], target))
+                return i;
+        }
+        return -1;
+    }
+
+    /// <summary>
+    /// Applies ducking: each bus with a <see cref="AudioBus.DuckTarget"/> lowers
+    /// that target's gain (attack/release smoothed) while its own output is
+    /// audible. The per-bus accumulated duck is read by the summing pass.
+    /// </summary>
+    private void ApplyDucking(AudioBus[] buses, int frames)
+    {
+        // Smooth each ducking source's level toward its target (1 or DuckAmount).
+        foreach (var bus in buses)
+        {
+            if (bus.DuckTarget is null)
+                continue;
+
+            var level = bus.Peak > 1e-3f ? bus.DuckAmount : 1f;
+            var seconds = level < bus.DuckLevel ? bus.DuckAttackSeconds : bus.DuckReleaseSeconds;
+            var coef = 1f - MathF.Pow(0.0001f, frames / (AudioSystem.SampleRate * Math.Max(1e-3f, seconds)));
+            bus.DuckLevel += (level - bus.DuckLevel) * coef;
+        }
+
+        // Accumulate the ducks applied to each target.
+        foreach (var bus in buses)
+            bus.DuckGain = 1f;
+        Master.DuckGain = 1f;
+        foreach (var bus in buses)
+        {
+            var target = bus.DuckTarget;
+            if (target is null)
+                continue;
+            if (ReferenceEquals(target, Master))
+                Master.DuckGain *= bus.DuckLevel;
+            else
+                target.DuckGain *= bus.DuckLevel;
+        }
     }
 
     private void DspLoop()
