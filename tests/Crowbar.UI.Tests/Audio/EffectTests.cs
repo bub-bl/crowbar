@@ -171,7 +171,7 @@ public class EffectTests
     }
 
     [Fact]
-    public void Voice_SetEffectParameterByName_SilencesThroughGain()
+    public void Sound_SetEffectParameterByName_SilencesThroughGain()
     {
         using var system = new AudioSystem();
         var clip = AudioClip.Create("dc", 48000, AudioTestData.Constant(0.5f, AudioSystem.BlockSize), 1);

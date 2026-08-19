@@ -52,7 +52,7 @@ public class SpatialTests
         system.Play3D(clip, position, loop: true);
         var buffer = new float[AudioSystem.BlockSize * AudioSystem.Channels];
 
-        // Skip the per-voice gain-smoothing transient, then measure the
+        // Skip the per-sound gain-smoothing transient, then measure the
         // settled block.
         for (var i = 0; i < 64; i++)
             system.RenderBlock(buffer);

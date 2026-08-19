@@ -13,7 +13,7 @@ public enum AudioBusName
 }
 
 /// <summary>
-/// The audio engine: bus tree (Master -> Music/SFX/UI/Voice), voice pool,
+/// The audio engine: bus tree (Master -> Music/SFX/UI/Voice), sound pool,
 /// effects, SPSC command queue and DSP thread. The mixer is 100% C# and
 /// deterministic: <see cref="RenderBlock"/> renders a block into a provided
 /// buffer, without any backend — that is what the tests (and offline rendering)
@@ -21,7 +21,7 @@ public enum AudioBusName
 /// <see cref="Start"/> launches the DSP thread that renders the blocks and
 /// pushes them.
 ///
-/// The game thread never touches the buffers: it reserves voices and sends
+/// The game thread never touches the buffers: it reserves sounds and sends
 /// commands (Play, Stop, SetVolume, SetEffectParam, ...).
 /// </summary>
 public sealed class AudioSystem : IDisposable
@@ -37,7 +37,7 @@ public sealed class AudioSystem : IDisposable
 
     private readonly IAudioBackend? _backend;
     private readonly AudioBus[] _leafBuses;
-    private readonly VoicePool _voices = new();
+    private readonly SoundPool _sounds = new();
     private readonly AudioCommandQueue _commands = new();
     private readonly AudioCommandQueue _events = new();
     private readonly float[] _dspBuffer = new float[BlockSize * Channels];
@@ -66,15 +66,15 @@ public sealed class AudioSystem : IDisposable
     public IAudioBackend? Backend => _backend;
     public bool IsRunning => _running;
 
-    /// <summary>Number of currently active voices (diagnostic).</summary>
-    public int ActiveVoiceCount
+    /// <summary>Number of currently active sounds (diagnostic).</summary>
+    public int ActiveSoundCount
     {
         get
         {
             var count = 0;
-            for (var i = 0; i < VoicePool.Capacity; i++)
+            for (var i = 0; i < SoundPool.Capacity; i++)
             {
-                if (_voices[i].State == (int)VoiceState.Active)
+                if (_sounds[i].State == (int)SoundState.Active)
                     count++;
             }
             return count;
@@ -132,7 +132,7 @@ public sealed class AudioSystem : IDisposable
     /// Game-thread tick (update phase). In offline mode (no backend), drains the
     /// command queue so <c>Play</c>/<c>Stop</c> take effect before the next
     /// render; with a DSP thread, the queue is already consumed by it. Always
-    /// dispatches voice-completion callbacks produced by the DSP thread.
+    /// dispatches sound-completion callbacks produced by the DSP thread.
     /// </summary>
     public void Update(float deltaTime)
     {
@@ -143,7 +143,7 @@ public sealed class AudioSystem : IDisposable
     }
 
     /// <summary>Plays a clip (SFX by default) and returns its handle.</summary>
-    public VoiceHandle Play(
+    public SoundHandle Play(
         AudioClip clip,
         float volume = 1f,
         float pitch = 1f,
@@ -163,7 +163,7 @@ public sealed class AudioSystem : IDisposable
     /// <c>Play(AudioClip.Load(path), ...)</c>; for long music, prefer
     /// <see cref="Play(AudioStream, float, float, float, bool, float, int, AudioBusName)"/>.
     /// </summary>
-    public VoiceHandle Play(
+    public SoundHandle Play(
         string path,
         float volume = 1f,
         float pitch = 1f,
@@ -182,7 +182,7 @@ public sealed class AudioSystem : IDisposable
     /// Loads a clip from a content path off the calling thread, then plays it
     /// (short SFX). Equivalent to <c>Play(await AudioClip.LoadAsync(path), ...)</c>.
     /// </summary>
-    public async Task<VoiceHandle> PlayAsync(
+    public async Task<SoundHandle> PlayAsync(
         string path,
         float volume = 1f,
         float pitch = 1f,
@@ -199,7 +199,7 @@ public sealed class AudioSystem : IDisposable
     }
 
     /// <summary>Plays a long stream (music) and returns its handle.</summary>
-    public VoiceHandle Play(
+    public SoundHandle Play(
         AudioStream stream,
         float volume = 1f,
         float pitch = 1f,
@@ -215,7 +215,7 @@ public sealed class AudioSystem : IDisposable
     }
 
     /// <summary>Plays a spatialized clip (inverse-distance attenuation + equal-power pan).</summary>
-    public VoiceHandle Play3D(
+    public SoundHandle Play3D(
         AudioClip clip,
         Vector3 position,
         float volume = 1f,
@@ -230,7 +230,7 @@ public sealed class AudioSystem : IDisposable
         return PlaySource(new ClipSource(clip), volume, pitch, 0f, loop, fadeIn, priority, bus, spatial: true, position, onCompleted);
     }
 
-    /// <summary>Stops every voice (takes effect on the next block).</summary>
+    /// <summary>Stops every sound (takes effect on the next block).</summary>
     public void StopAll()
     {
         var command = new AudioCommand { Type = AudioCommandType.StopAll };
@@ -238,8 +238,8 @@ public sealed class AudioSystem : IDisposable
     }
 
     /// <summary>True as long as the handle designates the current generation of its slot.</summary>
-    internal bool IsVoiceAlive(int slot, int generation) =>
-        slot >= 0 && slot < VoicePool.Capacity && _voices[slot].State != (int)VoiceState.Free && _voices[slot].Generation == generation;
+    internal bool IsSoundAlive(int slot, int generation) =>
+        slot >= 0 && slot < SoundPool.Capacity && _sounds[slot].State != (int)SoundState.Free && _sounds[slot].Generation == generation;
 
     internal void EnqueueStop(int slot, int generation) =>
         _commands.Enqueue(new AudioCommand { Type = AudioCommandType.Stop, Slot = slot, Generation = generation });
@@ -271,7 +271,7 @@ public sealed class AudioSystem : IDisposable
     /// <summary>
     /// Renders an interleaved stereo block into <paramref name="output"/>.
     /// Deterministic and allocation-free: first drains the command queue, sums
-    /// the voices into the buses, applies the effect chains and copies the master.
+    /// the sounds into the buses, applies the effect chains and copies the master.
     /// </summary>
     public void RenderBlock(Span<float> output)
     {
@@ -286,25 +286,25 @@ public sealed class AudioSystem : IDisposable
             bus.Clear();
         Master.Clear();
 
-        // 1. The voices sum into their target bus.
-        for (var i = 0; i < VoicePool.Capacity; i++)
+        // 1. The sounds sum into their target bus.
+        for (var i = 0; i < SoundPool.Capacity; i++)
         {
-            var voice = _voices[i];
-            if (voice.State == (int)VoiceState.Active)
+            var sound = _sounds[i];
+            if (sound.State == (int)SoundState.Active)
             {
-                voice.Render(Listener, frames, time);
-                // The voice reached end of stream: free the slot and publish
+                sound.Render(Listener, frames, time);
+                // The sound reached end of stream: free the slot and publish
                 // its completion callback (if any). The State == Active check
                 // guards against a concurrent steal (the game thread may have
                 // re-reserved the slot in between).
-                if (voice.HasEnded && voice.State == (int)VoiceState.Active)
+                if (sound.HasEnded && sound.State == (int)SoundState.Active)
                 {
-                    var completed = voice.Completed;
-                    voice.Completed = null;
-                    voice.Source = null;
-                    voice.State = (int)VoiceState.Free;
+                    var completed = sound.Completed;
+                    sound.Completed = null;
+                    sound.Source = null;
+                    sound.State = (int)SoundState.Free;
                     if (completed is not null)
-                        _events.Enqueue(new AudioCommand { Type = AudioCommandType.VoiceEnded, Callback = completed });
+                        _events.Enqueue(new AudioCommand { Type = AudioCommandType.SoundEnded, Callback = completed });
                 }
             }
         }
@@ -354,7 +354,7 @@ public sealed class AudioSystem : IDisposable
         _backend?.Dispose();
     }
 
-    private VoiceHandle PlaySource(
+    private SoundHandle PlaySource(
         IAudioSource source,
         float volume,
         float pitch,
@@ -368,10 +368,10 @@ public sealed class AudioSystem : IDisposable
         Action? onCompleted)
     {
         // Sources that loop internally (threaded streams) read this flag from
-        // the decoder thread; clip sources ignore it (the voice rewinds them).
+        // the decoder thread; clip sources ignore it (the sound rewinds them).
         source.Loop = loop;
 
-        var (slot, generation) = _voices.Reserve(priority);
+        var (slot, generation) = _sounds.Reserve(priority);
         var command = new AudioCommand
         {
             Type = AudioCommandType.Play,
@@ -390,7 +390,7 @@ public sealed class AudioSystem : IDisposable
             Position = position
         };
         _commands.Enqueue(command);
-        return new VoiceHandle(this, slot, generation);
+        return new SoundHandle(this, slot, generation);
     }
 
     private void DrainCommands()
@@ -400,7 +400,7 @@ public sealed class AudioSystem : IDisposable
     }
 
     /// <summary>
-    /// Dispatches voice-completion callbacks on the game thread. The DSP thread
+    /// Dispatches sound-completion callbacks on the game thread. The DSP thread
     /// (or <see cref="RenderBlock"/> in offline mode) produces them through the
     /// reverse SPSC queue.
     /// </summary>
@@ -408,7 +408,7 @@ public sealed class AudioSystem : IDisposable
     {
         while (_events.TryDequeue(out var command))
         {
-            if (command.Type == AudioCommandType.VoiceEnded)
+            if (command.Type == AudioCommandType.SoundEnded)
                 command.Callback?.Invoke();
         }
     }
@@ -419,100 +419,100 @@ public sealed class AudioSystem : IDisposable
         {
             case AudioCommandType.Play:
             {
-                var voice = _voices[command.Slot];
-                if (voice.Generation != command.Generation)
+                var sound = _sounds[command.Slot];
+                if (sound.Generation != command.Generation)
                     return;
 
-                voice.Source = command.Source;
-                voice.Target = command.Bus ?? Sfx;
-                voice.Volume = command.A;
-                voice.Pitch = command.B;
-                voice.Pan = command.C;
-                voice.Loop = command.D != 0f;
-                voice.FadeInSeconds = command.E;
-                voice.Priority = command.Param0;
-                voice.Spatial = command.Param1 != 0;
-                voice.Position = command.Position;
-                voice.Completed = command.Callback;
-                voice.ClearEffects();
-                voice.ResetRender();
-                voice.State = (int)VoiceState.Active;
+                sound.Source = command.Source;
+                sound.Target = command.Bus ?? Sfx;
+                sound.Volume = command.A;
+                sound.Pitch = command.B;
+                sound.Pan = command.C;
+                sound.Loop = command.D != 0f;
+                sound.FadeInSeconds = command.E;
+                sound.Priority = command.Param0;
+                sound.Spatial = command.Param1 != 0;
+                sound.Position = command.Position;
+                sound.Completed = command.Callback;
+                sound.ClearEffects();
+                sound.ResetRender();
+                sound.State = (int)SoundState.Active;
                 break;
             }
             case AudioCommandType.Stop:
             {
-                var voice = _voices[command.Slot];
-                if (voice.Generation == command.Generation)
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
                 {
-                    voice.State = (int)VoiceState.Free;
-                    voice.Source = null;
-                    voice.Completed = null;
+                    sound.State = (int)SoundState.Free;
+                    sound.Source = null;
+                    sound.Completed = null;
                 }
                 break;
             }
             case AudioCommandType.SetVolume:
             {
-                var voice = _voices[command.Slot];
-                if (voice.Generation == command.Generation)
-                    voice.Volume = command.A;
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
+                    sound.Volume = command.A;
                 break;
             }
             case AudioCommandType.SetPitch:
             {
-                var voice = _voices[command.Slot];
-                if (voice.Generation == command.Generation)
-                    voice.Pitch = command.B;
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
+                    sound.Pitch = command.B;
                 break;
             }
             case AudioCommandType.SetPan:
             {
-                var voice = _voices[command.Slot];
-                if (voice.Generation == command.Generation)
-                    voice.Pan = command.A;
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
+                    sound.Pan = command.A;
                 break;
             }
             case AudioCommandType.FadeTo:
             {
-                var voice = _voices[command.Slot];
-                if (voice.Generation == command.Generation)
-                    voice.FadeTo(command.A, command.B);
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
+                    sound.FadeTo(command.A, command.B);
                 break;
             }
             case AudioCommandType.SetPosition:
             {
-                var voice = _voices[command.Slot];
-                if (voice.Generation == command.Generation)
-                    voice.Position = command.Position;
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
+                    sound.Position = command.Position;
                 break;
             }
             case AudioCommandType.AddEffect:
             {
-                var voice = _voices[command.Slot];
-                if (voice.Generation == command.Generation && command.Effect is not null)
-                    voice.AddEffect(command.Effect);
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation && command.Effect is not null)
+                    sound.AddEffect(command.Effect);
                 break;
             }
             case AudioCommandType.SetEffectParam:
             {
-                var voice = _voices[command.Slot];
-                if (voice.Generation == command.Generation)
-                    voice.SetEffectParameter(command.Param0, command.Param1, command.A);
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation)
+                    sound.SetEffectParameter(command.Param0, command.Param1, command.A);
                 break;
             }
             case AudioCommandType.SetEffectParamByName:
             {
-                var voice = _voices[command.Slot];
-                if (voice.Generation == command.Generation && command.Name is not null)
-                    voice.SetEffectParameter(command.Param0, command.Name, command.A);
+                var sound = _sounds[command.Slot];
+                if (sound.Generation == command.Generation && command.Name is not null)
+                    sound.SetEffectParameter(command.Param0, command.Name, command.A);
                 break;
             }
             case AudioCommandType.StopAll:
-                for (var i = 0; i < VoicePool.Capacity; i++)
+                for (var i = 0; i < SoundPool.Capacity; i++)
                 {
-                    var voice = _voices[i];
-                    voice.State = (int)VoiceState.Free;
-                    voice.Source = null;
-                    voice.Completed = null;
+                    var sound = _sounds[i];
+                    sound.State = (int)SoundState.Free;
+                    sound.Source = null;
+                    sound.Completed = null;
                 }
                 break;
         }

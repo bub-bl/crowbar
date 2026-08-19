@@ -3,19 +3,19 @@ using System.Numerics;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Handle to a playing voice, returned by <see cref="AudioSystem.Play"/> and
+/// Handle to a playing sound, returned by <see cref="AudioSystem.Play"/> and
 /// <see cref="Audio.Play"/>. It is a lightweight <see cref="ValueType"/>: it
 /// carries the slot index, its generation and a reference to the owning
 /// <see cref="AudioSystem"/>. Every method enqueues a command into the SPSC
 /// queue; they are safe from any game thread (including a scripted gamemode).
 /// </summary>
-public readonly struct VoiceHandle
+public readonly struct SoundHandle
 {
     internal readonly AudioSystem? System;
     internal readonly int Slot;
     internal readonly int Generation;
 
-    internal VoiceHandle(AudioSystem? system, int slot, int generation)
+    internal SoundHandle(AudioSystem? system, int slot, int generation)
     {
         System = system;
         Slot = slot;
@@ -23,12 +23,12 @@ public readonly struct VoiceHandle
     }
 
     /// <summary>Invalid handle (never played).</summary>
-    public static VoiceHandle Invalid => default;
+    public static SoundHandle Invalid => default;
 
     /// <summary>True as long as the slot still matches this generation.</summary>
-    public bool IsValid => System is not null && System.IsVoiceAlive(Slot, Generation);
+    public bool IsValid => System is not null && System.IsSoundAlive(Slot, Generation);
 
-    /// <summary>Stops the voice (the slot becomes free at the end of the current block).</summary>
+    /// <summary>Stops the sound (the slot becomes free at the end of the current block).</summary>
     public void Stop() => System?.EnqueueStop(Slot, Generation);
 
     /// <summary>Sets the volume (linear, 0..infinity, 1 = unity).</summary>
@@ -46,7 +46,7 @@ public readonly struct VoiceHandle
     /// <summary>Repositions the 3D source (see <see cref="Audio.Play3D"/>).</summary>
     public void SetPosition(Vector3 position) => System?.EnqueueSetPosition(Slot, Generation, position);
 
-    /// <summary>Writes a parameter of an effect in the voice's effect chain.</summary>
+    /// <summary>Writes a parameter of an effect in the sound's effect chain.</summary>
     public void SetEffectParameter(int effectIndex, int parameterIndex, float value) =>
         System?.EnqueueSetEffectParameter(Slot, Generation, effectIndex, parameterIndex, value);
 
@@ -54,6 +54,6 @@ public readonly struct VoiceHandle
     public void SetEffectParameter(int effectIndex, string name, float value) =>
         System?.EnqueueSetEffectParameter(Slot, Generation, effectIndex, name, value);
 
-    /// <summary>Appends an effect to the voice's chain (a new instance per voice).</summary>
+    /// <summary>Appends an effect to the sound's chain (a new instance per sound).</summary>
     public void AddEffect(IAudioEffect effect) => System?.EnqueueAddEffect(Slot, Generation, effect);
 }

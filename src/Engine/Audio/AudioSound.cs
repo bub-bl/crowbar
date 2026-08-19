@@ -3,13 +3,13 @@ using System.Numerics;
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// A pool voice: it reads an <see cref="IAudioSource"/> (clip or stream),
+/// A pool sound: it reads an <see cref="IAudioSource"/> (clip or stream),
 /// resamples on the fly (pitch via linear interpolation), applies
 /// volume/fade/pan/3D attenuation then its effect chain, and sums the block into
 /// the target bus. All render state lives only on the DSP thread; the game
 /// thread only reserves the slot and sends commands.
 /// </summary>
-internal sealed class AudioVoice
+internal sealed class AudioSound
 {
     private const int MaxEffects = 8;
 
@@ -30,7 +30,7 @@ internal sealed class AudioVoice
     public Vector3 Position;
     public float FadeInSeconds;
 
-    /// <summary>Invoked on the game thread when the voice finishes naturally.</summary>
+    /// <summary>Invoked on the game thread when the sound finishes naturally.</summary>
     public Action? Completed;
 
     // --- Effect chain (owned by the DSP) ---
@@ -81,7 +81,7 @@ internal sealed class AudioVoice
         _airFilter.SetParameter(1, 20000f);
         _airFilter.Reset();
 
-        // Snap gain/pan to the current setting: a fresh voice starts at its
+        // Snap gain/pan to the current setting: a fresh sound starts at its
         // target volume, without smoothing artifacts from an arbitrary value.
         var initialPan = Math.Clamp(Pan, -1f, 1f);
         var initialAngle = (initialPan + 1f) * (MathF.PI / 4f);
@@ -134,7 +134,7 @@ internal sealed class AudioVoice
     public void Render(AudioListener listener, int frames, double time)
     {
         var target = Target;
-        if (target is null || Source is null || State != (int)VoiceState.Active)
+        if (target is null || Source is null || State != (int)SoundState.Active)
             return;
 
         UpdateSpatial(listener);
@@ -157,7 +157,7 @@ internal sealed class AudioVoice
 
         if (!audible)
         {
-            // Virtual voice: advance the read head without producing sound or
+            // Virtual sound: advance the read head without producing sound or
             // touching the buffers (state is kept for resumption).
             AdvanceSilent(frames, pitch);
             Array.Clear(scratch);
@@ -243,7 +243,7 @@ internal sealed class AudioVoice
             return;
         }
 
-        // In-memory clip: skip ahead without reading samples. When the voice
+        // In-memory clip: skip ahead without reading samples. When the sound
         // becomes audible again, the `while (_nextIndex <= floor)` loop of
         // FillScratch catches the source up forward. For a looped clip, the
         // position is bounded and the head realigned to avoid an O(silence

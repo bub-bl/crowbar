@@ -5,7 +5,7 @@ namespace Crowbar.Audio.Tests;
 
 /// <summary>
 /// Deterministic offline rendering of the mixer: no backend, the memory buffer
-/// is compared to expected values. These tests cover the bus tree, voices,
+/// is compared to expected values. These tests cover the bus tree, sounds,
 /// volume, mute and the clock.
 /// </summary>
 public class AudioSystemTests
@@ -13,7 +13,7 @@ public class AudioSystemTests
     private const float CenterPan = 0.7071068f; // cos(pi/4) = equal-power gain at center.
 
     [Fact]
-    public void RenderBlock_WithNoVoices_OutputsSilence()
+    public void RenderBlock_WithNoSounds_OutputsSilence()
     {
         using var system = new AudioSystem();
         var buffer = new float[AudioSystem.BlockSize * AudioSystem.Channels];
@@ -83,20 +83,20 @@ public class AudioSystemTests
     }
 
     [Fact]
-    public void Stop_ReleasesVoiceAndSilences()
+    public void Stop_ReleasesSoundAndSilences()
     {
         using var system = new AudioSystem();
         var clip = AudioClip.Create("dc", 48000, AudioTestData.Constant(0.5f, AudioSystem.BlockSize), 1);
 
         var handle = system.Play(clip, loop: true);
         Assert.NotEqual(0f, RenderOneBlock(system)[0]);
-        Assert.Equal(1, system.ActiveVoiceCount);
+        Assert.Equal(1, system.ActiveSoundCount);
 
         handle.Stop();
         var buffer = RenderOneBlock(system);
 
         Assert.All(buffer, sample => Assert.Equal(0f, sample));
-        Assert.Equal(0, system.ActiveVoiceCount);
+        Assert.Equal(0, system.ActiveSoundCount);
     }
 
     [Fact]
@@ -151,7 +151,7 @@ public class AudioSystemTests
     }
 
     [Fact]
-    public void Play_OnCompleted_FiresOnceWhenVoiceEnds()
+    public void Play_OnCompleted_FiresOnceWhenSoundEnds()
     {
         using var system = new AudioSystem();
         var clip = AudioClip.Create("short", 48000, AudioTestData.Constant(0.5f, AudioSystem.BlockSize), 1);
@@ -160,7 +160,7 @@ public class AudioSystemTests
         var calls = 0;
         system.Play(clip, onCompleted: () => calls++);
 
-        // The block consumes the whole clip, so the voice ends during render,
+        // The block consumes the whole clip, so the sound ends during render,
         // but the callback is only dispatched on the game-thread tick.
         system.RenderBlock(buffer);
         Assert.Equal(0, calls);
@@ -185,7 +185,7 @@ public class AudioSystemTests
 
         system.RenderBlock(buffer);
         handle.Stop();
-        system.RenderBlock(buffer); // applies the stop and releases the voice.
+        system.RenderBlock(buffer); // applies the stop and releases the sound.
 
         system.Update(0f);
         Assert.Equal(0, calls);

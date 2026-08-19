@@ -7,7 +7,7 @@ namespace Crowbar.Engine.Audio;
 /// <see cref="Crowbar.Engine.InputSystem.Mouse"/>: call <c>Audio.Bind(...)</c> once at
 /// startup, then <c>Audio.Play(clip)</c> from anywhere, including a scripted
 /// gamemode. Every method is safe without a bound backend (they become no-ops)
-/// and returns a <see cref="VoiceHandle"/> to drive the voice (volume, pitch,
+/// and returns a <see cref="SoundHandle"/> to drive the sound (volume, pitch,
 /// pan, fade, 3D position, effects).
 /// </summary>
 public static class Audio
@@ -33,7 +33,7 @@ public static class Audio
     public static Microphone? Microphone => _system?.Microphone;
 
     /// <summary>Plays a short clip (SFX) and returns its handle.</summary>
-    public static VoiceHandle Play(
+    public static SoundHandle Play(
         AudioClip clip,
         float volume = 1f,
         float pitch = 1f,
@@ -43,13 +43,13 @@ public static class Audio
         int priority = 0,
         AudioBusName bus = AudioBusName.Sfx,
         Action? onCompleted = null) =>
-        _system?.Play(clip, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? VoiceHandle.Invalid;
+        _system?.Play(clip, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? SoundHandle.Invalid;
 
     /// <summary>
     /// Loads a clip from a content path then plays it (short SFX). Throws if the
     /// file is not found; for long music use <see cref="Play(AudioStream, float, float, float, bool, float, int, AudioBusName)"/>.
     /// </summary>
-    public static VoiceHandle Play(
+    public static SoundHandle Play(
         string path,
         float volume = 1f,
         float pitch = 1f,
@@ -59,13 +59,13 @@ public static class Audio
         int priority = 0,
         AudioBusName bus = AudioBusName.Sfx,
         Action? onCompleted = null) =>
-        _system?.Play(path, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? VoiceHandle.Invalid;
+        _system?.Play(path, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? SoundHandle.Invalid;
 
     /// <summary>
     /// Loads a clip from a content path off the calling thread, then plays it
     /// (short SFX). Equivalent to <c>Play(await AudioClip.LoadAsync(path), ...)</c>.
     /// </summary>
-    public static async Task<VoiceHandle> PlayAsync(
+    public static async Task<SoundHandle> PlayAsync(
         string path,
         float volume = 1f,
         float pitch = 1f,
@@ -78,14 +78,14 @@ public static class Audio
     {
         var system = _system;
         if (system is null)
-            return VoiceHandle.Invalid;
+            return SoundHandle.Invalid;
 
         var clip = await AudioClip.LoadAsync(path).ConfigureAwait(false);
         return system.Play(clip, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted);
     }
 
     /// <summary>Plays long music (stream) and returns its handle.</summary>
-    public static VoiceHandle Play(
+    public static SoundHandle Play(
         AudioStream stream,
         float volume = 1f,
         float pitch = 1f,
@@ -95,10 +95,10 @@ public static class Audio
         int priority = 0,
         AudioBusName bus = AudioBusName.Music,
         Action? onCompleted = null) =>
-        _system?.Play(stream, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? VoiceHandle.Invalid;
+        _system?.Play(stream, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? SoundHandle.Invalid;
 
     /// <summary>Plays a spatialized clip at <paramref name="position"/>.</summary>
-    public static VoiceHandle Play3D(
+    public static SoundHandle Play3D(
         AudioClip clip,
         Vector3 position,
         float volume = 1f,
@@ -108,7 +108,7 @@ public static class Audio
         int priority = 0,
         AudioBusName bus = AudioBusName.Sfx,
         Action? onCompleted = null) =>
-        _system?.Play3D(clip, position, volume, pitch, loop, fadeIn, priority, bus, onCompleted) ?? VoiceHandle.Invalid;
+        _system?.Play3D(clip, position, volume, pitch, loop, fadeIn, priority, bus, onCompleted) ?? SoundHandle.Invalid;
 
     /// <summary>Sets the master bus volume (linear).</summary>
     public static void SetMasterVolume(float volume) => _system?.SetBusVolume(AudioBusName.Master, volume);
@@ -119,7 +119,7 @@ public static class Audio
     /// <summary>Returns a bus (meters, mute/solo, effects).</summary>
     public static AudioBus? GetBus(AudioBusName name) => _system?.GetBus(name);
 
-    /// <summary>Stops every voice.</summary>
+    /// <summary>Stops every sound.</summary>
     public static void StopAll() => _system?.StopAll();
 
     /// <summary>Available playback devices (empty without a backend).</summary>

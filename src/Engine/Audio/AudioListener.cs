@@ -4,7 +4,7 @@ namespace Crowbar.Engine.Audio;
 
 /// <summary>
 /// 3D listener: the position/axes of the listening camera, used by spatialized
-/// voices (<see cref="Audio.Play3D"/>) to compute inverse-distance attenuation
+/// sounds (<see cref="Audio.Play3D"/>) to compute inverse-distance attenuation
 /// and equal-power panning. Doppler and HRTF are deliberately deferred (future
 /// extensions: Steam Audio or C# binaural).
 /// </summary>
@@ -26,7 +26,7 @@ public sealed class AudioListener
     public float Rolloff = 1f;
 
     /// <summary>
-    /// Air absorption: spatialized voices roll off high frequencies with
+    /// Air absorption: spatialized sounds roll off high frequencies with
     /// distance (<c>cutoff = 20000 * exp(-distance * AirAbsorption)</c>).
     /// <c>0</c> (the default) disables the effect.
     /// </summary>

@@ -2,7 +2,7 @@ namespace Crowbar.Engine.Audio;
 
 /// <summary>
 /// Node of the mixing tree: the master aggregates its child buses (Music, SFX,
-/// UI, Voice), each bus sums the voices routed to it then applies its effect
+/// UI, Voice), each bus sums the sounds routed to it then applies its effect
 /// chain. Gain, mute and solo are volatile fields read/written lock-free from
 /// the game thread.
 ///
@@ -24,7 +24,7 @@ public sealed class AudioBus
     /// <summary>Linear gain of the bus (1 = unity).</summary>
     public volatile float Gain = 1f;
 
-    /// <summary>Cuts the bus (zero output) without destroying its voices.</summary>
+    /// <summary>Cuts the bus (zero output) without destroying its sounds.</summary>
     public volatile bool Mute;
 
     /// <summary>Solos this bus (the other buses are cut).</summary>

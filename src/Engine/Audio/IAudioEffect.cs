@@ -55,7 +55,7 @@ public interface IAudioEffect
     /// <summary>
     /// Resolves a human-readable parameter name to its index, or <c>-1</c> when
     /// unknown. Enables named parameter access from the editor, the public
-    /// <c>VoiceHandle.SetEffectParameter</c> overload and scripted effects.
+    /// <c>SoundHandle.SetEffectParameter</c> overload and scripted effects.
     /// </summary>
     int GetParameterIndex(string name);
 

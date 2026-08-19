@@ -1,9 +1,9 @@
 namespace Crowbar.Engine.Audio;
 
 /// <summary>
-/// Sample source consumed frame by frame by a voice. Hides the difference
+/// Sample source consumed frame by frame by a sound. Hides the difference
 /// between an in-memory decoded clip (<see cref="ClipSource"/>) and a stream
-/// decoded in chunks (<see cref="AudioStream"/>): the voice only knows this
+/// decoded in chunks (<see cref="AudioStream"/>): the sound only knows this
 /// interface and never allocates while reading.
 /// </summary>
 internal interface IAudioSource
@@ -16,7 +16,7 @@ internal interface IAudioSource
 
     /// <summary>
     /// Whether the source should loop. Sources that loop internally
-    /// (<see cref="LoopsInternally"/>) never report end of stream; the voice
+    /// (<see cref="LoopsInternally"/>) never report end of stream; the sound
     /// rewinds the others via <see cref="Reset"/>.
     /// </summary>
     bool Loop { get; set; }
@@ -45,7 +45,7 @@ internal sealed class ClipSource : IAudioSource
     public int Channels => 2;
     public long TotalFrames => _frames;
 
-    /// <summary>Looping is handled by the voice through <see cref="Reset"/>.</summary>
+    /// <summary>Looping is handled by the sound through <see cref="Reset"/>.</summary>
     public bool Loop { get; set; }
 
     public bool LoopsInternally => false;

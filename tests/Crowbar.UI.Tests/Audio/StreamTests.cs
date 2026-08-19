@@ -89,7 +89,7 @@ public class StreamTests
     }
 
     [Fact]
-    public void Play_ThroughVoice_RendersPrimedFirstBlock()
+    public void Play_ThroughSound_RendersPrimedFirstBlock()
     {
         // The first block is guaranteed primed synchronously, so it must match
         // the source deterministically and prove the stream feeds the mixer

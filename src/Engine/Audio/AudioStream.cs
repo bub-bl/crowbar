@@ -2,14 +2,14 @@ namespace Crowbar.Engine.Audio;
 
 /// <summary>
 /// Long music decoded in chunks off the DSP thread: a dedicated decoder thread
-/// feeds a lock-free SPSC stereo ring buffer, and the voice consumes frames as
+/// feeds a lock-free SPSC stereo ring buffer, and the sound consumes frames as
 /// it goes. Decoding (and any allocation the codecs do) therefore never runs on
 /// the DSP thread; <see cref="TryReadFrame"/> only reads the ring and stays
 /// allocation-free in steady state.
 ///
 /// Loop is handled internally by the decoder thread
 /// (<see cref="LoopsInternally"/> returns <c>true</c>): a looping stream never
-/// reports end of stream, so the voice never rewinds it across threads.
+/// reports end of stream, so the sound never rewinds it across threads.
 /// </summary>
 public sealed class AudioStream : IDisposable, IAudioSource
 {
@@ -50,7 +50,7 @@ public sealed class AudioStream : IDisposable, IAudioSource
         set => Volatile.Write(ref _loop, value);
     }
 
-    /// <summary>The stream loops by itself; the voice never rewinds it.</summary>
+    /// <summary>The stream loops by itself; the sound never rewinds it.</summary>
     public bool LoopsInternally => true;
 
     public AudioStream(string path, bool loop = false)
@@ -113,7 +113,7 @@ public sealed class AudioStream : IDisposable, IAudioSource
         }
 
         // The producer is genuinely stalled: emit silence without ending the
-        // voice; the next block will retry.
+        // sound; the next block will retry.
         left = 0f;
         right = 0f;
         return false;

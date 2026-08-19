@@ -5,7 +5,7 @@ namespace Crowbar.Audio.Tests;
 /// <summary>
 /// Verifies that the DSP render path allocates nothing in steady state, on the
 /// model of the <c>Renderer2D</c> tests. The JIT is warmed up first, then
-/// hundreds of blocks are rendered with a looped voice + an effect: the thread's
+/// hundreds of blocks are rendered with a looped sound + an effect: the thread's
 /// allocation counter must not move.
 /// </summary>
 public class ZeroAllocationTests
