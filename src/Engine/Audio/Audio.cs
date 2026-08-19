@@ -142,6 +142,14 @@ public static class Audio
     public static SoundHandle Crossfade(AudioStream stream, float duration, string bus, Action? onCompleted = null) =>
         _system?.Crossfade(stream, duration, bus, onCompleted) ?? SoundHandle.Invalid;
 
+    /// <summary>Plays a random variant from <paramref name="cue"/> (randomized volume/pitch/pan).</summary>
+    public static SoundHandle Play(SoundCue cue, AudioBusName bus = AudioBusName.Sfx, Action? onCompleted = null) =>
+        _system?.Play(cue, bus, onCompleted) ?? SoundHandle.Invalid;
+
+    /// <summary>Plays a spatialized random cue variant at <paramref name="position"/>.</summary>
+    public static SoundHandle Play3D(SoundCue cue, Vector3 position, AudioBusName bus = AudioBusName.Sfx, Action? onCompleted = null) =>
+        _system?.Play3D(cue, position, bus, onCompleted) ?? SoundHandle.Invalid;
+
     /// <summary>Sets the master bus volume (linear).</summary>
     public static void SetMasterVolume(float volume) => _system?.SetBusVolume(AudioBusName.Master, volume);
 

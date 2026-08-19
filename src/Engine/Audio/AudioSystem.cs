@@ -525,12 +525,49 @@ public sealed class AudioSystem : IDisposable
             B = 1f,
             C = 0f,
             D = 1f,
-            E = duration
+E = duration
         });
         return new SoundHandle(this, slot, generation);
     }
 
-    /// <summary>Stops every sound on every bus (takes effect on the next block).</summary>
+    /// <summary>
+    /// Plays a random variant from <paramref name="cue"/> with the cue's
+    /// randomized volume/pitch/pan (see <see cref="SoundCue"/>).
+    /// </summary>
+    public SoundHandle Play(
+        SoundCue cue,
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(cue);
+        var (clip, volume, pitch, pan) = cue.Roll();
+        return PlaySource(new ClipSource(clip), volume, pitch, pan, cue.Loop, 0f, cue.Priority, GetBus(bus), spatial: false, position: default, onCompleted);
+    }
+
+    /// <summary>Plays a random cue variant on a user-created bus.</summary>
+    public SoundHandle Play(
+        SoundCue cue,
+        AudioBus bus,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(cue);
+        var (clip, volume, pitch, pan) = cue.Roll();
+        return PlaySource(new ClipSource(clip), volume, pitch, pan, cue.Loop, 0f, cue.Priority, bus, spatial: false, position: default, onCompleted);
+    }
+
+    /// <summary>Plays a spatialized random cue variant at <paramref name="position"/>.</summary>
+    public SoundHandle Play3D(
+        SoundCue cue,
+        Vector3 position,
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null)
+    {
+        ArgumentNullException.ThrowIfNull(cue);
+        var (clip, volume, pitch, pan) = cue.Roll();
+        return PlaySource(new ClipSource(clip), volume, pitch, pan, cue.Loop, 0f, cue.Priority, GetBus(bus), spatial: true, position, onCompleted);
+    }
+
+    /// <summary>Stops every sound.</summary>
     public void StopAll() =>
         _commands.Enqueue(new AudioCommand { Type = AudioCommandType.StopAll });
 
