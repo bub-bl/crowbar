@@ -154,6 +154,42 @@ public class EffectTests
         Assert.True(after < before);
     }
 
+    [Fact]
+    public void Effects_ResolveParameterNamesCaseInsensitively()
+    {
+        var filter = new BiquadFilter();
+        Assert.Equal(1, filter.GetParameterIndex("Frequency"));
+        Assert.Equal(1, filter.GetParameterIndex("frequency"));
+        Assert.Equal(-1, filter.GetParameterIndex("Bogus"));
+
+        var reverb = new SchroederReverb();
+        Assert.Equal(0, reverb.GetParameterIndex("Wet"));
+        Assert.Equal(3, reverb.GetParameterIndex("Feedback"));
+
+        var compressor = new Compressor();
+        Assert.Equal(4, compressor.GetParameterIndex("Makeup"));
+    }
+
+    [Fact]
+    public void Voice_SetEffectParameterByName_SilencesThroughGain()
+    {
+        using var system = new AudioSystem();
+        var clip = AudioClip.Create("dc", 48000, AudioTestData.Constant(0.5f, AudioSystem.BlockSize), 1);
+        var buffer = new float[AudioSystem.BlockSize * AudioSystem.Channels];
+
+        var handle = system.Play(clip, loop: true);
+        handle.AddEffect(new GainEffect());
+        system.RenderBlock(buffer); // applies Play + AddEffect.
+        Assert.Contains(buffer, sample => MathF.Abs(sample) > 0.01f);
+
+        handle.SetEffectParameter(0, "Gain", 0f);
+
+        // Let the gain smoothing converge, then check the settled block.
+        system.RenderBlock(buffer);
+        system.RenderBlock(buffer);
+        Assert.All(buffer, sample => Assert.Equal(0f, sample, 4));
+    }
+
     private static float[] Impulse()
     {
         var buffer = new float[AudioSystem.BlockSize * AudioSystem.Channels];

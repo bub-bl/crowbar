@@ -99,6 +99,19 @@ public sealed class BiquadFilter : IAudioEffect
         _dirty = true;
     }
 
+    public int GetParameterIndex(string name)
+    {
+        if (EffectParameterNames.Equals(name, "Type"))
+            return 0;
+        if (EffectParameterNames.Equals(name, "Frequency"))
+            return 1;
+        if (EffectParameterNames.Equals(name, "Q"))
+            return 2;
+        if (EffectParameterNames.Equals(name, "Gain"))
+            return 3;
+        return -1;
+    }
+
     public void Reset()
     {
         Array.Clear(_z1);

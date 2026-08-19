@@ -110,6 +110,17 @@ internal sealed class AudioVoice
             _effects[effectIndex]!.SetParameter(parameterIndex, value);
     }
 
+    /// <summary>Sets a parameter by name (resolved on the DSP thread).</summary>
+    public void SetEffectParameter(int effectIndex, string name, float value)
+    {
+        if (effectIndex < 0 || effectIndex >= _effectCount || string.IsNullOrWhiteSpace(name))
+            return;
+
+        var parameterIndex = _effects[effectIndex]!.GetParameterIndex(name);
+        if (parameterIndex >= 0)
+            _effects[effectIndex]!.SetParameter(parameterIndex, value);
+    }
+
     public void FadeTo(float target, float duration)
     {
         _fadeTarget = Math.Clamp(target, 0f, 1f);

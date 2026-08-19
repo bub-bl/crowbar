@@ -84,6 +84,17 @@ public sealed class DelayEffect : IAudioEffect
         }
     }
 
+    public int GetParameterIndex(string name)
+    {
+        if (EffectParameterNames.Equals(name, "Delay"))
+            return 0;
+        if (EffectParameterNames.Equals(name, "Feedback"))
+            return 1;
+        if (EffectParameterNames.Equals(name, "Wet"))
+            return 2;
+        return -1;
+    }
+
     public void Reset()
     {
         Array.Clear(_left);

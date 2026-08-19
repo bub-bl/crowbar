@@ -52,6 +52,20 @@ public interface IAudioEffect
     /// <summary>Writes the value of parameter <paramref name="index"/> (atomic, lock-free).</summary>
     void SetParameter(int index, float value);
 
+    /// <summary>
+    /// Resolves a human-readable parameter name to its index, or <c>-1</c> when
+    /// unknown. Enables named parameter access from the editor, the public
+    /// <c>VoiceHandle.SetEffectParameter</c> overload and scripted effects.
+    /// </summary>
+    int GetParameterIndex(string name);
+
     /// <summary>Resets internal state (delay lines, envelopes, ...).</summary>
     void Reset();
+}
+
+/// <summary>Case-insensitive matching helper for named effect parameters.</summary>
+internal static class EffectParameterNames
+{
+    public static bool Equals(string? name, string canonical) =>
+        string.Equals(name, canonical, StringComparison.OrdinalIgnoreCase);
 }

@@ -83,6 +83,21 @@ public sealed class Compressor : IAudioEffect
         }
     }
 
+    public int GetParameterIndex(string name)
+    {
+        if (EffectParameterNames.Equals(name, "Threshold"))
+            return 0;
+        if (EffectParameterNames.Equals(name, "Ratio"))
+            return 1;
+        if (EffectParameterNames.Equals(name, "Attack"))
+            return 2;
+        if (EffectParameterNames.Equals(name, "Release"))
+            return 3;
+        if (EffectParameterNames.Equals(name, "Makeup"))
+            return 4;
+        return -1;
+    }
+
     public void Reset()
     {
         _envelope[0] = 1f;

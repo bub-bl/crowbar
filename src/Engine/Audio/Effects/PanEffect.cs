@@ -39,6 +39,9 @@ public sealed class PanEffect : IAudioEffect
         _pan = value;
     }
 
+    public int GetParameterIndex(string name) =>
+        EffectParameterNames.Equals(name, "Pan") ? 0 : -1;
+
     public void Reset()
     {
         // Snap to the current target: Reset places the effect directly in its

@@ -123,6 +123,19 @@ public sealed class SchroederReverb : IAudioEffect
         }
     }
 
+    public int GetParameterIndex(string name)
+    {
+        if (EffectParameterNames.Equals(name, "Wet"))
+            return 0;
+        if (EffectParameterNames.Equals(name, "RoomSize"))
+            return 1;
+        if (EffectParameterNames.Equals(name, "Damping"))
+            return 2;
+        if (EffectParameterNames.Equals(name, "Feedback"))
+            return 3;
+        return -1;
+    }
+
     public void Reset()
     {
         foreach (var line in _combL)

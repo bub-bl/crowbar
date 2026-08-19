@@ -26,8 +26,8 @@ public static class Audio
     /// <summary>True once <see cref="Bind"/> has been called.</summary>
     public static bool IsBound => _system is not null;
 
-    /// <summary>The 3D listener (position/orientation for <see cref="Play3D"/>).</summary>
-    public static AudioListener Listener => _system?.Listener ?? throw new InvalidOperationException("Audio is not bound: call Audio.Bind(...) at startup.");
+    /// <summary>The 3D listener (position/orientation for <see cref="Play3D"/>), or null when unbound.</summary>
+    public static AudioListener? Listener => _system?.Listener;
 
     /// <summary>The in-memory microphone buffer (null until Audio is bound).</summary>
     public static Microphone? Microphone => _system?.Microphone;
@@ -60,6 +60,29 @@ public static class Audio
         AudioBusName bus = AudioBusName.Sfx,
         Action? onCompleted = null) =>
         _system?.Play(path, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted) ?? VoiceHandle.Invalid;
+
+    /// <summary>
+    /// Loads a clip from a content path off the calling thread, then plays it
+    /// (short SFX). Equivalent to <c>Play(await AudioClip.LoadAsync(path), ...)</c>.
+    /// </summary>
+    public static async Task<VoiceHandle> PlayAsync(
+        string path,
+        float volume = 1f,
+        float pitch = 1f,
+        float pan = 0f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null)
+    {
+        var system = _system;
+        if (system is null)
+            return VoiceHandle.Invalid;
+
+        var clip = await AudioClip.LoadAsync(path).ConfigureAwait(false);
+        return system.Play(clip, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted);
+    }
 
     /// <summary>Plays long music (stream) and returns its handle.</summary>
     public static VoiceHandle Play(

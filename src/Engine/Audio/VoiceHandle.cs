@@ -50,6 +50,10 @@ public readonly struct VoiceHandle
     public void SetEffectParameter(int effectIndex, int parameterIndex, float value) =>
         System?.EnqueueSetEffectParameter(Slot, Generation, effectIndex, parameterIndex, value);
 
+    /// <summary>Writes a parameter by name (e.g. <c>"Wet"</c>, <c>"Frequency"</c>).</summary>
+    public void SetEffectParameter(int effectIndex, string name, float value) =>
+        System?.EnqueueSetEffectParameter(Slot, Generation, effectIndex, name, value);
+
     /// <summary>Appends an effect to the voice's chain (a new instance per voice).</summary>
     public void AddEffect(IAudioEffect effect) => System?.EnqueueAddEffect(Slot, Generation, effect);
 }

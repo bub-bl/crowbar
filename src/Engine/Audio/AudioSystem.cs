@@ -178,6 +178,26 @@ public sealed class AudioSystem : IDisposable
         return Play(AudioClip.Load(path), volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted);
     }
 
+    /// <summary>
+    /// Loads a clip from a content path off the calling thread, then plays it
+    /// (short SFX). Equivalent to <c>Play(await AudioClip.LoadAsync(path), ...)</c>.
+    /// </summary>
+    public async Task<VoiceHandle> PlayAsync(
+        string path,
+        float volume = 1f,
+        float pitch = 1f,
+        float pan = 0f,
+        bool loop = false,
+        float fadeIn = 0f,
+        int priority = 0,
+        AudioBusName bus = AudioBusName.Sfx,
+        Action? onCompleted = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var clip = await AudioClip.LoadAsync(path).ConfigureAwait(false);
+        return Play(clip, volume, pitch, pan, loop, fadeIn, priority, bus, onCompleted);
+    }
+
     /// <summary>Plays a long stream (music) and returns its handle.</summary>
     public VoiceHandle Play(
         AudioStream stream,
@@ -241,6 +261,9 @@ public sealed class AudioSystem : IDisposable
 
     internal void EnqueueSetEffectParameter(int slot, int generation, int effectIndex, int parameterIndex, float value) =>
         _commands.Enqueue(new AudioCommand { Type = AudioCommandType.SetEffectParam, Slot = slot, Generation = generation, Param0 = effectIndex, Param1 = parameterIndex, A = value });
+
+    internal void EnqueueSetEffectParameter(int slot, int generation, int effectIndex, string name, float value) =>
+        _commands.Enqueue(new AudioCommand { Type = AudioCommandType.SetEffectParamByName, Slot = slot, Generation = generation, Param0 = effectIndex, Name = name, A = value });
 
     internal void EnqueueAddEffect(int slot, int generation, IAudioEffect effect) =>
         _commands.Enqueue(new AudioCommand { Type = AudioCommandType.AddEffect, Slot = slot, Generation = generation, Effect = effect });
@@ -474,6 +497,13 @@ public sealed class AudioSystem : IDisposable
                 var voice = _voices[command.Slot];
                 if (voice.Generation == command.Generation)
                     voice.SetEffectParameter(command.Param0, command.Param1, command.A);
+                break;
+            }
+            case AudioCommandType.SetEffectParamByName:
+            {
+                var voice = _voices[command.Slot];
+                if (voice.Generation == command.Generation && command.Name is not null)
+                    voice.SetEffectParameter(command.Param0, command.Name, command.A);
                 break;
             }
             case AudioCommandType.StopAll:

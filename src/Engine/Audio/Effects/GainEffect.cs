@@ -42,5 +42,8 @@ public sealed class GainEffect : IAudioEffect
         _target = Math.Clamp(value, 0f, 16f);
     }
 
+    public int GetParameterIndex(string name) =>
+        EffectParameterNames.Equals(name, "Gain") ? 0 : -1;
+
     public void Reset() => _current = _target;
 }

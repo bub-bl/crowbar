@@ -19,6 +19,7 @@ internal enum AudioCommandType : byte
     SetPosition,
     AddEffect,
     SetEffectParam,
+    SetEffectParamByName,
     StopAll,
     VoiceEnded
 }
@@ -37,6 +38,7 @@ internal struct AudioCommand
     public IAudioEffect? Effect;
     public AudioBus? Bus;
     public Action? Callback;
+    public string? Name;
     public Vector3 Position;
     public float A, B, C, D, E;
     public int Param0, Param1;
