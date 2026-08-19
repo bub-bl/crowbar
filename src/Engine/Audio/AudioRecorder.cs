@@ -6,8 +6,8 @@ namespace Crowbar.Engine.Audio;
 /// Recorder: two complementary modes.
 /// <list type="bullet">
 /// <item><b>Output</b> ("record what you hear"): the DSP thread taps the master
-/// bus after the mix and writes it as WAV — free because the mixer is homegrown,
-/// and a key differentiator;</item>
+/// bus after the mix and hands the block to a writer thread through an SPSC
+/// ring, so the disk I/O never runs on the DSP thread;</item>
 /// <item><b>Input</b> (microphone): a capture thread drains the device and
 /// writes the WAV.</item>
 /// </list>
@@ -15,17 +15,30 @@ namespace Crowbar.Engine.Audio;
 /// </summary>
 public sealed class AudioRecorder : IDisposable
 {
+    private const int OutputRingBlocks = 256; // ~2.5 s of headroom @ 48 kHz.
+
     private readonly AudioSystem _system;
     private readonly float[] _scratch = new float[AudioSystem.BlockSize * 2];
+    private readonly float[][] _outputRing;
+
+    // SPSC output ring: the DSP thread produces blocks (Volatile.Write on
+    // _outputProduced), the writer thread consumes them (Volatile.Read on
+    // _outputConsumed). Blocks are pre-allocated so the DSP thread never
+    // allocates while tapping.
+    private long _outputProduced;
+    private long _outputConsumed;
+
     private WavWriter? _outputWriter;
     private WavWriter? _inputWriter;
     private IAudioCaptureDevice? _capture;
+    private Thread? _outputThread;
     private Thread? _captureThread;
+    private bool _outputRunning;
     private volatile bool _capturing;
     private volatile bool _disposed;
 
     /// <summary>True during an output recording (master tap).</summary>
-    public bool IsRecordingOutput => _outputWriter is not null;
+    public bool IsRecordingOutput => Volatile.Read(ref _outputRunning);
 
     /// <summary>True during a microphone capture.</summary>
     public bool IsRecordingInput => _capturing;
@@ -36,18 +49,32 @@ public sealed class AudioRecorder : IDisposable
     internal AudioRecorder(AudioSystem system)
     {
         _system = system;
+        _outputRing = new float[OutputRingBlocks][];
+        for (var i = 0; i < OutputRingBlocks; i++)
+            _outputRing[i] = new float[AudioSystem.BlockSize * AudioSystem.Channels];
     }
 
     /// <summary>Starts recording the master output to <paramref name="path"/> (project).</summary>
     public void StartOutput(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        if (_outputWriter is not null)
+        if (Volatile.Read(ref _outputRunning))
             return;
 
         EnsureDirectory(path);
         _outputWriter = new WavWriter(FileSystem.Project.OpenWrite(path), AudioSystem.SampleRate, AudioSystem.Channels);
         RecordingPath = path;
+
+        _outputProduced = 0;
+        _outputConsumed = 0;
+        Volatile.Write(ref _outputRunning, true);
+
+        _outputThread = new Thread(OutputLoop)
+        {
+            Name = "Crowbar.Audio.OutputWriter",
+            IsBackground = true
+        };
+        _outputThread.Start();
     }
 
     /// <summary>Starts capturing the microphone to <paramref name="path"/> (project).</summary>
@@ -90,9 +117,12 @@ public sealed class AudioRecorder : IDisposable
             _inputWriter = null;
         }
 
-        if (_outputWriter is not null)
+        if (Volatile.Read(ref _outputRunning))
         {
-            _outputWriter.Close();
+            Volatile.Write(ref _outputRunning, false);
+            _outputThread?.Join(2000);
+            _outputThread = null;
+            _outputWriter?.Close();
             _outputWriter = null;
         }
 
@@ -102,12 +132,21 @@ public sealed class AudioRecorder : IDisposable
     /// <summary>Taps the master buffer (called by the DSP thread after the mix).</summary>
     internal void TapOutput(ReadOnlySpan<float> interleaved, int frames)
     {
-        var writer = _outputWriter;
-        if (writer is null)
+        if (!Volatile.Read(ref _outputRunning))
             return;
 
-        interleaved[..(frames * 2)].CopyTo(_scratch);
-        writer.WriteInterleaved(_scratch.AsSpan(0, frames * 2));
+        var produced = _outputProduced;
+        var consumed = Volatile.Read(ref _outputConsumed);
+
+        // The writer cannot keep up: drop the block rather than block the DSP
+        // thread (real-time safety). With ~2.5 s of headroom this is rare.
+        if (produced - consumed >= OutputRingBlocks)
+            return;
+
+        var block = _outputRing[(int)(produced % OutputRingBlocks)];
+        var count = Math.Min(interleaved.Length, block.Length);
+        interleaved[..count].CopyTo(block);
+        Volatile.Write(ref _outputProduced, produced + 1);
     }
 
     public void Dispose()
@@ -116,6 +155,30 @@ public sealed class AudioRecorder : IDisposable
             return;
         _disposed = true;
         Stop();
+    }
+
+    private void OutputLoop()
+    {
+        var writer = _outputWriter;
+        if (writer is null)
+            return;
+
+        while (true)
+        {
+            var produced = Volatile.Read(ref _outputProduced);
+            var consumed = _outputConsumed;
+            if (consumed < produced)
+            {
+                writer.WriteInterleaved(_outputRing[(int)(consumed % OutputRingBlocks)]);
+                Volatile.Write(ref _outputConsumed, consumed + 1);
+                continue;
+            }
+
+            if (!Volatile.Read(ref _outputRunning))
+                break;
+
+            Thread.Sleep(1);
+        }
     }
 
     private void CaptureLoop()
