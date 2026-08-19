@@ -139,6 +139,7 @@ public class SoundHandleTests
     private static float[] RenderDoppler(AudioClip clip, Vector3 listenerVelocity)
     {
         using var system = new AudioSystem();
+        system.Listener.Position = new Vector3(0f, 0f, 10f); // away from the source.
         system.Listener.Rolloff = 0f; // keep full amplitude.
         system.Listener.AirAbsorption = 0f;
         system.Listener.Velocity = listenerVelocity;

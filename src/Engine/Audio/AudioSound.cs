@@ -171,7 +171,10 @@ internal sealed class AudioSound
         var panL = MathF.Cos(angle);
         var panR = MathF.Sin(angle);
 
-        var smoothing = 1f - MathF.Pow(0.0001f, 1f / (AudioSystem.SampleRate * 0.005f));
+        // Per-block exponential smoothing whose time constant is 5 ms: the
+        // exponent accounts for the block length, so the smoothed value at each
+        // block boundary matches true per-sample smoothing.
+        var smoothing = 1f - MathF.Pow(0.0001f, frames / (AudioSystem.SampleRate * 0.005f));
         _currentGain += (gainTarget - _currentGain) * smoothing;
         _currentPanL += (panL - _currentPanL) * smoothing;
         _currentPanR += (panR - _currentPanR) * smoothing;
