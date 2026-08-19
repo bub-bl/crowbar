@@ -30,6 +30,9 @@
     <div class="tb-btn" title="Snapping" tooltip="Activer l'aimantation"><icon name="Solar/ui/Bold/target" /></div>
     <div class="tb-btn" title="Grille" tooltip="Afficher la grille"><icon name="Solar/tools/Bold/three-squares" /></div>
     <div class="tb-btn tb-local" title="Local" tooltip="Utiliser les axes locaux"><icon name="Solar/it/Bold/translation" /></div>
+    <div class="tb-sep"></div>
+    <div class="tb-btn @UndoClass" title="Annuler" tooltip="Annuler (Ctrl+Z)&#160;:&#160;@EditorUndoState.UndoLabel" @onclick="RequestUndo"><icon name="Solar/arrows/Bold/round-arrow-left" /></div>
+    <div class="tb-btn @RedoClass" title="Rétablir" tooltip="Rétablir (Ctrl+Shift+Z)&#160;:&#160;@EditorUndoState.RedoLabel" @onclick="RequestRedo"><icon name="Solar/arrows/Bold/round-arrow-right" /></div>
 </div>
 
 <div class="tb-play @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_play" tooltip="Lancer le mode test (F5)"><icon name="Solar/video/Bold/play" />Tester&#160;(F5)</div>
@@ -79,12 +82,29 @@
             chrome.IsActive,
             chrome.IsFullscreen,
             chrome.SupportsCustomChrome,
-            EditorDocumentState.Version);
+            EditorDocumentState.Version,
+            EditorUndoState.Version);
     }
 
     private void TabJouer() => _tab = "jouer";
     private void TabCreer() => _tab = "creer";
     private void TabDevelopper() => _tab = "developper";
+
+    // Undo/redo buttons: enabled state comes from the host-published bridge
+    // (EditorUndoState), the click only queues a request the host consumes next
+    // frame — the history itself lives on the document, never in the panel.
+    private string UndoClass => EditorUndoState.CanUndo ? "" : "tb-disabled";
+    private string RedoClass => EditorUndoState.CanRedo ? "" : "tb-disabled";
+    private void RequestUndo()
+    {
+        if (EditorUndoState.CanUndo)
+            EditorUndoState.RequestUndo();
+    }
+    private void RequestRedo()
+    {
+        if (EditorUndoState.CanRedo)
+            EditorUndoState.RequestRedo();
+    }
 
     private string TabClass(string tab) => _tab == tab ? "tab-active" : "";
 

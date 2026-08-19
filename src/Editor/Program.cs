@@ -33,6 +33,12 @@ internal sealed class DemoApplication : Application
     private Level? _demoLevel;
     private string _lastWindowTitle = string.Empty;
 
+    /// <summary>Open undo window for the current gizmo drag, committed on release (one step per drag).</summary>
+    private IDisposable? _gizmoStep;
+
+    /// <summary>Last observed unbracketed-mutation count of the open document (debug detector).</summary>
+    private int _lastUnbracketedMutations;
+
     /// <summary>The project-relative path the open level is saved to and loaded from (Ctrl+S).</summary>
     private const string LevelSavePath = "Demo.level";
 
@@ -56,10 +62,20 @@ internal sealed class DemoApplication : Application
         // level), to show the widget.
         Renderer?.Gizmos.Selection = SelectInitialEntity(_demoLevel);
 
-        // Editor shortcuts: Ctrl+S saves the level. Shortcuts never fire while
-        // a text field owns the keyboard (the UI consumes it then).
+        // Editor shortcuts: Ctrl+S saves, Ctrl+Z undoes, Ctrl+Shift+Z (and
+        // Ctrl+Y) redo. Shortcuts never fire while a text field owns the
+        // keyboard (the UI consumes it then), so a field's own editing is
+        // never hijacked. The keys are resolved by the character they produce
+        // in the active layout (like the camera's ZQSD bindings): Ctrl+Z
+        // always means the key labeled Z, whether the layout is AZERTY or
+        // QWERTY (the Key enum itself is scancode-based, i.e. physical).
         ShortcutManager.Instance.IsEnabled = () => !Ui.KeyboardConsumed;
+        var undoKey = InputSource.KeyForChar('z');
+        var redoKey = InputSource.KeyForChar('y');
         ShortcutManager.Instance.Register(new KeyChord(Key.S, KeyModifiers.Control), SaveLevel);
+        ShortcutManager.Instance.Register(new KeyChord(undoKey, KeyModifiers.Control), Undo);
+        ShortcutManager.Instance.Register(new KeyChord(undoKey, KeyModifiers.Control | KeyModifiers.Shift), Redo);
+        ShortcutManager.Instance.Register(new KeyChord(redoKey, KeyModifiers.Control), Redo);
 
         // Publish the real world hierarchy for the Explorer panel: the page
         // reads it through EditorExplorerState on every render. The inspector
@@ -303,6 +319,90 @@ internal sealed class DemoApplication : Application
         }
     }
 
+    /// <summary>Undoes the last edit of the open document (Ctrl+Z or the toolbar button).</summary>
+    private void Undo()
+    {
+        _demoLevel?.History.Undo();
+        // Undo mid-drag commits the drag window itself: reset the host's handle
+        // so the rest of the gesture opens a fresh window (the disposed one is
+        // a no-op anyway, but it would block a new window for the next frame).
+        _gizmoStep = null;
+        RefreshSelectionAfterRestore();
+    }
+
+    /// <summary>Redoes the last undone edit (Ctrl+Shift+Z, Ctrl+Y or the toolbar button).</summary>
+    private void Redo()
+    {
+        _demoLevel?.History.Redo();
+        _gizmoStep = null;
+        RefreshSelectionAfterRestore();
+    }
+
+    /// <summary>
+    /// Undo/redo restores the document by rebuilding entities: the gizmo's
+    /// selection reference points at the destroyed generation. Re-resolve it by
+    /// its stable id (the serializer preserves ids), so the selection survives
+    /// an undo/redo and the inspector/explorer keep showing the same entity.
+    /// </summary>
+    private void RefreshSelectionAfterRestore()
+    {
+        if (Renderer?.Gizmos.Selection is not { } selected)
+            return;
+        Renderer.Gizmos.Selection = World.FindEntity(selected.Id);
+    }
+
+    /// <summary>
+    /// Publishes the undo/redo capability of the open document for the toolbar
+    /// (buttons enabled/disabled and step labels in their tooltips). The panels
+    /// read it through the static bridge; the history itself stays on the
+    /// document (<c>Level.History</c>), so multi-window/multi-document hosts
+    /// publish each document's own state through the same bridge.
+    /// </summary>
+    private void PublishUndoState()
+    {
+        if (_demoLevel is not { } document)
+        {
+            EditorUndoState.Publish(false, false, null, null);
+            return;
+        }
+
+        var history = document.History;
+        EditorUndoState.Publish(history.CanUndo, history.CanRedo, history.UndoLabel, history.RedoLabel);
+    }
+
+    /// <summary>
+    /// The undo "no miss" safety net: asserts when a document mutation was
+    /// observed outside any undo window since the last frame. Because the
+    /// history counts unbracketed mutations at the moment they occur, a window
+    /// opened and closed within this very frame (an inspector edit) is still
+    /// recognized as bracketed. Runtime script mutations during play are
+    /// expected and excluded; in edit mode an unbracketed mutation is a missed
+    /// <c>Step()</c> and fails loudly instead of silently corrupting undo.
+    /// </summary>
+    private void DetectUnbracketedMutations()
+    {
+        if (_demoLevel is not { } document)
+            return;
+
+        var history = document.History;
+        if (history.UnbracketedMutationCount == _lastUnbracketedMutations)
+            return;
+        _lastUnbracketedMutations = history.UnbracketedMutationCount;
+
+        if (World.IsPlaying)
+            return;
+        Debug.Assert(false, "[Undo] A document mutation escaped its undo window — wrap the action in level.History.Step().");
+        UiNotifications.Show("Undo", "Mutation hors fenêtre d'undo — ajoutez un Step().", "error");
+    }
+
+    /// <summary>The undo step label of a gizmo drag, by tool.</summary>
+    private static string DragLabel(GizmoMode mode) => mode switch
+    {
+        GizmoMode.Rotate => "Faire pivoter",
+        GizmoMode.Scale => "Redimensionner",
+        _ => "Déplacer"
+    };
+
     /// <summary>
     /// Drives the viewport gizmos: left-click selects the entity under the
     /// cursor (CPU ray against the mesh renderers' AABBs), then dragging a
@@ -313,9 +413,21 @@ internal sealed class DemoApplication : Application
     {
         base.OnUpdate(deltaTime);
 
-        // Fire the registered editor shortcuts (Ctrl+S saves the level);
-        // Input.Poll already ran this frame, so the press edges are fresh.
+        // Fire the registered editor shortcuts (Ctrl+S saves, Ctrl+Z undoes,
+        // Ctrl+Shift+Z/Ctrl+Y redo); Input.Poll already ran this frame, so the
+        // press edges are fresh.
         ShortcutManager.Instance.Update();
+
+        // Undo/redo requested by the toolbar buttons (UI → host) are applied
+        // before the frame's edits, so a click lands immediately on the state
+        // the button displayed.
+        if (_demoLevel is not null)
+        {
+            if (EditorUndoState.ConsumeUndoRequest())
+                Undo();
+            if (EditorUndoState.ConsumeRedoRequest())
+                Redo();
+        }
 
         // Document shown in the custom title bar: the open level with its real
         // dirty state (unsaved edits → "●"). The OS title follows the same
@@ -346,13 +458,15 @@ internal sealed class DemoApplication : Application
             Renderer?.Gizmos.Selection = requested;
 
         // Edits queued by the inspector (UI → host) are written back to the
-        // selected entity before the snapshots are republished, so the panels
-        // reflect the new values on the same frame. A successful edit marks
-        // the level dirty through Level.MarkDirty (inside ApplyEdit).
+        // selected entity inside one undo window: the whole batch (a field
+        // commit) is a single undoable step. A successful edit marks the level
+        // dirty through Level.MarkDirty (inside ApplyEdit).
         var selected = Renderer?.Gizmos.Selection;
-        if (selected is not null)
+        var pendingEdits = EditorInspectorState.ConsumeEdits();
+        if (selected is not null && pendingEdits.Count > 0)
         {
-            foreach (var (key, value) in EditorInspectorState.ConsumeEdits())
+            using var step = _demoLevel!.History.Step("Modifier une propriété");
+            foreach (var (key, value) in pendingEdits)
                 InspectorStateBuilder.ApplyEdit(selected, key, value);
         }
         ExplorerTreeBuilder.Publish(World, selected);
@@ -360,7 +474,11 @@ internal sealed class DemoApplication : Application
 
         var renderer = Renderer;
         if (renderer is null)
+        {
+            PublishUndoState();
+            DetectUnbracketedMutations();
             return;
+        }
 
         // The gizmo tool chosen in the viewport toolbar is applied here every
         // frame: rendering and interaction follow the same mode.
@@ -393,11 +511,27 @@ internal sealed class DemoApplication : Application
         if (!Ui.PointerPressConsumed || renderer.Gizmos.IsDragging)
             renderer.Gizmos.UpdateInteraction(matrices, localMouse, Mouse.IsDown(MouseButton.Left));
 
+        // One undo window per drag gesture: opened when the drag starts (BeginDrag
+        // does not write — the first Drag write happens on the next frame, inside
+        // the window) and committed on release, so hundreds of intermediate
+        // transform writes become a single undoable step.
+        var gizmos = renderer.Gizmos;
+        if (gizmos.IsDragging && _gizmoStep is null)
+            _gizmoStep = _demoLevel!.History.Step(DragLabel(gizmos.Mode));
+        else if (!gizmos.IsDragging && _gizmoStep is not null)
+        {
+            _gizmoStep.Dispose();
+            _gizmoStep = null;
+        }
+
         // Selects on left-click only when the click did not start a gizmo drag
         // (otherwise moving the entity would re-select the scene), only inside
         // the viewport, and not when the UI consumed the click.
         if (insideViewport && !Ui.PointerPressConsumed && Mouse.WasPressed(MouseButton.Left) && !renderer.Gizmos.IsDragging)
             renderer.Gizmos.Selection = renderer.Gizmos.Pick(World, matrices, localMouse);
+
+        PublishUndoState();
+        DetectUnbracketedMutations();
     }
 
     /// <summary>
@@ -416,9 +550,13 @@ internal sealed class DemoApplication : Application
 
     /// <summary>
     /// While typing in a field (TextInput), the ZQSD/space keys go back to
-    /// the field: the camera must not move at the same time.
+    /// the field: the camera must not move at the same time. While a
+    /// modifier is held (Ctrl+Z, Ctrl+S, Ctrl+Shift+Z, …) the movement keys
+    /// are shortcut keys: holding Ctrl and pressing Z must undo, not walk
+    /// the camera forward.
     /// </summary>
-    protected override bool CanMoveCamera() => !Ui.KeyboardConsumed;
+    protected override bool CanMoveCamera() =>
+        !Ui.KeyboardConsumed && Input.HeldModifiers() == KeyModifiers.None;
 
     /// <summary>
     /// The wheel zooms the camera only when the cursor is inside the viewport

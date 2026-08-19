@@ -220,11 +220,61 @@ public static class LevelSerializer
     {
         ArgumentNullException.ThrowIfNull(world);
         ArgumentNullException.ThrowIfNull(data);
-        warning ??= message => Console.WriteLine($"[Level] {message}");
+        warning ??= DefaultWarning;
 
         var level = world.CreateLevel(data.Metadata?.Name);
         level.Id = data.Id;
+        PopulateLevel(level, data, warning);
 
+        // Reconstructing the level above mutated it (spawning, components,
+        // transforms), so the materialized document starts clean: the dirty
+        // flag only appears once the user edits it.
+        level.ClearDirty();
+        return level;
+    }
+
+    /// <summary>
+    /// Restores a level's content <em>in place</em> from its DTO: destroys the
+    /// current entities and rebuilds the document from <paramref name="data"/>,
+    /// preserving every entity id (the reference contract of the editor —
+    /// selection and external references survive an undo/redo). This is the
+    /// undo/redo restore path of <see cref="Undo.UndoHistory"/>. The
+    /// reconstruction runs with mutation tracking suppressed, so the restore
+    /// itself never marks the document dirty nor bumps <see cref="Level.ChangeCount"/>
+    /// — dirty state follows the history position, not the restore.
+    /// </summary>
+    public static void ApplyTo(Level level, LevelFileData data, Action<string>? warning = null)
+    {
+        ArgumentNullException.ThrowIfNull(level);
+        ArgumentNullException.ThrowIfNull(data);
+        warning ??= DefaultWarning;
+
+        using var _ = level.SuppressMutations();
+        foreach (var entity in level.Entities.ToArray())
+            level.World.DestroyEntity(entity);
+
+        level.Id = data.Id;
+        if (data.Metadata?.Name is { Length: > 0 } name)
+            level.Name = name;
+
+        PopulateLevel(level, data, warning);
+    }
+
+    /// <summary>Convenience overload: parses the JSON form and restores the level from it.</summary>
+    public static void ApplyTo(Level level, string json, Action<string>? warning = null)
+        => ApplyTo(level, Deserialize(json, warning), warning);
+
+    private static Action<string> DefaultWarning =>
+        message => Console.WriteLine($"[Level] {message}");
+
+    /// <summary>
+    /// Two-phase reconstruction shared by <see cref="CreateLevel"/> and
+    /// <see cref="ApplyTo(Level, LevelFileData, Action{string}?)"/>: entities
+    /// and components first, then the transform attachments, so a child can be
+    /// attached no matter the order the entities appear in the data.
+    /// </summary>
+    private static void PopulateLevel(Level level, LevelFileData data, Action<string> warning)
+    {
         // Phase 1: entities and components.
         var byId = new Dictionary<Guid, Entity>(data.Entities.Count);
         foreach (var entityData in data.Entities)
@@ -235,7 +285,7 @@ public static class LevelSerializer
                 continue;
             }
 
-            var entity = world.SpawnEntity(entityData.Name, level);
+            var entity = level.World.SpawnEntity(entityData.Name, level);
             entity.Id = entityData.Id;
             byId[entity.Id] = entity;
 
@@ -265,12 +315,6 @@ public static class LevelSerializer
                 warning($"Failed to attach '{child.Name}' to '{parent.Name}': {ex.Message}");
             }
         }
-
-        // Reconstructing the level above mutated it (spawning, components,
-        // transforms), so the materialized document starts clean: the dirty
-        // flag only appears once the user edits it.
-        level.ClearDirty();
-        return level;
     }
 
     private static void AddComponent(Entity entity, LevelComponentData componentData, Action<string> warning)

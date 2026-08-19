@@ -62,9 +62,9 @@ root {
 
 .topbar-tools {
     position: absolute;
-    left: 360px;
+    left: 335px;
     top: 0px;
-    width: 220px;
+    width: 320px;
     height: 44px;
     flex-direction: row;
     align-items: center;
@@ -97,6 +97,16 @@ root {
     color: $text-bright;
 }
 
+.tb-disabled {
+    opacity: 0.35;
+    cursor: default;
+
+    &:hover {
+        background-color: transparent;
+        color: $text-muted;
+    }
+}
+
 .tb-sep {
     width: 1px;
     height: 18px;
@@ -106,7 +116,7 @@ root {
 
 .tb-play {
     position: absolute;
-    left: 590px;
+    left: 665px;
     top: 8px;
     width: 110px;
     height: 28px;
@@ -136,7 +146,7 @@ root {
 
 .tb-mode {
     position: absolute;
-    left: 712px;
+    left: 785px;
     top: 8px;
     width: 150px;
     height: 28px;
