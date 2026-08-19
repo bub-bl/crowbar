@@ -266,6 +266,10 @@ public static class LevelSerializer
             }
         }
 
+        // Reconstructing the level above mutated it (spawning, components,
+        // transforms), so the materialized document starts clean: the dirty
+        // flag only appears once the user edits it.
+        level.ClearDirty();
         return level;
     }
 

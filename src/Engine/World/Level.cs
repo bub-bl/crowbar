@@ -28,11 +28,21 @@ public sealed class Level : IDisposable, IValid
 
     public bool IsValid => !_disposed;
 
-    /// <summary>Raised when an entity is added to this level (e.g. by spawning).</summary>
-    public event Action<Entity>? EntityAdded;
+    /// <summary>
+    /// True when the level has unsaved changes since its last save or load
+    /// (the editor's title bar "●"). Every mutation path — spawning or
+    /// destroying entities, adding or removing components, moving a transform
+    /// (<see cref="TransformComponent.Local"/>) and property edits through
+    /// <see cref="InspectorStateBuilder.ApplyEdit"/> — marks the level dirty;
+    /// <see cref="ClearDirty"/> is called after a successful save or load.
+    /// </summary>
+    public bool IsDirty { get; private set; }
 
-    /// <summary>Raised when an entity is removed from this level (e.g. by destruction).</summary>
-    public event Action<Entity>? EntityRemoved;
+    /// <summary>Marks the level as having unsaved changes.</summary>
+    public void MarkDirty() => IsDirty = true;
+
+    /// <summary>Clears the unsaved-changes flag (after a successful save or load).</summary>
+    public void ClearDirty() => IsDirty = false;
 
     /// <summary>Spawns an entity owned by this level (so it will be serialized with it).</summary>
     public Entity SpawnEntity(string? name = null) => World.SpawnEntity(name, this);
@@ -40,13 +50,13 @@ public sealed class Level : IDisposable, IValid
     internal void AddEntityInternal(Entity entity)
     {
         _entities.Add(entity);
-        EntityAdded?.Invoke(entity);
+        IsDirty = true;
     }
 
     internal void RemoveEntityInternal(Entity entity)
     {
         _entities.Remove(entity);
-        EntityRemoved?.Invoke(entity);
+        IsDirty = true;
     }
 
     /// <summary>Destroys every entity in the level and removes it from its world.</summary>

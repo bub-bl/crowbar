@@ -113,6 +113,7 @@ public sealed class Entity : IDisposable, IValid
         if (World.IsPlaying)
             World.StartObject(component);
         ComponentAdded?.Invoke(this, component);
+        Level?.MarkDirty();
     }
 
     /// <summary>Removes the first component of type <typeparamref name="T"/> (or a type deriving from it).</summary>
@@ -146,6 +147,7 @@ public sealed class Entity : IDisposable, IValid
         component.Entity = null;
         component.IsValid = false;
         ComponentRemoved?.Invoke(this, component);
+        Level?.MarkDirty();
     }
 
     /// <summary>

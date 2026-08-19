@@ -28,6 +28,10 @@ public abstract class TransformComponent : Component
                 return;
             _local = value;
             LocalChanged?.Invoke(this);
+            // A moved transform is an edit of the owning document: the level
+            // becomes dirty (covers gizmo drags through World, inspector
+            // transform fields and runtime changes alike).
+            Entity?.Level?.MarkDirty();
         }
     }
 

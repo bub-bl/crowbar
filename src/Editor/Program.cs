@@ -44,9 +44,10 @@ internal sealed class DemoApplication : Application
 
         // Persistence: the project's saved level is loaded when it exists (so
         // edits survive a restart), otherwise the demo scene is built from
-        // scratch. The open level is then dirty-tracked for the title bar's "●".
+        // scratch. Either way the open document starts clean — the title bar's
+        // "●" appears only once a mutation marks the level dirty (Level.IsDirty).
         _demoLevel = LoadOrCreateLevel();
-        LevelDirtyTracker.Track(_demoLevel);
+        _demoLevel.ClearDirty();
 
         World.Start();
         Console.WriteLine($"World: {_demoLevel.Entities.Count} entité(s) dans le level '{_demoLevel.Name}'.");
@@ -291,7 +292,7 @@ internal sealed class DemoApplication : Application
         try
         {
             LevelFile.Save(_demoLevel, LevelSavePath);
-            LevelDirtyTracker.Clear();
+            _demoLevel.ClearDirty();
             Console.WriteLine($"[Level] Sauvegardé : {LevelSavePath}");
             UiNotifications.Show("Level", $"Niveau sauvegardé : {LevelSavePath}", "success");
         }
@@ -319,7 +320,7 @@ internal sealed class DemoApplication : Application
         // Document shown in the custom title bar: the open level with its real
         // dirty state (unsaved edits → "●"). The OS title follows the same
         // document, so Alt-Tab shows the open level too.
-        EditorDocumentState.Publish(_demoLevel?.Name ?? string.Empty, LevelDirtyTracker.IsDirty);
+        EditorDocumentState.Publish(_demoLevel?.Name ?? string.Empty, _demoLevel?.IsDirty ?? false);
         SyncWindowTitle();
 
         // Live values for the editor status bar (FPS, memory, latency). The
@@ -347,7 +348,7 @@ internal sealed class DemoApplication : Application
         // Edits queued by the inspector (UI → host) are written back to the
         // selected entity before the snapshots are republished, so the panels
         // reflect the new values on the same frame. A successful edit marks
-        // the level dirty through LevelDirtyTracker (inside ApplyEdit).
+        // the level dirty through Level.MarkDirty (inside ApplyEdit).
         var selected = Renderer?.Gizmos.Selection;
         if (selected is not null)
         {

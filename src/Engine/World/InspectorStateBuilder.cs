@@ -69,8 +69,7 @@ public static class InspectorStateBuilder
     /// (<c>PointLight.Intensity</c>) or a material shader parameter
     /// (<c>MeshRenderer.Material.metallic</c>). Malformed keys and values are
     /// ignored, so a bad keystroke never crashes the host. A successfully
-    /// applied edit marks the level dirty through
-    /// <see cref="LevelDirtyTracker"/>.
+    /// applied edit marks the owning level dirty (<see cref="Level.MarkDirty"/>).
     /// </summary>
     public static void ApplyEdit(Entity entity, string key, string value)
     {
@@ -120,7 +119,7 @@ public static class InspectorStateBuilder
         }
 
         if (applied)
-            LevelDirtyTracker.NotifyEdit(entity);
+            entity.Level?.MarkDirty();
     }
 
     private static bool ApplyTransformEdit(Entity entity, string field, string value)
