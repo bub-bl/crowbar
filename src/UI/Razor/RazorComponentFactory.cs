@@ -297,7 +297,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     // are immutable and safe to share), and the emitted assemblies are
     // additionally persisted to disk keyed by a content hash so subsequent
     // launches skip Roslyn entirely.
-    private static readonly object PlatformReferencesLock = new();
+    private static readonly Lock PlatformReferencesLock = new();
     private static IReadOnlyList<PortableExecutableReference>? _platformReferences;
 
     private static readonly ConcurrentDictionary<string, RazorProjectEngine> ProjectEngines =
@@ -365,7 +365,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         private readonly Dictionary<string, (long WriteTime, Assembly Assembly, long LastUse)> _entries =
             new(StringComparer.Ordinal);
 
-        private readonly object _lock = new();
+        private readonly Lock _lock = new();
 
         public Assembly? Get(string key, long writeTime)
         {

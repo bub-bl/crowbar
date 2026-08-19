@@ -52,7 +52,7 @@ public static class Keyframes
     // parallel, each parsing the same SCSS and registering the same keyframes.
     // The registry is therefore synchronized: the registration compiles the
     // keyframe data outside the lock and only the dictionary write is guarded.
-    private static readonly object Sync = new();
+    private static readonly Lock Sync = new();
     private static readonly Dictionary<string, KeyframeList> Registry = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Every registered keyframe definition, in registration order.</summary>

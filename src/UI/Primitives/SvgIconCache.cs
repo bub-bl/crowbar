@@ -39,7 +39,7 @@ public sealed class SvgIconCache
     // The shared cache is used by every renderer in the process (tests run in
     // parallel, and hosts may load icons off the render thread); guard the
     // dictionaries so concurrent Get/Clear never corrupt them.
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     /// <summary>
     /// Gets the intrinsic size (in the SVG's own units) of an icon, used by

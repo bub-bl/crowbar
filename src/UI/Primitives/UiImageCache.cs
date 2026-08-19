@@ -27,7 +27,7 @@ public sealed class UiImageCache
     // The shared cache is used by every renderer in the process (tests run in
     // parallel, and hosts may load images off the render thread); guard the
     // dictionary so concurrent Register/Get/Clear never corrupt it.
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     /// <summary>
     /// Registers an intrinsic size under a source key without touching the

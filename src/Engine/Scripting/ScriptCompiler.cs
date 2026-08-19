@@ -16,7 +16,7 @@ namespace Crowbar.Engine.Scripting;
 /// </summary>
 public sealed class ScriptCompiler
 {
-    private static readonly object PlatformReferencesLock = new();
+    private static readonly Lock PlatformReferencesLock = new();
     private static IReadOnlyList<PortableExecutableReference>? _platformReferences;
 
     private static readonly CSharpCompilationOptions CompilationOptions = new(
@@ -121,7 +121,7 @@ public sealed class ScriptCompiler
     /// </summary>
     private sealed class ProjectCompilation
     {
-        private readonly object _gate = new();
+        private readonly Lock _gate = new();
         private readonly string _assemblyName;
         private readonly IReadOnlyList<MetadataReference> _references;
         private readonly Dictionary<string, (long WriteTime, SyntaxTree Tree)> _trees = new(StringComparer.OrdinalIgnoreCase);

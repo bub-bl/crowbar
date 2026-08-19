@@ -98,7 +98,7 @@ public sealed class ScriptHost : IDisposable
     private readonly List<IInstanceUpgrader> _upgraders = [];
     private readonly List<object> _watchedInstances = [];
     private readonly List<ScriptAssembly> _codeTargets = [];
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
 
     private IFileWatcher? _watcher;
     private FilePath? _directory;

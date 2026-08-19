@@ -51,7 +51,7 @@ public static class EditorInspectorState
     public static int Version => _version;
 
     private static readonly HashSet<string> Collapsed = new(StringComparer.Ordinal);
-    private static readonly object EditLock = new();
+    private static readonly Lock EditLock = new();
     private static readonly List<(string Key, string Value)> PendingEdits = [];
 
     public static bool IsCollapsed(string id) => Collapsed.Contains(id);

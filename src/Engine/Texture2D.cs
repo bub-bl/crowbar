@@ -17,7 +17,7 @@ namespace Crowbar.Engine;
 /// </summary>
 public sealed class Texture2D
 {
-    private readonly object _decodeLock = new();
+    private readonly Lock _decodeLock = new();
     private (int Width, int Height, byte[] Pixels)? _decoded;
 
     /// <summary>

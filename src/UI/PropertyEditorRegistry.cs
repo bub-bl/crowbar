@@ -15,7 +15,7 @@ public static class PropertyEditorRegistry
     /// <summary>Editor tag used when no editor declares the property type.</summary>
     public const string FallbackTag = "ObjectEditor";
 
-    private static readonly object Lock = new();
+    private static readonly Lock Lock = new();
     private static readonly Dictionary<string, string> ByType = new(StringComparer.Ordinal);
 
     /// <summary>Registers every <c>[EditorProperty]</c> declaration found in a component's source.</summary>

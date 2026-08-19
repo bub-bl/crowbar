@@ -11,7 +11,7 @@ namespace Crowbar.Engine;
 public static class ComponentTypeRegistry
 {
     private static Dictionary<string, Type>? _index;
-    private static readonly object Lock = new();
+    private static readonly Lock Lock = new();
 
     /// <summary>Resolves a component type by its short name, or null when unknown.</summary>
     public static Type? Resolve(string shortName)

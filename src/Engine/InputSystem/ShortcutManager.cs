@@ -13,7 +13,7 @@ namespace Crowbar.Engine.InputSystem;
 public sealed class ShortcutManager
 {
     private readonly List<(KeyChord Chord, Action Action)> _shortcuts = [];
-    private readonly object _lock = new();
+    private readonly Lock _lock = new();
 
     /// <summary>The process-wide manager used by the editor host.</summary>
     public static ShortcutManager Instance { get; } = new();
