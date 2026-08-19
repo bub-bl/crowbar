@@ -13,6 +13,7 @@ namespace Crowbar.Engine;
 /// rendering.
 /// </summary>
 [GizmoIcon("camera")]
+[ComponentIcon("Solar/video/Bold/camera")]
 public sealed class Camera : TransformComponent
 {
     private const float RadiansToDegrees = 180f / MathF.PI;

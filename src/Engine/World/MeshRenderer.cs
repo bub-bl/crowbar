@@ -9,6 +9,7 @@ namespace Crowbar.Engine;
 /// nothing.
 /// </summary>
 [GizmoIcon("mesh")]
+[ComponentIcon("Solar/ui/Bold/box-minimalistic")]
 public sealed class MeshRenderer : TransformComponent
 {
     private Model? _model;

@@ -24,8 +24,10 @@ public class InspectorStateBuilderTests
         Assert.Equal(new[] { "Position", "Rotation", "Scale" }, transform.Properties.Select(p => p.Name).ToArray());
         Assert.All(transform.Properties, p => Assert.Equal("System.Numerics.Vector3", p.TypeName));
 
-        // The component section resolves each marked property by its CLR type.
+        // The component section resolves each marked property by its CLR type
+        // and carries the icon declared on its type (inherited from Light).
         var section = sections.Single(s => s.Id == "PointLight");
+        Assert.Equal("Solar/devices/Bold/lightbulb", section.Icon);
         var byName = section.Properties.ToDictionary(p => p.Name);
 
         Assert.Equal("System.Numerics.Vector3", byName["Color"].TypeName);
@@ -89,6 +91,7 @@ public class InspectorStateBuilderTests
         // section (from its Local) plus its own component section.
         Assert.Contains(sections, s => s.Id == "transform");
         var section = sections.Single(s => s.Id == "Camera");
+        Assert.Equal("Solar/video/Bold/camera", section.Icon);
         var byName = section.Properties.ToDictionary(p => p.Name);
 
         Assert.Equal("2, 1, 0", byName["Pivot"].Value);

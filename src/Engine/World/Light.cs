@@ -8,6 +8,7 @@ namespace Crowbar.Engine;
 /// lights sit at their position. The renderer gathers every light in the
 /// world each frame and packs them into the shared light buffer.
 /// </summary>
+[ComponentIcon("Solar/devices/Bold/lightbulb")]
 public abstract class Light : TransformComponent
 {
     /// <summary>Linear RGB color of the light.</summary>

@@ -1,3 +1,4 @@
+using System.Reflection;
 using Crowbar.Engine;
 using Crowbar.UI;
 
@@ -67,12 +68,16 @@ public static class ExplorerTreeBuilder
 
     private static string IconFor(Entity entity)
     {
-        if (entity.GetComponent<Camera>() is not null)
-            return "Solar/video/Bold/camera";
-        if (entity.GetComponent<Light>() is not null)
-            return "Solar/devices/Bold/lightbulb";
-        if (entity.GetComponent<MeshRenderer>() is not null)
-            return "Solar/ui/Bold/box-minimalistic";
-        return "Solar/ui/Bold/box";
+        // Each component declares its own editor icon through
+        // ComponentIconAttribute; the entity shows the first declared one
+        // (the common case: a single spatial component like Camera or
+        // MeshRenderer).
+        foreach (var component in entity.Components)
+        {
+            if (component.GetType().GetCustomAttribute<ComponentIconAttribute>(inherit: true) is { } icon)
+                return icon.Path;
+        }
+
+        return ComponentIconAttribute.DefaultPath;
     }
 }

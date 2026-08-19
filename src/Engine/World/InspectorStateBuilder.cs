@@ -377,11 +377,12 @@ public static class InspectorStateBuilder
         return builder.ToString();
     }
 
-    private static string? IconFor(Component component) => component switch
-    {
-        Camera => "Solar/video/Bold/camera",
-        Light => "Solar/devices/Bold/lightbulb",
-        MeshRenderer => "Solar/ui/Bold/box-minimalistic",
-        _ => "Solar/ui/Bold/box"
-    };
+    /// <summary>
+    /// The component's editor icon, declared through
+    /// <see cref="ComponentIconAttribute"/> (inherited, so e.g. every light
+    /// resolves the lightbulb declared on <see cref="Light"/>).
+    /// </summary>
+    private static string IconFor(Component component) =>
+        component.GetType().GetCustomAttribute<ComponentIconAttribute>(inherit: true)?.Path
+        ?? ComponentIconAttribute.DefaultPath;
 }
