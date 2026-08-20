@@ -1,0 +1,198 @@
+{
+  "format": 1,
+  "id": "53174ce7-6d36-4523-962c-a54049d8396c",
+  "metadata": {
+    "name": "Demo",
+    "version": "0.1"
+  },
+  "entities": [
+    {
+      "id": "d1ceb0af-0157-4e8b-92cb-d330a1ae5767",
+      "name": "Sun",
+      "components": [
+        {
+          "type": "DirectionalLight",
+          "transform": "0,0,0,-0.27781594,-0.3649717,-0.11507514,0.88111955,1,1,1",
+          "properties": {
+            "Color": [
+              1,
+              0.95,
+              0.85
+            ],
+            "Intensity": 1.6,
+            "CastShadows": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "6deef8f6-3c13-464a-b937-8114fab9b13d",
+      "name": "FillLight",
+      "components": [
+        {
+          "type": "PointLight",
+          "transform": "-2.5,2,-1.5,0,0,0,1,1,1,1",
+          "properties": {
+            "Range": 8,
+            "Color": [
+              0.4,
+              0.6,
+              1
+            ],
+            "Intensity": 4,
+            "CastShadows": false
+          }
+        }
+      ]
+    },
+    {
+      "id": "9a1635cd-eb58-40e2-8a5a-8bceaf0f02ba",
+      "name": "Plane",
+      "components": [
+        {
+          "type": "MeshRenderer",
+          "transform": "0,0,0,0,0,0,1,5,1,5",
+          "properties": {
+            "Model": {
+              "procedural": "plane"
+            },
+            "Material": {
+              "shader": "Surface/StandardPbr",
+              "technique": "Main",
+              "blendMode": "Opaque",
+              "doubleSided": false,
+              "values": {
+                "color": [
+                  0.3,
+                  0.33,
+                  0.3,
+                  1
+                ],
+                "metallic": 0,
+                "roughness": 0.85,
+                "occlusion": 1,
+                "emissive": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "bd7479a4-c301-48d5-bc77-f40f7ae557e4",
+      "name": "Cube",
+      "components": [
+        {
+          "type": "MeshRenderer",
+          "transform": "0,0.5,0,0.12607862,0.25660482,-0.033782665,0.9576622,1,1,1",
+          "properties": {
+            "Model": {
+              "procedural": "cube"
+            },
+            "Material": {
+              "shader": "Surface/StandardPbr",
+              "technique": "Main",
+              "blendMode": "Opaque",
+              "doubleSided": false,
+              "values": {
+                "color": [
+                  0.2,
+                  0.6,
+                  1,
+                  1
+                ],
+                "metallic": 0.15,
+                "roughness": 0.45,
+                "occlusion": 1,
+                "emissive": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "a5700118-d117-40f4-aa9c-f972684e4f0b",
+      "name": "Accent",
+      "components": [
+        {
+          "type": "MeshRenderer",
+          "transform": "2.2,0.25,1.4,0.08583165,-0.17298742,0.015134438,0.98106027,0.5,0.5,0.5",
+          "properties": {
+            "Model": {
+              "procedural": "cube"
+            },
+            "Material": {
+              "shader": "Surface/Unlit",
+              "technique": "Main",
+              "blendMode": "Opaque",
+              "doubleSided": false,
+              "values": {
+                "color": [
+                  1,
+                  0.72,
+                  0.08,
+                  1
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "d5ae4422-01e4-48e1-9541-8ea8113fa2ee",
+      "name": "DefaultCube",
+      "components": [
+        {
+          "type": "MeshRenderer",
+          "transform": "-2.2,0.25,1.4,0.08583165,-0.17298742,0.015134438,0.98106027,0.5,0.5,0.5",
+          "properties": {
+            "Model": {
+              "procedural": "cube"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "2bb85409-2062-4a5a-9c7b-d061f35d13ee",
+      "name": "Crate",
+      "components": [
+        {
+          "type": "MeshRenderer",
+          "transform": "1.6,0.5,-1.6,0,0.30070582,0,0.95371693,1,1,1",
+          "properties": {
+            "Model": {
+              "path": "Assets/Models/Crate/Crate.gltf"
+            }
+          }
+        },
+        {
+          "type": "DemoComponent",
+          "transform": null,
+          "properties": {
+            "Score": 5,
+            "Name": "D\u00E9mo"
+          }
+        }
+      ]
+    },
+    {
+      "id": "d6bd6ee6-1ddd-47cd-a58e-ef82c7fc019e",
+      "name": "IndustrialWorkLight",
+      "components": [
+        {
+          "type": "MeshRenderer",
+          "transform": "-1.6,0.5,-1.6,-0,-0.21643962,-0,0.976296,0.012653108,0.012653108,0.012653108",
+          "properties": {
+            "Model": {
+              "path": "Assets/Models/industrial_work_light/industrial_work_light.gltf"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "attachments": []
+}
