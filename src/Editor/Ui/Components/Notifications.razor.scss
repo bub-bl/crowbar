@@ -1,6 +1,8 @@
 @use '../_editor-theme' as *;
 
-// Toasts float at the top right of the viewport, above the panels.
+// Toasts float at the top right of the viewport, above the panels. They
+// slide in from the right edge and settle with a soft shadow, matching the
+// native OS toasts (NativeToast.cs) that mirror this same look above all.
 root {
     position: absolute;
     top: 0;
@@ -19,24 +21,57 @@ root {
 
 .notification {
     width: 300px;
+    min-height: 52px;
     background-color: $panel-head;
     border: 1px solid $border;
-    border-radius: 6px;
-    padding-top: 8px;
+    border-radius: 8px;
+    padding-top: 10px;
     padding-right: 12px;
-    padding-bottom: 8px;
+    padding-bottom: 10px;
     padding-left: 12px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    flex-direction: row;
+    align-items: flex-start;
+    column-gap: 10px;
+    animation: notification-in 220ms ease-out both;
+
+    .kind {
+        width: 16px;
+        height: 16px;
+        margin-top: 1px;
+    }
+
+    .body {
+        flex-direction: column;
+        flex-grow: 1;
+        min-width: 0;
+    }
 
     &.success {
+        .kind { color: $green; }
         border-left: 3px solid $green;
     }
 
     &.error {
+        .kind { color: #d64545; }
         border-left: 3px solid #d64545;
     }
 
     &.info {
+        .kind { color: $accent; }
         border-left: 3px solid $accent;
+    }
+}
+
+// Entry animation: the toast glides in from the right and fades up.
+@keyframes notification-in {
+    from {
+        opacity: 0;
+        transform: translateX(24px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
     }
 }
 
@@ -50,4 +85,5 @@ root {
     color: $text-muted;
     font-size: 11px;
     margin-top: 3px;
+    line-height: 1.35;
 }

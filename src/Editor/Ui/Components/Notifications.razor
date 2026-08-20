@@ -6,13 +6,23 @@
     @foreach (var n in UiNotifications.Notifications)
     {
         <div class="notification @(n.Kind)">
-            <div class="title">@n.Title</div>
-            <div class="message">@n.Message</div>
+            <div class="kind"><icon name="@IconFor(n.Kind)" /></div>
+            <div class="body">
+                <div class="title">@n.Title</div>
+                <div class="message">@n.Message</div>
+            </div>
         </div>
     }
 </div>
 
 @code {
+    private static string IconFor(string kind) => kind switch
+    {
+        "success" => "Solar/ui/Bold/check-circle",
+        "error" => "Solar/ui/Bold/danger-circle",
+        _ => "Solar/ui/Bold/info-circle"
+    };
+
     // Re-renders when a notification is added or pruned (the editor page also
     // re-renders on a throttle, so toasts stay fresh either way).
     protected override int BuildHash() => UiNotifications.Version;
