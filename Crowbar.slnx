@@ -3,6 +3,8 @@
   <Project Path="src/Editor/Editor.csproj" />
   <Project Path="src/Engine/Engine.csproj" />
   <Project Path="src/UI/Crowbar.UI.csproj" />
-  <Project Path="tests/Crowbar.UI.Tests/Crowbar.UI.Tests.csproj" />
+  <Folder Name="/Tests/">
+    <Project Path="tests/Crowbar.UI.Tests/Crowbar.UI.Tests.csproj" />
+  </Folder>
   <Project Path="Game/Game.csproj" />
 </Solution>
