@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 using Crowbar.Engine;
+using Crowbar.Engine.Audio;
 using Crowbar.Engine.InputSystem;
 using Crowbar.Engine.Platform;
 using Crowbar.Engine.Rendering;
@@ -960,6 +961,7 @@ internal sealed class DemoApplication : Application
     private void OnScriptReloadFailed(ScriptReloadFailedEventArgs e)
     {
         Console.WriteLine($"[Scripting] Hot reload FAILED: {e.Error.Message}");
+        Audio.Play("Assets/Sounds/ui_compilation_error.wav", bus: AudioBusName.Ui);
         UiNotifications.Show("Hot reload", $"Failed: {e.Error.Message}", "error");
         // A compilation error is exactly what the popup exists to display.
         ShowNotificationWindow();
