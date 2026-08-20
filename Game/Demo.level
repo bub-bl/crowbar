@@ -167,6 +167,14 @@
               "path": "Assets/Models/Crate/Crate.gltf"
             }
           }
+        },
+        {
+          "type": "DemoComponent",
+          "transform": null,
+          "properties": {
+            "Score": 5,
+            "Name": "Démo"
+          }
         }
       ]
     },
