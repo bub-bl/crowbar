@@ -6,23 +6,26 @@ namespace Crowbar.Editor;
 
 /// <summary>
 /// The notification popup: a borderless window pinned to the bottom-left of the
-/// primary display, created once and never destroyed. It is not a real window —
-/// no chrome, no header, no feed — it exists only to display the single latest
-/// compilation notification (success/error). It starts hidden: a compilation
-/// result (script hot reload success/error) shows it with that one notification,
-/// and toggling or closing it hides it completely
-/// (<see cref="NotificationWindowSession"/>).
+/// primary display, created once and never destroyed. Owned by the
+/// <see cref="Editor"/> instance. It is not a real window — no chrome, no
+/// header, no feed — it exists only to display the single latest compilation
+/// notification (success/error). It starts hidden: a compilation result (script
+/// hot reload success/error) shows it with that one notification, and toggling
+/// or closing it hides it completely (<see cref="NotificationWindowSession"/>).
 /// </summary>
-public static class NotificationWindow
+public sealed class NotificationWindow
 {
-    private static WindowSession? _session;
+    private readonly Editor _editor;
+    private WindowSession? _session;
+
+    public NotificationWindow(Editor editor) => _editor = editor;
 
     /// <summary>Creates (once), hides and positions the persistent notification popup.</summary>
-    public static void EnsureCreated()
+    public void EnsureCreated()
     {
         if (_session is not null)
             return;
-        var session = EditorHost.Current!.OpenEditorWindow(new WindowOptions(
+        var session = _editor.OpenWindow(new WindowOptions(
             Title: "Crowbar — Notifications",
             Width: 480,
             Height: 110,
@@ -36,32 +39,32 @@ public static class NotificationWindow
     }
 
     /// <summary>Shows the popup with the latest notification, without stealing the editor's focus.</summary>
-    public static void Show()
+    public void Show()
     {
         EnsureCreated();
         if (_session!.Window.IsVisible)
             return;
         _session.Window.SetVisible(true);
         // The popup must not steal the editor's keystrokes: give the focus back.
-        Game.Window.SetInputFocus();
+        _editor.Window.SetInputFocus();
         Log.Info("[Window] Notification popup shown.");
     }
 
     /// <summary>Shows or completely hides the notification popup.</summary>
-    public static void Toggle()
+    public void Toggle()
     {
         EnsureCreated();
         var visible = !_session!.Window.IsVisible;
         _session.Window.SetVisible(visible);
         if (visible)
-            Game.Window.SetInputFocus();
+            _editor.Window.SetInputFocus();
         Log.Info($"[Window] Notification popup {(visible ? "shown" : "hidden")}.");
     }
 
     /// <summary>Pins a window to the bottom-left of the primary display, with a margin.</summary>
-    private static void PositionBottomLeft(IWindow window)
+    private void PositionBottomLeft(IWindow window)
     {
-        if (!EditorHost.Current!.HostPlatform.TryGetDisplayBounds(0, out var x, out var y, out var width, out var height))
+        if (!_editor.Platform.TryGetDisplayBounds(0, out var x, out var y, out var width, out var height))
             return; // unknown display: keep the centered default position
         const int margin = 16;
         window.SetPosition(x + margin, y + height - window.Height - margin);
@@ -83,7 +86,7 @@ internal sealed class NotificationWindowSession : WindowSession
 
     protected override void OnInitialize()
     {
-        EditorHost.ConfigureUiForWindow(Ui, "/notifications");
+        Editor.ConfigureUiForWindow(Ui, "/notifications");
         base.OnInitialize();
     }
 }

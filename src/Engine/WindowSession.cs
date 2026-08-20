@@ -83,7 +83,7 @@ public class WindowSession : IDisposable
     protected IGraphicsDevice? Graphics => _graphics;
 
     /// <summary>This window's renderer (scene pass + Razor UI composite), or null headless.</summary>
-    protected Renderer? Renderer => _renderer;
+    public Renderer? Renderer => _renderer;
 
     /// <summary>The viewport camera of this window.</summary>
     public virtual Camera Camera { get; protected set; } = new();

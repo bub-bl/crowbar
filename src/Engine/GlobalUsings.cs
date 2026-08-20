@@ -1,0 +1,3 @@
+// The shared API shorthand: any file of this assembly can write
+// Log.Info(...), TypeLibrary.Resolve(...), Game.World, ...
+global using static Crowbar.Engine.GlobalNamespaces;

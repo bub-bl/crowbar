@@ -183,7 +183,9 @@ internal sealed class AudioSound
         var scratch = _scratch;
         var pitch = Pitch > 0f ? Pitch * _dopplerPitch : 0f;
 
-        if (Volatile.Read(ref Paused))
+        // The field is volatile: a direct read is already a volatile read;
+        // taking a ref (Volatile.Read(ref Paused)) would warn CS0420.
+        if (Paused)
         {
             // Paused: freeze the read head and hold the current frame.
             for (var i = 0; i < frames; i++)

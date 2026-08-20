@@ -8,7 +8,8 @@ namespace Crowbar.Editor;
 /// (fill), a floor plane and several cubes/models rendered by MeshRenderers
 /// through the world system (<see cref="World"/>). Built when the project has no
 /// saved level, or when the saved one is unreadable. Models are loaded through
-/// <see cref="ResourceLibrary"/> (an unreadable asset becomes the error model).
+/// <see cref="GlobalNamespaces.ResourceLibrary"/> (an unreadable asset becomes
+/// the error model).
 /// </summary>
 public static class DemoScene
 {

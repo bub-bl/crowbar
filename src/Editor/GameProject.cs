@@ -11,12 +11,17 @@ namespace Crowbar.Editor;
 /// — the engine and the editor never reference the project — and hot-reloaded on
 /// every edit (IL fast path when only method bodies change, otherwise a full
 /// reload with state migration). Its component types are registered in
-/// <see cref="TypeLibrary"/> so the editor can attach them; its code publishes
-/// editor status through <see cref="StatusBar"/>.
+/// <see cref="GlobalNamespaces.TypeLibrary"/> so the editor can attach them; its
+/// code publishes editor status through <see cref="StatusBar"/>. Owned by the
+/// <see cref="Editor"/> instance; compilation results surface through the
+/// injected <see cref="NotificationWindow"/>.
 /// </summary>
-public static class GameProject
+public sealed class GameProject
 {
-    private static ScriptHost? _host;
+    private readonly NotificationWindow _notificationWindow;
+    private ScriptHost? _host;
+
+    public GameProject(NotificationWindow notificationWindow) => _notificationWindow = notificationWindow;
 
     /// <summary>
     /// (Re)loads the game project from the current project root: compiles every
@@ -27,7 +32,7 @@ public static class GameProject
     /// before the level is loaded: only its registered component types resolve
     /// when a saved document is materialized.
     /// </summary>
-    public static void Start()
+    public void Start()
     {
         try
         {
@@ -57,20 +62,20 @@ public static class GameProject
     }
 
     /// <summary>Applies detected hot reloads and prunes the expired toasts (call once per frame).</summary>
-    public static void Update()
+    public void Update()
     {
         _host?.Update();
         UiNotifications.PruneExpired();
     }
 
     /// <summary>Stops watching and unloads the game assembly (application shutdown).</summary>
-    public static void Dispose()
+    public void Dispose()
     {
         _host?.Dispose();
         _host = null;
     }
 
-    private static ScriptHost EnsureHost()
+    private ScriptHost EnsureHost()
     {
         if (_host is not null)
             return _host;
@@ -85,7 +90,7 @@ public static class GameProject
         return _host;
     }
 
-    private static void OnReloaded(ScriptReloadedEventArgs e)
+    private void OnReloaded(ScriptReloadedEventArgs e)
     {
         var detail = e.Mode switch
         {
@@ -96,7 +101,7 @@ public static class GameProject
         Log.Info($"[Scripting] Hot reload OK ({e.Mode}): {detail}");
         UiNotifications.Show("Hot reload", detail, "success");
         // A compilation result is exactly what the popup exists to display.
-        NotificationWindow.Show();
+        _notificationWindow.Show();
 
         // A full reload swaps the live assembly: point the registered game
         // components at the new generation, so the Add Component list offers the
@@ -110,12 +115,12 @@ public static class GameProject
         }
     }
 
-    private static void OnReloadFailed(ScriptReloadFailedEventArgs e)
+    private void OnReloadFailed(ScriptReloadFailedEventArgs e)
     {
         Log.Warn($"[Scripting] Hot reload FAILED: {e.Error.Message}");
         Audio.Play("Assets/Sounds/ui_compilation_error.wav", bus: AudioBusName.Ui);
         UiNotifications.Show("Hot reload", $"Failed: {e.Error.Message}", "error");
         // A compilation error is exactly what the popup exists to display.
-        NotificationWindow.Show();
+        _notificationWindow.Show();
     }
 }

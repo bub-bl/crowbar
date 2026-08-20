@@ -9,36 +9,65 @@ using Crowbar.UI;
 namespace Crowbar.Editor;
 
 /// <summary>
-/// The editor host: the engine <see cref="Application"/> session that runs the
-/// editor. It is the composition root — it owns the startup order, drives the
-/// per-frame update phases and the project-switch workflow, and publishes the
-/// live engine state through <see cref="Current"/> so the editor API
-/// (<see cref="Game"/>, <see cref="Viewport"/>, ...) reaches the World/Renderer/
-/// UI without dependency injection. The actual work lives in the editor
-/// statics; this class only wires them together.
+/// The editor instance: the engine <see cref="Application"/> session that runs
+/// the editor. It is the composition root — it owns the startup order, drives
+/// the per-frame update phases and the project-switch workflow, and owns the
+/// editor tools (<see cref="Project"/>, <see cref="EditorLevel"/>, <see cref="GameProject"/>,
+/// <see cref="Viewport"/>, <see cref="Shortcuts"/>, <see cref="NotificationWindow"/>) wired by
+/// constructor in <see cref="OnInitialize"/>. It also exposes the live engine
+/// state (world, renderer, camera, UI, window, platform) publicly so the shared
+/// API (<see cref="GlobalNamespaces.Game"/>) and the tools reach it without a
+/// locator. <see cref="Program.Main"/> creates one editor and runs it.
 /// </summary>
-internal sealed class EditorHost : Application
+public sealed class Editor : Application
 {
     private readonly string? _startupProjectFile;
     private string _lastWindowTitle = string.Empty;
 
-    /// <summary>The live editor host, set at startup and cleared on dispose.</summary>
-    internal static EditorHost? Current { get; private set; }
-
-    internal EditorHost(string? projectFilePath = null)
+    public Editor(string? projectFilePath = null)
     {
         _startupProjectFile = projectFilePath;
     }
 
-    // The engine exposes Renderer/Platform/OpenWindow as protected session
-    // members; the editor statics reach them through these internal accessors.
-    internal Renderer? HostRenderer => Renderer;
-    internal IPlatform HostPlatform => Platform;
-    internal WindowSession OpenEditorWindow(WindowOptions options) => OpenWindow(options);
+    /// <summary>The open <c>.crproj</c> project: load, switch, top-bar publish.</summary>
+    public Project Project { get; private set; } = null!;
+
+    /// <summary>The open level: load, save, undo/redo, dirty tracking.</summary>
+    public EditorLevel Level { get; private set; } = null!;
+
+    /// <summary>The game project (scripts): compile, watch, hot reload → notifications.</summary>
+    public GameProject GameProject { get; private set; } = null!;
+
+    /// <summary>The 3D viewport: gizmos, picking, selection, panel publishing.</summary>
+    public Viewport Viewport { get; private set; } = null!;
+
+    /// <summary>The editor's global keyboard shortcuts.</summary>
+    public Shortcuts Shortcuts { get; private set; } = null!;
+
+    /// <summary>The persistent notification popup window.</summary>
+    public NotificationWindow NotificationWindow { get; private set; } = null!;
+
+    // The engine exposes Platform/OpenWindow/Viewport* as protected session
+    // members; the editor tools reach them through these public accessors.
+    public new IPlatform Platform => base.Platform;
+    public new WindowSession OpenWindow(WindowOptions options) => base.OpenWindow(options);
+    public new int ViewportWidth => base.ViewportWidth;
+    public new int ViewportHeight => base.ViewportHeight;
+
+    /// <summary>Saves the open level to the project's level file (Ctrl+S).</summary>
+    public void SaveLevel() => Level.Save(Project.LevelFileName);
 
     protected override void OnInitialize()
     {
-        Current = this;
+        // The editor tools: wired here (the engine session is up), by
+        // constructor — a dependency DAG, no locator. The shared Game API was
+        // already bound to this session by the Application constructor.
+        Project = new Project(this);
+        Level = new EditorLevel();
+        NotificationWindow = new NotificationWindow(this);
+        GameProject = new GameProject(NotificationWindow);
+        Viewport = new Viewport(this);
+        Shortcuts = new Shortcuts(this, NotificationWindow);
 
         // The translation gizmo snap follows the grid cell size.
         Viewport.ConfigureSnap();
@@ -59,17 +88,17 @@ internal sealed class EditorHost : Application
         // edits survive a restart), otherwise the demo scene is built from
         // scratch. Either way the open level starts clean — the title bar's
         // "●" appears only once a mutation marks the level dirty (Level.IsDirty).
-        Game.LoadLevel();
+        var level = Level.Load(Project.LevelFileName);
         World!.Start();
-        Log.Info($"[World] {Game.Level!.Entities.Count} entit(ies) in level '{Game.Level.Name}'.");
+        Log.Info($"[World] {level.Entities.Count} entit(ies) in level '{level.Name}'.");
 
         // Initial selection: the main cube (or the first mesh in a loaded
         // level), to show the widget.
-        Viewport.SelectInitial(Game.Level);
+        Viewport.SelectInitial(level);
 
         // Editor shortcuts: Ctrl+S saves, Ctrl+Z undoes, Ctrl+Shift+Z (and
         // Ctrl+Y) redo, Ctrl+Shift+N toggles the notification window.
-        EditorShortcuts.Register();
+        Shortcuts.Register();
         // Publishes the initial explorer/inspector and subscribes to level
         // restores (undo/redo) so the selection stays coherent.
         Viewport.Initialize();
@@ -92,11 +121,11 @@ internal sealed class EditorHost : Application
         // Fire the registered editor shortcuts (Ctrl+S saves, Ctrl+Z undoes,
         // Ctrl+Shift+Z/Ctrl+Y redo); Input.Poll already ran this frame, so the
         // press edges are fresh.
-        EditorShortcuts.Update();
+        Shortcuts.Update();
 
         // UI → host requests are applied before the frame's edits, so a click
         // lands immediately on the state the button displayed.
-        Game.UpdateRequests(); // undo/redo from the toolbar
+        Level.UpdateRequests(); // undo/redo from the toolbar
         if (EditorProjectState.ConsumeOpenRequest())
             OpenProjectFromDialog(); // modal native dialog, main thread
         if (EditorNotificationWindowState.ConsumeToggleRequest())
@@ -104,7 +133,7 @@ internal sealed class EditorHost : Application
 
         // Live state for the top bar, the custom title bar and the OS title.
         Project.Publish();
-        Game.PublishLevelState();
+        Level.PublishLevelState();
         SyncWindowTitle();
 
         // Live values for the editor status bar (FPS, memory, latency, game entries).
@@ -116,8 +145,8 @@ internal sealed class EditorHost : Application
         // Viewport interaction: gizmos, picking, selection, inspector/explorer.
         Viewport.Update(deltaTime, ViewportWidth, ViewportHeight);
 
-        Game.PublishUndoState();
-        Game.DetectUnbracketedMutations();
+        Level.PublishUndoState();
+        Level.DetectUnbracketedMutations();
     }
 
     /// <summary>
@@ -208,7 +237,7 @@ internal sealed class EditorHost : Application
         // must be registered before the document is materialized, so saved
         // components resolve when ReloadLevel loads the level.
         GameProject.Start();
-        Game.ReloadLevel();
+        Level.Reload(Project.LevelFileName);
         Viewport.ResetSelection();
         Project.Publish();
 
@@ -261,7 +290,6 @@ internal sealed class EditorHost : Application
 
     public override void Dispose()
     {
-        Current = null;
         GameProject.Dispose();
         base.Dispose();
     }
@@ -279,7 +307,7 @@ internal sealed class EditorHost : Application
     /// (falling back to the copy next to the executable in published builds)
     /// when the editor starts bare.
     /// </summary>
-    internal static void ConfigureFileSystem(string? projectFilePath)
+    public static void ConfigureFileSystem(string? projectFilePath)
     {
         var backend = ZioFileSystem.Physical();
 
@@ -303,7 +331,7 @@ internal sealed class EditorHost : Application
     /// are kept as configured at startup; only <see cref="FileSystem.Project"/>
     /// moves, which is exactly the contract of a project switch.
     /// </summary>
-    internal static void ApplyProjectRoot(string projectRoot)
+    public static void ApplyProjectRoot(string projectRoot)
     {
         var project = new FileSystemService(_backend, projectRoot);
         FileSystem.Configure(_backend, _content, project);
@@ -317,7 +345,7 @@ internal sealed class EditorHost : Application
     /// compilation is globally cached (RazorComponentFactory), so registering
     /// per window is cheap and hot reload stays per window.
     /// </summary>
-    internal static void ConfigureUiForWindow(UiSystem ui, string page)
+    public static void ConfigureUiForWindow(UiSystem ui, string page)
     {
         const string uiDirectory = "/Ui";
         var registeredCount = ui.RegisterRazorComponentsFromDirectory(uiDirectory);

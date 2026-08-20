@@ -40,6 +40,9 @@ public abstract class Application : WindowSession
         World = _world;
         Closed += OnPrimaryClosed;
         _platform.QuitRequested += OnPlatformQuit;
+        // The shared Game API points at this live session from startup; unbound
+        // on disposal below.
+        GlobalNamespaces.Game.Bind(this);
         _lastTick = Stopwatch.GetTimestamp();
     }
 
@@ -319,5 +322,6 @@ public abstract class Application : WindowSession
         _sharedGpu?.Dispose();
         _sharedGpu = null;
         _platform.Dispose();
+        GlobalNamespaces.Game.Unbind();
     }
 }

@@ -6,43 +6,46 @@ namespace Crowbar.Editor;
 
 /// <summary>
 /// The open <c>.crproj</c> project: loaded from the command line (double-click
-/// launch), picked through the native dialog, or switched to at runtime. It
-/// publishes the top-bar state through <see cref="EditorProjectState"/> and owns
-/// the project name that drives the saved level file
-/// (<see cref="LevelFileName"/>). Re-rooting the project filesystem is handled
-/// by <see cref="EditorHost.ApplyProjectRoot"/>; the game project (scripts)
-/// lifecycle lives in <see cref="GameProject"/>.
+/// launch), picked through the native dialog, or switched to at runtime. Owned
+/// by the <see cref="Editor"/> instance. It publishes the top-bar state through
+/// <see cref="EditorProjectState"/> and owns the project name that drives the
+/// saved level file (<see cref="LevelFileName"/>). Re-rooting the project
+/// filesystem is handled by <see cref="Editor.ApplyProjectRoot"/>; the game
+/// project (scripts) lifecycle lives in <see cref="GameProject"/>.
 /// </summary>
-public static class Project
+public sealed class Project
 {
-    private static CrowbarProjectFile? _file;
-    private static string? _filePath;
+    private readonly Editor _editor;
+    private CrowbarProjectFile? _file;
+    private string? _filePath;
+
+    public Project(Editor editor) => _editor = editor;
 
     /// <summary>The open project file, or null on the bare demo project.</summary>
-    public static CrowbarProjectFile? File => _file;
+    public CrowbarProjectFile? File => _file;
 
     /// <summary>Full path of the open <c>.crproj</c> file, or null in a bare start.</summary>
-    public static string? FilePath => _filePath;
+    public string? FilePath => _filePath;
 
     /// <summary>Name of the open project, or empty when the editor runs on the demo project.</summary>
-    public static string Name => _file?.Name ?? string.Empty;
+    public string Name => _file?.Name ?? string.Empty;
 
     /// <summary>
     /// The project-relative path the open level is saved to and loaded from
     /// (Ctrl+S). Named after the project so each project carries its own level;
     /// the bare demo run falls back to "Demo.level".
     /// </summary>
-    public static string LevelFileName =>
+    public string LevelFileName =>
         _file is { Name.Length: > 0 } project ? $"{project.Name}.level" : "Demo.level";
 
     /// <summary>
     /// Opens the <c>.crproj</c> given on the command line (double-click launch).
     /// Its directory was already chosen as the project filesystem root by
-    /// <see cref="EditorHost.ConfigureFileSystem"/>, so it loads through the
+    /// <see cref="Editor.ConfigureFileSystem"/>, so it loads through the
     /// project filesystem by its file name. A missing or unreadable file leaves
     /// the editor on the bare demo project and surfaces an error notification.
     /// </summary>
-    public static void LoadStartup(string? projectFilePath)
+    public void LoadStartup(string? projectFilePath)
     {
         if (projectFilePath is null)
             return;
@@ -65,7 +68,7 @@ public static class Project
     /// Opens a native Explorer dialog to pick a <c>.crproj</c> file. Returns the
     /// chosen path, or null when the user cancelled.
     /// </summary>
-    public static string? PickFromDialog()
+    public string? PickFromDialog()
     {
         string? initialDirectory = null;
         if (_filePath is not null)
@@ -73,7 +76,7 @@ public static class Project
         if (string.IsNullOrEmpty(initialDirectory))
             initialDirectory = FileSystem.Project.ContentRoot;
 
-        return NativeFileDialog.PickCrproj(Game.Window.NativeHandle, initialDirectory);
+        return NativeFileDialog.PickCrproj(_editor.Window.NativeHandle, initialDirectory);
     }
 
     /// <summary>
@@ -81,7 +84,7 @@ public static class Project
     /// switching yet. Returns the project, or null (with an error notification)
     /// when the file is unreadable — the current project stays active.
     /// </summary>
-    public static CrowbarProjectFile? BeginSwitch(string projectFilePath)
+    public CrowbarProjectFile? BeginSwitch(string projectFilePath)
     {
         try
         {
@@ -96,13 +99,13 @@ public static class Project
     }
 
     /// <summary>Makes the parsed project the open one (after the filesystem was re-rooted).</summary>
-    public static void Commit(CrowbarProjectFile project, string projectFilePath)
+    public void Commit(CrowbarProjectFile project, string projectFilePath)
     {
         _file = project;
         _filePath = projectFilePath;
     }
 
     /// <summary>Publishes the project to the top bar; a no-op when nothing changed.</summary>
-    public static void Publish() =>
+    public void Publish() =>
         EditorProjectState.Publish(_file?.Name ?? string.Empty, _filePath ?? string.Empty);
 }

@@ -5,8 +5,8 @@ internal static class Program
     public static void Main(string[] args)
     {
         var projectFile = ResolveProjectArg(args);
-        EditorHost.ConfigureFileSystem(projectFile);
-        new EditorHost(projectFile).Run();
+        Editor.ConfigureFileSystem(projectFile);
+        new Editor(projectFile).Run();
     }
 
     /// <summary>

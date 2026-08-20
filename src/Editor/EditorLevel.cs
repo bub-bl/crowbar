@@ -1,87 +1,66 @@
 using System.Diagnostics;
 using Crowbar.Engine;
-using Crowbar.Engine.Platform;
-using Crowbar.Engine.Rendering;
 using Crowbar.FileSystems;
 using Crowbar.UI;
 
 namespace Crowbar.Editor;
 
 /// <summary>
-/// The editor API — the s&amp;box-style <c>Game</c>. Exposes the live engine state
-/// of the primary window (world, renderer, camera, UI, window) and the open
-/// level's operations: load, save, undo/redo, dirty tracking and the undo
-/// "no miss" safety net. Backed by <see cref="EditorHost.Current"/> (no
-/// dependency injection); the viewport interaction lives in <see cref="Viewport"/>
-/// and the game project lifecycle in <see cref="GameProject"/>.
+/// The open level — an editor tool owned by the <see cref="Editor"/> instance.
+/// Owns the document lifecycle: load and save (by file name, from
+/// <see cref="Project.LevelFileName"/>), undo/redo windows, dirty tracking and
+/// the undo "no miss" safety net. The shared <see cref="GlobalNamespaces.Game"/>
+/// API only exposes the live session state (world, renderer, camera, UI,
+/// window); everything about the open level is editor-side, so a game project
+/// never sees it.
 /// </summary>
-public static class Game
+public sealed class EditorLevel
 {
-    private static Level? _level;
-    private static IDisposable? _dragStep;
-    private static int _lastUnbracketedMutations;
+    private Level? _level;
+    private IDisposable? _dragStep;
+    private int _lastUnbracketedMutations;
 
-    // Live engine state (the primary window's session) --------------------------
-
-    /// <summary>The world every window renders (assigned by the host).</summary>
-    public static World World => EditorHost.Current!.World!;
-
-    /// <summary>The primary window's renderer (scene + Razor composite), or null headless.</summary>
-    public static Renderer? Renderer => EditorHost.Current!.HostRenderer;
-
-    /// <summary>The primary window's viewport camera.</summary>
-    public static Camera Camera => EditorHost.Current!.Camera;
-
-    /// <summary>The primary window's Razor UI runtime.</summary>
-    public static UiSystem Ui => EditorHost.Current!.Ui;
-
-    /// <summary>The primary window.</summary>
-    public static IWindow Window => EditorHost.Current!.Window;
-
-    // Open level ------------------------------------------------------------------
-
-    /// <summary>The open level, or null before <see cref="LoadLevel"/> ran.</summary>
-    public static Level? Level => _level;
+    /// <summary>The open level, or null before <see cref="Load"/> ran.</summary>
+    public Level? Level => _level;
 
     /// <summary>Raised after the open level was restored by an undo/redo; the viewport re-resolves its selection.</summary>
-    public static event Action? Restored;
+    public event Action? Restored;
 
     /// <summary>
-    /// Loads the project's saved level (see <see cref="Project.LevelFileName"/>)
-    /// or, when missing or unreadable, builds the <see cref="DemoScene"/>. The
-    /// open level starts clean: the title bar's "●" appears only once a
-    /// mutation marks it dirty.
+    /// Loads the project's level file (<paramref name="fileName"/>) or, when
+    /// missing or unreadable, builds the <see cref="DemoScene"/>. The open level
+    /// starts clean: the title bar's "●" appears only once a mutation marks it
+    /// dirty.
     /// </summary>
-    public static Level LoadLevel()
+    public Level Load(string fileName)
     {
-        _level = LoadOrCreateLevel();
+        _level = LoadOrCreateLevel(fileName);
         _level.ClearDirty();
         return _level;
     }
 
     /// <summary>Destroys the open level and loads the project's again (project switch).</summary>
-    public static void ReloadLevel()
+    public void Reload(string fileName)
     {
         EndDragStep();
         if (_level is { } old)
         {
-            World.DestroyLevel(old);
+            Game.World.DestroyLevel(old);
             _level = null;
         }
 
-        _level = LoadOrCreateLevel();
+        _level = LoadOrCreateLevel(fileName);
         _level.ClearDirty();
         EditorUndoState.Publish(false, false, null, null);
         _lastUnbracketedMutations = 0;
     }
 
-    /// <summary>Saves the open level (Ctrl+S); failures surface an error notification and keep it dirty.</summary>
-    public static void SaveLevel()
+    /// <summary>Saves the open level to <paramref name="fileName"/> (Ctrl+S); failures surface an error notification and keep it dirty.</summary>
+    public void Save(string fileName)
     {
         if (_level is not { IsValid: true })
             return;
 
-        var fileName = Project.LevelFileName;
         try
         {
             LevelFile.Save(_level, fileName);
@@ -97,7 +76,7 @@ public static class Game
     }
 
     /// <summary>Undoes the last edit of the open level (Ctrl+Z or the toolbar button).</summary>
-    public static void Undo()
+    public void Undo()
     {
         _level?.History.Undo();
         // Undo mid-drag commits the drag window itself: drop the handle so the
@@ -108,7 +87,7 @@ public static class Game
     }
 
     /// <summary>Redoes the last undone edit (Ctrl+Shift+Z, Ctrl+Y or the toolbar button).</summary>
-    public static void Redo()
+    public void Redo()
     {
         _level?.History.Redo();
         _dragStep = null;
@@ -116,24 +95,24 @@ public static class Game
     }
 
     /// <summary>Opens one undo window for an edit batch (a field commit is a single undoable step).</summary>
-    public static IDisposable Step(string label) => _level!.History.Step(label);
+    public IDisposable Step(string label) => _level!.History.Step(label);
 
     /// <summary>Opens the undo window of a gizmo drag gesture, once per gesture.</summary>
-    public static void BeginDragStep(string label)
+    public void BeginDragStep(string label)
     {
         if (_dragStep is null)
             _dragStep = _level!.History.Step(label);
     }
 
     /// <summary>Commits the drag gesture's undo window (the drag was released).</summary>
-    public static void EndDragStep()
+    public void EndDragStep()
     {
         _dragStep?.Dispose();
         _dragStep = null;
     }
 
     /// <summary>Consumes the undo/redo requests queued by the toolbar buttons.</summary>
-    public static void UpdateRequests()
+    public void UpdateRequests()
     {
         if (_level is null)
             return;
@@ -144,11 +123,11 @@ public static class Game
     }
 
     /// <summary>Publishes the open level's name and dirty flag for the title bar.</summary>
-    public static void PublishLevelState() =>
+    public void PublishLevelState() =>
         EditorDocumentState.Publish(_level?.Name ?? string.Empty, _level?.IsDirty ?? false);
 
     /// <summary>Publishes the undo/redo capability of the open level for the toolbar.</summary>
-    public static void PublishUndoState()
+    public void PublishUndoState()
     {
         if (_level is not { } document)
         {
@@ -167,7 +146,7 @@ public static class Game
     /// mutation is a missed <c>Step()</c> and fails loudly instead of silently
     /// corrupting undo.
     /// </summary>
-    public static void DetectUnbracketedMutations()
+    public void DetectUnbracketedMutations()
     {
         // A disposed level (world teardown) can no longer receive user edits.
         if (_level is not { IsValid: true } document)
@@ -178,21 +157,20 @@ public static class Game
             return;
         _lastUnbracketedMutations = history.UnbracketedMutationCount;
 
-        if (World.IsPlaying)
+        if (Game.World.IsPlaying)
             return;
         Debug.Assert(false, "[Undo] A document mutation escaped its undo window — wrap the action in level.History.Step().");
         UiNotifications.Show("Undo", "Mutation outside an undo window — add a Step().", "error");
     }
 
-    private static Level LoadOrCreateLevel()
+    private Level LoadOrCreateLevel(string fileName)
     {
-        var fileName = Project.LevelFileName;
         if (FileSystem.Project.FileExists(fileName))
         {
             try
             {
                 var file = LevelFile.Load(fileName);
-                var level = file.CreateLevel(World);
+                var level = file.CreateLevel(Game.World);
                 Log.Info($"[Level] Loaded '{fileName}': {level.Entities.Count} entit(ies).");
                 return level;
             }
@@ -203,6 +181,6 @@ public static class Game
             }
         }
 
-        return DemoScene.Build(World);
+        return DemoScene.Build(Game.World);
     }
 }
