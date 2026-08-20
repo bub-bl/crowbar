@@ -1,8 +1,10 @@
 using System.Numerics;
+using Crowbar.Engine.Audio;
 using Crowbar.Engine.InputSystem;
 using Crowbar.Engine.Platform;
 using Crowbar.Engine.Rendering;
 using Crowbar.UI;
+using AudioFacade = Crowbar.Engine.Audio.Audio;
 
 namespace Crowbar.Engine;
 
@@ -18,6 +20,7 @@ public abstract class Application : IDisposable
     private readonly IPlatform _platform;
     private readonly IWindow _window;
     private readonly UiSystem _ui = new();
+    private AudioSystem? _audio;
     private Camera? _camera;
     private readonly World _world = new();
     private IGraphicsDevice? _graphics;
@@ -55,6 +58,9 @@ public abstract class Application : IDisposable
     protected IWindow Window => _window;
     protected UiSystem Ui => _ui;
     protected IGraphicsDevice? Graphics => _graphics;
+
+    /// <summary>The audio engine (mixer + DSP), owned like <see cref="Ui"/> and disposed with the window.</summary>
+    protected AudioSystem? AudioSystem => _audio;
 
     /// <summary>
     /// The viewport camera. It is a <see cref="Camera"/> component owned by a
@@ -98,6 +104,7 @@ public abstract class Application : IDisposable
             _ui.Prepare();
         }
         WireUiInput();
+        InitializeAudio();
         // The viewport camera is a world entity (a "Camera" entity with a
         // Camera component), so it is part of the world before subclasses wire
         // their content — the first hierarchy publish already lists it.
@@ -152,6 +159,7 @@ public abstract class Application : IDisposable
         UpdateWindowChrome();
         World.Update(clamped);
         Ui.Update(clamped);
+        _audio?.Update(clamped);
         // The hover cursor can change without a pointer move (a re-render, a
         // scroll under a stationary cursor): re-assert it every frame. The
         // platform skips the SDL call when the shape is unchanged.
@@ -245,6 +253,46 @@ public abstract class Application : IDisposable
         _renderer = null;
         Graphics?.Dispose();
         _graphics = null;
+        DisposeAudio();
+    }
+
+    /// <summary>
+    /// Creates and starts the audio engine. Audio is optional: a missing
+    /// device (headless CI, no sound card) degrades to a silent engine instead
+    /// of failing startup, and <see cref="Audio"/> stays bound so game code can
+    /// call <c>Audio.Play</c> unconditionally.
+    /// </summary>
+    private void InitializeAudio()
+    {
+        try
+        {
+            var backend = CreateAudioBackend();
+            _audio = new AudioSystem(backend);
+            AudioFacade.Bind(_audio);
+            _audio.Start();
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"[Audio] Backend unavailable ({exception.Message}): silent engine.");
+            _audio = new AudioSystem();
+            AudioFacade.Bind(_audio);
+        }
+    }
+
+    /// <summary>
+    /// Creates the audio backend for the window. Returns null to run silent
+    /// (no output device); subclasses may override for test or alternate
+    /// backends.
+    /// </summary>
+    protected virtual IAudioBackend? CreateAudioBackend() => new SdlAudioBackend();
+
+    private void DisposeAudio()
+    {
+        if (_audio is null)
+            return;
+        AudioFacade.Unbind();
+        _audio.Dispose();
+        _audio = null;
     }
 
     /// <summary>
@@ -578,6 +626,7 @@ public abstract class Application : IDisposable
         ReleasePanModal();
         Ui.Dispose();
         World.Dispose();
+        DisposeAudio();
         _renderer?.Dispose();
         _renderer = null;
         Graphics?.Dispose();

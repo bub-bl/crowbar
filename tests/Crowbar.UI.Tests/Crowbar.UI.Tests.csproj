@@ -26,4 +26,9 @@
     <ProjectReference Include="..\..\src\Engine\Engine.csproj" />
     <ProjectReference Include="..\..\src\FileSystem\Crowbar.FileSystem.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <!-- Binary golden fixtures for the compressed decoders (MIT, from NVorbis). -->
+    <None Include="Audio\Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>
