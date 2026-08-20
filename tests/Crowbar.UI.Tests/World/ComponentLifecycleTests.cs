@@ -9,11 +9,11 @@ internal sealed class LifecycleComponent : Component
     public int StopCount;
     public int DestroyCount;
 
-    protected internal override void OnInitialize() => InitializeCount++;
-    protected internal override void OnStart() => StartCount++;
-    protected internal override void OnUpdate(float deltaTime) => UpdateCount++;
-    protected internal override void OnStop() => StopCount++;
-    protected internal override void OnDestroy() => DestroyCount++;
+    protected override void OnInitialize() => InitializeCount++;
+    protected override void OnStart() => StartCount++;
+    protected override void OnUpdate(float deltaTime) => UpdateCount++;
+    protected override void OnStop() => StopCount++;
+    protected override void OnDestroy() => DestroyCount++;
 }
 
 /// <summary>Records its tag into a shared log when it ticks, used to assert tick-group order.</summary>
@@ -22,7 +22,7 @@ internal sealed class Ticker : Component
     public List<string>? Log { get; set; }
     public string? Tag { get; set; }
 
-    protected internal override void OnUpdate(float deltaTime) => Log?.Add(Tag ?? "?");
+    protected override void OnUpdate(float deltaTime) => Log?.Add(Tag ?? "?");
 }
 
 public class ComponentLifecycleTests

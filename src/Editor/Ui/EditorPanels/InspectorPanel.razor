@@ -7,7 +7,9 @@
    property carries the CLR type name of its value, and PropertyEditor resolves
    it to the concrete per-type editor component through the [EditorProperty]
    registry. Sections (transform + components) are collapsible and their state
-   survives republishing. *@
+   survives republishing. The "+ Add component" menu offers the component types
+   the host publishes (engine + game project); a click queues a request the host
+   applies to the selected entity. *@
 <div class="insp-body">
     @if (!EditorInspectorState.HasSelection)
     {
@@ -31,12 +33,36 @@
             </InspectorSection>
         }
 
-        <div class="add-component">+ Add component</div>
+        <div class="add-component" @onclick="ToggleAddMenu">+ Add component</div>
+        @if (_addMenuOpen)
+        {
+            <div class="add-menu">
+                @if (EditorInspectorState.AvailableComponentTypes.Count == 0)
+                {
+                    <div class="add-menu-empty">Aucun composant disponible</div>
+                }
+                @foreach (var name in EditorInspectorState.AvailableComponentTypes)
+                {
+                    <div class="add-menu-item" @onclick="() => AddComponent(name)">@name</div>
+                }
+            </div>
+        }
     }
 </div>
 
 @code {
-    // Re-render only when the host republishes the selection snapshot or the
-    // user folds a section (both bump EditorInspectorState.Version).
-    protected override int BuildHash() => EditorInspectorState.Version;
+    private bool _addMenuOpen;
+
+    // Re-render when the host republishes the selection snapshot, the user
+    // folds a section (both bump EditorInspectorState.Version), or the Add
+    // Component menu is toggled.
+    protected override int BuildHash() => HashCode.Combine(EditorInspectorState.Version, _addMenuOpen);
+
+    private void ToggleAddMenu() => _addMenuOpen = !_addMenuOpen;
+
+    private void AddComponent(string name)
+    {
+        EditorInspectorState.RequestAddComponent(name);
+        _addMenuOpen = false;
+    }
 }

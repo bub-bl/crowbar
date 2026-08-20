@@ -15,7 +15,7 @@ public class LightGizmoTests
 
         var batch = new GizmoLineBatch();
         using (Gizmos.Begin(batch, light.Entity))
-            light.OnDrawGizmo();
+            light.RunDrawGizmo();
 
         // The arrow points along the forward direction the light travels,
         // one unit toward +X for a 90° yaw.
@@ -33,7 +33,7 @@ public class LightGizmoTests
 
         var batch = new GizmoLineBatch();
         using (Gizmos.Begin(batch, selectedEntity: null))
-            light.OnDrawGizmo();
+            light.RunDrawGizmo();
 
         Assert.Empty(batch.Lines);
     }
@@ -49,7 +49,7 @@ public class LightGizmoTests
 
         var batch = new GizmoLineBatch();
         using (Gizmos.Begin(batch, light.Entity))
-            light.OnDrawGizmo();
+            light.RunDrawGizmo();
 
         Assert.Equal(3 * 32, batch.Count);
         foreach (var line in batch.Lines)

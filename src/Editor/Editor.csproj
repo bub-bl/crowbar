@@ -32,8 +32,8 @@
     <!-- Images referenced by the SCSS/CSS url() resolve against the app base
          directory, so they must land next to the compiled .razor files. -->
     <Content Include="Ui\**\*.png" CopyToOutputDirectory="PreserveNewest" />
-    <!-- The gamemode project's sources, watched and hot-reloaded by the editor's
-         ScriptHost. The gamemode is a real .NET library project (Game/Game.csproj)
+    <!-- The game project's sources, watched and hot-reloaded by the editor's
+         ScriptHost. The game project is a real .NET library project (Game/Game.csproj)
          that the editor loads at runtime, never references; dev builds resolve the
          repo copy, this copy covers published builds. -->
     <None Include="..\..\Game\**\*.cs" Link="Game\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

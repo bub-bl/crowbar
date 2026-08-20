@@ -13,17 +13,17 @@ internal sealed class TestSystem : WorldSystem
     public int Stops;
     public int Destroys;
 
-    protected internal override void OnInitialize() => Initializes++;
-    protected internal override void OnStart() => Starts++;
-    protected internal override void OnUpdate(float deltaTime) => Updates++;
-    protected internal override void OnStop() => Stops++;
-    protected internal override void OnDestroy() => Destroys++;
+    protected override void OnInitialize() => Initializes++;
+    protected override void OnStart() => Starts++;
+    protected override void OnUpdate(float deltaTime) => Updates++;
+    protected override void OnStop() => Stops++;
+    protected override void OnDestroy() => Destroys++;
 }
 
 /// <summary>Disposes itself from the world while the world is ticking it.</summary>
 internal sealed class SelfRemovingSystem : WorldSystem
 {
-    protected internal override void OnUpdate(float deltaTime) => Dispose();
+    protected override void OnUpdate(float deltaTime) => Dispose();
 }
 
 public class WorldTests

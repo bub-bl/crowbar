@@ -217,7 +217,7 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
     private static string RazorCacheFile(string hash) => PathUtil.Combine(RazorCacheDirectory, hash + ".dll");
 
     // The compiled-component cache is host scratch data (not base content nor the
-    // gamemode project), so it reads and writes through the raw mounted backend.
+    // game project), so it reads and writes through the raw mounted backend.
     private static FilePath CachePath(string path) => FileSystem.Mounted.ConvertPathFromInternal(Path.GetFullPath(path));
 
     private static Assembly? TryLoadFromDisk(string path)

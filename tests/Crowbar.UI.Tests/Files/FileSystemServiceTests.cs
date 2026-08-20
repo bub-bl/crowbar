@@ -14,7 +14,7 @@ public class FileSystemServiceTests
 {
     [Theory]
     [InlineData("/Ui")]
-    [InlineData("/Game/DemoGamemode.cs")]
+    [InlineData("/Game/DemoComponent.cs")]
     [InlineData("Shaders/Surface/StandardPbr.wgsl")]
     public void IsRooted_LogicalPathsAreNotOsRooted(string path)
         => Assert.False(FileSystemService.IsRooted(path));

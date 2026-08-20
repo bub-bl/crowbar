@@ -2,7 +2,7 @@ namespace Crowbar.UI;
 
 /// <summary>
 /// Live project state shown in the editor's top bar and its request channel
-/// (UI → host). The host publishes the open gamemode project's name and file
+/// (UI → host). The host publishes the open game project's name and file
 /// path; the top bar button requests opening a project through
 /// <see cref="RequestOpen"/>, consumed by the host each frame exactly like
 /// <see cref="EditorUndoState"/>.

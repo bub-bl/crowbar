@@ -16,7 +16,7 @@ public sealed class DirectionalLight : Light
     public Vector3 Direction => World.Rotation.Forward;
 
     /// <summary>Draws a unit arrow showing where the light shines when the light's entity is selected.</summary>
-    protected internal override void OnDrawGizmo()
+    protected override void OnDrawGizmo()
     {
         if (Gizmos.SelectedEntity != Entity)
             return;

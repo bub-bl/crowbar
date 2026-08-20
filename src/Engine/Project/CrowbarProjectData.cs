@@ -12,7 +12,7 @@ namespace Crowbar.Engine;
 /// references (a launcher, a build script) survive a round trip. The file sits
 /// at the root of the project directory it describes — its directory is the
 /// project's working root, and the rest of the project's content (levels,
-/// gamemode scripts, assets) lives next to it.
+/// game scripts, assets) lives next to it.
 /// </summary>
 public sealed class CrowbarProjectData
 {

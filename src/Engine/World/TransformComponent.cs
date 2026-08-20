@@ -106,7 +106,7 @@ public abstract class TransformComponent : Component
     }
 
     /// <summary>Detaches every child (keeping their world transforms) so destruction never drags them along.</summary>
-    protected internal override void OnDestroy()
+    protected override void OnDestroy()
     {
         base.OnDestroy();
         foreach (var child in _children.ToArray())

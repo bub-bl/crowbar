@@ -51,7 +51,11 @@ public abstract class Component : WorldObject, IDisposable
     /// <c>Gizmos.DrawSphere(...)</c>). Purely an editor overlay — it never
     /// runs or renders in play mode.
     /// </summary>
-    protected internal virtual void OnDrawGizmo()
+    protected virtual void OnDrawGizmo()
     {
     }
+
+    // The gizmo pass drives the hook through this bridge: internal so game code
+    // cannot call it, only override the hook above.
+    internal void RunDrawGizmo() => OnDrawGizmo();
 }

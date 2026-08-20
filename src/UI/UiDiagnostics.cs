@@ -1,3 +1,5 @@
+using Crowbar.Editor;
+
 namespace Crowbar.UI;
 
 /// <summary>
@@ -21,8 +23,12 @@ public static class UiDiagnostics
     /// <summary>Network latency estimate in milliseconds (demo value today).</summary>
     public static float PingMs;
 
-    /// <summary>Live status line from the hosted game script (gamemode demo), or empty when none.</summary>
-    public static string ScriptStatus = string.Empty;
+    /// <summary>
+    /// Live status bar entries published by game code (see
+    /// <see cref="StatusBar"/>), or empty when none. The application re-snapshots
+    /// them every frame; the editor page re-renders on a throttle.
+    /// </summary>
+    public static IReadOnlyList<StatusBarEntry> StatusBarEntries = [];
 
     /// <summary>Formats a byte count without rounding small non-zero values down to 0 GB.</summary>
     public static string FormatMemory(long bytes)

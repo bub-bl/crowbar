@@ -1,3 +1,4 @@
+using Crowbar.Editor;
 using Crowbar.UI;
 
 namespace Crowbar.UI.Tests.Rendering;
@@ -174,6 +175,33 @@ public class EditorPageCompositionTests
         {
             UiDiagnostics.UsedMemoryBytes = previousUsed;
             UiDiagnostics.TotalMemoryBytes = previousTotal;
+        }
+    }
+
+    [Fact]
+    public void StatusBarRendersGameCodeEntries()
+    {
+        var previousEntries = UiDiagnostics.StatusBarEntries;
+        try
+        {
+            UiDiagnostics.StatusBarEntries =
+            [
+                new StatusBarEntry("Game", "Démo — 5 points, 0 recharges"),
+                new StatusBarEntry("Lives", "3")
+            ];
+
+            using var ui = CreateEditorUi();
+            var content = ui.Content!;
+
+            Assert.NotNull(FindText(content, "status-item",
+                text => text.StartsWith("Game:", StringComparison.Ordinal) &&
+                        text.Contains("Démo — 5 points", StringComparison.Ordinal)));
+            Assert.NotNull(FindText(content, "status-item",
+                text => text.StartsWith("Lives:", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            UiDiagnostics.StatusBarEntries = previousEntries;
         }
     }
 

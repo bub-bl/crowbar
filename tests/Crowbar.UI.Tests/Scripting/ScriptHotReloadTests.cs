@@ -36,7 +36,7 @@ public sealed class ScriptHotReloadTests
     [Fact]
     public void ImplicitUsingsMatchSdkLibraryProject()
     {
-        // The gamemode is a real library project with ImplicitUsings enabled; the
+        // The game project is a real library project with ImplicitUsings enabled; the
         // in-memory compiler must expose the SDK's default global usings (here:
         // System.Linq) so code that builds in the project also hot-reloads.
         using var dir = TestUi.TempDir("script");
@@ -61,7 +61,7 @@ public sealed class ScriptHotReloadTests
     [Fact]
     public void BuildArtifactsAreIgnored()
     {
-        // The gamemode is a real library project: its bin/ and obj/ folders hold
+        // The game project is a real library project: its bin/ and obj/ folders hold
         // generated files that must never be compiled into the hot-reloaded
         // assembly (a broken generated file must not break the script compile).
         using var dir = TestUi.TempDir("script");

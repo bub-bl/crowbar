@@ -9,7 +9,7 @@ namespace Crowbar.FileSystems;
 /// <list type="bullet">
 /// <item><see cref="Content"/> — the base Crowbar content (engine shaders,
 /// assets, editor UI), read-only;</item>
-/// <item><see cref="Project"/> — the active gamemode project, read-write.</item>
+/// <item><see cref="Project"/> — the active game project, read-write.</item>
 /// </list>
 ///
 /// <see cref="Mounted"/> (the raw backend both views resolve against) is
@@ -32,7 +32,7 @@ public static class FileSystem
     public static FileSystemService Content => _content ?? throw new InvalidOperationException(
         "FileSystem.Content has not been configured. Call FileSystem.Configure(backend, content, project) at startup.");
 
-    /// <summary>The active gamemode project, read-write.</summary>
+    /// <summary>The active game project, read-write.</summary>
     public static FileSystemService Project => _project ?? throw new InvalidOperationException(
         "FileSystem.Project has not been configured. Call FileSystem.Configure(backend, content, project) at startup.");
 

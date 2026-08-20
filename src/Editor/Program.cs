@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Numerics;
-using System.Reflection;
 using Crowbar.Engine;
 using Crowbar.Engine.InputSystem;
 using Crowbar.Engine.Rendering;
@@ -45,9 +44,6 @@ internal static class Program
 internal sealed class DemoApplication : Application
 {
     private ScriptHost? _scriptHost;
-    private readonly object? _gamemodeHolder = new GamemodeHolder();
-    private bool _gamemodeInstanceWatched;
-    private MethodInfo? _describe;
     private Level? _demoLevel;
     private string _lastWindowTitle = string.Empty;
 
@@ -143,13 +139,15 @@ internal sealed class DemoApplication : Application
         Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
         Ui.WatchDirectory(uiDirectory);
 
-        // Demo gamemode: a real .NET library project (Game/Game.csproj) referencing
+        // The game project: a real .NET library project (Game/Game.csproj) referencing
         // the engine. It is loaded here at runtime into its own collectible assembly
         // context — the engine and the editor never reference the project — and
         // hot-reloaded on every edit (IL fast path when only method bodies change,
         // otherwise a full reload with state migration). The in-memory compiler is
-        // given the same reference set the project declares, so the gamemode sees
-        // the engine API it referenced.
+        // given the same reference set the project declares, so the game project
+        // sees the engine API it referenced. The project's Components are
+        // registered so the editor can attach them to entities; its code publishes
+        // editor status through the engine's Editor.StatusBar API.
         _scriptHost = new ScriptHost(new ScriptCompiler(
         [
             typeof(ScriptHost).Assembly,       // Crowbar.Engine
@@ -158,37 +156,41 @@ internal sealed class DemoApplication : Application
         ]));
         _scriptHost.Reloaded += OnScriptReloaded;
         _scriptHost.ReloadFailed += OnScriptReloadFailed;
-        StartGamemode();
+        StartGameProject();
     }
 
     /// <summary>
-    /// (Re)loads the gamemode from the current project root: compiles every
+    /// (Re)loads the game project from the current project root: compiles every
     /// *.cs file under <see cref="FileSystem.Project"/>'s root into the
-    /// collectible assembly context and watches the directory for hot reload.
-    /// Calling it again (project switch) compiles the new project from scratch.
+    /// collectible assembly context, registers its component types so the editor
+    /// can attach them, and watches the directory for hot reload. Calling it
+    /// again (project switch) compiles the new project from scratch.
     /// </summary>
-    private void StartGamemode()
+    private void StartGameProject()
     {
         try
         {
-            // The gamemode is the whole project (FileSystem.Project): "." is its root.
+            // The game project is the whole project (FileSystem.Project): "." is its root.
             const string gameDirectory = ".";
-            _scriptHost!.WatchDirectory(gameDirectory, "DemoGamemode");
-            // WatchInstance keeps the holder upgraded on every hot reload; each
-            // fresh start resets it to the new project's instance.
-            ((GamemodeHolder)_gamemodeHolder!).Current = _scriptHost.Current?.CreateInstance("Game.DemoGamemode");
-            if (!_gamemodeInstanceWatched)
-            {
-                _scriptHost.WatchInstance(_gamemodeHolder!);
-                _gamemodeInstanceWatched = true;
-            }
-            ResolveDescribe();
-            Console.WriteLine($"[Scripting] Gamemode chargé : {_scriptHost.Current?.TypesByFullName.Count ?? 0} type(s) depuis le projet gamemode");
+            // The previous generation's component types are dropped (a project
+            // switch or full reload compiles a new assembly), then the fresh
+            // project's components are registered so they become attachable.
+            // The project's own code publishes editor status through
+            // Editor.StatusBar; clear a previous project's entries so only the
+            // live project's registrations survive.
+            var previous = _scriptHost!.Current;
+            _scriptHost.WatchDirectory(gameDirectory, "GameProject");
+            if (previous is not null)
+                ComponentTypeRegistry.UnregisterAssembly(previous.Assembly);
+            if (_scriptHost.Current is { } current)
+                ComponentTypeRegistry.RegisterAssembly(current.Assembly);
+            StatusBar.Clear();
+            Console.WriteLine($"[Scripting] Projet de jeu chargé : {_scriptHost.Current?.TypesByFullName.Count ?? 0} type(s) depuis le projet");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Scripting] Échec du chargement du gamemode : {ex.Message}");
-            UiNotifications.Show("Script", "Échec du chargement du gamemode", "error");
+            Console.WriteLine($"[Scripting] Échec du chargement du projet de jeu : {ex.Message}");
+            UiNotifications.Show("Script", "Échec du chargement du projet de jeu", "error");
         }
     }
 
@@ -226,7 +228,7 @@ internal sealed class DemoApplication : Application
 
     /// <summary>
     /// Opens a native Explorer dialog to pick a <c>.crproj</c> file, then
-    /// switches the editor to that project (filesystem root, document, gamemode).
+    /// switches the editor to that project (filesystem root, document, game project).
     /// </summary>
     private void OpenProjectFromDialog()
     {
@@ -244,11 +246,11 @@ internal sealed class DemoApplication : Application
     }
 
     /// <summary>
-    /// Switches the editor to the gamemode project described by
+    /// Switches the editor to the game project described by
     /// <paramref name="projectFilePath"/>: re-roots the project filesystem at the
-    /// file's directory, reloads the document (level) and the gamemode from that
-    /// root, and refreshes every published panel state. The current document is
-    /// discarded; a broken project keeps the previous one and reports an error.
+    /// file's directory, reloads the document (level) and the game project from
+    /// that root, and refreshes every published panel state. The current document
+    /// is discarded; a broken project keeps the previous one and reports an error.
     /// </summary>
     private void SwitchProject(string projectFilePath)
     {
@@ -272,17 +274,17 @@ internal sealed class DemoApplication : Application
         World.Stop();
 
         // Re-root the project filesystem at the new project's directory. Levels,
-        // gamemode scripts and every save resolve through FileSystem.Project, so
-        // this one call redirects all subsequent reads/writes.
+        // game project scripts and every save resolve through FileSystem.Project,
+        // so this one call redirects all subsequent reads/writes.
         ApplyProjectRoot(projectRoot);
 
         _project = project;
         _projectFilePath = projectFilePath;
 
-        // Reload the open document (level) and the gamemode from the new root,
-        // then refresh the panels that mirror their state.
+        // Reload the open document (level) and the game project from the new
+        // root, then refresh the panels that mirror their state.
         ReloadDocument();
-        StartGamemode();
+        StartGameProject();
         PublishProjectState();
 
         Console.WriteLine($"[Project] Projet ouvert : {project.Name} v{project.Version} depuis {projectFilePath}");
@@ -647,7 +649,9 @@ internal sealed class DemoApplication : Application
         // Script host: applies detected hot reloads and prunes the toasts.
         _scriptHost?.Update();
         UiNotifications.PruneExpired();
-        UiDiagnostics.ScriptStatus = DescribeGamemode();
+        // Status bar entries published by game code through Editor.StatusBar
+        // (game components register their own; the editor just renders them).
+        UiDiagnostics.StatusBarEntries = StatusBar.Snapshot();
 
         // Selection requested from the Explorer (UI → host): applied to the
         // viewport gizmos, then the real hierarchy is republished so the panel
@@ -668,6 +672,21 @@ internal sealed class DemoApplication : Application
             foreach (var (key, value) in pendingEdits)
                 InspectorStateBuilder.ApplyEdit(selected, key, value);
         }
+
+        // The inspector's Add Component menu offers every component the selected
+        // entity can still attach (engine + game project); the requests it
+        // queues are applied here inside one undoable step (attaching marks the
+        // level dirty), then the inspector is republished so the new
+        // component's section appears immediately.
+        var addRequests = EditorInspectorState.ConsumeAddComponentRequests();
+        if (selected is not null && addRequests.Count > 0)
+        {
+            using var step = _demoLevel!.History.Step("Ajouter un composant");
+            foreach (var typeName in addRequests)
+                AddComponent(selected, typeName);
+        }
+        EditorInspectorState.PublishAvailableComponents(AttachableComponentTypes(selected));
+
         ExplorerTreeBuilder.Publish(World, selected);
         InspectorStateBuilder.Publish(selected);
 
@@ -812,27 +831,6 @@ internal sealed class DemoApplication : Application
                mouse.Y >= rect.Y && mouse.Y <= rect.Bottom;
     }
 
-    private string DescribeGamemode()
-    {
-        var holder = _gamemodeHolder as GamemodeHolder;
-        if (holder?.Current is not { } gamemode || _describe is null)
-            return string.Empty;
-        try
-        {
-            return _describe.Invoke(gamemode, null)?.ToString() ?? string.Empty;
-        }
-        catch (Exception)
-        {
-            return "(erreur de script)";
-        }
-    }
-
-    private void ResolveDescribe()
-    {
-        var holder = _gamemodeHolder as GamemodeHolder;
-        _describe = holder?.Current?.GetType().GetMethod("Describe");
-    }
-
     private void OnScriptReloaded(ScriptReloadedEventArgs e)
     {
         var detail = e.Mode switch
@@ -843,13 +841,61 @@ internal sealed class DemoApplication : Application
         };
         Console.WriteLine($"[Scripting] Hot reload OK ({e.Mode}): {detail}");
         UiNotifications.Show("Hot reload", detail, "success");
-        ResolveDescribe();
+
+        // A full reload swaps the live assembly: point the registered game
+        // components at the new generation, so the Add Component list offers
+        // the reloaded types (not the unloaded ones). The IL fast path keeps
+        // the live assembly unchanged, so the types stay valid.
+        if (e.Mode == ScriptReloadMode.FullReload)
+        {
+            ComponentTypeRegistry.UnregisterAssembly(e.Previous.Assembly);
+            ComponentTypeRegistry.RegisterAssembly(e.Current.Assembly);
+        }
     }
 
     private static void OnScriptReloadFailed(ScriptReloadFailedEventArgs e)
     {
         Console.WriteLine($"[Scripting] Hot reload FAILED: {e.Error.Message}");
         UiNotifications.Show("Hot reload", $"Échec : {e.Error.Message}", "error");
+    }
+
+    /// <summary>
+    /// The component types the selected entity can still attach: every concrete
+    /// instantiable component type (engine + registered game project), minus the
+    /// ones already on the entity. The inspector's Add Component menu offers them.
+    /// </summary>
+    private static IReadOnlyList<string> AttachableComponentTypes(Entity? entity)
+    {
+        if (entity is null)
+            return [];
+        return ComponentTypeRegistry.AllComponentTypes
+            .Where(type => entity.GetComponent(type) is null)
+            .OrderBy(type => type.Name, StringComparer.Ordinal)
+            .Select(type => type.Name)
+            .ToArray();
+    }
+
+    /// <summary>
+    /// Attaches the named component to the entity through the registry, so the
+    /// editor never references game types (it resolves them by name). A malformed
+    /// name, an already-present type or a throwing constructor is ignored.
+    /// </summary>
+    private static void AddComponent(Entity? entity, string typeName)
+    {
+        if (entity is null || string.IsNullOrEmpty(typeName))
+            return;
+        var type = ComponentTypeRegistry.Resolve(typeName);
+        if (type is null || entity.GetComponent(type) is not null)
+            return;
+        try
+        {
+            if (Activator.CreateInstance(type) is Component component)
+                entity.AddComponent(component);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Inspector] Échec de l'ajout du composant '{typeName}' : {ex.Message}");
+        }
     }
 
     private int ViewportWidth =>
@@ -900,15 +946,4 @@ internal sealed class DemoApplication : Application
         var project = new FileSystemService(_backend, projectRoot);
         FileSystem.Configure(_backend, _content, project);
     }
-}
-
-/// <summary>
-/// Keeps the reference to the demo gamemode on the editor side: the
-/// ScriptHost migrates the Current field on every full reload (like an engine
-/// object), so the editor always observes the latest generation without
-/// re-attaching.
-/// </summary>
-internal sealed class GamemodeHolder
-{
-    public object? Current;
 }

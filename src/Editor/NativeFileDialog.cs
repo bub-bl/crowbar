@@ -4,7 +4,7 @@ namespace Crowbar.Editor;
 
 /// <summary>
 /// Opens the Windows <c>GetOpenFileName</c> common dialog to pick a file, so the
-/// editor can select a gamemode project (<c>.crproj</c>) with the native
+/// editor can select a game project (<c>.crproj</c>) with the native
 /// Explorer window. It runs modally over the editor window (the owner is
 /// disabled for the duration) and returns the selected file's full path, or
 /// null when the user cancels.
@@ -65,7 +65,7 @@ internal static class NativeFileDialog
             Marshal.WriteInt16(fileBuffer, i * sizeof(short), 0);
 
         var filterPtr = Marshal.StringToHGlobalUni(filter);
-        var titlePtr = Marshal.StringToHGlobalUni("Ouvrir un projet gamemode");
+        var titlePtr = Marshal.StringToHGlobalUni("Ouvrir un projet de jeu");
         nint initialDirPtr = 0;
         if (!string.IsNullOrEmpty(initialDirectory))
             initialDirPtr = Marshal.StringToHGlobalUni(initialDirectory);

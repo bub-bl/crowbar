@@ -16,7 +16,7 @@ public sealed class PointLight : Light
     public float Range { get; set; } = 10f;
 
     /// <summary>Draws a wire sphere marking the light's reach when the light's entity is selected.</summary>
-    protected internal override void OnDrawGizmo()
+    protected override void OnDrawGizmo()
     {
         if (Gizmos.SelectedEntity != Entity)
             return;

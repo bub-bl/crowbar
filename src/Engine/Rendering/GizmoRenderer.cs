@@ -311,7 +311,7 @@ public sealed class GizmoRenderer : IDisposable
                 {
                     if (!component.IsValid || !component.Enabled)
                         continue;
-                    component.OnDrawGizmo();
+                    component.RunDrawGizmo();
                 }
             }
         }

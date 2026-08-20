@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using Crowbar.Editor;
 using Crowbar.FileSystems;
 
 namespace Crowbar.Engine.Scripting;
@@ -243,6 +244,14 @@ public sealed class ScriptHost : IDisposable
 
             var upgrader = new HotReloadUpgrader(previous.Assembly, next.TypesByFullName, upgraders, changedFieldInitializers);
             upgrader.MigrateStatics(previous.TypesByFullName.Values);
+
+            // A full reload swaps the assembly: status bar entries the previous
+            // generation registered through Editor.StatusBar would linger with
+            // old-assembly closures (stale values, dead generations kept alive).
+            // Clear them so re-attached components register from fresh state; the
+            // IL fast path keeps identity and never reaches here.
+            StatusBar.Clear();
+
             foreach (var instance in instances)
                 upgrader.UpgradeRoot(instance);
 
@@ -427,7 +436,7 @@ public sealed class ScriptHost : IDisposable
 
     private void OnFileSystemEvent(object? sender, FileChangedEventArgs e)
     {
-        // Build artifacts (the gamemode project's bin/obj) must not trigger reloads.
+        // Build artifacts (the game project's bin/obj) must not trigger reloads.
         if (ScriptSourceFilter.IsBuildArtifact(e.FullPath))
             return;
         _reloadRequested = true;

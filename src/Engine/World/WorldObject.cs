@@ -15,7 +15,12 @@ namespace Crowbar.Engine;
 /// <item><see cref="OnDestroy"/> — when the object is removed or its owner is
 /// destroyed.</item>
 /// </list>
-/// The editor never starts world objects: they only run in play mode.
+/// The lifecycle hooks are <c>protected virtual</c> so a component or system can
+/// override them from another assembly (a game project's components do this); the
+/// world drives them through the internal <see cref="RunInitialize"/>,
+/// <see cref="RunStart"/>, <see cref="RunUpdate"/>, <see cref="RunStop"/> and
+/// <see cref="RunDestroy"/> bridges. The editor never starts world objects: they
+/// only run in play mode.
 /// </summary>
 public abstract class WorldObject : IValid
 {
@@ -28,13 +33,26 @@ public abstract class WorldObject : IValid
     /// <summary>True while the object is registered in its world.</summary>
     public bool IsValid { get; internal set; }
 
-    protected internal virtual void OnInitialize() { }
+    protected virtual void OnInitialize() { }
 
-    protected internal virtual void OnStart() { }
+    protected virtual void OnStart() { }
 
-    protected internal virtual void OnUpdate(float deltaTime) { }
+    protected virtual void OnUpdate(float deltaTime) { }
 
-    protected internal virtual void OnStop() { }
+    protected virtual void OnStop() { }
 
-    protected internal virtual void OnDestroy() { }
+    protected virtual void OnDestroy() { }
+
+    // The world drives the lifecycle through these bridges: they are internal so
+    // game code cannot call them, only override the hooks above.
+
+    internal void RunInitialize() => OnInitialize();
+
+    internal void RunStart() => OnStart();
+
+    internal void RunUpdate(float deltaTime) => OnUpdate(deltaTime);
+
+    internal void RunStop() => OnStop();
+
+    internal void RunDestroy() => OnDestroy();
 }

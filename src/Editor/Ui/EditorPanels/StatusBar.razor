@@ -9,10 +9,10 @@
 <div class="status-item">Mémoire:&#160;@UsedMemory&#160;/&#160;@TotalMemory</div>
 <div class="status-sep"></div>
 <div class="status-item">Ping:&#160;@((int)UiDiagnostics.PingMs)&#160;ms</div>
-@if (UiDiagnostics.ScriptStatus.Length > 0)
+@foreach (var entry in UiDiagnostics.StatusBarEntries)
 {
     <div class="status-sep"></div>
-    <div class="status-item">Script:&#160;@UiDiagnostics.ScriptStatus</div>
+    <div class="status-item">@entry.Label:&#160;@entry.Value</div>
 }
 
 @code {

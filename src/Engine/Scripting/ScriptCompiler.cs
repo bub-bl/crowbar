@@ -27,7 +27,7 @@ public sealed class ScriptCompiler
     private static readonly CSharpParseOptions ParseOptions =
         CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
 
-    // The gamemode is a real .NET library project with ImplicitUsings enabled, so
+    // The game project is a real .NET library project with ImplicitUsings enabled, so
     // the in-memory compilation must expose the same global usings the SDK injects
     // into the project build — otherwise code that compiles in the project would
     // fail at hot reload. The tree is synthetic (constant path) and excluded from

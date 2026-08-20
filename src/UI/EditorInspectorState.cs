@@ -7,7 +7,9 @@ namespace Crowbar.UI;
 /// The host republishes the snapshot every frame through <see cref="Publish"/>;
 /// the panel is UI-only and never touches engine types, exactly like
 /// <see cref="EditorExplorerState"/>. It also carries the UI → host collapse
-/// choices, so the sections the user folded survive republishing.
+/// choices, so the sections the user folded survive republishing, the Add
+/// Component menu (<see cref="AvailableComponentTypes"/> +
+/// <see cref="RequestAddComponent"/>) and the queued property edits.
 /// </summary>
 public static class EditorInspectorState
 {
@@ -37,6 +39,7 @@ public static class EditorInspectorState
     private static IReadOnlyList<Section> _sections = [];
     private static string _signature = string.Empty;
     private static int _version;
+    private static IReadOnlyList<string> _availableComponentTypes = [];
 
     /// <summary>Name of the selected entity, or empty when nothing is selected.</summary>
     public static string EntityName => _entityName;
@@ -50,9 +53,17 @@ public static class EditorInspectorState
     /// <summary>Bumped whenever the snapshot or the collapse set changes.</summary>
     public static int Version => _version;
 
+    /// <summary>
+    /// Short names of the components the selected entity can still attach
+    /// (engine + game project), published by the host every frame. The Add
+    /// Component menu offers them; empty when nothing is selected.
+    /// </summary>
+    public static IReadOnlyList<string> AvailableComponentTypes => _availableComponentTypes;
+
     private static readonly HashSet<string> Collapsed = new(StringComparer.Ordinal);
     private static readonly Lock EditLock = new();
     private static readonly List<(string Key, string Value)> PendingEdits = [];
+    private static readonly List<string> PendingAddComponents = [];
 
     public static bool IsCollapsed(string id) => Collapsed.Contains(id);
 
@@ -73,11 +84,16 @@ public static class EditorInspectorState
     internal static void Reset()
     {
         Collapsed.Clear();
-        lock (EditLock) PendingEdits.Clear();
+        lock (EditLock)
+        {
+            PendingEdits.Clear();
+            PendingAddComponents.Clear();
+        }
         _entityName = string.Empty;
         _hasSelection = false;
         _sections = [];
         _signature = string.Empty;
+        _availableComponentTypes = [];
         _version++;
     }
 
@@ -102,6 +118,45 @@ public static class EditorInspectorState
             var edits = PendingEdits.ToArray();
             PendingEdits.Clear();
             return edits;
+        }
+    }
+
+    /// <summary>
+    /// Replaces the Add Component list for the selected entity; the host
+    /// publishes it every frame, so an unchanged list must not force the panel
+    /// to rebuild (same contract as <see cref="Publish"/>).
+    /// </summary>
+    public static void PublishAvailableComponents(IReadOnlyList<string> typeNames)
+    {
+        typeNames ??= [];
+        if (typeNames.SequenceEqual(_availableComponentTypes))
+            return;
+        _availableComponentTypes = typeNames;
+        _version++;
+    }
+
+    /// <summary>
+    /// Queues an Add Component request (inspector menu click) for the host to
+    /// apply to the selected entity this frame.
+    /// </summary>
+    public static void RequestAddComponent(string typeName)
+    {
+        if (string.IsNullOrEmpty(typeName))
+            return;
+        lock (EditLock)
+            PendingAddComponents.Add(typeName);
+    }
+
+    /// <summary>Returns and clears the Add Component requests queued since the previous call.</summary>
+    public static IReadOnlyList<string> ConsumeAddComponentRequests()
+    {
+        lock (EditLock)
+        {
+            if (PendingAddComponents.Count == 0)
+                return [];
+            var requests = PendingAddComponents.ToArray();
+            PendingAddComponents.Clear();
+            return requests;
         }
     }
 

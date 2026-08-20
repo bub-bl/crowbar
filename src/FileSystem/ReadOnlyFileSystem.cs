@@ -7,7 +7,7 @@ namespace Crowbar.FileSystems;
 /// path conversion and watching are delegated, while mutations
 /// (<see cref="OpenFile"/> for writing, <see cref="CreateDirectory"/>,
 /// <see cref="DeleteFile"/>) throw. The base game content
-/// (<see cref="FileSystem.Content"/>) is exposed through this so a gamemode can
+/// (<see cref="FileSystem.Content"/>) is exposed through this so a game project can
 /// read it but never overwrite it.
 /// </summary>
 internal sealed class ReadOnlyFileSystem : IFileSystem

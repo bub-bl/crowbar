@@ -11,7 +11,7 @@ par-dessus la destination.
 
 Le fichier se trouve **à la racine du répertoire projet qu'il décrit** : ce
 répertoire <em>est</em> le projet. Le contenu du projet (niveaux `.level`, code
-du gamemode, assets) vit à côté du `.crproj`.
+du projet de jeu, assets) vit à côté du `.crproj`.
 
 ## Exemple
 
@@ -43,11 +43,11 @@ du gamemode, assets) vit à côté du `.crproj`.
   en premier argument (`Crowbar.Editor.exe "C:\Projets\MyGame\MyGame.crproj"`).
   Il le lit via `CrowbarProjectFile.LoadFromDisk` (avant toute configuration de
   filesystem) puis **racine le filesystem projet sur le répertoire du fichier**,
-  afin que niveaux et code du gamemode soient sauvegardés à côté du projet.
+  afin que niveaux et code du projet de jeu soient sauvegardés à côté du projet.
 - **Depuis l'éditeur** : le bouton « dossier » de la barre d'outils ouvre la
   fenêtre Explorateur Windows (dialogue natif `GetOpenFileName`) pour choisir un
   `.crproj` ; l'éditeur recale alors le filesystem projet, recharge le niveau et
-  recompile le gamemode du nouveau projet.
+  recompile le projet de jeu du nouveau projet.
 - **Démarrage à nu** (sans argument) : l'éditeur retombe sur le projet de démo
   (répertoire `Game/`), sans fichier projet.
 

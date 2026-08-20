@@ -109,7 +109,7 @@ public sealed class Entity : IDisposable, IValid
         component.Entity = this;
         _components.Add(component.GetType(), component);
         component.IsValid = true;
-        component.OnInitialize();
+        component.RunInitialize();
         if (World.IsPlaying)
             World.StartObject(component);
         ComponentAdded?.Invoke(this, component);
@@ -140,9 +140,9 @@ public sealed class Entity : IDisposable, IValid
         if (component.Started)
         {
             component.Started = false;
-            component.OnStop();
+            component.RunStop();
         }
-        component.OnDestroy();
+        component.RunDestroy();
         _components.Remove(component.GetType());
         component.Entity = null;
         component.IsValid = false;

@@ -125,7 +125,7 @@ public sealed class World : IDisposable
         system.World = this;
         system.IsValid = true;
         _systems.Add(typeof(T), system);
-        system.OnInitialize();
+        system.RunInitialize();
         if (IsPlaying)
             StartObject(system);
         return system;
@@ -145,9 +145,9 @@ public sealed class World : IDisposable
         if (system.Started)
         {
             system.Started = false;
-            system.OnStop();
+            system.RunStop();
         }
-        system.OnDestroy();
+        system.RunDestroy();
         _systems.Remove(system.GetType());
         system.World = null;
         system.IsValid = false;
@@ -197,7 +197,7 @@ public sealed class World : IDisposable
         foreach (var system in _systems.Values.ToArray())
         {
             if (system.Enabled)
-                system.OnUpdate(deltaTime);
+                system.RunUpdate(deltaTime);
         }
 
         TickGroupUpdate(TickGroup.PreUpdate, deltaTime);
@@ -224,7 +224,7 @@ public sealed class World : IDisposable
         if (obj.Started)
             return;
         obj.Started = true;
-        obj.OnStart();
+        obj.RunStart();
     }
 
     internal static void StopObject(WorldObject obj)
@@ -232,7 +232,7 @@ public sealed class World : IDisposable
         if (!obj.Started)
             return;
         obj.Started = false;
-        obj.OnStop();
+        obj.RunStop();
     }
 
     private void TickGroupUpdate(TickGroup group, float deltaTime)
@@ -241,10 +241,10 @@ public sealed class World : IDisposable
         {
             if (!entity.IsValid)
                 continue;
-            foreach (var component in entity.Components.ToArray())
+foreach (var component in entity.Components.ToArray())
             {
                 if (component.IsValid && component.Enabled && component.TickEnabled && component.TickGroup == group)
-                    component.OnUpdate(deltaTime);
+                    component.RunUpdate(deltaTime);
             }
         }
     }

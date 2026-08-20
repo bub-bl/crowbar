@@ -41,7 +41,7 @@ public sealed class MeshRenderer : TransformComponent
     public Material? Material { get; set; }
 
     /// <summary>Releases the cached model reference so unused models are freed.</summary>
-    protected internal override void OnDestroy()
+    protected override void OnDestroy()
     {
         _model?.Release();
         _model = null;
