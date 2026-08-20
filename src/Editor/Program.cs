@@ -85,6 +85,28 @@ internal sealed class DemoApplication : Application
         // of blocking startup.
         LoadProject();
 
+        // The game project: a real .NET library project (Game/Game.csproj) referencing
+        // the engine. It is loaded here at runtime into its own collectible assembly
+        // context — the engine and the editor never reference the project — and
+        // hot-reloaded on every edit (IL fast path when only method bodies change,
+        // otherwise a full reload with state migration). The in-memory compiler is
+        // given the same reference set the project declares, so the game project
+        // sees the engine API it referenced. The project's Components are
+        // registered so the editor can attach them to entities; its code publishes
+        // editor status through the engine's Editor.StatusBar API.
+        // The game project must start before the level is loaded: only its
+        // registered component types resolve when the saved document is
+        // materialized below.
+        _scriptHost = new ScriptHost(new ScriptCompiler(
+        [
+            typeof(ScriptHost).Assembly,       // Crowbar.Engine
+            typeof(FileSystemService).Assembly, // Crowbar.FileSystem
+            typeof(PropertyEditor).Assembly,    // Crowbar.UI
+        ]));
+        _scriptHost.Reloaded += OnScriptReloaded;
+        _scriptHost.ReloadFailed += OnScriptReloadFailed;
+        StartGameProject();
+
         // Persistence: the project's saved level is loaded when it exists (so
         // edits survive a restart), otherwise the demo scene is built from
         // scratch. Either way the open document starts clean — the title bar's
@@ -138,25 +160,6 @@ internal sealed class DemoApplication : Application
         Ui.Navigate("/editor");
         Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
         Ui.WatchDirectory(uiDirectory);
-
-        // The game project: a real .NET library project (Game/Game.csproj) referencing
-        // the engine. It is loaded here at runtime into its own collectible assembly
-        // context — the engine and the editor never reference the project — and
-        // hot-reloaded on every edit (IL fast path when only method bodies change,
-        // otherwise a full reload with state migration). The in-memory compiler is
-        // given the same reference set the project declares, so the game project
-        // sees the engine API it referenced. The project's Components are
-        // registered so the editor can attach them to entities; its code publishes
-        // editor status through the engine's Editor.StatusBar API.
-        _scriptHost = new ScriptHost(new ScriptCompiler(
-        [
-            typeof(ScriptHost).Assembly,       // Crowbar.Engine
-            typeof(FileSystemService).Assembly, // Crowbar.FileSystem
-            typeof(PropertyEditor).Assembly,    // Crowbar.UI
-        ]));
-        _scriptHost.Reloaded += OnScriptReloaded;
-        _scriptHost.ReloadFailed += OnScriptReloadFailed;
-        StartGameProject();
     }
 
     /// <summary>
@@ -281,10 +284,11 @@ internal sealed class DemoApplication : Application
         _project = project;
         _projectFilePath = projectFilePath;
 
-        // Reload the open document (level) and the game project from the new
-        // root, then refresh the panels that mirror their state.
-        ReloadDocument();
+        // Reload the game project from the new root first: its component types must
+        // be registered before the document is materialized, so saved
+        // components resolve when ReloadDocument loads the level.
         StartGameProject();
+        ReloadDocument();
         PublishProjectState();
 
         Console.WriteLine($"[Project] Projet ouvert : {project.Name} v{project.Version} depuis {projectFilePath}");

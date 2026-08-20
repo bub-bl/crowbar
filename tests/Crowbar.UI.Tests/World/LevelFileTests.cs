@@ -287,4 +287,33 @@ public class LevelFileTests
         Assert.Null(ComponentTypeRegistry.Resolve("HologramProjector"));
         Assert.Null(ComponentTypeRegistry.Resolve(""));
     }
+
+    [Fact]
+    public void RoundTrip_RegisteredGameComponent_IsLoadedWithItsProperties()
+    {
+        // A game-project component (like the editor's DemoComponent) only
+        // resolves after its assembly is registered through the registry; the
+        // level load must then pick it up and restore its properties. This is
+        // the contract the editor relies on when it starts the game project
+        // before loading the saved level.
+        ComponentTypeRegistry.Register(typeof(DemoTestComponent));
+
+        using var sourceWorld = new World();
+        var source = sourceWorld.CreateLevel("GameComponents");
+        var entity = source.SpawnEntity("Crate");
+        entity.AddComponent<DemoTestComponent>().Name = "Démo";
+
+        using var world = new World();
+        var loaded = LevelSerializer.CreateLevel(world, LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
+
+        var loadedEntity = Assert.Single(loaded.Entities);
+        var component = Assert.IsType<DemoTestComponent>(Assert.Single(loadedEntity.Components));
+        Assert.Equal("Démo", component.Name);
+    }
+
+    private sealed class DemoTestComponent : Component
+    {
+        [Property]
+        public string? Name { get; set; } = "Démo";
+    }
 }
