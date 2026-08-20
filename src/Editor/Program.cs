@@ -13,10 +13,27 @@ namespace Crowbar.Editor;
 
 internal static class Program
 {
-    public static void Main()
+    public static void Main(string[] args)
     {
-        DemoApplication.ConfigureFileSystem();
-        new DemoApplication().Run();
+        var projectFile = ResolveProjectArg(args);
+        DemoApplication.ConfigureFileSystem(projectFile);
+        new DemoApplication(projectFile).Run();
+    }
+
+    /// <summary>
+    /// The first command-line argument is the project file to open (the path
+    /// Windows passes when a <c>.crproj</c> is double-clicked), or null when
+    /// the editor starts bare. Anything else is ignored: it is not a project
+    /// file, so the editor falls back to its default demo project.
+    /// </summary>
+    private static string? ResolveProjectArg(string[] args)
+    {
+        if (args is not { Length: > 0 } || string.IsNullOrWhiteSpace(args[0]))
+            return null;
+        var path = Path.GetFullPath(args[0]);
+        return path.EndsWith(".crproj", StringComparison.OrdinalIgnoreCase) && File.Exists(path)
+            ? path
+            : null;
     }
 }
 
@@ -33,20 +50,43 @@ internal sealed class DemoApplication : Application
     private Level? _demoLevel;
     private string _lastWindowTitle = string.Empty;
 
+    /// <summary>The .crproj passed on the command line (double-click launch), or null in a bare start.</summary>
+    private readonly string? _projectFilePath;
+
+    /// <summary>The open project file (null when the editor starts bare on the demo project).</summary>
+    private CrowbarProjectFile? _project;
+
+    internal DemoApplication(string? projectFilePath = null)
+    {
+        _projectFilePath = projectFilePath;
+    }
+
     /// <summary>Open undo window for the current gizmo drag, committed on release (one step per drag).</summary>
     private IDisposable? _gizmoStep;
 
     /// <summary>Last observed unbracketed-mutation count of the open document (debug detector).</summary>
     private int _lastUnbracketedMutations;
 
-    /// <summary>The project-relative path the open level is saved to and loaded from (Ctrl+S).</summary>
-    private const string LevelSavePath = "Demo.level";
+    /// <summary>
+    /// The project-relative path the open level is saved to and loaded from
+    /// (Ctrl+S). Named after the project so each project carries its own
+    /// level; the bare demo run falls back to "Demo.level".
+    /// </summary>
+    private string LevelSavePath =>
+        _project is { Name.Length: > 0 } project ? $"{project.Name}.level" : "Demo.level";
 
     protected override void OnInitialize()
     {
         // The translation gizmo snap follows the grid cell size.
         if (Renderer is { } renderer)
             renderer.Gizmos.SnapSize = renderer.Grid.CellSize;
+
+        // The .crproj passed on the command line (double-click launch) is
+        // opened first: its directory is the project root the filesystem was
+        // configured with, and its name drives the window title and the level
+        // file name. A broken file falls back to the bare demo project instead
+        // of blocking startup.
+        LoadProject();
 
         // Persistence: the project's saved level is loaded when it exists (so
         // edits survive a restart), otherwise the demo scene is built from
@@ -131,6 +171,30 @@ internal sealed class DemoApplication : Application
         {
             Console.WriteLine($"[Scripting] Initial script load failed: {ex.Message}");
             UiNotifications.Show("Script", "Échec du chargement initial du gamemode", "error");
+        }
+    }
+
+    /// <summary>
+    /// Opens the <c>.crproj</c> given on the command line (double-click launch).
+    /// Its directory was already chosen as the project filesystem root by
+    /// <see cref="ConfigureFileSystem"/>, so it loads through the project
+    /// filesystem by its file name. A missing or unreadable file leaves the
+    /// editor on the bare demo project and surfaces an error notification.
+    /// </summary>
+    private void LoadProject()
+    {
+        if (_projectFilePath is null)
+            return;
+
+        try
+        {
+            _project = CrowbarProjectFile.Load(Path.GetFileName(_projectFilePath));
+            Console.WriteLine($"[Project] Ouvert '{_projectFilePath}' : {_project.Name} v{_project.Version}.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Project] Impossible de charger '{_projectFilePath}' : {ex.Message}");
+            UiNotifications.Show("Project", $"Projet illisible : {Path.GetFileName(_projectFilePath)}", "error");
         }
     }
 
@@ -604,12 +668,13 @@ internal sealed class DemoApplication : Application
         Window.SetTitle(title);
     }
 
-    /// <summary>Composes the OS window title from the open document and the current route.</summary>
+    /// <summary>Composes the OS window title: project, then the open document and its dirty flag.</summary>
     private string ComposeWindowTitle()
     {
+        var head = _project is { Name.Length: > 0 } project ? $"Crowbar — {project.Name}" : $"Crowbar — {Ui.CurrentUrl}";
         var doc = EditorDocumentState.Title;
-        if (doc.Length == 0) return $"Crowbar — {Ui.CurrentUrl}";
-        return EditorDocumentState.IsDirty ? $"Crowbar — {doc} ●" : $"Crowbar — {doc}";
+        if (doc.Length == 0) return head;
+        return EditorDocumentState.IsDirty ? $"{head} — {doc} ●" : $"{head} — {doc}";
     }
 
     /// <summary>True when the cursor is inside the docked viewport rectangle (the whole window before the first layout).</summary>
@@ -671,11 +736,13 @@ internal sealed class DemoApplication : Application
     /// Composes the editor's filesystems: <see cref="FileSystem.Content"/> is the
     /// read-only base content (the output directory's shaders/assets plus the
     /// repo's <c>Editor/Ui</c> mounted at <c>/Ui</c> for hot reload), and
-    /// <see cref="FileSystem.Project"/> is the read-write gamemode project rooted
-    /// at the repo's <c>Game/</c> directory (falling back to the copy next to the
-    /// executable in published builds).
+    /// <see cref="FileSystem.Project"/> is the read-write project rooted at the
+    /// directory of the <c>.crproj</c> being opened (<paramref name="projectFilePath"/>,
+    /// the double-click launch path) — or the repo's <c>Game/</c> directory
+    /// (falling back to the copy next to the executable in published builds)
+    /// when the editor starts bare.
     /// </summary>
-    internal static void ConfigureFileSystem()
+    internal static void ConfigureFileSystem(string? projectFilePath)
     {
         var backend = ZioFileSystem.Physical();
 
@@ -687,7 +754,17 @@ internal sealed class DemoApplication : Application
         if (uiSource is not null) contentMounts["/Ui"] = uiSource;
 
         var content = new FileSystemService(new ReadOnlyFileSystem(backend), AppContext.BaseDirectory, contentMounts);
-        var projectRoot = gameSource ?? PathUtil.Combine(AppContext.BaseDirectory, "Game");
+        string projectRoot;
+        if (projectFilePath is not null)
+        {
+            // The project file's directory is the project: everything the user
+            // saves (levels, gamemode scripts) lands next to the .crproj.
+            projectRoot = Path.GetDirectoryName(projectFilePath) ?? AppContext.BaseDirectory;
+        }
+        else
+        {
+            projectRoot = gameSource ?? PathUtil.Combine(AppContext.BaseDirectory, "Game");
+        }
         var project = new FileSystemService(backend, projectRoot);
 
         FileSystem.Configure(backend, content, project);
