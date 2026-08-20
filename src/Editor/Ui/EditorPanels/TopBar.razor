@@ -22,6 +22,8 @@
 </div>
 
 <div class="topbar-tools @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_tools">
+    <div class="tb-btn" title="Ouvrir un projet gamemode" tooltip="Ouvrir un projet gamemode (fichier .crproj)&#160;:&#160;@ProjectPathLabel()" @onclick="RequestOpenProject"><icon name="Solar/folders/Bold/folder-open" /></div>
+    <div class="tb-sep"></div>
     <div class="tb-btn tb-on" title="Sélection" tooltip="Outil de sélection"><icon name="Solar/ui/Bold/cursor" /></div>
     <div class="tb-btn" title="Translation" tooltip="Déplacer l'entité sélectionnée"><icon name="translate" /></div>
     <div class="tb-btn" title="Rotation" tooltip="Faire pivoter l'entité sélectionnée"><icon name="Solar/arrows/Bold/restart" /></div>
@@ -76,14 +78,16 @@
     {
         var chrome = ChromeState;
         return HashCode.Combine(
-            _tab,
-            (int)chrome.HoveredButton,
-            chrome.IsMaximized,
-            chrome.IsActive,
-            chrome.IsFullscreen,
-            chrome.SupportsCustomChrome,
-            EditorDocumentState.Version,
-            EditorUndoState.Version);
+            HashCode.Combine(
+                _tab,
+                (int)chrome.HoveredButton,
+                chrome.IsMaximized,
+                chrome.IsActive,
+                chrome.IsFullscreen,
+                chrome.SupportsCustomChrome,
+                EditorDocumentState.Version,
+                EditorUndoState.Version),
+            EditorProjectState.Version);
     }
 
     private void TabJouer() => _tab = "jouer";
@@ -107,6 +111,12 @@
     }
 
     private string TabClass(string tab) => _tab == tab ? "tab-active" : "";
+
+    /// <summary>Chemin du projet actuel, ou libellé de repli quand l'éditeur tourne sur le projet de démo.</summary>
+    private string ProjectPathLabel() =>
+        EditorProjectState.HasProject ? EditorProjectState.Path : "aucun projet (démo)";
+
+    private void RequestOpenProject() => EditorProjectState.RequestOpen();
 
     /// <summary>Nom du document ouvert (avec point de modifications non sauvegardées), ou le nom de l'app.</summary>
     private string DocumentLabel() =>

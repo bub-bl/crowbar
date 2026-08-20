@@ -46,12 +46,13 @@ internal sealed class DemoApplication : Application
 {
     private ScriptHost? _scriptHost;
     private readonly object? _gamemodeHolder = new GamemodeHolder();
+    private bool _gamemodeInstanceWatched;
     private MethodInfo? _describe;
     private Level? _demoLevel;
     private string _lastWindowTitle = string.Empty;
 
-    /// <summary>The .crproj passed on the command line (double-click launch), or null in a bare start.</summary>
-    private readonly string? _projectFilePath;
+    /// <summary>The .crproj currently open (command line or picked in the editor), or null in a bare start.</summary>
+    private string? _projectFilePath;
 
     /// <summary>The open project file (null when the editor starts bare on the demo project).</summary>
     private CrowbarProjectFile? _project;
@@ -157,20 +158,37 @@ internal sealed class DemoApplication : Application
         ]));
         _scriptHost.Reloaded += OnScriptReloaded;
         _scriptHost.ReloadFailed += OnScriptReloadFailed;
+        StartGamemode();
+    }
+
+    /// <summary>
+    /// (Re)loads the gamemode from the current project root: compiles every
+    /// *.cs file under <see cref="FileSystem.Project"/>'s root into the
+    /// collectible assembly context and watches the directory for hot reload.
+    /// Calling it again (project switch) compiles the new project from scratch.
+    /// </summary>
+    private void StartGamemode()
+    {
         try
         {
             // The gamemode is the whole project (FileSystem.Project): "." is its root.
             const string gameDirectory = ".";
-            _scriptHost.WatchDirectory(gameDirectory, "DemoGamemode");
-            ((GamemodeHolder)_gamemodeHolder!).Current = _scriptHost.Current!.CreateInstance("Game.DemoGamemode");
-            _scriptHost.WatchInstance(_gamemodeHolder!);
+            _scriptHost!.WatchDirectory(gameDirectory, "DemoGamemode");
+            // WatchInstance keeps the holder upgraded on every hot reload; each
+            // fresh start resets it to the new project's instance.
+            ((GamemodeHolder)_gamemodeHolder!).Current = _scriptHost.Current?.CreateInstance("Game.DemoGamemode");
+            if (!_gamemodeInstanceWatched)
+            {
+                _scriptHost.WatchInstance(_gamemodeHolder!);
+                _gamemodeInstanceWatched = true;
+            }
             ResolveDescribe();
-            Console.WriteLine($"[Scripting] Gamemode chargé : {_scriptHost.Current!.TypesByFullName.Count} type(s) depuis le projet gamemode");
+            Console.WriteLine($"[Scripting] Gamemode chargé : {_scriptHost.Current?.TypesByFullName.Count ?? 0} type(s) depuis le projet gamemode");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Scripting] Initial script load failed: {ex.Message}");
-            UiNotifications.Show("Script", "Échec du chargement initial du gamemode", "error");
+            Console.WriteLine($"[Scripting] Échec du chargement du gamemode : {ex.Message}");
+            UiNotifications.Show("Script", "Échec du chargement du gamemode", "error");
         }
     }
 
@@ -190,12 +208,111 @@ internal sealed class DemoApplication : Application
         {
             _project = CrowbarProjectFile.Load(Path.GetFileName(_projectFilePath));
             Console.WriteLine($"[Project] Ouvert '{_projectFilePath}' : {_project.Name} v{_project.Version}.");
+            PublishProjectState();
         }
         catch (Exception ex)
         {
             Console.WriteLine($"[Project] Impossible de charger '{_projectFilePath}' : {ex.Message}");
             UiNotifications.Show("Project", $"Projet illisible : {Path.GetFileName(_projectFilePath)}", "error");
         }
+    }
+
+    /// <summary>
+    /// Publishes the open project to the top bar (name + file path) so it can
+    /// display the current project and hash it for re-render.
+    /// </summary>
+    private void PublishProjectState() =>
+        EditorProjectState.Publish(_project?.Name ?? string.Empty, _projectFilePath ?? string.Empty);
+
+    /// <summary>
+    /// Opens a native Explorer dialog to pick a <c>.crproj</c> file, then
+    /// switches the editor to that project (filesystem root, document, gamemode).
+    /// </summary>
+    private void OpenProjectFromDialog()
+    {
+        string? initialDirectory = null;
+        if (_projectFilePath is not null)
+            initialDirectory = Path.GetDirectoryName(_projectFilePath);
+        if (string.IsNullOrEmpty(initialDirectory))
+            initialDirectory = FileSystem.Project.ContentRoot;
+
+        var path = NativeFileDialog.PickCrproj(Window.NativeHandle, initialDirectory);
+        if (path is null)
+            return; // user cancelled
+
+        SwitchProject(path);
+    }
+
+    /// <summary>
+    /// Switches the editor to the gamemode project described by
+    /// <paramref name="projectFilePath"/>: re-roots the project filesystem at the
+    /// file's directory, reloads the document (level) and the gamemode from that
+    /// root, and refreshes every published panel state. The current document is
+    /// discarded; a broken project keeps the previous one and reports an error.
+    /// </summary>
+    private void SwitchProject(string projectFilePath)
+    {
+        CrowbarProjectFile project;
+        try
+        {
+            project = CrowbarProjectFile.LoadFromDisk(projectFilePath);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[Project] Impossible d'ouvrir '{projectFilePath}' : {ex.Message}");
+            UiNotifications.Show("Project", $"Projet illisible : {Path.GetFileName(projectFilePath)}", "error");
+            return;
+        }
+
+        var projectRoot = Path.GetDirectoryName(projectFilePath);
+        if (string.IsNullOrEmpty(projectRoot))
+            return;
+
+        // Stop play mode before tearing the document down.
+        World.Stop();
+
+        // Re-root the project filesystem at the new project's directory. Levels,
+        // gamemode scripts and every save resolve through FileSystem.Project, so
+        // this one call redirects all subsequent reads/writes.
+        ApplyProjectRoot(projectRoot);
+
+        _project = project;
+        _projectFilePath = projectFilePath;
+
+        // Reload the open document (level) and the gamemode from the new root,
+        // then refresh the panels that mirror their state.
+        ReloadDocument();
+        StartGamemode();
+        PublishProjectState();
+
+        Console.WriteLine($"[Project] Projet ouvert : {project.Name} v{project.Version} depuis {projectFilePath}");
+        UiNotifications.Show("Project", $"Projet ouvert : {project.Name}", "success");
+    }
+
+    /// <summary>
+    /// Destroys the current document (level) and loads the one from the project's
+    /// root, then re-publishes the hierarchy, inspector, selection and undo state
+    /// so the panels reflect the new document.
+    /// </summary>
+    private void ReloadDocument()
+    {
+        _gizmoStep?.Dispose();
+        _gizmoStep = null;
+
+        if (_demoLevel is { } old)
+        {
+            World.DestroyLevel(old);
+            _demoLevel = null;
+        }
+
+        Renderer?.Gizmos.Selection = null;
+        _demoLevel = LoadOrCreateLevel();
+        _demoLevel.ClearDirty();
+
+        ExplorerTreeBuilder.Publish(World, null);
+        InspectorStateBuilder.Publish(null);
+        EditorUndoState.Publish(false, false, null, null);
+        _lastUnbracketedMutations = 0;
     }
 
     /// <summary>
@@ -502,6 +619,15 @@ internal sealed class DemoApplication : Application
                 Redo();
         }
 
+        // Project open requested by the top bar (UI → host): the native dialog
+        // is modal, so it runs here on the main thread before the frame's edits.
+        if (EditorProjectState.ConsumeOpenRequest())
+            OpenProjectFromDialog();
+
+        // The open project shown in the top bar and the OS title (project +
+        // document). Published every frame; the bridges no-op when unchanged.
+        PublishProjectState();
+
         // Document shown in the custom title bar: the open level with its real
         // dirty state (unsaved edits → "●"). The OS title follows the same
         // document, so Alt-Tab shows the open level too.
@@ -732,6 +858,9 @@ internal sealed class DemoApplication : Application
     private int ViewportHeight =>
         Math.Max(1, Window.FramebufferHeight > 0 ? Window.FramebufferHeight : Window.Height);
 
+    private static IFileSystem _backend = null!;
+    private static FileSystemService _content = null!;
+
     /// <summary>
     /// Composes the editor's filesystems: <see cref="FileSystem.Content"/> is the
     /// read-only base content (the output directory's shaders/assets plus the
@@ -753,21 +882,23 @@ internal sealed class DemoApplication : Application
         var contentMounts = new Dictionary<FilePath, string>();
         if (uiSource is not null) contentMounts["/Ui"] = uiSource;
 
-        var content = new FileSystemService(new ReadOnlyFileSystem(backend), AppContext.BaseDirectory, contentMounts);
-        string projectRoot;
-        if (projectFilePath is not null)
-        {
-            // The project file's directory is the project: everything the user
-            // saves (levels, gamemode scripts) lands next to the .crproj.
-            projectRoot = Path.GetDirectoryName(projectFilePath) ?? AppContext.BaseDirectory;
-        }
-        else
-        {
-            projectRoot = gameSource ?? PathUtil.Combine(AppContext.BaseDirectory, "Game");
-        }
-        var project = new FileSystemService(backend, projectRoot);
+        _backend = backend;
+        _content = new FileSystemService(new ReadOnlyFileSystem(backend), AppContext.BaseDirectory, contentMounts);
+        ApplyProjectRoot(projectFilePath is not null
+            ? Path.GetDirectoryName(projectFilePath) ?? AppContext.BaseDirectory
+            : gameSource ?? PathUtil.Combine(AppContext.BaseDirectory, "Game"));
+    }
 
-        FileSystem.Configure(backend, content, project);
+    /// <summary>
+    /// Re-roots the project filesystem (and nothing else) at
+    /// <paramref name="projectRoot"/>. The backend and the read-only content view
+    /// are kept as configured at startup; only <see cref="FileSystem.Project"/>
+    /// moves, which is exactly the contract of a project switch.
+    /// </summary>
+    internal static void ApplyProjectRoot(string projectRoot)
+    {
+        var project = new FileSystemService(_backend, projectRoot);
+        FileSystem.Configure(_backend, _content, project);
     }
 }
 

@@ -44,6 +44,10 @@ du gamemode, assets) vit à côté du `.crproj`.
   Il le lit via `CrowbarProjectFile.LoadFromDisk` (avant toute configuration de
   filesystem) puis **racine le filesystem projet sur le répertoire du fichier**,
   afin que niveaux et code du gamemode soient sauvegardés à côté du projet.
+- **Depuis l'éditeur** : le bouton « dossier » de la barre d'outils ouvre la
+  fenêtre Explorateur Windows (dialogue natif `GetOpenFileName`) pour choisir un
+  `.crproj` ; l'éditeur recale alors le filesystem projet, recharge le niveau et
+  recompile le gamemode du nouveau projet.
 - **Démarrage à nu** (sans argument) : l'éditeur retombe sur le projet de démo
   (répertoire `Game/`), sans fichier projet.
 
