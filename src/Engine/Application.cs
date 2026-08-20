@@ -216,6 +216,20 @@ public abstract class Application : WindowSession
             yield return extra;
     }
 
+    /// <summary>
+    /// The primary window's close event runs inside the platform's event pump
+    /// (<see cref="SdlPlatform.PumpEvents"/>). Tearing the host down there —
+    /// disposing the SDL platform (its Sdl instance) and the shared GPU —
+    /// would leave the pump's next <c>PollEvent</c> calling into a disposed
+    /// native instance: an access violation. The host only quits its loop
+    /// here (<see cref="OnPrimaryClosed"/> raised the quit); <see cref="Run"/>
+    /// disposes everything once the loop has exited.
+    /// </summary>
+    protected override void OnWindowClosed()
+    {
+        // Deferred: disposal happens in Run() after the loop.
+    }
+
     /// <summary>Closing the primary window quits the application (and closes the extra windows).</summary>
     private void OnPrimaryClosed(WindowSession _)
     {

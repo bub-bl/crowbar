@@ -183,6 +183,23 @@ public class WindowSessionTests
     }
 
     [Fact]
+    public void Host_ClosingThePrimaryWindowDefersTeardownUntilAfterTheLoop()
+    {
+        var app = new HostTestApp();
+        app.TestPlatform.ClosePrimaryOnPump = 1;
+
+        app.Run();
+
+        // The SDL platform is disposed only after the loop exits: disposing it
+        // from inside the event pump (the close handler) would leave
+        // PumpEvents polling a disposed Sdl instance — the access violation
+        // seen at shutdown. The fake platform flags exactly that case.
+        Assert.False(app.TestPlatform.DisposedDuringPump);
+        Assert.True(app.TestPlatform.Disposed);
+        Assert.True(app.TestPlatform.Windows[0].IsClosing);
+    }
+
+    [Fact]
     public void Host_ClosingAnExtraWindowMidLoopDoesNotCrashTheFrame()
     {
         var app = new HostTestApp();
@@ -267,6 +284,14 @@ public class WindowSessionTests
 
         public bool Disposed { get; private set; }
 
+        /// <summary>
+        /// True if the platform was disposed while a pump was still in
+        /// progress. A disposed platform must never be torn down from inside
+        /// <see cref="PumpEvents"/>: SDL keeps polling after the close event,
+        /// so disposing its native instance mid-pump is an access violation.
+        /// </summary>
+        public bool DisposedDuringPump { get; private set; }
+
         public IWindow CreateWindow(WindowOptions options)
         {
             var window = new FakeWindow { Title = options.Title };
@@ -291,6 +316,10 @@ public class WindowSessionTests
                 Windows[0].Close();
             if (CloseWindowOnPump == PumpCount && CloseWindowIndex < Windows.Count)
                 Windows[CloseWindowIndex].Close();
+            // The close events above are handled synchronously: the platform
+            // must still be alive when the pump returns (the real SDL pump
+            // keeps polling events after handling the close).
+            DisposedDuringPump |= Disposed;
         }
 
         public event Action? QuitRequested;

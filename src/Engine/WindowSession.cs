@@ -563,7 +563,10 @@ public class WindowSession : IDisposable
     /// <summary>Subclass hook on a window resize (after the renderer and UI viewport were updated).</summary>
     protected virtual void OnResize(int width, int height) { }
 
-    /// <summary>Subclass hook before the session is torn down.</summary>
+    /// <summary>
+    /// Subclass hook run once when the session is disposed, before its window,
+    /// GPU surface and UI runtime are torn down.
+    /// </summary>
     protected virtual void OnClosing() { }
 
     /// <summary>
@@ -573,19 +576,31 @@ public class WindowSession : IDisposable
     /// </summary>
     protected virtual bool HideOnClose => false;
 
+    /// <summary>
+    /// Handles the platform's close event for this window. The default tears
+    /// the session down immediately; the application host overrides it so the
+    /// platform/SDL and the shared GPU are never disposed from inside the
+    /// event pump (see <see cref="Application.OnWindowClosed"/>).
+    /// </summary>
+    protected virtual void OnWindowClosed() => Dispose();
+
     private void OnWindowClosing()
     {
         if (_disposed)
             return;
-        OnClosing();
         if (HideOnClose)
         {
             Window.SetVisible(false);
             return;
         }
 
+        // The teardown must not run while the platform is mid-pump: disposing
+        // SDL (or the shared GPU) here would leave the pump's next PollEvent
+        // calling into a disposed native instance (access violation). Sessions
+        // whose disposal is safe mid-pump (a single window) use the default
+        // OnWindowClosed; the host defers its own teardown to after the loop.
         Closed?.Invoke(this);
-        Dispose();
+        OnWindowClosed();
     }
 
     public virtual void Dispose()
@@ -593,6 +608,7 @@ public class WindowSession : IDisposable
         if (_disposed)
             return;
         _disposed = true;
+        OnClosing();
         ReleasePointerModal();
         ReleasePanModal();
         Ui.Dispose();
