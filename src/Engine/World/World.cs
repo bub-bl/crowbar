@@ -28,6 +28,9 @@ public sealed class World : IDisposable
     /// <summary>True between <see cref="Start"/> and <see cref="Stop"/> (play mode).</summary>
     public bool IsPlaying { get; private set; }
 
+    /// <summary>True once <see cref="Dispose"/> has begun: the world is being torn down.</summary>
+    public bool IsDisposed => _disposed;
+
     public TimerSystem Timers { get; }
 
     public IReadOnlyList<Entity> Entities => _entities;

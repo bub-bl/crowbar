@@ -80,7 +80,10 @@ public sealed class Level : IDisposable, IValid
     /// <summary>Marks the level as having unsaved changes and records the mutation.</summary>
     public void MarkDirty()
     {
-        if (_suppressMutations > 0)
+        // Teardown is not an edit: while the world is being disposed, entity
+        // destruction must not look like an unbracketed user mutation (it would
+        // trip the host's undo detector on the closing frame).
+        if (_suppressMutations > 0 || World.IsDisposed)
             return;
         ChangeCount++;
         _dirty = true;

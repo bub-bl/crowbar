@@ -302,7 +302,7 @@ public class EditorPageCompositionTests
 
         Assert.True(EditorInspectorState.AddMenuOpen);
         content = ui.Content!;
-        Assert.Contains(content, p => p.Classes.Contains("add-menu"));
+        Assert.NotEmpty(TestUi.FindAll(content, p => p.Classes.Contains("add-menu")));
         var demoItem = FindText(content, "add-menu-item", t => t == "DemoComponent");
         Assert.NotNull(demoItem);
         Assert.NotNull(FindText(content, "add-menu-item", t => t == "PointLight"));
@@ -318,7 +318,7 @@ public class EditorPageCompositionTests
         Assert.Equal(["DemoComponent"], EditorInspectorState.ConsumeAddComponentRequests());
         Assert.False(EditorInspectorState.AddMenuOpen);
         content = ui.Content!;
-        Assert.DoesNotContain(content, p => p.Classes.Contains("add-menu"));
+        Assert.Empty(TestUi.FindAll(content, p => p.Classes.Contains("add-menu")));
     }
 
     [Fact]

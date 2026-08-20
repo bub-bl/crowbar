@@ -490,6 +490,22 @@ public class LevelUndoTests
     }
 
     [Fact]
+    public void WorldTeardown_DoesNotCountAsAnUnbracketedMutation()
+    {
+        using var world = new World();
+        var (level, cubeId) = Scene(world);
+        var changeBefore = level.ChangeCount;
+
+        // Disposing the world destroys every entity: teardown is not an edit
+        // and must not look like an unbracketed mutation (it would trip the
+        // editor's undo detector on the closing frame).
+        world.Dispose();
+
+        Assert.Equal(0, level.History.UnbracketedMutationCount);
+        Assert.Equal(changeBefore, level.ChangeCount);
+    }
+
+    [Fact]
     public void MaterialEdit_IsUndoable()
     {
         using var world = new World();

@@ -573,7 +573,8 @@ internal sealed class DemoApplication : Application
     /// </summary>
     private void DetectUnbracketedMutations()
     {
-        if (_demoLevel is not { } document)
+        // A disposed document (world teardown) can no longer receive user edits.
+        if (_demoLevel is not { IsValid: true } document)
             return;
 
         var history = document.History;
