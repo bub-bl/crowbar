@@ -15,7 +15,7 @@ public sealed record StatusBarEntry(string Label, string? Value);
 /// The editor clears the bar when (re)loading the game project and the script
 /// host before a full hot reload, so only the live project's registrations
 /// survive. Producers are evaluated on every snapshot; a throwing producer shows
-/// "(erreur de script)" instead.
+/// "(script error)" instead.
 /// </summary>
 public static class StatusBar
 {
@@ -81,7 +81,7 @@ public static class StatusBar
             }
             catch (Exception)
             {
-                value = "(erreur de script)";
+                value = "(script error)";
             }
 
             snapshot[i] = new StatusBarEntry(entries[i].Key, value);

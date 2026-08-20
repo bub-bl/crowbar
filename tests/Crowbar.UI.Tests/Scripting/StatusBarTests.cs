@@ -53,7 +53,7 @@ public sealed class StatusBarTests
     public void ThrowingProducerShowsErrorPlaceholder()
     {
         StatusBar.AddEntry("Broken", () => throw new InvalidOperationException("boom"));
-        Assert.Equal("(erreur de script)", Assert.Single(StatusBar.Snapshot()).Value);
+        Assert.Equal("(script error)", Assert.Single(StatusBar.Snapshot()).Value);
     }
 
     [Fact]
