@@ -34,7 +34,7 @@
         }
 
         <div class="add-component" @onclick="ToggleAddMenu">+ Add component</div>
-        @if (_addMenuOpen)
+        @if (EditorInspectorState.AddMenuOpen)
         {
             <div class="add-menu">
                 @if (EditorInspectorState.AvailableComponentTypes.Count == 0)
@@ -43,7 +43,7 @@
                 }
                 @foreach (var name in EditorInspectorState.AvailableComponentTypes)
                 {
-                    <div class="add-menu-item" @onclick="() => AddComponent(name)">@name</div>
+                    <AddComponentItem Name="@name" />
                 }
             </div>
         }
@@ -51,18 +51,11 @@
 </div>
 
 @code {
-    private bool _addMenuOpen;
-
     // Re-render when the host republishes the selection snapshot, the user
-    // folds a section (both bump EditorInspectorState.Version), or the Add
-    // Component menu is toggled.
-    protected override int BuildHash() => HashCode.Combine(EditorInspectorState.Version, _addMenuOpen);
+    // folds a section or toggles the Add Component menu (each bumps
+    // EditorInspectorState.Version).
+    protected override int BuildHash() => HashCode.Combine(
+        EditorInspectorState.Version, EditorInspectorState.AddMenuOpen);
 
-    private void ToggleAddMenu() => _addMenuOpen = !_addMenuOpen;
-
-    private void AddComponent(string name)
-    {
-        EditorInspectorState.RequestAddComponent(name);
-        _addMenuOpen = false;
-    }
+    private void ToggleAddMenu() => EditorInspectorState.ToggleAddMenu();
 }

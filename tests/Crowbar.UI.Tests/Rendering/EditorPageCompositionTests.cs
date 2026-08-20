@@ -281,6 +281,47 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void AddComponentMenuClickQueuesTheRequestAndClosesTheMenu()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        EditorInspectorState.PublishAvailableComponents(["DemoComponent", "PointLight"]);
+        ui.Update();
+        ui.Prepare();
+
+        // The menu starts closed; clicking "+ Add component" opens it and lists
+        // the component types the host published.
+        var addButton = FindText(content, "add-component", t => t.Contains("Add component"));
+        Assert.NotNull(addButton);
+        Assert.False(EditorInspectorState.AddMenuOpen);
+
+        ui.ProcessPointerDown(addButton!.Layout.X + 3, addButton.Layout.Y + 3);
+        ui.ProcessPointerUp(addButton.Layout.X + 3, addButton.Layout.Y + 3);
+        ui.Update();
+        ui.Prepare();
+
+        Assert.True(EditorInspectorState.AddMenuOpen);
+        content = ui.Content!;
+        Assert.Contains(content, p => p.Classes.Contains("add-menu"));
+        var demoItem = FindText(content, "add-menu-item", t => t == "DemoComponent");
+        Assert.NotNull(demoItem);
+        Assert.NotNull(FindText(content, "add-menu-item", t => t == "PointLight"));
+
+        // Clicking an item queues the request for the host (the name travels as
+        // the child component's [Parameter], not through an @onclick lambda) and
+        // closes the menu.
+        ui.ProcessPointerDown(demoItem!.Layout.X + 3, demoItem.Layout.Y + 3);
+        ui.ProcessPointerUp(demoItem.Layout.X + 3, demoItem.Layout.Y + 3);
+        ui.Update();
+        ui.Prepare();
+
+        Assert.Equal(["DemoComponent"], EditorInspectorState.ConsumeAddComponentRequests());
+        Assert.False(EditorInspectorState.AddMenuOpen);
+        content = ui.Content!;
+        Assert.DoesNotContain(content, p => p.Classes.Contains("add-menu"));
+    }
+
+    [Fact]
     public void NotificationsRenderAsToastsAndPrune()
     {
         using var ui = CreateEditorUi();

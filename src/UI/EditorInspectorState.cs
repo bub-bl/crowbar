@@ -40,6 +40,7 @@ public static class EditorInspectorState
     private static string _signature = string.Empty;
     private static int _version;
     private static IReadOnlyList<string> _availableComponentTypes = [];
+    private static bool _addMenuOpen;
 
     /// <summary>Name of the selected entity, or empty when nothing is selected.</summary>
     public static string EntityName => _entityName;
@@ -59,6 +60,13 @@ public static class EditorInspectorState
     /// Component menu offers them; empty when nothing is selected.
     /// </summary>
     public static IReadOnlyList<string> AvailableComponentTypes => _availableComponentTypes;
+
+    /// <summary>
+    /// UI-side state: whether the Add Component menu is open. It lives here (like
+    /// the collapsed sections) so the panel keeps it across republishing, and the
+    /// menu items can close it through <see cref="CloseAddMenu"/> after a click.
+    /// </summary>
+    public static bool AddMenuOpen => _addMenuOpen;
 
     private static readonly HashSet<string> Collapsed = new(StringComparer.Ordinal);
     private static readonly Lock EditLock = new();
@@ -94,6 +102,23 @@ public static class EditorInspectorState
         _sections = [];
         _signature = string.Empty;
         _availableComponentTypes = [];
+        _addMenuOpen = false;
+        _version++;
+    }
+
+    /// <summary>Toggles the Add Component menu (the panel's "+ Add component" button).</summary>
+    public static void ToggleAddMenu()
+    {
+        _addMenuOpen = !_addMenuOpen;
+        _version++;
+    }
+
+    /// <summary>Closes the Add Component menu; a menu item calls it after a click.</summary>
+    public static void CloseAddMenu()
+    {
+        if (!_addMenuOpen)
+            return;
+        _addMenuOpen = false;
         _version++;
     }
 

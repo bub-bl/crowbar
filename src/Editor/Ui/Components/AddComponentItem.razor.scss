@@ -1,0 +1,13 @@
+@use '../_editor-theme' as *;
+
+.add-menu-item {
+    padding: 5px 8px;
+    color: $text;
+    font-size: 10px;
+    cursor: pointer;
+
+    &:hover {
+        background-color: $input-bg;
+        color: $text-bright;
+    }
+}

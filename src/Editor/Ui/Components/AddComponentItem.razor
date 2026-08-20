@@ -1,0 +1,25 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+@using Microsoft.AspNetCore.Components
+
+@* One entry of the inspector's Add Component menu. The component name travels
+   as a [Parameter] (like TreeRow's Id): the runtime event invoker cannot pass
+   captured locals from an @onclick lambda, so the click handler reads its own
+   parameter instead. A click queues the request for the host and closes the
+   menu. *@
+<div class="add-menu-item" @onclick="OnClick">@Name</div>
+
+@code {
+    [Parameter]
+    public string Name { get; set; } = string.Empty;
+
+    protected override int BuildHash() => HashCode.Combine(Name);
+
+    /// <summary>Queues the Add Component request (host applies it this frame) and closes the menu.</summary>
+    private void OnClick()
+    {
+        EditorInspectorState.RequestAddComponent(Name);
+        EditorInspectorState.CloseAddMenu();
+    }
+}
