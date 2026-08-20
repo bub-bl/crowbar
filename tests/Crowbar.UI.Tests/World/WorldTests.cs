@@ -33,12 +33,12 @@ public class WorldTests
     {
         using var world = new World();
         var level = world.CreateLevel("test");
-        var entity = level.SpawnEntity("Joueur");
+        var entity = level.SpawnEntity("Player");
 
         Assert.Single(world.Entities);
         Assert.Single(level.Entities);
         Assert.Same(level, entity.Level);
-        Assert.Equal("Joueur", entity.Name);
+        Assert.Equal("Player", entity.Name);
         Assert.Same(world, entity.World);
     }
 
@@ -93,7 +93,7 @@ public class WorldTests
     public void FindEntity_ReturnsLivingEntityById()
     {
         using var world = new World();
-        var entity = world.SpawnEntity("Joueur");
+        var entity = world.SpawnEntity("Player");
 
         Assert.Same(entity, world.FindEntity(entity.Id));
         Assert.Null(world.FindEntity(Guid.NewGuid()));

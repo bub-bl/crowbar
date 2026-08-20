@@ -85,7 +85,7 @@ public class InlineControlLayoutTests
         var content = ui.Content!;
 
         // The collapsible inspector sections replaced the old fake
-        // "MATÉRIAUX Éléments: 5" title+count row. The same inline contract
+        // "MATERIALS Items: 5" title+count row. The same inline contract
         // now applies to the section head: caret and title sit side by side.
         var head = TestUi.Find(content, p => p.Classes.Contains("insp-section-head") &&
             TestUi.Texts(p).Any(t => t == "Transform"));

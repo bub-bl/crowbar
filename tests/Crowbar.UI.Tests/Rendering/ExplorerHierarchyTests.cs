@@ -10,14 +10,14 @@ public class ExplorerHierarchyTests
     [Fact]
     public void RowsNestUnderTheirParentAndHighlightTheViewportSelection()
     {
-        var monde = Guid.NewGuid();
+        var world = Guid.NewGuid();
         var level = Guid.NewGuid();
         var parent = Guid.NewGuid();
         var child = Guid.NewGuid();
         var nodes = new List<EditorExplorerState.TreeNode>
         {
-            new("Monde", monde, null, "Solar/map/Bold/globe", IsFolder: true),
-            new("Demo", level, monde, string.Empty, IsFolder: true),
+            new("World", world, null, "Solar/map/Bold/globe", IsFolder: true),
+            new("Demo", level, world, string.Empty, IsFolder: true),
             new("Parent", parent, level, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
             new("Child", child, parent, "Solar/ui/Bold/box-minimalistic", IsFolder: false)
         };
@@ -26,7 +26,7 @@ public class ExplorerHierarchyTests
 
         Assert.Equal(4, rows.Count);
         // Indentation grows with the depth: 12px per level plus a 6px base.
-        Assert.Equal("6px", IndentOf(RowWithText(rows, "Monde")));
+        Assert.Equal("6px", IndentOf(RowWithText(rows, "World")));
         Assert.Equal("18px", IndentOf(RowWithText(rows, "Demo")));
         Assert.Equal("30px", IndentOf(RowWithText(rows, "Parent")));
         Assert.Equal("42px", IndentOf(RowWithText(rows, "Child")));
@@ -43,7 +43,7 @@ public class ExplorerHierarchyTests
         var entity = Guid.NewGuid();
         var nodes = new List<EditorExplorerState.TreeNode>
         {
-            new("Monde", Guid.NewGuid(), null, "Solar/map/Bold/globe", IsFolder: true),
+            new("World", Guid.NewGuid(), null, "Solar/map/Bold/globe", IsFolder: true),
             new("Cube", entity, null, "Solar/ui/Bold/box-minimalistic", IsFolder: false)
         };
         using var ui = CreateEditorUiWith(nodes, selection: null);
@@ -59,14 +59,14 @@ public class ExplorerHierarchyTests
     [Fact]
     public void CollapsingAFolderHidesItsSubtree()
     {
-        var monde = Guid.NewGuid();
+        var world = Guid.NewGuid();
         var structures = Guid.NewGuid();
         var house = Guid.NewGuid();
         var nodes = new List<EditorExplorerState.TreeNode>
         {
-            new("Monde", monde, null, "Solar/map/Bold/globe", IsFolder: true),
-            new("Structures", structures, monde, string.Empty, IsFolder: true),
-            new("Maison", house, structures, "Solar/ui/Bold/box-minimalistic", IsFolder: false)
+            new("World", world, null, "Solar/map/Bold/globe", IsFolder: true),
+            new("Structures", structures, world, string.Empty, IsFolder: true),
+            new("House", house, structures, "Solar/ui/Bold/box-minimalistic", IsFolder: false)
         };
         using var ui = CreateEditorUiWith(nodes, selection: null);
         var rowsBefore = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("tree-row")).ToList();
@@ -79,7 +79,7 @@ public class ExplorerHierarchyTests
 
         var rowsAfter = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("tree-row")).ToList();
         Assert.Equal(2, rowsAfter.Count); // the house is hidden under the collapsed folder
-        Assert.DoesNotContain(rowsAfter, r => TestUi.Texts(r).Any(t => t == "Maison"));
+        Assert.DoesNotContain(rowsAfter, r => TestUi.Texts(r).Any(t => t == "House"));
         Assert.Equal("▸", CaretOf(RowWithText(rowsAfter, "Structures")));
     }
 

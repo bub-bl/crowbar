@@ -1,12 +1,12 @@
 # Crowbar
 
-Base runtime reconstruite autour de Silk.NET :
+Base runtime rebuilt around Silk.NET:
 
-- `Crowbar.Engine` expose les contrats de plateforme et l’implémentation SDL.
-- `Crowbar.Editor` est actuellement le bootstrap de l’application et crée la fenêtre via Silk.NET.Windowing.
-- Le rendu WebGPU et l’UI seront ajoutés dans des couches séparées.
+- `Crowbar.Engine` exposes the platform contracts and the SDL implementation.
+- `Crowbar.Editor` is currently the application bootstrap and creates the window via Silk.NET.Windowing.
+- WebGPU rendering and the UI will be added in separate layers.
 
-Pour lancer la fenêtre :
+To launch the window:
 
 ```powershell
 dotnet run --project src\Editor\Editor.csproj

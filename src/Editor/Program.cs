@@ -115,7 +115,7 @@ internal sealed class DemoApplication : Application
         _demoLevel.ClearDirty();
 
         World.Start();
-        Console.WriteLine($"World: {_demoLevel.Entities.Count} entité(s) dans le level '{_demoLevel.Name}'.");
+        Console.WriteLine($"World: {_demoLevel.Entities.Count} entit(ies) in level '{_demoLevel.Name}'.");
 
         // Initial selection: the main cube (or the first mesh in a loaded
         // level), to show the widget.
@@ -188,12 +188,12 @@ internal sealed class DemoApplication : Application
             if (_scriptHost.Current is { } current)
                 ComponentTypeRegistry.RegisterAssembly(current.Assembly);
             StatusBar.Clear();
-            Console.WriteLine($"[Scripting] Projet de jeu chargé : {_scriptHost.Current?.TypesByFullName.Count ?? 0} type(s) depuis le projet");
+            Console.WriteLine($"[Scripting] Game project loaded: {_scriptHost.Current?.TypesByFullName.Count ?? 0} type(s) from the project");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Scripting] Échec du chargement du projet de jeu : {ex.Message}");
-            UiNotifications.Show("Script", "Échec du chargement du projet de jeu", "error");
+            Console.WriteLine($"[Scripting] Failed to load the game project: {ex.Message}");
+            UiNotifications.Show("Script", "Failed to load the game project", "error");
         }
     }
 
@@ -212,13 +212,13 @@ internal sealed class DemoApplication : Application
         try
         {
             _project = CrowbarProjectFile.Load(Path.GetFileName(_projectFilePath));
-            Console.WriteLine($"[Project] Ouvert '{_projectFilePath}' : {_project.Name} v{_project.Version}.");
+            Console.WriteLine($"[Project] Opened '{_projectFilePath}': {_project.Name} v{_project.Version}.");
             PublishProjectState();
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Project] Impossible de charger '{_projectFilePath}' : {ex.Message}");
-            UiNotifications.Show("Project", $"Projet illisible : {Path.GetFileName(_projectFilePath)}", "error");
+            Console.WriteLine($"[Project] Failed to load '{_projectFilePath}': {ex.Message}");
+            UiNotifications.Show("Project", $"Unreadable project: {Path.GetFileName(_projectFilePath)}", "error");
         }
     }
 
@@ -264,8 +264,8 @@ internal sealed class DemoApplication : Application
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Project] Impossible d'ouvrir '{projectFilePath}' : {ex.Message}");
-            UiNotifications.Show("Project", $"Projet illisible : {Path.GetFileName(projectFilePath)}", "error");
+            Console.WriteLine($"[Project] Failed to open '{projectFilePath}': {ex.Message}");
+            UiNotifications.Show("Project", $"Unreadable project: {Path.GetFileName(projectFilePath)}", "error");
             return;
         }
 
@@ -291,8 +291,8 @@ internal sealed class DemoApplication : Application
         ReloadDocument();
         PublishProjectState();
 
-        Console.WriteLine($"[Project] Projet ouvert : {project.Name} v{project.Version} depuis {projectFilePath}");
-        UiNotifications.Show("Project", $"Projet ouvert : {project.Name}", "success");
+        Console.WriteLine($"[Project] Project opened: {project.Name} v{project.Version} from {projectFilePath}");
+        UiNotifications.Show("Project", $"Project opened: {project.Name}", "success");
     }
 
     /// <summary>
@@ -335,13 +335,13 @@ internal sealed class DemoApplication : Application
             {
                 var file = LevelFile.Load(LevelSavePath);
                 var level = file.CreateLevel(World);
-                Console.WriteLine($"[Level] Chargé '{LevelSavePath}' : {level.Entities.Count} entité(s).");
+                Console.WriteLine($"[Level] Loaded '{LevelSavePath}': {level.Entities.Count} entit(ies).");
                 return level;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Level] Impossible de charger '{LevelSavePath}' : {ex.Message} — construction de la scène de démo.");
-                UiNotifications.Show("Level", $"Niveau '{LevelSavePath}' illisible — scène de démo chargée", "error");
+                Console.WriteLine($"[Level] Failed to load '{LevelSavePath}': {ex.Message} — building the demo scene.");
+                UiNotifications.Show("Level", $"Level '{LevelSavePath}' unreadable — demo scene loaded", "error");
             }
         }
 
@@ -505,13 +505,13 @@ internal sealed class DemoApplication : Application
         {
             LevelFile.Save(_demoLevel, LevelSavePath);
             _demoLevel.ClearDirty();
-            Console.WriteLine($"[Level] Sauvegardé : {LevelSavePath}");
-            UiNotifications.Show("Level", $"Niveau sauvegardé : {LevelSavePath}", "success");
+            Console.WriteLine($"[Level] Saved: {LevelSavePath}");
+            UiNotifications.Show("Level", $"Level saved: {LevelSavePath}", "success");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Level] Échec de la sauvegarde : {ex}");
-            UiNotifications.Show("Level", $"Échec de la sauvegarde : {ex.Message}", "error");
+            Console.WriteLine($"[Level] Save failed: {ex}");
+            UiNotifications.Show("Level", $"Save failed: {ex.Message}", "error");
         }
     }
 
@@ -589,15 +589,15 @@ internal sealed class DemoApplication : Application
         if (World.IsPlaying)
             return;
         Debug.Assert(false, "[Undo] A document mutation escaped its undo window — wrap the action in level.History.Step().");
-        UiNotifications.Show("Undo", "Mutation hors fenêtre d'undo — ajoutez un Step().", "error");
+        UiNotifications.Show("Undo", "Mutation outside an undo window — add a Step().", "error");
     }
 
     /// <summary>The undo step label of a gizmo drag, by tool.</summary>
     private static string DragLabel(GizmoMode mode) => mode switch
     {
-        GizmoMode.Rotate => "Faire pivoter",
-        GizmoMode.Scale => "Redimensionner",
-        _ => "Déplacer"
+        GizmoMode.Rotate => "Rotate",
+        GizmoMode.Scale => "Resize",
+        _ => "Move"
     };
 
     /// <summary>
@@ -673,7 +673,7 @@ internal sealed class DemoApplication : Application
         var pendingEdits = EditorInspectorState.ConsumeEdits();
         if (selected is not null && pendingEdits.Count > 0)
         {
-            using var step = _demoLevel!.History.Step("Modifier une propriété");
+            using var step = _demoLevel!.History.Step("Edit a property");
             foreach (var (key, value) in pendingEdits)
                 InspectorStateBuilder.ApplyEdit(selected, key, value);
         }
@@ -686,7 +686,7 @@ internal sealed class DemoApplication : Application
         var addRequests = EditorInspectorState.ConsumeAddComponentRequests();
         if (selected is not null && addRequests.Count > 0)
         {
-            using var step = _demoLevel!.History.Step("Ajouter un composant");
+            using var step = _demoLevel!.History.Step("Add a component");
             foreach (var typeName in addRequests)
                 AddComponent(selected, typeName);
         }
@@ -840,9 +840,9 @@ internal sealed class DemoApplication : Application
     {
         var detail = e.Mode switch
         {
-            ScriptReloadMode.FastPath => $"IL fast path : {e.PatchedMethods} méthode(s) patchée(s) en {e.Duration.TotalMilliseconds:0} ms",
-            ScriptReloadMode.FullReload => $"Full reload : {e.UpgradedInstances} instance(s) migrée(s) en {e.Duration.TotalMilliseconds:0} ms",
-            _ => $"Chargé en {e.Duration.TotalMilliseconds:0} ms"
+            ScriptReloadMode.FastPath => $"IL fast path: {e.PatchedMethods} method(s) patched in {e.Duration.TotalMilliseconds:0} ms",
+            ScriptReloadMode.FullReload => $"Full reload: {e.UpgradedInstances} instance(s) migrated in {e.Duration.TotalMilliseconds:0} ms",
+            _ => $"Loaded in {e.Duration.TotalMilliseconds:0} ms"
         };
         Console.WriteLine($"[Scripting] Hot reload OK ({e.Mode}): {detail}");
         UiNotifications.Show("Hot reload", detail, "success");
@@ -861,7 +861,7 @@ internal sealed class DemoApplication : Application
     private static void OnScriptReloadFailed(ScriptReloadFailedEventArgs e)
     {
         Console.WriteLine($"[Scripting] Hot reload FAILED: {e.Error.Message}");
-        UiNotifications.Show("Hot reload", $"Échec : {e.Error.Message}", "error");
+        UiNotifications.Show("Hot reload", $"Failed: {e.Error.Message}", "error");
     }
 
     /// <summary>
@@ -899,7 +899,7 @@ internal sealed class DemoApplication : Application
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Inspector] Échec de l'ajout du composant '{typeName}' : {ex.Message}");
+            Console.WriteLine($"[Inspector] Failed to add component '{typeName}': {ex.Message}");
         }
     }
 

@@ -51,48 +51,48 @@ public class EditorPageCompositionTests
     /// <summary>
     /// Publishes a hierarchy shaped like the historical demo tree (world root,
     /// environment/lights/structures folders, props and spawn points) with
-    /// Maison_Bois selected and the Props/Joueurs folders collapsed, so the
+    /// Wood_House selected and the Props/Players folders collapsed, so the
     /// tree assertions exercise folders, entity icons and the selection state.
     /// </summary>
     internal static void PublishDemoExplorerState()
     {
-        var monde = Guid.NewGuid();
-        var environnement = Guid.NewGuid();
-        var lumiere = Guid.NewGuid();
+        var world = Guid.NewGuid();
+        var environment = Guid.NewGuid();
+        var light = Guid.NewGuid();
         var structures = Guid.NewGuid();
         var props = Guid.NewGuid();
-        var joueurs = Guid.NewGuid();
-        var maison = Guid.NewGuid();
+        var players = Guid.NewGuid();
+        var house = Guid.NewGuid();
         var nodes = new List<EditorExplorerState.TreeNode>
         {
-            new("Monde", monde, null, "Solar/map/Bold/globe", IsFolder: true),
-            new("Environnement", environnement, monde, string.Empty, IsFolder: true),
-            new("Terrain", Guid.NewGuid(), environnement, "terrain", IsFolder: false),
-            new("Eau", Guid.NewGuid(), environnement, "Solar/sports/Bold/water", IsFolder: false),
-            new("Ciel", Guid.NewGuid(), environnement, "Solar/weather/Bold/cloud", IsFolder: false),
-            new("Lumière", lumiere, monde, string.Empty, IsFolder: true),
-            new("Directional Light", Guid.NewGuid(), lumiere, "Solar/devices/Bold/lightbulb", IsFolder: false),
-            new("Exponential Fog", Guid.NewGuid(), lumiere, "Solar/weather/Bold/fog", IsFolder: false),
-            new("Structures", structures, monde, string.Empty, IsFolder: true),
-            new("Maison_Bois", maison, structures, string.Empty, IsFolder: true),
-            new("Sol", Guid.NewGuid(), maison, "terrain", IsFolder: false),
-            new("Murs", Guid.NewGuid(), maison, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
-            new("Toit", Guid.NewGuid(), maison, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
-            new("Porte", Guid.NewGuid(), maison, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
-            new("Fenetre", Guid.NewGuid(), maison, "Solar/it/Bold/window-frame", IsFolder: false),
-            new("Hangar_Metal", Guid.NewGuid(), structures, "Solar/building/Bold/buildings", IsFolder: false),
-            new("Tour_Eau", Guid.NewGuid(), structures, "Solar/sports/Bold/water", IsFolder: false),
-            new("Props", props, monde, string.Empty, IsFolder: true),
-            new("Caisse_01", Guid.NewGuid(), props, "Solar/ui/Bold/box", IsFolder: false),
-            new("Baril", Guid.NewGuid(), props, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
+            new("World", world, null, "Solar/map/Bold/globe", IsFolder: true),
+            new("Environment", environment, world, string.Empty, IsFolder: true),
+            new("Terrain", Guid.NewGuid(), environment, "terrain", IsFolder: false),
+            new("Water", Guid.NewGuid(), environment, "Solar/sports/Bold/water", IsFolder: false),
+            new("Sky", Guid.NewGuid(), environment, "Solar/weather/Bold/cloud", IsFolder: false),
+            new("Light", light, world, string.Empty, IsFolder: true),
+            new("Directional Light", Guid.NewGuid(), light, "Solar/devices/Bold/lightbulb", IsFolder: false),
+            new("Exponential Fog", Guid.NewGuid(), light, "Solar/weather/Bold/fog", IsFolder: false),
+            new("Structures", structures, world, string.Empty, IsFolder: true),
+            new("Wood_House", house, structures, string.Empty, IsFolder: true),
+            new("Floor", Guid.NewGuid(), house, "terrain", IsFolder: false),
+            new("Walls", Guid.NewGuid(), house, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
+            new("Roof", Guid.NewGuid(), house, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
+            new("Door", Guid.NewGuid(), house, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
+            new("Window", Guid.NewGuid(), house, "Solar/it/Bold/window-frame", IsFolder: false),
+            new("Metal_Hangar", Guid.NewGuid(), structures, "Solar/building/Bold/buildings", IsFolder: false),
+            new("Water_Tower", Guid.NewGuid(), structures, "Solar/sports/Bold/water", IsFolder: false),
+            new("Props", props, world, string.Empty, IsFolder: true),
+            new("Crate_01", Guid.NewGuid(), props, "Solar/ui/Bold/box", IsFolder: false),
+            new("Barrel", Guid.NewGuid(), props, "Solar/ui/Bold/box-minimalistic", IsFolder: false),
             new("Palette", Guid.NewGuid(), props, "Solar/tools/Bold/palette", IsFolder: false),
-            new("Joueurs", joueurs, monde, string.Empty, IsFolder: true),
-            new("Points_Spawn", Guid.NewGuid(), joueurs, "Solar/ui/Bold/flag", IsFolder: false)
+            new("Players", players, world, string.Empty, IsFolder: true),
+            new("Spawn_Points", Guid.NewGuid(), players, "Solar/ui/Bold/flag", IsFolder: false)
         };
         // Only Props is collapsed: a collapsed folder must still render the
-        // closed-folder glyph (folder-2) while the open Joueurs folder keeps
-        // its Points_Spawn leaf (flag) visible.
-        EditorExplorerState.Publish(nodes, maison);
+        // closed-folder glyph (folder-2) while the open Players folder keeps
+        // its Spawn_Points leaf (flag) visible.
+        EditorExplorerState.Publish(nodes, house);
         EditorExplorerState.ToggleCollapsed(props);
     }
 
@@ -141,14 +141,14 @@ public class EditorPageCompositionTests
         Assert.NotNull(FindText(content, "logo", t => t == "Crowbar"));
         // Every dockable panel is composed through the DockArea: its tab bar
         // shows the titles the panels used to carry as headers.
-        Assert.NotNull(FindText(content, "dock-tab", t => t == "HIÉRARCHIE"));
+        Assert.NotNull(FindText(content, "dock-tab", t => t == "HIERARCHY"));
         Assert.NotNull(FindText(content, "dock-tab", t => t == "VIEWPORT"));
-        Assert.NotNull(FindText(content, "dock-tab", t => t == "INSPECTEUR"));
-        Assert.NotNull(FindText(content, "dock-tab", t => t == "CONTENU"));
+        Assert.NotNull(FindText(content, "dock-tab", t => t == "INSPECTOR"));
+        Assert.NotNull(FindText(content, "dock-tab", t => t == "CONTENT"));
         Assert.NotNull(TestUi.Find(content, p => p.Classes.Contains("viewport-toolbar")));
         var csActive = TestUi.Find(content, p => p.Classes.Contains("cs-active"));
         Assert.NotNull(csActive);
-        Assert.Contains("Contenu", TestUi.Texts(csActive!));
+        Assert.Contains("Content", TestUi.Texts(csActive!));
         Assert.NotNull(FindText(content, "status-item", t => t.StartsWith("FPS:", StringComparison.Ordinal)));
     }
 
@@ -164,7 +164,7 @@ public class EditorPageCompositionTests
 
             using var ui = CreateEditorUi();
             var memory = FindText(ui.Content!, "status-item",
-                text => text.StartsWith("Mémoire:", StringComparison.Ordinal));
+                text => text.StartsWith("Memory:", StringComparison.Ordinal));
 
             Assert.NotNull(memory);
             var memoryText = Assert.Single(TestUi.Texts(memory!));
@@ -186,7 +186,7 @@ public class EditorPageCompositionTests
         {
             UiDiagnostics.StatusBarEntries =
             [
-                new StatusBarEntry("Game", "Démo — 5 points, 0 recharges"),
+                new StatusBarEntry("Game", "Demo — 5 points, 0 reloads"),
                 new StatusBarEntry("Lives", "3")
             ];
 
@@ -195,7 +195,7 @@ public class EditorPageCompositionTests
 
             Assert.NotNull(FindText(content, "status-item",
                 text => text.StartsWith("Game:", StringComparison.Ordinal) &&
-                        text.Contains("Démo — 5 points", StringComparison.Ordinal)));
+                        text.Contains("Demo — 5 points", StringComparison.Ordinal)));
             Assert.NotNull(FindText(content, "status-item",
                 text => text.StartsWith("Lives:", StringComparison.Ordinal)));
         }
@@ -218,7 +218,7 @@ public class EditorPageCompositionTests
 
         // The selected tree row (TreeRow primitive inside ExplorerPanel) is
         // accent blue, exactly like the original single-page layout.
-        var selected = FindText(content, "tree-selected", t => t.Contains("Maison_Bois", StringComparison.Ordinal));
+        var selected = FindText(content, "tree-selected", t => t.Contains("Wood_House", StringComparison.Ordinal));
         Assert.NotNull(selected);
         Assert.Equal(new UiColor(47, 111, 224, 255), selected!.ComputedStyle.BackgroundColor);
 
@@ -241,25 +241,25 @@ public class EditorPageCompositionTests
         using var ui = CreateEditorUi();
         var content = ui.Content!;
 
-        // CRÉER is the default active tab.
-        var creer = FindText(content, "tab", t => t == "CRÉER");
-        Assert.NotNull(creer);
-        Assert.True(creer!.Classes.Contains("tab-active"));
+        // CREATE is the default active tab.
+        var create = FindText(content, "tab", t => t == "CREATE");
+        Assert.NotNull(create);
+        Assert.True(create!.Classes.Contains("tab-active"));
 
-        // Click DÉVELOPPER: the TopBar component re-renders itself.
-        var dev = FindText(content, "tab", t => t == "DÉVELOPPER");
+        // Click DEVELOP: the TopBar component re-renders itself.
+        var dev = FindText(content, "tab", t => t == "DEVELOP");
         Assert.NotNull(dev);
         ui.ProcessPointerDown(dev!.Layout.X + 1, dev.Layout.Y + 1);
         ui.ProcessPointerUp(dev.Layout.X + 1, dev.Layout.Y + 1);
         ui.Update();
         ui.Prepare();
 
-        dev = FindText(ui.Content!, "tab", t => t == "DÉVELOPPER");
+        dev = FindText(ui.Content!, "tab", t => t == "DEVELOP");
         Assert.NotNull(dev);
         Assert.True(dev!.Classes.Contains("tab-active"));
-        creer = FindText(ui.Content!, "tab", t => t == "CRÉER");
-        Assert.NotNull(creer);
-        Assert.False(creer!.Classes.Contains("tab-active"));
+        create = FindText(ui.Content!, "tab", t => t == "CREATE");
+        Assert.NotNull(create);
+        Assert.False(create!.Classes.Contains("tab-active"));
     }
 
     [Fact]
@@ -327,7 +327,7 @@ public class EditorPageCompositionTests
         using var ui = CreateEditorUi();
         var content = ui.Content!;
 
-        UiNotifications.Show("Hot reload", "Full reload : 3 instance(s) migrée(s)", "success");
+        UiNotifications.Show("Hot reload", "Full reload: 3 instance(s) migrated", "success");
 
         // Notifications' own BuildHash (UiNotifications.Version) changed, so
         // the descendant-aware render loop rebuilds the tree on ui.Update().
@@ -342,7 +342,7 @@ public class EditorPageCompositionTests
 
         // Version bumps so the component re-renders.
         var versionBefore = UiNotifications.Version;
-        UiNotifications.Show("Hot reload", "IL fast path : 2 méthode(s) patchée(s)", "success");
+        UiNotifications.Show("Hot reload", "IL fast path: 2 method(s) patched", "success");
         Assert.True(UiNotifications.Version > versionBefore);
     }
 

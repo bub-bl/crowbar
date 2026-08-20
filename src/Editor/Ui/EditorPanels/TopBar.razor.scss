@@ -221,16 +221,16 @@ root {
     }
 }
 
-// Plateau/plateformes sans caption custom, ou plein écran : les boutons
-// fenêtre restent montés (leurs @ref alimentent la publication de la géométrie)
-// mais invisibles. Surtout pas display:none : Yoga ne mesurerait plus les
-// boutons, leurs rects seraient publiés vides et WM_NCHITTEST ne reconnaîtrait
-// plus les zones minimize/maximize/close quand le chrome redevient actif.
+// Platform without a custom caption, or fullscreen: the window buttons stay
+// mounted (their @ref feed the geometry publishing) but invisible. Above all,
+// never display:none: Yoga would stop measuring the buttons, their rects would
+// be published empty and WM_NCHITTEST would no longer recognize the
+// minimize/maximize/close regions when the chrome becomes active again.
 .tb-window-hidden {
     opacity: 0;
 }
 
-// Fenêtre inactive : la barre s'estompe comme un caption natif.
+// Inactive window: the bar fades like a native caption.
 .tb-inactive {
     opacity: 0.55;
 }

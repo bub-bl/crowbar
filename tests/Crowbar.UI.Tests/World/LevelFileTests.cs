@@ -301,19 +301,19 @@ public class LevelFileTests
         using var sourceWorld = new World();
         var source = sourceWorld.CreateLevel("GameComponents");
         var entity = source.SpawnEntity("Crate");
-        entity.AddComponent<DemoTestComponent>().Name = "Démo";
+        entity.AddComponent<DemoTestComponent>().Name = "Demo";
 
         using var world = new World();
         var loaded = LevelSerializer.CreateLevel(world, LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
 
         var loadedEntity = Assert.Single(loaded.Entities);
         var component = Assert.IsType<DemoTestComponent>(Assert.Single(loadedEntity.Components));
-        Assert.Equal("Démo", component.Name);
+        Assert.Equal("Demo", component.Name);
     }
 
     private sealed class DemoTestComponent : Component
     {
         [Property]
-        public string? Name { get; set; } = "Démo";
+        public string? Name { get; set; } = "Demo";
     }
 }

@@ -2,12 +2,12 @@
 @namespace Crowbar.Editor.Ui.EditorPanels
 @using Crowbar.UI
 
-<SearchBox Placeholder="Rechercher..." />
+<SearchBox Placeholder="Search..." />
 
-@* L'arbre reflète la hiérarchie réelle du monde : les lignes sont publiées
-   chaque frame par l'hôte (ExplorerTreeBuilder) depuis les niveaux, les
-   entités et leurs attachements de transform. Sélection et pliage sont
-   synchronisés via EditorExplorerState. *@
+@* The tree reflects the real world hierarchy: the rows are published every
+   frame by the host (ExplorerTreeBuilder) from the levels, the entities and
+   their transform attachments. Selection and folding are synchronized via
+   EditorExplorerState. *@
 <div class="tree">
     @foreach (var row in Rows)
     {

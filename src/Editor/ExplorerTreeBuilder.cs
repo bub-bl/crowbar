@@ -20,7 +20,7 @@ public static class ExplorerTreeBuilder
     {
         var nodes = new List<EditorExplorerState.TreeNode>
         {
-            new("Monde", WorldRootId, null, "Solar/map/Bold/globe", IsFolder: true)
+            new("World", WorldRootId, null, "Solar/map/Bold/globe", IsFolder: true)
         };
 
         // Unleveled (world-only) entities first, then one folder per level.

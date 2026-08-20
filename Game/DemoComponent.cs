@@ -29,7 +29,7 @@ public sealed class DemoComponent : Component
     public int Score { get; set; } = 5;
 
     [Property]
-    public string? Name { get; set; } = "Démo";
+    public string? Name { get; set; } = "Demo";
 
     /// <summary>
     /// Publishes the component's status bar entry. OnInitialize runs when the
@@ -39,7 +39,7 @@ public sealed class DemoComponent : Component
     /// </summary>
     protected override void OnInitialize()
     {
-        StatusBar.AddEntry("Game", () => $"{Name} — {Score} points, {ReloadCount} recharges");
+        StatusBar.AddEntry("Game", () => $"{Name} — {Score} points, {ReloadCount} reloads");
     }
 
     protected override void OnDestroy()

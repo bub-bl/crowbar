@@ -56,7 +56,7 @@ internal static class NativeFileDialog
     /// </summary>
     public static string? PickCrproj(nint owner, string? initialDirectory)
     {
-        var filter = "Projet Crowbar (*.crproj)\0*.crproj\0Tous les fichiers (*.*)\0*.*\0\0";
+        var filter = "Crowbar project (*.crproj)\0*.crproj\0All files (*.*)\0*.*\0\0";
 
         // The returned path is written back into this buffer; 32768 chars covers
         // the longest legal path plus the "long path" tail.
@@ -65,7 +65,7 @@ internal static class NativeFileDialog
             Marshal.WriteInt16(fileBuffer, i * sizeof(short), 0);
 
         var filterPtr = Marshal.StringToHGlobalUni(filter);
-        var titlePtr = Marshal.StringToHGlobalUni("Ouvrir un projet de jeu");
+        var titlePtr = Marshal.StringToHGlobalUni("Open a game project");
         nint initialDirPtr = 0;
         if (!string.IsNullOrEmpty(initialDirectory))
             initialDirPtr = Marshal.StringToHGlobalUni(initialDirectory);
@@ -88,7 +88,7 @@ internal static class NativeFileDialog
             {
                 var error = CommDlgExtendedError();
                 if (error != 0)
-                    Console.WriteLine($"[Dialog] GetOpenFileName échoué (CDERR {error}).");
+                    Console.WriteLine($"[Dialog] GetOpenFileName failed (CDERR {error}).");
                 return null;
             }
 

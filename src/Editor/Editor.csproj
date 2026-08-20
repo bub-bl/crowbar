@@ -14,7 +14,7 @@
     <RazorLangVersion>Latest</RazorLangVersion>
     <ScopedCssEnabled>false</ScopedCssEnabled>
 
-    <!-- SCSS → CSS à la compilation (DartSassBuilder). Lisible en Debug, minifié en Release. -->
+    <!-- SCSS → CSS at build time (DartSassBuilder). Readable in Debug, minified in Release. -->
     <DartSassOutputStyle>compressed</DartSassOutputStyle>
     <DartSassOutputStyle Condition="'$(Configuration)' == 'Debug'">expanded</DartSassOutputStyle>
 

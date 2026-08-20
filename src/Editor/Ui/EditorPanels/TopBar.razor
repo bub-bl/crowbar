@@ -2,13 +2,13 @@
 @namespace Crowbar.Editor.Ui.EditorPanels
 @using Crowbar.UI
 
-@* Publie la géométrie de la barre de titre custom (boutons fenêtre, zones
-   interactives, hauteur) après chaque layout, pour que la fenêtre native
-   puisse répondre à WM_NCHITTEST et reproduire le comportement natif de la
-   barre de titre (drag, minimize/maximize/close, snap layouts). Le bloc ci-dessous
-   publie les refs du rendu précédent quand un rebuild est nécessaire, puis
-   OnLayoutChanged republie les rects du nouvel arbre dès que Yoga les a mesurés.
-   Ainsi le hit-test ne dépend pas d'un frame de retard. *@
+@* Publishes the custom title bar geometry (window buttons, interactive
+   regions, height) after each layout, so the native window can answer
+   WM_NCHITTEST and reproduce the native title bar behavior (drag,
+   minimize/maximize/close, snap layouts). The block below republishes the
+   refs of the previous render when a rebuild is needed, then OnLayoutChanged
+   republishes the rects of the new tree as soon as Yoga has measured them.
+   Thus hit-testing does not depend on a one-frame delay. *@
 @{
     PublishChrome();
 }
@@ -16,54 +16,54 @@
 <div class="logo @(ChromeState.IsActive ? "" : "tb-inactive")">@DocumentLabel()</div>
 
 <div class="tabs @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_tabs">
-    <div class="tab @TabClass("jouer")" @onclick="TabJouer">JOUER</div>
-    <div class="tab @TabClass("creer")" @onclick="TabCreer">CRÉER</div>
-    <div class="tab @TabClass("developper")" @onclick="TabDevelopper">DÉVELOPPER</div>
+    <div class="tab @TabClass("play")" @onclick="TabPlay">PLAY</div>
+    <div class="tab @TabClass("create")" @onclick="TabCreate">CREATE</div>
+    <div class="tab @TabClass("develop")" @onclick="TabDevelop">DEVELOP</div>
 </div>
 
 <div class="topbar-tools @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_tools">
-    <div class="tb-btn" title="Ouvrir un projet de jeu" tooltip="Ouvrir un projet de jeu (fichier .crproj)&#160;:&#160;@ProjectPathLabel()" @onclick="RequestOpenProject"><icon name="Solar/folders/Bold/folder-open" /></div>
+    <div class="tb-btn" title="Open a game project" tooltip="Open a game project (.crproj file)&#160;:&#160;@ProjectPathLabel()" @onclick="RequestOpenProject"><icon name="Solar/folders/Bold/folder-open" /></div>
     <div class="tb-sep"></div>
-    <div class="tb-btn tb-on" title="Sélection" tooltip="Outil de sélection"><icon name="Solar/ui/Bold/cursor" /></div>
-    <div class="tb-btn" title="Translation" tooltip="Déplacer l'entité sélectionnée"><icon name="translate" /></div>
-    <div class="tb-btn" title="Rotation" tooltip="Faire pivoter l'entité sélectionnée"><icon name="Solar/arrows/Bold/restart" /></div>
-    <div class="tb-btn" title="Échelle" tooltip="Redimensionner l'entité sélectionnée"><icon name="Solar/arrows-action/Bold/maximize-square-2" /></div>
+    <div class="tb-btn tb-on" title="Select" tooltip="Selection tool"><icon name="Solar/ui/Bold/cursor" /></div>
+    <div class="tb-btn" title="Move" tooltip="Move the selected entity"><icon name="translate" /></div>
+    <div class="tb-btn" title="Rotate" tooltip="Rotate the selected entity"><icon name="Solar/arrows/Bold/restart" /></div>
+    <div class="tb-btn" title="Scale" tooltip="Resize the selected entity"><icon name="Solar/arrows-action/Bold/maximize-square-2" /></div>
     <div class="tb-sep"></div>
-    <div class="tb-btn" title="Snapping" tooltip="Activer l'aimantation"><icon name="Solar/ui/Bold/target" /></div>
-    <div class="tb-btn" title="Grille" tooltip="Afficher la grille"><icon name="Solar/tools/Bold/three-squares" /></div>
-    <div class="tb-btn tb-local" title="Local" tooltip="Utiliser les axes locaux"><icon name="Solar/it/Bold/translation" /></div>
+    <div class="tb-btn" title="Snapping" tooltip="Enable snapping"><icon name="Solar/ui/Bold/target" /></div>
+    <div class="tb-btn" title="Grid" tooltip="Show the grid"><icon name="Solar/tools/Bold/three-squares" /></div>
+    <div class="tb-btn tb-local" title="Local" tooltip="Use local axes"><icon name="Solar/it/Bold/translation" /></div>
     <div class="tb-sep"></div>
-    <div class="tb-btn @UndoClass" title="Annuler" tooltip="Annuler (Ctrl+Z)&#160;:&#160;@EditorUndoState.UndoLabel" @onclick="RequestUndo"><icon name="Solar/arrows/Bold/round-arrow-left" /></div>
-    <div class="tb-btn @RedoClass" title="Rétablir" tooltip="Rétablir (Ctrl+Shift+Z)&#160;:&#160;@EditorUndoState.RedoLabel" @onclick="RequestRedo"><icon name="Solar/arrows/Bold/round-arrow-right" /></div>
+    <div class="tb-btn @UndoClass" title="Undo" tooltip="Undo (Ctrl+Z)&#160;:&#160;@EditorUndoState.UndoLabel" @onclick="RequestUndo"><icon name="Solar/arrows/Bold/round-arrow-left" /></div>
+    <div class="tb-btn @RedoClass" title="Redo" tooltip="Redo (Ctrl+Shift+Z)&#160;:&#160;@EditorUndoState.RedoLabel" @onclick="RequestRedo"><icon name="Solar/arrows/Bold/round-arrow-right" /></div>
 </div>
 
-<div class="tb-play @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_play" tooltip="Lancer le mode test (F5)"><icon name="Solar/video/Bold/play" />Tester&#160;(F5)</div>
+<div class="tb-play @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_play" tooltip="Launch test mode (F5)"><icon name="Solar/video/Bold/play" />Test&#160;(F5)</div>
 
-<div class="tb-mode @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_mode" tooltip="Changer de mode"><icon name="Solar/it/Bold/code" />Mode&#160;:&#160;Édition&#160;<icon name="Solar/arrows/Bold/alt-arrow-down" /></div>
+<div class="tb-mode @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_mode" tooltip="Switch mode"><icon name="Solar/it/Bold/code" />Mode&#160;:&#160;Edit&#160;<icon name="Solar/arrows/Bold/alt-arrow-down" /></div>
 
 <div class="tb-user @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_user">
-    <div class="tb-btn" title="Paramètres" tooltip="Paramètres"><icon name="Solar/settings/Bold/settings" /></div>
+    <div class="tb-btn" title="Settings" tooltip="Settings"><icon name="Solar/settings/Bold/settings" /></div>
     <div class="avatar">J</div>
     <div class="username">JohnDoe</div>
 </div>
 
-@* Les boutons fenêtre restent montés même quand le chrome n'est pas actif
-   (plateforme sans caption custom, ou plein écran) : masqués via la classe
-   .tb-window-hidden (opacité 0, jamais display:none pour que leurs rects
-   restent mesurés), leurs @ref gardent le cycle de publication stable. Ils ne
-   reçoivent pas de @onclick : leur zone répond à WM_NCHITTEST
-   (HTMINBUTTON/HTMAXBUTTON/HTCLOSE), puis Win32WindowChrome exécute
-   explicitement l'action native si la procédure SDL ne la relaie pas. Cela
-   conserve le flyout snap layouts au survol de Agrandir. L'état hover (résolu
-   côté OS) pilote ici la surbrillance. *@
+@* The window buttons stay mounted even when the chrome is inactive
+   (platform without a custom caption, or fullscreen): hidden via the
+   .tb-window-hidden class (opacity 0, never display:none so their rects
+   stay measured), their @ref keeps the publish cycle stable. They receive
+   no @onclick: their zone answers WM_NCHITTEST
+   (HTMINBUTTON/HTMAXBUTTON/HTCLOSE), then Win32WindowChrome explicitly
+   performs the native action if the SDL procedure does not relay it. This
+   preserves the snap layouts flyout when hovering Maximize. The hover state
+   (resolved OS-side) drives the highlight here. *@
 <div class="tb-window @(ChromeState.SupportsCustomChrome && !ChromeState.IsFullscreen ? "" : "tb-window-hidden")">
-    <div class="tb-win-btn @(ChromeState.HoveredButton == WindowChromeButton.Minimize ? "hover" : "")" @ref="_minimize" title="Réduire"><span class="tb-win-glyph">&#xE921;</span></div>
-    <div class="tb-win-btn @(ChromeState.HoveredButton == WindowChromeButton.Maximize ? "hover" : "")" @ref="_maximize" title="@(ChromeState.IsMaximized ? "Restaurer" : "Agrandir")"><span class="tb-win-glyph">@(ChromeState.IsMaximized ? "\uE923" : "\uE922")</span></div>
-    <div class="tb-win-btn tb-close @(ChromeState.HoveredButton == WindowChromeButton.Close ? "hover" : "")" @ref="_close" title="Fermer"><span class="tb-win-glyph">&#xE8BB;</span></div>
+    <div class="tb-win-btn @(ChromeState.HoveredButton == WindowChromeButton.Minimize ? "hover" : "")" @ref="_minimize" title="Minimize"><span class="tb-win-glyph">&#xE921;</span></div>
+    <div class="tb-win-btn @(ChromeState.HoveredButton == WindowChromeButton.Maximize ? "hover" : "")" @ref="_maximize" title="@(ChromeState.IsMaximized ? "Restore" : "Maximize")"><span class="tb-win-glyph">@(ChromeState.IsMaximized ? "\uE923" : "\uE922")</span></div>
+    <div class="tb-win-btn tb-close @(ChromeState.HoveredButton == WindowChromeButton.Close ? "hover" : "")" @ref="_close" title="Close"><span class="tb-win-glyph">&#xE8BB;</span></div>
 </div>
 
 @code {
-    private string _tab = "creer";
+    private string _tab = "create";
     private bool _initialChromePublishRequested;
     private Panel? _minimize;
     private Panel? _maximize;
@@ -90,9 +90,9 @@
             EditorProjectState.Version);
     }
 
-    private void TabJouer() => _tab = "jouer";
-    private void TabCreer() => _tab = "creer";
-    private void TabDevelopper() => _tab = "developper";
+    private void TabPlay() => _tab = "play";
+    private void TabCreate() => _tab = "create";
+    private void TabDevelop() => _tab = "develop";
 
     // Undo/redo buttons: enabled state comes from the host-published bridge
     // (EditorUndoState), the click only queues a request the host consumes next
@@ -112,22 +112,22 @@
 
     private string TabClass(string tab) => _tab == tab ? "tab-active" : "";
 
-    /// <summary>Chemin du projet actuel, ou libellé de repli quand l'éditeur tourne sur le projet de démo.</summary>
+    /// <summary>Path of the current project, or a fallback label when the editor runs on the demo project.</summary>
     private string ProjectPathLabel() =>
-        EditorProjectState.HasProject ? EditorProjectState.Path : "aucun projet (démo)";
+        EditorProjectState.HasProject ? EditorProjectState.Path : "no project (demo)";
 
     private void RequestOpenProject() => EditorProjectState.RequestOpen();
 
-    /// <summary>Nom du document ouvert (avec point de modifications non sauvegardées), ou le nom de l'app.</summary>
+    /// <summary>Name of the open document (with a dot for unsaved changes), or the app name.</summary>
     private string DocumentLabel() =>
         EditorDocumentState.HasDocument
             ? EditorDocumentState.Title + (EditorDocumentState.IsDirty ? " ●" : "")
             : "Crowbar";
 
     /// <summary>
-    /// Republie la géométrie après le premier layout (les rects des enfants ne
-    /// sont connus qu'une fois le layout passé). OnTreeBuilt est appelé à chaque
-    /// rebuild : le garde évite une boucle.
+    /// Republishes the geometry after the first layout (the children's rects
+    /// are only known once the layout has passed). OnTreeBuilt is called on
+    /// every rebuild: the guard avoids a loop.
     /// </summary>
     protected override void OnTreeBuilt()
     {
@@ -152,16 +152,17 @@
         if (Layout.Width <= 1 || Layout.Height <= 1)
             return;
 
-        // Sans caption custom (plateformes non-Windows) ou en plein écran, il
-        // n'y a rien à déplacer ni à redimensionner : le hit test natif s'occupe
-        // de tout (ou n'existe plus).
+        // Without a custom caption (non-Windows platforms) or in fullscreen, there
+        // is nothing to move or resize: the native hit test handles everything
+        // (or no longer exists).
         if (!ChromeState.SupportsCustomChrome || ChromeState.IsFullscreen)
         {
             PublishWindowChrome(null);
             return;
         }
 
-        // Les zones interactives restent dans la zone client (clics reçus par l'UI).
+        // The interactive regions stay inside the client area (clicks received
+        // by the UI).
         var interactive = new List<UiRect>();
         AddRect(interactive, _tabs);
         AddRect(interactive, _tools);

@@ -1,15 +1,14 @@
-# Vision de Crowbar
+# Crowbar Vision
 
-## Objectif
+## Objective
 
-Crowbar n'est pas un moteur de jeu généraliste mais une **plateforme
-Sandbox**. Le runtime est le jeu, les expériences sont des addons et
-l'éditeur est intégré au runtime.
+Crowbar is not a general-purpose game engine but a **Sandbox
+platform**. The runtime is the game, experiences are addons, and the
+editor is integrated into the runtime.
 
-> **Principe directeur :** chaque sous-système (UI, rendu, audio,
-> physique, scripting, etc.) est conçu derrière une abstraction claire
-> afin de pouvoir évoluer ou être remplacé sans impacter le reste du
-> runtime.
+> **Guiding principle:** every subsystem (UI, rendering, audio,
+> physics, scripting, etc.) is designed behind a clear abstraction so it
+> can evolve or be replaced without affecting the rest of the runtime.
 
 ------------------------------------------------------------------------
 
@@ -29,7 +28,7 @@ Crowbar
 ├── Graphics
 │   ├── IGraphicsDevice
 │   ├── WebGpuGraphicsDevice
-│   └── VulkanGraphicsDevice (futur)
+│   └── VulkanGraphicsDevice (future)
 │
 ├── Runtime
 │   ├── Renderer
@@ -45,23 +44,23 @@ Crowbar
 └── Experiences
 ```
 
-## Une seule application
+## A single application
 
-Le joueur peut passer instantanément entre : - Jouer - Créer -
-Développer
+The player can switch instantly between: - Playing - Creating -
+Developing
 
-Aucun redémarrage ni recompilation.
+No restart or recompilation.
 
-## Philosophie
+## Philosophy
 
--   Simplicité avant complexité.
--   Les outils sont aussi importants que le moteur.
--   Les expériences et les outils sont des plugins.
--   Les abstractions priment sur les implémentations.
+-   Simplicity over complexity.
+-   Tools are as important as the engine.
+-   Experiences and tools are plugins.
+-   Abstractions come before implementations.
 
 # Platform
 
-Créer une abstraction `IPlatform`.
+Create an `IPlatform` abstraction.
 
 ``` csharp
 public interface IPlatform
@@ -75,7 +74,7 @@ public interface IPlatform
 }
 ```
 
-Implémentation initiale :
+Initial implementation:
 
 ``` text
 IPlatform
@@ -87,18 +86,18 @@ Silk.NET SDL bindings
 SDL3
 ```
 
-**Ne pas utiliser Silk.NET Windowing ou Silk.NET Input.**
+**Do not use Silk.NET Windowing or Silk.NET Input.**
 
-Utiliser uniquement les bindings SDL3 fournis par Silk.NET.
+Use only the SDL3 bindings provided by Silk.NET.
 
 # UI
 
--   Pas d'Avalonia.
--   Framework UI maison.
--   Implémentation Razor custom inspirée de s&box.
--   Pas de Blazor, DOM ou navigateur.
+-   No Avalonia.
+-   In-house UI framework.
+-   Custom Razor implementation inspired by s&box.
+-   No Blazor, DOM, or browser.
 
-Pipeline :
+Pipeline:
 
 ``` text
 Razor
@@ -118,11 +117,11 @@ Skia Backend
 Renderer
 ```
 
-Le Canvas est abstrait. Skia est uniquement le premier backend.
+The Canvas is abstract. Skia is only the first backend.
 
 # Graphics
 
-Le moteur ne dépend jamais directement d'une API graphique.
+The engine never depends directly on a graphics API.
 
 ``` text
 Runtime
@@ -136,11 +135,11 @@ Silk.NET WebGPU
 WebGPU
 ```
 
-Backend initial : **WebGPU**.
+Initial backend: **WebGPU**.
 
-Backend futur : **Vulkan**, sans modifier le reste du moteur.
+Future backend: **Vulkan**, without modifying the rest of the engine.
 
-Le runtime manipule uniquement :
+The runtime only manipulates:
 
 -   GraphicsDevice
 -   Texture
@@ -150,27 +149,27 @@ Le runtime manipule uniquement :
 -   Shader
 -   Sampler
 
-Jamais des types spécifiques à WebGPU ou Vulkan.
+Never types specific to WebGPU or Vulkan.
 
-**État actuel :** les abstractions existent dans `Crowbar.Engine.Rendering`
+**Current state:** the abstractions exist in `Crowbar.Engine.Rendering`
 (`IGraphicsDevice`, `ITexture`, `IBuffer`, `IPipeline`, `IBindGroup`,
-`ICommandBuffer`, `IRenderPass`, `ISwapchain`). Le moteur de rendu du runtime
-(`Renderer`) ne manipule que ces types ; `WebGpuContext` est un backend concret
-qui les implémente. Un backend Vulkan, un renderer de test ou headless peuvent
-être ajoutés sans toucher au runtime.
+`ICommandBuffer`, `IRenderPass`, `ISwapchain`). The runtime renderer
+(`Renderer`) only manipulates these types; `WebGpuContext` is a concrete
+backend that implements them. A Vulkan backend, a test renderer, or a
+headless one can be added without touching the runtime.
 
-# Priorités
+# Priorities
 
 1.  Runtime
-2.  Plateforme Sandbox
+2.  Sandbox Platform
 3.  Plugin System
 4.  Asset Pipeline
 5.  UI Framework
 6.  Razor
 7.  Hot Reload
 8.  Networking
-9.  Outils
-10. Expérience développeur
+9.  Tools
+10. Developer experience
 
-Le rendu est important, mais il ne doit jamais dicter l'architecture
-globale.
+Rendering is important, but it must never dictate the overall
+architecture.

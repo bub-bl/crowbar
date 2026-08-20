@@ -2,11 +2,11 @@
 @namespace Crowbar.Editor.Ui.EditorPanels
 @using Crowbar.UI
 
-<div class="status-item">Mode&#160;:&#160;Édition</div>
+<div class="status-item">Mode&#160;:&#160;Edit</div>
 <div class="status-spacer"></div>
 <div class="status-item">FPS:&#160;@((int)UiDiagnostics.Fps)</div>
 <div class="status-sep"></div>
-<div class="status-item">Mémoire:&#160;@UsedMemory&#160;/&#160;@TotalMemory</div>
+<div class="status-item">Memory:&#160;@UsedMemory&#160;/&#160;@TotalMemory</div>
 <div class="status-sep"></div>
 <div class="status-item">Ping:&#160;@((int)UiDiagnostics.PingMs)&#160;ms</div>
 @foreach (var entry in UiDiagnostics.StatusBarEntries)

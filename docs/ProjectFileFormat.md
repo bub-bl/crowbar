@@ -1,19 +1,18 @@
-# Format du fichier `.crproj`
+# The `.crproj` file format
 
-Un projet Crowbar est persisté dans un fichier JSON versionné, lisible par un
-humain et diff-friendly en contrôle de version. Le conteneur est le DTO
-`CrowbarProjectData` (`src/Engine/Project/CrowbarProjectData.cs`), écrit par
-`CrowbarProjectSerializer.Serialize` et relu par
-`CrowbarProjectSerializer.Deserialize`. L'asset est manipulé par
-`CrowbarProjectFile` (`src/Engine/Project/CrowbarProjectFile.cs`), qui
-sauvegarde de façon atomique : écriture dans un fichier `.tmp` puis déplacement
-par-dessus la destination.
+A Crowbar project is persisted in a versioned JSON file that is readable by a
+human and diff-friendly in version control. The container is the DTO
+`CrowbarProjectData` (`src/Engine/Project/CrowbarProjectData.cs`), written by
+`CrowbarProjectSerializer.Serialize` and read back by
+`CrowbarProjectSerializer.Deserialize`. The asset is manipulated by
+`CrowbarProjectFile` (`src/Engine/Project/CrowbarProjectFile.cs`), which saves
+atomically: writing to a `.tmp` file and then moving over the destination.
 
-Le fichier se trouve **à la racine du répertoire projet qu'il décrit** : ce
-répertoire <em>est</em> le projet. Le contenu du projet (niveaux `.level`, code
-du projet de jeu, assets) vit à côté du `.crproj`.
+The file lives **at the root of the project directory it describes**: that
+directory <em>is</em> the project. The project content (`.level` levels, game
+project code, assets) lives next to the `.crproj`.
 
-## Exemple
+## Example
 
 ```json
 {
@@ -22,44 +21,43 @@ du projet de jeu, assets) vit à côté du `.crproj`.
   "name": "MyGame",
   "version": "0.1",
   "author": "Jane Doe",
-  "description": "Un jeu de démonstration Crowbar."
+  "description": "A Crowbar demo game."
 }
 ```
 
-## Champs
+## Fields
 
-| Champ | Type | Rôle |
+| Field | Type | Role |
 |---|---|---|
-| `format` | int | Version du format. `CrowbarProjectFile.CurrentFormat` (1 aujourd'hui). Un fichier plus récent que le build **refuse** de charger ; un fichier plus ancien charge avec un warning (point de migration). |
-| `id` | string (GUID) | Identité stable du projet, préservée à travers save/load (références externes : lanceur, scripts de build). |
-| `name` | string | Nom d'affichage du projet (affiché dans la barre de titre de l'éditeur). |
-| `version` | string | Version du projet lui-même (version produit, pas celle de l'éditeur). |
-| `author` | string \| null | Auteur du projet, ou absent. |
-| `description` | string \| null | Courte description du projet, ou absente. |
+| `format` | int | Format version. `CrowbarProjectFile.CurrentFormat` (1 today). A file newer than the build **refuses** to load; an older file loads with a warning (migration point). |
+| `id` | string (GUID) | Stable identity of the project, preserved across save/load (external references: launcher, build scripts). |
+| `name` | string | Display name of the project (shown in the editor title bar). |
+| `version` | string | Version of the project itself (product version, not the editor's). |
+| `author` | string \| null | Project author, or absent. |
+| `description` | string \| null | Short project description, or absent. |
 
-## Chargement
+## Loading
 
-- **Double clic / ligne de commande** : l'éditeur reçoit le chemin du `.crproj`
-  en premier argument (`Crowbar.Editor.exe "C:\Projets\MyGame\MyGame.crproj"`).
-  Il le lit via `CrowbarProjectFile.LoadFromDisk` (avant toute configuration de
-  filesystem) puis **racine le filesystem projet sur le répertoire du fichier**,
-  afin que niveaux et code du projet de jeu soient sauvegardés à côté du projet.
-- **Depuis l'éditeur** : le bouton « dossier » de la barre d'outils ouvre la
-  fenêtre Explorateur Windows (dialogue natif `GetOpenFileName`) pour choisir un
-  `.crproj` ; l'éditeur recale alors le filesystem projet, recharge le niveau et
-  recompile le projet de jeu du nouveau projet.
-- **Démarrage à nu** (sans argument) : l'éditeur retombe sur le projet de démo
-  (répertoire `Game/`), sans fichier projet.
+- **Double-click / command line**: the editor receives the `.crproj` path as
+  its first argument (`Crowbar.Editor.exe "C:\Projects\MyGame\MyGame.crproj"`).
+  It reads it via `CrowbarProjectFile.LoadFromDisk` (before any filesystem
+  configuration) and then **roots the project filesystem on the file's
+  directory**, so levels and game project code are saved next to the project.
+- **From the editor**: the "folder" button in the toolbar opens the Windows
+  Explorer window (native `GetOpenFileName` dialog) to pick a `.crproj`; the
+  editor then re-roots the project filesystem, reloads the level, and
+  recompiles the new project's game project.
+- **Bare start** (no argument): the editor falls back to the demo project
+  (`Game/` directory), without a project file.
 
-## Contrat de compatibilité
+## Compatibility contract
 
-Comme le format `.level`, un `format` **plus récent** que le build est un échec
-franc (`InvalidDataException`) : on préfère un message clair à une corruption
-silencieuse. Un format plus ancien charge avec un warning.
+Like the `.level` format, a `format` **newer** than the build is a hard failure
+(`InvalidDataException`): a clear message is preferred to silent corruption.
+An older format loads with a warning.
 
 ## Notes
 
-- L'écriture est atomique (`.tmp` → déplacement), donc un crash ne laisse jamais
-  de fichier tronqué.
-- L'association `.crproj` → éditeur sous Windows s'enregistre avec
-  `tools\RegisterCrowbarProject.ps1` (registre HKCU, sans droits admin).
+- Writing is atomic (`.tmp` → move), so a crash never leaves a truncated file.
+- The `.crproj` → editor association on Windows is registered with
+  `tools\RegisterCrowbarProject.ps1` (HKCU registry, no admin rights).

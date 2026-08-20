@@ -11,7 +11,7 @@ public class CrowbarProjectFileTests
         Name = "MyGame",
         Version = "0.1",
         Author = "Jane Doe",
-        Description = "Un jeu de démonstration Crowbar."
+        Description = "A Crowbar demo game."
     };
 
     [Fact]
@@ -41,7 +41,7 @@ public class CrowbarProjectFileTests
         Assert.Equal("MyGame", root.GetProperty("name").GetString());
         Assert.Equal("0.1", root.GetProperty("version").GetString());
         Assert.Equal("Jane Doe", root.GetProperty("author").GetString());
-        Assert.Equal("Un jeu de démonstration Crowbar.", root.GetProperty("description").GetString());
+        Assert.Equal("A Crowbar demo game.", root.GetProperty("description").GetString());
         // Pretty-printed (diff-friendly in VCS).
         Assert.Contains('\n', json);
     }
@@ -83,7 +83,7 @@ public class CrowbarProjectFileTests
             Assert.Equal("MyGame", file.Name);
             Assert.Equal("0.1", file.Version);
             Assert.Equal("Jane Doe", file.Author);
-            Assert.Equal("Un jeu de démonstration Crowbar.", file.Description);
+            Assert.Equal("A Crowbar demo game.", file.Description);
             Assert.True(file.IsValid);
 
             // The save is atomic: no leftover temp file.

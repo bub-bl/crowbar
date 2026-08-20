@@ -1,15 +1,14 @@
-# Format du fichier `.level`
+# The `.level` file format
 
-Un niveau (`Level`) est persisté dans un fichier JSON versionné, lisible par un
-humain et diff-friendly en contrôle de version. Le conteneur est le DTO
-`LevelFileData` (`src/Engine/World/LevelFileData.cs`), écrit par
-`LevelSerializer.Serialize` et relu par `LevelSerializer.Deserialize` +
-`CreateLevel`. L'asset est manipulé par `LevelFile` (`src/Engine/World/LevelFile.cs`),
-qui sauvegarde dans le filesystem projet (`FileSystem.Project`) de façon
-atomique : écriture dans un fichier `.tmp` puis `MoveFile` par-dessus la
-destination.
+A level (`Level`) is persisted in a versioned JSON file that is readable by a
+human and diff-friendly in version control. The container is the DTO
+`LevelFileData` (`src/Engine/World/LevelFileData.cs`), written by
+`LevelSerializer.Serialize` and read back by `LevelSerializer.Deserialize` +
+`CreateLevel`. The asset is manipulated by `LevelFile` (`src/Engine/World/LevelFile.cs`),
+which saves into the project filesystem (`FileSystem.Project`) atomically:
+writing to a `.tmp` file and then `MoveFile` over the destination.
 
-## Exemple
+## Example
 
 ```json
 {
@@ -50,62 +49,60 @@ destination.
 }
 ```
 
-## Champs
+## Fields
 
-| Champ | Type | Rôle |
+| Field | Type | Role |
 |---|---|---|
-| `format` | int | Version du format. `LevelFile.CurrentFormat` (1 aujourd'hui). Un fichier plus récent que le build **refuse** de charger ; un fichier plus ancien charge avec un warning (point de migration). |
-| `id` | string (GUID) | Identité stable du niveau, préservée à travers save/load. |
-| `metadata` | objet | `name` (nom affiché du niveau) et `version` (version de l'éditeur qui a écrit le fichier). |
-| `entities` | tableau | Les entités du niveau, dans l'ordre de spawn. |
-| `attachments` | tableau | Relations parent → enfant entre transformes, résolues **en seconde phase** après création de toutes les entités (ordre du fichier non contraint). |
+| `format` | int | Format version. `LevelFile.CurrentFormat` (1 today). A file newer than the build **refuses** to load; an older file loads with a warning (migration point). |
+| `id` | string (GUID) | Stable identity of the level, preserved across save/load. |
+| `metadata` | object | `name` (display name of the level) and `version` (version of the editor that wrote the file). |
+| `entities` | array | The level's entities, in spawn order. |
+| `attachments` | array | Parent → child relationships between transforms, resolved **in a second phase** after all entities are created (file order is unconstrained). |
 
-### Entité
+### Entity
 
-| Champ | Rôle |
+| Field | Role |
 |---|---|
-| `id` | GUID stable de l'entité, restauré au load (jamais régénéré : les références externes survivent). |
-| `name` | Nom d'affichage. |
-| `components` | Les composants attachés. |
+| `id` | Stable GUID of the entity, restored on load (never regenerated: external references survive). |
+| `name` | Display name. |
+| `components` | The attached components. |
 
-### Composant
+### Component
 
-| Champ | Rôle |
+| Field | Role |
 |---|---|
-| `type` | Nom court du type (ex. `MeshRenderer`, `PointLight`). Résolu via `ComponentTypeRegistry` au load. |
-| `transform` | Transforme locale des composants spatiaux (`TransformComponent`), au format canonique `px,py,pz,rx,ry,rz,rw,sx,sy,sz` (culture invariante). Absent pour les composants purement logiques. |
-| `properties` | Valeurs des propriétés publiques **écrivables** marquées `[Property]` (le même contrat réflexif que l'inspecteur). Les propriétés en lecture seule (valeurs dérivées, ex. `DirectionalLight.Direction`) ne sont pas persistées : elles se recalculent. |
+| `type` | Short name of the type (e.g. `MeshRenderer`, `PointLight`). Resolved via `ComponentTypeRegistry` on load. |
+| `transform` | Local transform of spatial components (`TransformComponent`), in canonical form `px,py,pz,rx,ry,rz,rw,sx,sy,sz` (invariant culture). Absent for purely logical components. |
+| `properties` | Values of public **writable** properties marked `[Property]` (the same reflective contract as the inspector). Read-only properties (derived values, e.g. `DirectionalLight.Direction`) are not persisted: they recompute. |
 
-### Valeurs de propriétés
+### Property values
 
-Les valeurs sont écrites en forme JSON native, culture-invariante :
+Values are written in native JSON form, invariant culture:
 
-| Type CLR | Forme JSON |
+| CLR type | JSON form |
 |---|---|
 | `float`, `double`, `int`, `uint`, `bool`, `string` | primitive |
-| `Vector2` / `Vector3` / `Vector4` | tableau de nombres |
-| `Transform` | chaîne canonique |
-| `Material` | objet `{ shader, technique, values, blendMode, doubleSided }` — `values` est un objet nom de paramètre → valeur (validé contre la réflexion du shader au load) |
-| `Model` | objet `{ "path": "..." }` pour un modèle fichier, ou `{ "procedural": "cube" \| "plane" }` pour une primitive |
-| `enum` | nom du membre |
+| `Vector2` / `Vector3` / `Vector4` | array of numbers |
+| `Transform` | canonical string |
+| `Material` | object `{ shader, technique, values, blendMode, doubleSided }` — `values` is a parameter name → value object (validated against the shader reflection on load) |
+| `Model` | object `{ "path": "..." }` for a file model, or `{ "procedural": "cube" \| "plane" }` for a primitive |
+| `enum` | member name |
 
-## Contrat de compatibilité (forward compatibility)
+## Compatibility contract (forward compatibility)
 
-La lecture est tolérante — un niveau ne casse jamais au chargement à cause d'un
-contenu inconnu :
+Reading is tolerant — a level never fails to load because of unknown content:
 
-- un `type` de composant inconnu (renommé, supprimé) est **ignoré avec un warning** ;
-- une propriété inconnue, en lecture seule ou non restaurable est ignorée avec un warning ;
-- un matériau dont un paramètre n'existe plus dans le shader est ignoré ;
-- un modèle introuvable est ignoré (la propriété reste `null`).
+- an unknown component `type` (renamed, removed) is **ignored with a warning**;
+- an unknown, read-only, or non-restorable property is ignored with a warning;
+- a material whose parameter no longer exists in the shader is ignored;
+- a model that cannot be found is ignored (the property stays `null`).
 
-En revanche, un `format` **plus récent** que le build est un échec franc
-(`InvalidDataException`) : on préfère un message clair à une corruption
-silencieuse.
+On the other hand, a `format` **newer** than the build is a hard failure
+(`InvalidDataException`): a clear message is preferred to silent corruption.
 
 ## Notes
 
-- Les entités hors niveau (world-only, ex. la caméra de l'éditeur) ne sont jamais sérialisées.
-- Un composant en double dans une entité est ignoré avec un warning (une entité n'autorise qu'un composant par type).
-- Les textures d'un matériau ne sont pas persistées en v1 (elles proviennent de l'import du modèle).
-- L'écriture est atomique (`écriture .tmp` → `MoveFile`), donc un crash ne laisse jamais de fichier tronqué.
+- Out-of-level entities (world-only, e.g. the editor camera) are never serialized.
+- A duplicate component in an entity is ignored with a warning (an entity allows only one component per type).
+- A material's textures are not persisted in v1 (they come from the model import).
+- Writing is atomic (`.tmp` write → `MoveFile`), so a crash never leaves a truncated file.

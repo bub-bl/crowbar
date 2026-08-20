@@ -3,9 +3,9 @@
 @using Crowbar.UI
 @using Microsoft.AspNetCore.Components
 
-@* Une section repliable de l'inspecteur (le transform ou un composant). Le
-   pliage est conservé côté hôte via EditorInspectorState, donc il survit aux
-   republishes à chaque frame. *@
+@* A collapsible section of the inspector (the transform or a component). The
+   collapse state is kept host-side via EditorInspectorState, so it survives
+   the republishes on every frame. *@
 <div class="insp-section">
     <div class="insp-section-head @(Open ? "" : "collapsed")" @onclick="OnToggle">
         <icon name="@(Open ? "Solar/arrows/Bold/alt-arrow-down" : "Solar/arrows/Bold/alt-arrow-right")" />

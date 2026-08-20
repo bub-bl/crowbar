@@ -55,19 +55,19 @@ public class UndoHistoryTests
     {
         var document = new Document();
 
-        using (document.History.Step("deux"))
+        using (document.History.Step("two"))
             document.Write("middle");
-        using (document.History.Step("trois"))
+        using (document.History.Step("three"))
             document.Write("end");
 
         Assert.True(document.History.CanUndo);
-        Assert.Equal("trois", document.History.UndoLabel);
+        Assert.Equal("three", document.History.UndoLabel);
         Assert.Equal("end", document.Text);
 
         document.History.Undo();
         Assert.Equal("middle", document.Text);
         Assert.True(document.History.CanRedo);
-        Assert.Equal("trois", document.History.RedoLabel);
+        Assert.Equal("three", document.History.RedoLabel);
 
         document.History.Undo();
         Assert.Equal("start", document.Text);
@@ -85,7 +85,7 @@ public class UndoHistoryTests
     {
         var document = new Document();
 
-        using (document.History.Step("rien"))
+        using (document.History.Step("nothing"))
         {
             // No mutation inside the window.
         }
@@ -100,9 +100,9 @@ public class UndoHistoryTests
     {
         var document = new Document();
 
-        using (document.History.Step("deux"))
+        using (document.History.Step("two"))
             document.Write("middle");
-        using (document.History.Step("trois"))
+        using (document.History.Step("three"))
             document.Write("end");
 
         document.History.Undo();
@@ -110,7 +110,7 @@ public class UndoHistoryTests
         Assert.True(document.History.CanRedo);
 
         // A new edit discards the redone branch: the old "end" is gone forever.
-        using (document.History.Step("remplacé"))
+        using (document.History.Step("replaced"))
             document.Write("replacement");
 
         Assert.Equal("replacement", document.Text);
@@ -127,7 +127,7 @@ public class UndoHistoryTests
     {
         var document = new Document();
 
-        using (document.History.Step("premier"))
+        using (document.History.Step("first"))
             document.Write("one");
 
         // A drag in progress when undo fires: the in-flight window is committed
@@ -176,15 +176,15 @@ public class UndoHistoryTests
     {
         var document = new Document();
 
-        using (document.History.Step("premier"))
+        using (document.History.Step("first"))
             document.Write("one");
-        using (document.History.Step("deuxième"))
+        using (document.History.Step("second"))
             document.Write("two");
 
-        Assert.Equal("deuxième", document.History.UndoLabel);
+        Assert.Equal("second", document.History.UndoLabel);
         document.History.Undo();
-        Assert.Equal("deuxième", document.History.RedoLabel);
-        Assert.Equal("premier", document.History.UndoLabel);
+        Assert.Equal("second", document.History.RedoLabel);
+        Assert.Equal("first", document.History.UndoLabel);
     }
 
     [Fact]
@@ -194,7 +194,7 @@ public class UndoHistoryTests
 
         Assert.False(document.History.IsDirty);
 
-        using (document.History.Step("édit"))
+        using (document.History.Step("edit"))
             document.Write("edited");
         Assert.True(document.History.IsDirty);
 
@@ -229,7 +229,7 @@ public class UndoHistoryTests
     {
         var document = new Document();
 
-        using (document.History.Step("édit"))
+        using (document.History.Step("edit"))
             document.Write("edited");
 
         Assert.Equal(0, document.History.UnbracketedMutationCount);
@@ -241,7 +241,7 @@ public class UndoHistoryTests
     {
         var document = new Document();
 
-        using (document.History.Step("édit"))
+        using (document.History.Step("edit"))
             document.Write("edited");
         document.History.MarkSaved();
 
@@ -282,7 +282,7 @@ public class UndoHistoryTests
     {
         var document = new Document();
 
-        using (document.History.Step("édit"))
+        using (document.History.Step("edit"))
             document.Write("edited");
         document.Write("reloaded");
         Assert.True(document.History.IsDirty);
@@ -327,7 +327,7 @@ public class LevelUndoTests
         using var world = new World();
         var (level, cubeId) = Scene(world);
 
-        using (level.History.Step("Modifier une propriété"))
+        using (level.History.Step("Edit a property"))
             InspectorStateBuilder.ApplyEdit(world.FindEntity(cubeId)!, "transform.position", "1, 2, 3");
 
         Assert.Equal(new Vector3(1, 2, 3), Mesh(world, cubeId).Local.Position);
@@ -347,7 +347,7 @@ public class LevelUndoTests
         using var world = new World();
         var (level, cubeId) = Scene(world);
 
-        using (level.History.Step("déplacer"))
+        using (level.History.Step("move"))
             InspectorStateBuilder.ApplyEdit(world.FindEntity(cubeId)!, "transform.position", "5, 0, 0");
         level.ClearDirty(); // Ctrl+S
         Assert.False(level.IsDirty);
@@ -367,7 +367,7 @@ public class LevelUndoTests
 
         // Spawn inside a window; the spawned id survives the restore.
         Guid spawnedId;
-        using (level.History.Step("créer une entité"))
+        using (level.History.Step("create an entity"))
             spawnedId = level.SpawnEntity("Extra").Id;
 
         Assert.Contains(level.Entities, e => e.Id == spawnedId);
@@ -390,7 +390,7 @@ public class LevelUndoTests
         var (level, cubeId) = Scene(world);
 
         // A gizmo-style drag: many transform writes, one window.
-        using (level.History.Step("Déplacer"))
+        using (level.History.Step("Move"))
         {
             for (var i = 1; i <= 10; i++)
                 Mesh(world, cubeId).Local = new Transform(
@@ -411,7 +411,7 @@ public class LevelUndoTests
         using var world = new World();
         var (level, cubeId) = Scene(world);
 
-        using (level.History.Step("Déplacer"))
+        using (level.History.Step("Move"))
         {
             for (var i = 1; i <= 50; i++)
                 Mesh(world, cubeId).Local = Mesh(world, cubeId).Local
@@ -432,7 +432,7 @@ public class LevelUndoTests
 
         for (var i = 1; i <= 105; i++)
         {
-            using (level.History.Step($"édit {i}"))
+            using (level.History.Step($"edit {i}"))
                 InspectorStateBuilder.ApplyEdit(world.FindEntity(cubeId)!, "transform.position", $"{i}, 0, 0");
         }
 
@@ -455,7 +455,7 @@ public class LevelUndoTests
         var (level, cubeId) = Scene(world);
         var before = level.ChangeCount;
 
-        using (level.History.Step("édit"))
+        using (level.History.Step("edit"))
             InspectorStateBuilder.ApplyEdit(world.FindEntity(cubeId)!, "transform.position", "2, 0, 0");
         // A transform edit fires MarkDirty twice (the Local setter and ApplyEdit's
         // own commit) — what matters is that the counter moved, and that the
@@ -518,7 +518,7 @@ public class LevelUndoTests
         mesh.Material = Material.FromShader("Surface/StandardPbr").Set("metallic", 0.15f);
         _ = level.History;
 
-        using (level.History.Step("Modifier une propriété"))
+        using (level.History.Step("Edit a property"))
             InspectorStateBuilder.ApplyEdit(cube, "MeshRenderer.Material.metallic", "0.9");
         Assert.Equal(0.9f, mesh.Material!.Get<float>("metallic"), 3);
 

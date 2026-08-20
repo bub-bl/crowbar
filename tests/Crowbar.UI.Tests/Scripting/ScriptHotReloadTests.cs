@@ -128,7 +128,7 @@ public sealed class ScriptHotReloadTests
             public class Gamemode
             {
                 public int Score = 5;
-                public string Name = "Démo";
+                public string Name = "Demo";
             }
             """);
 

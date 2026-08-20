@@ -104,7 +104,7 @@ public sealed class UndoHistory
     /// Opens an undo window: the document is snapshotted now and again when the
     /// returned handle is disposed, and the change (if any) is committed as one
     /// step. Wrap every user action that may mutate the document:
-    /// <c>using var step = history.Step("Déplacer");</c>. A window that changes
+    /// <c>using var step = history.Step("Move");</c>. A window that changes
     /// nothing commits nothing. Windows may nest — each commits its own slice.
     /// </summary>
     public IDisposable Step(string? label = null)

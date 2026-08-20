@@ -371,7 +371,7 @@ internal static class HtmlPanelParser
     /// <summary>
     /// Matches any fragment marker in a rendered text node (default ChildContent
     /// or a named region). The name is captured up to the closing brackets so
-    /// non-ASCII identifiers (e.g. <c>Tête</c>) parse correctly; the marker is
+    /// non-ASCII identifiers (e.g. <c>café</c>) parse correctly; the marker is
     /// self-delimiting so there is no ambiguity.
     /// </summary>
     private static readonly Regex FragmentMarkerRegex = new(

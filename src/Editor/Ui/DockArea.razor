@@ -3,9 +3,9 @@
 @using Crowbar.UI
 @using Crowbar.UI.Docking
 
-@* Résout les rects des groupes et les poignées de split à partir de l'état
-   courant de l'arbre de docking et de la taille de la zone (le Layout du
-   composant, mis à jour au pass de layout précédent). *@
+@* Resolves the group rects and the split handles from the current docking
+   tree state and the area's size (the component's Layout, updated at the
+   previous layout pass). *@
 @{
     ComputeLayout();
     ComputeTabShifts();
@@ -31,11 +31,11 @@
                     }
                 </div>
                 <div class="dock-content">
-                    @* Chaque onglet garde son panneau monté (les inactifs sont
-                       juste masqués) : les composants conservent leur état quand
-                       on change d'onglet. @key fige l'instance du composant sur
-                       son id, donc un panneau déplacé vers un autre groupe par
-                       drag & drop garde aussi son état. *@
+                    @* Each tab keeps its panel mounted (inactive ones are just
+                       hidden): components keep their state when switching tabs.
+                       @key pins the component instance to its id, so a panel
+                       moved to another group by drag & drop also keeps its
+                       state. *@
                     @foreach (var tab in group.Tabs)
                     {
                         var visible = tab == active;
@@ -63,7 +63,7 @@
         }
     }
 
-    @* Poignées de redimensionnement sur les coutures entre les groupes. *@
+    @* Resize handles on the seams between the groups. *@
     @foreach (var splitter in _splitters)
     {
         <div class="dock-splitter @(splitter.Horizontal ? "dock-splitter-v" : "dock-splitter-h")"
@@ -206,10 +206,10 @@
 
     private string Title(string itemId) => itemId switch
     {
-        "explorer" => "HIÉRARCHIE",
+        "explorer" => "HIERARCHY",
         "viewport" => "VIEWPORT",
-        "inspector" => "INSPECTEUR",
-        "content" => "CONTENU",
+        "inspector" => "INSPECTOR",
+        "content" => "CONTENT",
         _ => itemId
     };
 
