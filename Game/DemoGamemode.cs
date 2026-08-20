@@ -1,5 +1,7 @@
-// Demo gamemode: a script hosted by Crowbar.Engine.Scripting.ScriptHost and
-// watched from the Game/ folder. Edit this file while the editor is running:
+// Demo gamemode: a .NET 11 class library (Game/Game.csproj) referencing the
+// engine. The editor's ScriptHost loads it at runtime into its own collectible
+// assembly context (the engine never references this project) and hot-reloads
+// it from the Game/ folder. Edit this file while the editor is running:
 //   - changing a method body → IL hot reload (fast path), the instance keeps
 //     its identity and its state;
 //   - adding/removing a field or method → full reload, state is migrated.

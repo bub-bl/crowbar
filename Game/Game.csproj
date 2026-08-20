@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <LangVersion>preview</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>Crowbar.Game</AssemblyName>
+    <RootNamespace>Game</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The gamemode is loaded at runtime by the editor's ScriptHost into its own
+         collectible AssemblyLoadContext — the engine and the editor never reference
+         this project. These references declare the gamemode's API surface: they are
+         mirrored by the in-memory compiler so the hot-reloaded assembly sees exactly
+         what the project references. -->
+    <ProjectReference Include="..\src\Engine\Engine.csproj" />
+    <ProjectReference Include="..\src\FileSystem\Crowbar.FileSystem.csproj" />
+    <ProjectReference Include="..\src\UI\Crowbar.UI.csproj" />
+  </ItemGroup>
+</Project>

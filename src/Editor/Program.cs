@@ -102,10 +102,19 @@ internal sealed class DemoApplication : Application
         Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
         Ui.WatchDirectory(uiDirectory);
 
-        // Demo gamemode: the Game/ folder is compiled by a ScriptHost and
-        // hot-reloaded on every edit (IL fast path when only method bodies
-        // change, otherwise a full reload with state migration).
-        _scriptHost = new ScriptHost();
+        // Demo gamemode: a real .NET library project (Game/Game.csproj) referencing
+        // the engine. It is loaded here at runtime into its own collectible assembly
+        // context — the engine and the editor never reference the project — and
+        // hot-reloaded on every edit (IL fast path when only method bodies change,
+        // otherwise a full reload with state migration). The in-memory compiler is
+        // given the same reference set the project declares, so the gamemode sees
+        // the engine API it referenced.
+        _scriptHost = new ScriptHost(new ScriptCompiler(
+        [
+            typeof(ScriptHost).Assembly,       // Crowbar.Engine
+            typeof(FileSystemService).Assembly, // Crowbar.FileSystem
+            typeof(PropertyEditor).Assembly,    // Crowbar.UI
+        ]));
         _scriptHost.Reloaded += OnScriptReloaded;
         _scriptHost.ReloadFailed += OnScriptReloadFailed;
         try

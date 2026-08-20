@@ -34,6 +34,53 @@ public sealed class ScriptHotReloadTests
     }
 
     [Fact]
+    public void ImplicitUsingsMatchSdkLibraryProject()
+    {
+        // The gamemode is a real library project with ImplicitUsings enabled; the
+        // in-memory compiler must expose the SDK's default global usings (here:
+        // System.Linq) so code that builds in the project also hot-reloads.
+        using var dir = TestUi.TempDir("script");
+        dir.Write("Game.cs", """
+            using Crowbar.Engine.Scripting;
+            namespace Game;
+            public class Summing
+            {
+                public int Total() => new[] { 1, 2, 3 }.Sum(); // System.Linq, no using
+                public string Greet() => string.Join("-", ["a", "b"]); // System
+            }
+            """);
+
+        var compiler = new ScriptCompiler([typeof(ScriptHost).Assembly]);
+        using var assembly = compiler.CompileDirectory(dir.Path, "ImplicitUsingsGame");
+
+        var obj = assembly.CreateInstance("Game.Summing")!;
+        Assert.Equal(6, (int)obj.GetType().GetMethod("Total")!.Invoke(obj, null)!);
+        Assert.Equal("a-b", (string)obj.GetType().GetMethod("Greet")!.Invoke(obj, null)!);
+    }
+
+    [Fact]
+    public void BuildArtifactsAreIgnored()
+    {
+        // The gamemode is a real library project: its bin/ and obj/ folders hold
+        // generated files that must never be compiled into the hot-reloaded
+        // assembly (a broken generated file must not break the script compile).
+        using var dir = TestUi.TempDir("script");
+        dir.Write("Game.cs", "namespace Game; public class Good { }");
+        var objDir = System.IO.Path.Combine(dir.Path, "obj", "Debug", "net11.0");
+        Directory.CreateDirectory(objDir);
+        File.WriteAllText(System.IO.Path.Combine(objDir, "Game.AssemblyInfo.cs"), "class Broken {");
+        Directory.CreateDirectory(System.IO.Path.Combine(dir.Path, "bin", "Debug"));
+        File.WriteAllText(System.IO.Path.Combine(dir.Path, "bin", "Debug", "Artifacts.cs"), "class AlsoBroken {");
+
+        var compiler = new ScriptCompiler([typeof(ScriptHost).Assembly]);
+        using var assembly = compiler.CompileDirectory(dir.Path, "ArtifactGame");
+
+        Assert.NotNull(assembly.GetType("Game.Good"));
+        Assert.Null(assembly.GetType("Game.Broken"));
+        Assert.Null(assembly.GetType("Game.AlsoBroken"));
+    }
+
+    [Fact]
     public void StaticStateSurvivesReload()
     {
         using var dir = TestUi.TempDir("script");

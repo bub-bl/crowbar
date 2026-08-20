@@ -4,4 +4,5 @@
   <Project Path="src/Engine/Engine.csproj" />
   <Project Path="src/UI/Crowbar.UI.csproj" />
   <Project Path="tests/Crowbar.UI.Tests/Crowbar.UI.Tests.csproj" />
+  <Project Path="Game/Game.csproj" />
 </Solution>

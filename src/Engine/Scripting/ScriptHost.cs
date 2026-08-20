@@ -427,6 +427,9 @@ public sealed class ScriptHost : IDisposable
 
     private void OnFileSystemEvent(object? sender, FileChangedEventArgs e)
     {
+        // Build artifacts (the gamemode project's bin/obj) must not trigger reloads.
+        if (ScriptSourceFilter.IsBuildArtifact(e.FullPath))
+            return;
         _reloadRequested = true;
         _reloadNotBeforeUtc = DateTime.UtcNow.AddMilliseconds(200);
     }
@@ -445,7 +448,7 @@ public sealed class ScriptHost : IDisposable
         var fs = FileSystem.Project;
         if (!fs.DirectoryExists(directory))
             return snapshot;
-        foreach (var path in fs.EnumerateFiles(directory, "*.cs", recursive: true))
+        foreach (var path in fs.EnumerateFiles(directory, "*.cs", recursive: true).Where(p => !ScriptSourceFilter.IsBuildArtifact(p)))
             snapshot[path.FullName] = fs.GetLastWriteTimeUtc(path);
         return snapshot;
     }

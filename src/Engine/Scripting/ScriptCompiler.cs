@@ -27,6 +27,24 @@ public sealed class ScriptCompiler
     private static readonly CSharpParseOptions ParseOptions =
         CSharpParseOptions.Default.WithLanguageVersion(LanguageVersion.Latest);
 
+    // The gamemode is a real .NET library project with ImplicitUsings enabled, so
+    // the in-memory compilation must expose the same global usings the SDK injects
+    // into the project build — otherwise code that compiles in the project would
+    // fail at hot reload. The tree is synthetic (constant path) and excluded from
+    // change tracking so it never appears in the hot-reload classification.
+    private const string ImplicitUsingsPath = "<implicit-usings>";
+    private static readonly SyntaxTree ImplicitUsingsTree = CSharpSyntaxTree.ParseText(
+        """
+        global using System;
+        global using System.Collections.Generic;
+        global using System.IO;
+        global using System.Linq;
+        global using System.Net.Http;
+        global using System.Threading;
+        global using System.Threading.Tasks;
+        """,
+        ParseOptions, path: ImplicitUsingsPath);
+
     private readonly IReadOnlyList<PortableExecutableReference> _references;
     private readonly ConcurrentDictionary<string, ProjectCompilation> _projects = new(StringComparer.Ordinal);
 
@@ -52,7 +70,9 @@ public sealed class ScriptCompiler
         var fs = FileSystem.Project;
         if (!fs.DirectoryExists(directory))
             throw new DirectoryNotFoundException($"Script directory not found: {directory}");
-        var files = fs.EnumerateFiles(directory, "*.cs", recursive: true).ToArray();
+        var files = fs.EnumerateFiles(directory, "*.cs", recursive: true)
+            .Where(file => !ScriptSourceFilter.IsBuildArtifact(file))
+            .ToArray();
         return CompileCore(files, assemblyName);
     }
 
@@ -174,14 +194,20 @@ public sealed class ScriptCompiler
                 if (_compilation is null)
                 {
                     _compilation = CSharpCompilation.Create(
-                        _assemblyName, _trees.Values.Select(t => t.Tree), _references, CompilationOptions);
+                        _assemblyName,
+                        new[] { ImplicitUsingsTree }.Concat(_trees.Values.Select(t => t.Tree)),
+                        _references, CompilationOptions);
                 }
                 else
                 {
                     // Incremental: add new files, drop deleted ones, replace the
                     // trees whose content changed (unchanged tree instances are
                     // reused so Roslyn's incremental engine skips their analysis).
-                    var currentTrees = _compilation.SyntaxTrees.ToDictionary(t => t.FilePath, StringComparer.OrdinalIgnoreCase);
+                    // The synthetic implicit-usings tree is never tracked, so it is
+                    // excluded from the change set and stays in the compilation.
+                    var currentTrees = _compilation.SyntaxTrees
+                        .Where(t => t.FilePath != ImplicitUsingsPath)
+                        .ToDictionary(t => t.FilePath, StringComparer.OrdinalIgnoreCase);
                     foreach (var removed in currentTrees.Keys.Where(k => !_trees.ContainsKey(k)).ToArray())
                         _compilation = _compilation.RemoveSyntaxTrees(currentTrees[removed]);
                     foreach (var (file, entry) in _trees)
