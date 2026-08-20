@@ -5,18 +5,20 @@ using EngineTextureFormat = Crowbar.Engine.Rendering.TextureFormat;
 namespace Crowbar.Engine;
 
 /// <summary>
-/// Concrete <see cref="IGraphicsDevice"/> on WebGPU (wgpu-native). Owns the
-/// device, the window surface/swapchain and the queue, and creates every
-/// backend-neutral resource the runtime renderer asks for. All frame logic
-/// (scene pass, UI compositing) lives in the runtime's
-/// <see cref="Renderer"/>, so this class is purely a backend.
+/// Concrete <see cref="IGraphicsDevice"/> on WebGPU (wgpu-native) for one
+/// window. Owns the window surface and swapchain only; the instance, adapter,
+/// device and queue come from the shared <see cref="WebGpuSharedDevice"/>, so
+/// every window renders through the same GPU device while each keeps its own
+/// back buffer. All frame logic (scene pass, UI compositing) lives in the
+/// runtime's <see cref="Renderer"/>, so this class is purely a backend.
 /// </summary>
 public sealed unsafe class WebGpuContext : IGraphicsDevice
 {
-    public WebGpuRuntime Runtime { get; }
-    public WebGpuAdapter Adapter { get; }
-    public WebGpuDevice Device { get; }
-    public WebGpuQueue Queue { get; }
+    public WebGpuSharedDevice Shared { get; }
+    public WebGpuRuntime Runtime => Shared.Runtime;
+    public WebGpuAdapter Adapter => Shared.Adapter;
+    public WebGpuDevice Device => Shared.Device;
+    public WebGpuQueue Queue => Shared.Queue;
 
     private WebGpuSwapchain _swapchain;
     private int _width;
@@ -28,9 +30,9 @@ public sealed unsafe class WebGpuContext : IGraphicsDevice
     public int Height => _height;
     public ISwapchain Swapchain => _swapchain;
 
-    public WebGpuContext(nint windowHandle, int width, int height)
+    public WebGpuContext(WebGpuSharedDevice shared, nint windowHandle, int width, int height)
     {
-        Runtime = new WebGpuRuntime();
+        Shared = shared ?? throw new ArgumentNullException(nameof(shared));
         try
         {
             if (windowHandle == 0)
@@ -53,22 +55,18 @@ public sealed unsafe class WebGpuContext : IGraphicsDevice
             if (surface == null)
                 throw new InvalidOperationException("WebGPU could not create a window surface.");
 
-            Adapter = new WebGpuAdapter(Runtime, WebGpuSurface.FromNative((nint)surface));
-            Device = Adapter.CreateDevice();
-            Queue = Device.GetQueue();
-            Runtime.ConfigureDebugCallback(Device);
-
             var preferredFormat = Runtime.Api.SurfaceGetPreferredFormat(surface, Adapter.UnsafeHandle);
             var format = WebGpuNative.ToEngine(preferredFormat) ?? EngineTextureFormat.Bgra8Unorm;
             Console.WriteLine($"WebGPU surface format: {preferredFormat} (engine: {format}).");
 
             _swapchain = new WebGpuSwapchain(
                 Runtime, Device, Queue, surface, _width, _height, format);
-            Console.WriteLine("WebGPU device initialized.");
+            Console.WriteLine("WebGPU window surface initialized.");
         }
         catch
         {
-            Runtime.Dispose();
+            // The surface (if created) is released by the swapchain's
+            // constructor failure path; the shared device stays alive.
             throw;
         }
     }
@@ -106,8 +104,7 @@ public sealed unsafe class WebGpuContext : IGraphicsDevice
 
         _swapchain?.Dispose();
         _swapchain = null!;
-        Device.Dispose();
-        Adapter.Dispose();
-        Runtime.Dispose();
+        // The shared device (instance/adapter/device/queue) is owned by the
+        // application host and outlives every window.
     }
 }

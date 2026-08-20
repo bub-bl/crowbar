@@ -2036,6 +2036,7 @@ public sealed class Renderer2D : IDisposable
             AlphaBlend = true,
             DepthWriteEnabled = false,
             DepthCompare = CompareFunction.Always,
+            SampleCount = UISampleCount,
             VertexLayout = new VertexBufferLayoutDescription
             {
                 Stride = 4 * sizeof(float),

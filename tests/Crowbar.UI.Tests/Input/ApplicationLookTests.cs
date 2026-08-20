@@ -399,6 +399,16 @@ public class ApplicationLookTests
         public FakePlatform(IInputSource input) => _input = input;
 
         public IWindow CreateWindow(WindowOptions options) => new FakeWindow(_input);
+        public void PumpEvents() { }
+        public bool TryGetDisplayBounds(int displayIndex, out int x, out int y, out int width, out int height)
+        {
+            x = y = 0;
+            width = 1920;
+            height = 1080;
+            return true;
+        }
+
+        public event Action? QuitRequested;
         public void Dispose() { }
     }
 
@@ -414,17 +424,17 @@ public class ApplicationLookTests
         public int FramebufferHeight => 480;
         public bool IsClosing => false;
         public bool IsMinimized => false;
+        public bool IsVisible { get; private set; } = true;
         public nint NativeHandle => 0;
         public WindowChromeState ChromeState => WindowChromeState.Default;
         public void SetFullscreen(bool fullscreen) { }
         public void SetChromeLayout(WindowChromeLayout? layout) { }
+        public void SetPosition(int x, int y) { }
+        public void SetVisible(bool visible) => IsVisible = visible;
+        public void SetInputFocus() { }
         public IInputSource Input { get; }
-        public event Action? Loaded;
         public event Action? Closing;
-        public event Action<double>? Updating;
-        public event Action<double>? Rendering;
         public event Action<int, int>? Resized;
-        public void Run() { }
         public void Close() { }
         public void Dispose() { }
     }

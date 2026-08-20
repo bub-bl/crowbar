@@ -6,19 +6,24 @@ using Silk.NET.SDL;
 namespace Crowbar.Engine.Platform;
 
 /// <summary>
-/// SDL2-backed <see cref="IWindow"/>. Owns the native window and its event
-/// loop; pumps SDL events (quit, resize, focus, mouse, keyboard, text) into the
-/// UI input contract and exposes a polling <see cref="IInputSource"/> for the
-/// runtime input facades. The native handle is the Windows HWND when available,
-/// which the WebGPU surface needs.
+/// SDL2-backed <see cref="IWindow"/>. Owns the native window and raises the
+/// UI input events; the owning <see cref="SdlPlatform"/> pumps the shared SDL
+/// queue and forwards each event to the window it targets through
+/// <see cref="HandleEvent"/>. The native handle is the Windows HWND when
+/// available, which the WebGPU surface needs. The window never binds the
+/// global <see cref="Input"/> facade itself: the multi-window host binds the
+/// focused window's input source instead.
 /// </summary>
 internal sealed unsafe class SdlWindow : IWindow
 {
     private const int WindowPosCentered = 0x2FFF0000;
     private const uint WindowShown = 4;
+    private const uint WindowHidden = 8;
+    private const uint WindowBorderless = 16;
     private const uint WindowResizable = 32;
     private const uint WindowAllowHighDpi = 8192;
 
+    private readonly SdlPlatform _platform;
     private readonly Sdl _sdl;
     private readonly Window* _window;
     private readonly SdlInputSource _input;
@@ -34,11 +39,11 @@ internal sealed unsafe class SdlWindow : IWindow
     private bool _restoreMetricsPending;
     private bool _closing;
     private bool _disposed;
-    private long _lastTick;
     private KeyEvent? _pendingKeyDown;
 
-    public SdlWindow(Sdl sdl, WindowOptions options)
+    public SdlWindow(SdlPlatform platform, Sdl sdl, WindowOptions options)
     {
+        _platform = platform;
         _sdl = sdl;
         _title = options.Title;
         _width = options.Width;
@@ -46,17 +51,24 @@ internal sealed unsafe class SdlWindow : IWindow
         _drawableWidth = options.Width;
         _drawableHeight = options.Height;
 
-        var flags = WindowShown | (options.Resizable ? WindowResizable : 0) | WindowAllowHighDpi;
+        var flags = (options.Visible ? WindowShown : WindowHidden)
+                  | (options.Resizable ? WindowResizable : 0)
+                  | WindowAllowHighDpi
+                  | (options.SkipTaskbar ? (uint)WindowFlags.SkipTaskbar : 0)
+                  | (options.Borderless ? WindowBorderless : 0);
         _window = sdl.CreateWindow(options.Title, WindowPosCentered, WindowPosCentered, options.Width, options.Height, flags);
         if (_window == null)
             throw new InvalidOperationException($"SDL window creation failed: {sdl.GetErrorS()}");
 
         RefreshSizes();
         // Global text input lets SDL translate key presses into composed UTF-8
-        // (accents, IME), which the UI's TextInput widgets consume.
+        // (accents, IME), which the UI's TextInput widgets consume. SDL routes
+        // text input to the focused window, so calling it once per window is
+        // harmless (the focused window receives the composed text).
         sdl.StartTextInput();
         _input = new SdlInputSource(sdl, _window);
-        if (OperatingSystem.IsWindows())
+        // Borderless popups have no caption to replace: no custom chrome.
+        if (OperatingSystem.IsWindows() && !options.Borderless)
         {
             // Replace the native caption with the custom title bar (drag,
             // minimize/maximize/close and the Windows 11 snap layouts are all
@@ -66,9 +78,10 @@ internal sealed unsafe class SdlWindow : IWindow
             RefreshSizes();
         }
         _input.SetViewportScale(ScaleX, ScaleY);
-        Crowbar.Engine.InputSystem.Input.Bind(_input);
-        _lastTick = Stopwatch.GetTimestamp();
     }
+
+    /// <summary>The SDL window id used by <see cref="SdlPlatform.PumpEvents"/> to route events to this window.</summary>
+    internal uint WindowId => _sdl.GetWindowID(_window);
 
     private float ScaleX => _drawableWidth > 0 ? _drawableWidth / (float)Math.Max(1, _width) : 1f;
     private float ScaleY => _drawableHeight > 0 ? _drawableHeight / (float)Math.Max(1, _height) : 1f;
@@ -89,6 +102,20 @@ internal sealed unsafe class SdlWindow : IWindow
     public int FramebufferHeight => _drawableHeight;
     public bool IsClosing => _closing;
     public bool IsMinimized => _minimized;
+
+    public bool IsVisible => (_sdl.GetWindowFlags(_window) & (uint)WindowFlags.Shown) != 0;
+
+    public void SetPosition(int x, int y) => _sdl.SetWindowPosition(_window, x, y);
+
+    public void SetVisible(bool visible)
+    {
+        if (visible)
+            _sdl.ShowWindow(_window);
+        else
+            _sdl.HideWindow(_window);
+    }
+
+    public void SetInputFocus() => _sdl.SetWindowInputFocus(_window);
 
     public WindowChromeState ChromeState => new(
         _chrome?.HoveredButton ?? WindowChromeButton.None,
@@ -149,94 +176,78 @@ internal sealed unsafe class SdlWindow : IWindow
         }
     }
 
-    public event Action? Loaded;
     public event Action? Closing;
-    public event Action<double>? Updating;
-    public event Action<double>? Rendering;
     public event Action<int, int>? Resized;
-
-    public void Run()
-    {
-        ObjectDisposedException.ThrowIf(_disposed, this);
-        Loaded?.Invoke();
-        while (!_closing && !_disposed)
-        {
-            PollEvents();
-            var now = Stopwatch.GetTimestamp();
-            var delta = (now - _lastTick) / (double)Stopwatch.Frequency;
-            _lastTick = now;
-            Updating?.Invoke(delta);
-            Rendering?.Invoke(delta);
-        }
-    }
 
     public void Close() => RequestClose();
 
-    private void PollEvents()
+    /// <summary>
+    /// Handles one SDL event addressed to this window (dispatched by
+    /// <see cref="SdlPlatform.PumpEvents"/>), raising the UI input events the
+    /// owning session wired to its UI runtime.
+    /// </summary>
+    internal void HandleEvent(in Event e)
     {
-        var e = new Event();
-        while (!_closing && _sdl.PollEvent(ref e) != 0)
+        switch ((EventType)e.Type)
         {
-            switch ((EventType)e.Type)
-            {
-                case EventType.Quit:
-                    RequestClose();
-                    break;
+            case EventType.Quit:
+                RequestClose();
+                break;
 
-                case EventType.Windowevent:
-                    HandleWindowEvent(e.Window);
-                    break;
+            case EventType.Windowevent:
+                HandleWindowEvent(e.Window);
+                break;
 
-                case EventType.Mousemotion:
-                    _input.RaisePointerMoved(new PointerMoveEvent(e.Motion.X * ScaleX, e.Motion.Y * ScaleY));
-                    break;
+            case EventType.Mousemotion:
+                _input.RaisePointerMoved(new PointerMoveEvent(e.Motion.X * ScaleX, e.Motion.Y * ScaleY));
+                break;
 
-                case EventType.Mousebuttondown:
-                case EventType.Mousebuttonup:
-                    HandleMouseButton(e.Button, isDown: (EventType)e.Type == EventType.Mousebuttondown);
-                    break;
+            case EventType.Mousebuttondown:
+            case EventType.Mousebuttonup:
+                HandleMouseButton(e.Button, isDown: (EventType)e.Type == EventType.Mousebuttondown);
+                break;
 
-                case EventType.Mousewheel:
-                    HandleWheel(e.Wheel);
-                    break;
+            case EventType.Mousewheel:
+                HandleWheel(e.Wheel);
+                break;
 
-                case EventType.Keydown:
-                    // The next TextInput event (if any) carries the composed text
-                    // for this keypress; the event fires once, with the text attached.
-                    // The VK code comes from the SDL keycode (logical, layout-aware),
-                    // not the scancode: the UI's Ctrl shortcuts and text handling
-                    // work on the character a key produces, so Ctrl+A is VK_A on
-                    // every layout.
-                    FlushPendingKey();
-                    _pendingKeyDown = new KeyEvent(
-                        ToWindowsVk(e.Key.Keysym),
-                        IsDown: true,
-                        IsRepeat: e.Key.Repeat != 0,
-                        Text: null);
-                    break;
+            case EventType.Keydown:
+                // The next TextInput event (if any) carries the composed text
+                // for this keypress; the event fires once, with the text attached.
+                // The VK code comes from the SDL keycode (logical, layout-aware),
+                // not the scancode: the UI's Ctrl shortcuts and text handling
+                // work on the character a key produces, so Ctrl+A is VK_A on
+                // every layout.
+                FlushPendingKey();
+                _pendingKeyDown = new KeyEvent(
+                    ToWindowsVk(e.Key.Keysym),
+                    IsDown: true,
+                    IsRepeat: e.Key.Repeat != 0,
+                    Text: null);
+                break;
 
-                case EventType.Textinput:
-                    HandleTextInput(e.Text);
-                    break;
+            case EventType.Textinput:
+                HandleTextInput(e.Text);
+                break;
 
-                case EventType.Keyup:
-                    FlushPendingKey();
-                    _input.RaiseKeyChanged(new KeyEvent(
-                        ToWindowsVk(e.Key.Keysym),
-                        IsDown: false,
-                        IsRepeat: false,
-                        Text: null));
-                    break;
+            case EventType.Keyup:
+                FlushPendingKey();
+                _input.RaiseKeyChanged(new KeyEvent(
+                    ToWindowsVk(e.Key.Keysym),
+                    IsDown: false,
+                    IsRepeat: false,
+                    Text: null));
+                break;
 
-                default:
-                    FlushPendingKey();
-                    break;
-            }
+            default:
+                FlushPendingKey();
+                break;
         }
 
         // Restore/FocusGained can arrive before Windows has committed the final
-        // client and drawable dimensions. Refresh after the SDL queue has been
-        // drained so any queued SizeChanged event has already been observed.
+        // client and drawable dimensions. Refresh after the events of this
+        // window have been drained so any queued SizeChanged event has already
+        // been observed.
         if (_restoreMetricsPending && !_minimized && RefreshWindowMetrics(requireUsableSize: true))
             _restoreMetricsPending = false;
     }
@@ -439,6 +450,7 @@ internal sealed unsafe class SdlWindow : IWindow
         _input.SetMouseGrabbed(false);
         _chrome?.Dispose();
         _chrome = null;
+        _platform.UnregisterWindow(this);
         if (_window != null)
             _sdl.DestroyWindow(_window);
     }

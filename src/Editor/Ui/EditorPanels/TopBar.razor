@@ -23,6 +23,7 @@
 
 <div class="topbar-tools @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_tools">
     <div class="tb-btn" title="Open a game project" tooltip="Open a game project (.crproj file)&#160;:&#160;@ProjectPathLabel()" @onclick="RequestOpenProject"><icon name="Solar/folders/Bold/folder-open" /></div>
+    <div class="tb-btn" title="Notifications" tooltip="Show/hide the notifications window (Ctrl+Shift+N)" @onclick="RequestToggleNotifications"><icon name="Solar/notifications/Bold/bell" /></div>
     <div class="tb-sep"></div>
     <div class="tb-btn tb-on" title="Select" tooltip="Selection tool"><icon name="Solar/ui/Bold/cursor" /></div>
     <div class="tb-btn" title="Move" tooltip="Move the selected entity"><icon name="translate" /></div>
@@ -117,6 +118,8 @@
         EditorProjectState.HasProject ? EditorProjectState.Path : "no project (demo)";
 
     private void RequestOpenProject() => EditorProjectState.RequestOpen();
+
+    private void RequestToggleNotifications() => EditorNotificationWindowState.RequestToggle();
 
     /// <summary>Name of the open document (with a dot for unsaved changes), or the app name.</summary>
     private string DocumentLabel() =>

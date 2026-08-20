@@ -1,0 +1,34 @@
+@page "/notifications"
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui
+@using Crowbar.UI
+
+@* The notification popup: a borderless, hidden-by-default window pinned to the
+   bottom-left of the screen. It is not a real window — no chrome, no header,
+   no buttons — it exists only to display the single latest compilation
+   notification (success or error). Each new notification replaces the
+   previous one; the popup never shows several at once. It is never destroyed:
+   closing or toggling it hides it completely. *@
+
+@if (UiNotifications.Latest is { } n)
+{
+    <div class="notify @(n.Kind)">
+        <icon name="@IconFor(n.Kind)" />
+        <div class="notify-body">
+            <div class="notify-title">@n.Title</div>
+            <div class="notify-message">@n.Message</div>
+        </div>
+    </div>
+}
+
+@code {
+    // Re-renders whenever a notification is pushed (bumps UiNotifications.Version).
+    protected override int BuildHash() => UiNotifications.Version;
+
+    private static string IconFor(string kind) => kind switch
+    {
+        "success" => "Solar/ui/Bold/check-circle",
+        "error" => "Solar/ui/Bold/danger-circle",
+        _ => "Solar/ui/Bold/info-circle"
+    };
+}

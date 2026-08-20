@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Numerics;
 using Crowbar.Engine;
 using Crowbar.Engine.InputSystem;
+using Crowbar.Engine.Platform;
 using Crowbar.Engine.Rendering;
 using Crowbar.Engine.Scripting;
 using Crowbar.FileSystems;
@@ -132,6 +133,8 @@ internal sealed class DemoApplication : Application
         var undoKey = InputSource.KeyForChar('z');
         var redoKey = InputSource.KeyForChar('y');
         ShortcutManager.Instance.Register(new KeyChord(Key.S, KeyModifiers.Control), SaveLevel);
+        // Ctrl+Shift+N toggles the notification window (show / hide completely).
+        ShortcutManager.Instance.Register(new KeyChord(InputSource.KeyForChar('n'), KeyModifiers.Control | KeyModifiers.Shift), ToggleNotificationWindow);
         ShortcutManager.Instance.Register(new KeyChord(undoKey, KeyModifiers.Control), Undo);
         ShortcutManager.Instance.Register(new KeyChord(undoKey, KeyModifiers.Control | KeyModifiers.Shift), Redo);
         ShortcutManager.Instance.Register(new KeyChord(redoKey, KeyModifiers.Control), Redo);
@@ -143,23 +146,16 @@ internal sealed class DemoApplication : Application
         InspectorStateBuilder.Publish(Renderer?.Gizmos.Selection);
 
         // Automatic registration of the whole Ui/ folder: files with @page
-        // become routable pages, the others become components.
-        const string uiDirectory = "/Ui";
-        var registeredCount = Ui.RegisterRazorComponentsFromDirectory(uiDirectory);
-        // The property dispatcher is native code (it resolves editors from the
-        // [EditorProperty] registry at render time), so it is registered here
-        // alongside the .razor components found in the directory.
-        Ui.RegisterComponent("PropertyEditor", () => new PropertyEditor());
-        Console.WriteLine($"Razor UI: registered {registeredCount} file(s) from {uiDirectory}");
-        // Parallel precompilation: the first render (Navigate) is only cache
-        // hits. Timed to validate the gains.
-        var precompileWatch = Stopwatch.StartNew();
-        Ui.PrecompileAll();
-        Console.WriteLine($"Razor UI: precompiled in {precompileWatch.ElapsedMilliseconds} ms");
-        var navigateWatch = Stopwatch.StartNew();
-        Ui.Navigate("/editor");
-        Console.WriteLine($"Razor UI: current page is {Ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
-        Ui.WatchDirectory(uiDirectory);
+        // become routable pages, the others become components. The editor's
+        // primary window hosts the /editor page; the notification window gets
+        // the same registrations and navigates to its own page (see
+        // NotificationWindowSession) — the template compilation is cached
+        // globally, so registering per window is cheap.
+        ConfigureUiForWindow(Ui, "/editor");
+
+        // The persistent notification window (bottom-left, shows compilation
+        // results): created once at startup, never destroyed — only hidden.
+        CreateNotificationWindow();
     }
 
     /// <summary>
@@ -485,6 +481,99 @@ internal sealed class DemoApplication : Application
         return level;
     }
 
+    /// <summary>
+    /// Registers the whole Ui/ folder (routable pages + components, including
+    /// the native property dispatcher) on a window's UI runtime, precompiles
+    /// the components and navigates to <paramref name="page"/>. Called for the
+    /// primary window and for every secondary window: the template
+    /// compilation is globally cached (RazorComponentFactory), so registering
+    /// per window is cheap and hot reload stays per window.
+    /// </summary>
+    internal static void ConfigureUiForWindow(UiSystem ui, string page)
+    {
+        const string uiDirectory = "/Ui";
+        var registeredCount = ui.RegisterRazorComponentsFromDirectory(uiDirectory);
+        // The property dispatcher is native code (it resolves editors from the
+        // [EditorProperty] registry at render time), so it is registered here
+        // alongside the .razor components found in the directory.
+        ui.RegisterComponent("PropertyEditor", () => new PropertyEditor());
+        Console.WriteLine($"Razor UI: registered {registeredCount} file(s) from {uiDirectory}");
+        // Parallel precompilation: the first render (Navigate) is only cache
+        // hits. Timed to validate the gains.
+        var precompileWatch = Stopwatch.StartNew();
+        ui.PrecompileAll();
+        Console.WriteLine($"Razor UI: precompiled in {precompileWatch.ElapsedMilliseconds} ms");
+        var navigateWatch = Stopwatch.StartNew();
+        ui.Navigate(page);
+        Console.WriteLine($"Razor UI: current page is {ui.CurrentUrl} (navigate {navigateWatch.ElapsedMilliseconds} ms)");
+        ui.WatchDirectory(uiDirectory);
+    }
+
+    /// <summary>
+    /// The notification popup: a borderless window pinned to the bottom-left of
+    /// the primary display, created once and never destroyed. It is not a real
+    /// window — no chrome, no header, no feed — it exists only to display the
+    /// single latest compilation notification (success/error). It starts
+    /// hidden: a compilation result (script hot reload success/error) shows it
+    /// with that one notification, and toggling or closing it hides it
+    /// completely (<see cref="NotificationWindowSession"/>).
+    /// </summary>
+    private WindowSession? _notificationSession;
+
+    /// <summary>Creates (once), hides and positions the persistent notification popup.</summary>
+    private void CreateNotificationWindow()
+    {
+        if (_notificationSession is not null)
+            return;
+        var session = OpenWindow(new WindowOptions(
+            Title: "Crowbar — Notifications",
+            Width: 480,
+            Height: 110,
+            Resizable: false,
+            SkipTaskbar: true,
+            Borderless: true,
+            Visible: false));
+        PositionBottomLeft(session.Window);
+        _notificationSession = session;
+        Console.WriteLine("[Window] Notification popup created (bottom-left, hidden).");
+    }
+
+    /// <summary>Shows the notification popup with the latest notification, without stealing the editor's focus.</summary>
+    private void ShowNotificationWindow()
+    {
+        CreateNotificationWindow();
+        if (_notificationSession!.Window.IsVisible)
+            return;
+        _notificationSession.Window.SetVisible(true);
+        // The popup must not steal the editor's keystrokes: give the focus back.
+        Window.SetInputFocus();
+        Console.WriteLine("[Window] Notification popup shown.");
+    }
+
+    /// <summary>Shows or completely hides the notification popup.</summary>
+    private void ToggleNotificationWindow()
+    {
+        CreateNotificationWindow();
+        var visible = !_notificationSession!.Window.IsVisible;
+        _notificationSession.Window.SetVisible(visible);
+        if (visible)
+            Window.SetInputFocus();
+        Console.WriteLine($"[Window] Notification popup {(visible ? "shown" : "hidden")}.");
+    }
+
+    /// <summary>Pins a window to the bottom-left of the primary display, with a margin.</summary>
+    private void PositionBottomLeft(IWindow window)
+    {
+        if (!Platform.TryGetDisplayBounds(0, out var x, out var y, out var width, out var height))
+            return; // unknown display: keep the centered default position
+        const int margin = 16;
+        window.SetPosition(x + margin, y + height - window.Height - margin);
+    }
+
+    /// <summary>Secondary windows host the single-notification popup page.</summary>
+    protected override WindowSession CreateExtraSession(IWindow window, IGraphicsDevice? graphics) =>
+        new NotificationWindowSession(window, graphics);
+
     /// <summary>The entity selected at startup: the main cube, else the first mesh, else the first entity.</summary>
     private static Entity? SelectInitialEntity(Level level) =>
         level.Entities.FirstOrDefault(e => e.Name == "Cube")
@@ -631,6 +720,12 @@ internal sealed class DemoApplication : Application
         if (EditorProjectState.ConsumeOpenRequest())
             OpenProjectFromDialog();
 
+        // Notification window toggle requested by the toolbar bell (UI → host):
+        // the persistent window is shown or completely hidden here, on the
+        // main thread — it is created once and never destroyed.
+        if (EditorNotificationWindowState.ConsumeToggleRequest())
+            ToggleNotificationWindow();
+
         // The open project shown in the top bar and the OS title (project +
         // document). Published every frame; the bridges no-op when unchanged.
         PublishProjectState();
@@ -712,26 +807,27 @@ internal sealed class DemoApplication : Application
             _ => GizmoMode.Translate
         };
 
-        // The 3D scene is rendered in the docked viewport (not the whole
-        // window): the DockArea publishes its rectangle through
-        // Ui.SceneViewport, and we hand it to the renderer, which adjusts the
-        // camera aspect and clips the scene to that rectangle. Before the
-        // first layout, it falls back to the whole window.
-        var viewport = Ui.SceneViewport;
-        renderer.SetSceneViewport(viewport);
-
-        var rect = viewport ?? new UiRect(0, 0, ViewportWidth, ViewportHeight);
+        // The 3D scene rectangle: the docked viewport published by the
+        // DockArea through Ui.SceneViewport, or the whole window before the
+        // first layout. The base OnUpdate already handed it to the renderer
+        // (camera aspect + scene clip); here it also drives the picking math.
+        var rect = Ui.SceneViewport ?? new UiRect(0, 0, ViewportWidth, ViewportHeight);
         var width = Math.Max(1, (int)rect.Width);
         var height = Math.Max(1, (int)rect.Height);
         var mouse = Mouse.Position;
         var localMouse = mouse - new Vector2(rect.X, rect.Y);
         var insideViewport = IsPointerInsideViewport();
 
+        // Gizmo drags and scene picking only act while the primary window is
+        // focused: the input facades follow the focused window, so the mouse
+        // coordinates are only meaningful for the focused session.
+        var primaryFocused = IsFocused;
+
         // A click consumed by the UI (button, tab, input, scrollbar) must
         // neither start a gizmo drag nor select the scene underneath. A drag
         // already engaged continues even if the cursor moves over the UI.
         var matrices = CameraMatrices.Compute(Camera, width, height);
-        if (!Ui.PointerPressConsumed || renderer.Gizmos.IsDragging)
+        if (primaryFocused && (!Ui.PointerPressConsumed || renderer.Gizmos.IsDragging))
             renderer.Gizmos.UpdateInteraction(matrices, localMouse, Mouse.IsDown(MouseButton.Left));
 
         // One undo window per drag gesture: opened when the drag starts (BeginDrag
@@ -749,8 +845,9 @@ internal sealed class DemoApplication : Application
 
         // Selects on left-click only when the click did not start a gizmo drag
         // (otherwise moving the entity would re-select the scene), only inside
-        // the viewport, and not when the UI consumed the click.
-        if (insideViewport && !Ui.PointerPressConsumed && Mouse.WasPressed(MouseButton.Left) && !renderer.Gizmos.IsDragging)
+        // the viewport, not when the UI consumed the click, and only while the
+        // primary window is focused.
+        if (primaryFocused && insideViewport && !Ui.PointerPressConsumed && Mouse.WasPressed(MouseButton.Left) && !renderer.Gizmos.IsDragging)
             renderer.Gizmos.Selection = renderer.Gizmos.Pick(World, matrices, localMouse);
 
         PublishUndoState();
@@ -846,6 +943,8 @@ internal sealed class DemoApplication : Application
         };
         Console.WriteLine($"[Scripting] Hot reload OK ({e.Mode}): {detail}");
         UiNotifications.Show("Hot reload", detail, "success");
+        // A compilation result is exactly what the popup exists to display.
+        ShowNotificationWindow();
 
         // A full reload swaps the live assembly: point the registered game
         // components at the new generation, so the Add Component list offers
@@ -858,10 +957,12 @@ internal sealed class DemoApplication : Application
         }
     }
 
-    private static void OnScriptReloadFailed(ScriptReloadFailedEventArgs e)
+    private void OnScriptReloadFailed(ScriptReloadFailedEventArgs e)
     {
         Console.WriteLine($"[Scripting] Hot reload FAILED: {e.Error.Message}");
         UiNotifications.Show("Hot reload", $"Failed: {e.Error.Message}", "error");
+        // A compilation error is exactly what the popup exists to display.
+        ShowNotificationWindow();
     }
 
     /// <summary>
@@ -902,12 +1003,6 @@ internal sealed class DemoApplication : Application
             Console.WriteLine($"[Inspector] Failed to add component '{typeName}': {ex.Message}");
         }
     }
-
-    private int ViewportWidth =>
-        Math.Max(1, Window.FramebufferWidth > 0 ? Window.FramebufferWidth : Window.Width);
-
-    private int ViewportHeight =>
-        Math.Max(1, Window.FramebufferHeight > 0 ? Window.FramebufferHeight : Window.Height);
 
     private static IFileSystem _backend = null!;
     private static FileSystemService _content = null!;
@@ -951,4 +1046,28 @@ internal sealed class DemoApplication : Application
         var project = new FileSystemService(_backend, projectRoot);
         FileSystem.Configure(_backend, _content, project);
     }
+}
+
+/// <summary>
+/// The notification popup: its own Razor UI runtime (the single-notification
+/// page) and its own WebGPU surface over the shared device. It is created
+/// once, hidden, and never destroyed: closing it hides it completely, so the
+/// session stays alive for the whole application.
+/// </summary>
+internal sealed class NotificationWindowSession : WindowSession
+{
+    public NotificationWindowSession(IWindow window, IGraphicsDevice? graphics)
+        : base(window, graphics)
+    {
+    }
+
+    protected override void OnInitialize()
+    {
+        DemoApplication.ConfigureUiForWindow(Ui, "/notifications");
+        base.OnInitialize();
+    }
+
+    // The window is never destroyed: the OS close button (and any programmatic
+    // close) hides it completely instead of tearing the session down.
+    protected override bool HideOnClose => true;
 }

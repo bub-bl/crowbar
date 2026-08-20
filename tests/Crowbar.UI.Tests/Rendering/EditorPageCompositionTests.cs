@@ -465,6 +465,41 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void NotificationPage_CompilesAndRendersTheSingleLatestNotification()
+    {
+        using var ui = CreateEditorUi();
+        ui.Navigate("/notifications");
+        ui.Update();
+        ui.Prepare();
+
+        // The notification-window page compiled: before anything is pushed the
+        // popup is empty (no header, no feed, no empty state — nothing at all).
+        Assert.Equal("/notifications", ui.CurrentUrl);
+        Assert.NotNull(ui.Content);
+        Assert.Empty(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("notify")));
+
+        // A success compilation result renders as the single popup.
+        UiNotifications.Show("Hot reload", "Full reload: 3 instance(s) migrated", "success");
+        ui.Update();
+        ui.Prepare();
+
+        var popup = TestUi.Find(ui.Content!, p => p.Classes.Contains("notify") && p.Classes.Contains("success"));
+        Assert.NotNull(popup);
+        Assert.Contains(TestUi.Texts(popup!), t => t.Contains("Full reload: 3 instance(s)", StringComparison.Ordinal));
+
+        // A newer notification replaces the previous one: still a single popup,
+        // now the error — the window never shows several notifications at once.
+        UiNotifications.Show("Hot reload", "Failed: compilation error", "error");
+        ui.Update();
+        ui.Prepare();
+
+        var popups = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("notify"));
+        Assert.Single(popups);
+        Assert.Contains("error", popups[0].Classes);
+        Assert.Contains(TestUi.Texts(popups[0]), t => t.Contains("Failed: compilation error", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void WindowResizeRelayoutsAndRepublishesTheSceneViewport()
     {
         using var ui = CreateEditorUi();
