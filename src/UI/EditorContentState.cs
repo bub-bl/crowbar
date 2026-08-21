@@ -51,6 +51,15 @@ public static class EditorContentState
     private static readonly HashSet<string> Collapsed = new(StringComparer.Ordinal);
     private static int _version;
 
+    /// <summary>Raised whenever content browser state changes so the top-level overlay can refresh.</summary>
+    public static event Action? Changed;
+
+    private static void BumpVersion()
+    {
+        _version++;
+        Changed?.Invoke();
+    }
+
     /// <summary>Flat recursive file list of the open project's content folder.</summary>
     public static IReadOnlyList<Entry> Entries => _entries;
 
@@ -101,7 +110,7 @@ public static class EditorContentState
     {
         if (entries.SequenceEqual(_entries)) return;
         _entries = entries;
-        _version++;
+        BumpVersion();
     }
 
     /// <summary>
@@ -116,7 +125,7 @@ public static class EditorContentState
         query ??= string.Empty;
         if (string.Equals(_searchQuery, query, StringComparison.Ordinal)) return;
         _searchQuery = query;
-        _version++;
+        BumpVersion();
     }
 
     public static void SetViewMode(string mode)
@@ -124,7 +133,7 @@ public static class EditorContentState
         mode = mode.Equals("list", StringComparison.OrdinalIgnoreCase) ? "list" : "grid";
         if (_viewMode == mode) return;
         _viewMode = mode;
-        _version++;
+        BumpVersion();
     }
 
     public static void CycleSortMode()
@@ -135,7 +144,7 @@ public static class EditorContentState
             "type" => "modified",
             _ => "name"
         };
-        _version++;
+        BumpVersion();
     }
 
     public static void AdjustTileScale(int delta)
@@ -143,7 +152,7 @@ public static class EditorContentState
         var next = Math.Clamp(_tileScale + delta, 0, 2);
         if (next == _tileScale) return;
         _tileScale = next;
-        _version++;
+        BumpVersion();
     }
 
     public static void SetSidebarWidth(float width)
@@ -151,7 +160,7 @@ public static class EditorContentState
         var next = Math.Clamp(width, 120f, 320f);
         if (Math.Abs(next - _sidebarWidth) < 0.5f) return;
         _sidebarWidth = next;
-        _version++;
+        BumpVersion();
     }
 
     public static void NavigateTo(string folder)
@@ -169,7 +178,7 @@ public static class EditorContentState
         }
         _currentFolder = folder;
         CloseContextMenu();
-        _version++;
+        BumpVersion();
     }
 
     public static void GoBack()
@@ -179,7 +188,7 @@ public static class EditorContentState
         _currentFolder = _history[_historyIndex];
         Reveal(_currentFolder);
         CloseContextMenu();
-        _version++;
+        BumpVersion();
     }
 
     public static void GoForward()
@@ -189,27 +198,27 @@ public static class EditorContentState
         _currentFolder = _history[_historyIndex];
         Reveal(_currentFolder);
         CloseContextMenu();
-        _version++;
+        BumpVersion();
     }
 
     public static void OpenContextMenu(string path, bool isFolder, float x, float y)
     {
         _contextMenu = new ContextMenuState(path, isFolder, x, y);
-        _version++;
+        BumpVersion();
     }
 
     public static void CloseContextMenu()
     {
         if (_contextMenu is null) return;
         _contextMenu = null;
-        _version++;
+        BumpVersion();
     }
 
     public static void RequestAction(ActionKind kind, string path, string value = "")
     {
         _pendingAction = new ActionRequest(kind, path, value);
         CloseContextMenu();
-        _version++;
+        BumpVersion();
     }
 
     public static bool TryConsumeAction(out ActionRequest action)
@@ -240,7 +249,7 @@ public static class EditorContentState
                 if (folder.Length > 0) Collapsed.Add(folder);
             }
         }
-        _version++;
+        BumpVersion();
     }
 
     /// <summary>
@@ -275,7 +284,7 @@ public static class EditorContentState
             Collapsed.Remove(folder);
         }
 
-        _version++;
+        BumpVersion();
     }
 
     /// <summary>Clears the snapshot, the tree state and returns to the content root (teardown between tests).</summary>
@@ -295,7 +304,7 @@ public static class EditorContentState
         _contextMenu = null;
         _pendingAction = null;
         Publish([]);
-        _version++;
+        BumpVersion();
     }
 
     /// <summary>

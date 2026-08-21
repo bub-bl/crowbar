@@ -7,6 +7,11 @@ public sealed record PageRoute(string Template, string TagName, FilePath RazorPa
 
 public sealed partial class UiSystem : IDisposable
 {
+    public UiSystem()
+    {
+        EditorContentState.Changed += OnEditorContentStateChanged;
+    }
+
     public ScreenPanel Screen { get; } = new();
     public UiLayoutEngine Renderer { get; } = new();
     public Panel? Content { get; private set; }
@@ -27,6 +32,7 @@ public sealed partial class UiSystem : IDisposable
     /// stale-tree prepare must run even when a Razor rebuild is pending: it is what
     /// assigns the component layouts that unblock the deferred first render.</summary>
     private bool _everLaidOut;
+    private bool _editorContentStateRefreshPending;
 
     /// <summary>URL of the currently displayed page, or <c>/</c> before any navigation.</summary>
     public string CurrentUrl { get; private set; } = "/";
@@ -328,6 +334,15 @@ public sealed partial class UiSystem : IDisposable
             changed |= Renderer.PrepareForGpu(Screen);
         }
         if (changed) _everLaidOut = true;
+        if (_everLaidOut && _editorContentStateRefreshPending)
+        {
+            // Content state is often published between Navigate and the first
+            // layout. Defer that refresh until the dock area has real geometry;
+            // rebuilding it while its layout is still zero would emit no dock
+            // groups and leave the editor visually empty.
+            _editorContentStateRefreshPending = false;
+            _razorRenderPending = true;
+        }
         return changed;
     }
 
@@ -552,5 +567,23 @@ public sealed partial class UiSystem : IDisposable
             if (FindPanel<T>(child) is { } nested) return nested;
         return null;
     }
-    public void Dispose() { StopWatching(); Renderer.Dispose(); }
+    private void OnEditorContentStateChanged()
+    {
+        // ContentContextMenu is mounted at the editor root rather than inside a
+        // dock pane, so state changes must refresh the root tree as well. State
+        // is commonly published before the first layout, though; defer that
+        // rebuild until the dock area has non-zero geometry.
+        if (_razorRoot is null) return;
+        if (_everLaidOut)
+            _razorRenderPending = true;
+        else
+            _editorContentStateRefreshPending = true;
+    }
+
+    public void Dispose()
+    {
+        EditorContentState.Changed -= OnEditorContentStateChanged;
+        StopWatching();
+        Renderer.Dispose();
+    }
 }

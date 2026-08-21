@@ -1,0 +1,129 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+
+@if (EditorContentState.ContextMenu is { } menu)
+{
+    <div class="content-context-menu" style="@ContextMenuStyle(menu)" @onmousedown="ConsumeContextPointer">
+        @if (_renamePath == menu.Path)
+        {
+            <div class="context-menu-title">Rename</div>
+            <input class="context-rename-input" value="@_renameValue" @oninput="OnRenameInput" @onkeydown="OnRenameKeyDown" />
+            <div class="context-menu-actions">
+                <div class="context-menu-item" @onclick="ConfirmRename">Save</div>
+                <div class="context-menu-item" @onclick="CancelInlineAction">Cancel</div>
+            </div>
+        }
+        else if (_deletePath == menu.Path)
+        {
+            <div class="context-menu-title">Delete @ContextName(menu)</div>
+            <div class="context-menu-warning">This cannot be undone.</div>
+            <div class="context-menu-actions">
+                <div class="context-menu-item context-menu-danger" @onclick="ConfirmDelete">Delete</div>
+                <div class="context-menu-item" @onclick="CancelInlineAction">Cancel</div>
+            </div>
+        }
+        else
+        {
+            <div class="context-menu-title">@ContextName(menu)</div>
+            @if (menu.IsFolder)
+            {
+                <div class="context-menu-item" @onclick="OpenContextFolder">Open</div>
+            }
+            else
+            {
+                <div class="context-menu-item" @onclick="OpenContextFile">Open</div>
+                <div class="context-menu-item" @onclick="BeginRename">Rename</div>
+                <div class="context-menu-item" @onclick="BeginDelete">Delete</div>
+            }
+            <div class="context-menu-item" @onclick="RevealContextPath">Reveal in Explorer</div>
+        }
+    </div>
+}
+
+@code {
+    private const float MenuWidth = 210f;
+    private const float MenuHeight = 190f;
+
+    private string? _renamePath;
+    private string _renameValue = string.Empty;
+    private string? _deletePath;
+
+    protected override int BuildHash() => HashCode.Combine(
+        EditorContentState.Version, _renamePath, _renameValue, _deletePath);
+
+    private string ContextMenuStyle(EditorContentState.ContextMenuState menu)
+    {
+        var viewport = Parent?.Layout ?? new UiRect(0, 0, 1920, 1080);
+        var x = Math.Clamp(menu.X - viewport.X - 8, 4, Math.Max(4, viewport.Width - MenuWidth - 4));
+        var y = Math.Clamp(menu.Y - viewport.Y - 34, 4, Math.Max(4, viewport.Height - MenuHeight - 4));
+        return $"left: {x:0}px; top: {y:0}px;";
+    }
+
+    private static string ContextName(EditorContentState.ContextMenuState menu) =>
+        menu.Path.Trim('/').Split('/').LastOrDefault() ?? "Content";
+
+    private bool ConsumeContextPointer(UiPointerEvent e) => true;
+
+    private void OpenContextFolder()
+    {
+        if (EditorContentState.ContextMenu is { } menu)
+            EditorContentState.NavigateTo(menu.Path);
+    }
+
+    private void OpenContextFile()
+    {
+        if (EditorContentState.ContextMenu is { } menu)
+            EditorContentState.RequestAction(EditorContentState.ActionKind.Open, menu.Path);
+    }
+
+    private void RevealContextPath()
+    {
+        if (EditorContentState.ContextMenu is { } menu)
+            EditorContentState.RequestAction(EditorContentState.ActionKind.Reveal, menu.Path);
+    }
+
+    private void BeginRename()
+    {
+        if (EditorContentState.ContextMenu is not { IsFolder: false } menu) return;
+        _renamePath = menu.Path;
+        _deletePath = null;
+        _renameValue = ContextName(menu);
+    }
+
+    private void OnRenameInput(string value) => _renameValue = value;
+
+    private void OnRenameKeyDown(KeyEvent e)
+    {
+        if (!e.IsDown) return;
+        if (e.KeyCode == 13) ConfirmRename();
+        else if (e.KeyCode == 27) CancelInlineAction();
+    }
+
+    private void ConfirmRename()
+    {
+        if (_renamePath is not null)
+            EditorContentState.RequestAction(EditorContentState.ActionKind.Rename, _renamePath, _renameValue);
+        _renamePath = null;
+    }
+
+    private void BeginDelete()
+    {
+        if (EditorContentState.ContextMenu is not { IsFolder: false } menu) return;
+        _deletePath = menu.Path;
+        _renamePath = null;
+    }
+
+    private void ConfirmDelete()
+    {
+        if (_deletePath is not null)
+            EditorContentState.RequestAction(EditorContentState.ActionKind.Delete, _deletePath);
+        _deletePath = null;
+    }
+
+    private void CancelInlineAction()
+    {
+        _renamePath = null;
+        _deletePath = null;
+    }
+}

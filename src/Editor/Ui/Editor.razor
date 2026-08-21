@@ -1,12 +1,17 @@
 @page "/editor"
 @inherits Crowbar.UI.RazorPanel
 @namespace Crowbar.Editor.Ui
+@using Crowbar.UI
 
 <div class="editor">
     <TopBar />
     <DockArea @key="dock-area" />
     <StatusBar />
     <Notifications />
+    @if (EditorContentState.ContextMenu is not null)
+    {
+        <ContentContextMenu />
+    }
 </div>
 
 @* The panels (hierarchy, viewport, inspector, content) are now dockable
