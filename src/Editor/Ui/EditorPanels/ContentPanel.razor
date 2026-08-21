@@ -69,10 +69,15 @@
             var current = EditorContentState.CurrentFolder;
             var rows = new List<TreeRow>
             {
-                new("Content", string.Empty, 0, HasChildren: SubFolders(string.Empty).Count > 0, Open: true, Selected: current.Length == 0)
+                new("Content", string.Empty, 0, HasChildren: SubFolders(string.Empty).Count > 0,
+                    Open: EditorContentState.IsOpen(string.Empty), Selected: current.Length == 0)
             };
-            foreach (var folder in SubFolders(string.Empty))
-                AppendFolder(rows, folder, 1, current);
+            if (EditorContentState.IsOpen(string.Empty))
+            {
+                foreach (var folder in SubFolders(string.Empty))
+                    AppendFolder(rows, folder, 1, current);
+            }
+
             return rows;
         }
     }
@@ -80,8 +85,9 @@
     private void AppendFolder(List<TreeRow> rows, string folder, int depth, string current)
     {
         var children = SubFolders(folder);
-        rows.Add(new TreeRow(LastSegment(folder), folder, depth, children.Count > 0, IsOpen(folder, current), folder == current));
-        if (!IsOpen(folder, current)) return;
+        rows.Add(new TreeRow(LastSegment(folder), folder, depth, children.Count > 0,
+            EditorContentState.IsOpen(folder), folder == current));
+        if (!EditorContentState.IsOpen(folder)) return;
         foreach (var child in children)
             AppendFolder(rows, folder + "/" + child, depth + 1, current);
     }
@@ -110,16 +116,6 @@
         result.Sort(StringComparer.OrdinalIgnoreCase);
         return result;
     }
-
-    /// <summary>
-    /// A folder is open when the user expanded it, when it is the folder
-    /// browsed, or when it is an ancestor of it — the path to the current
-    /// folder is always visible.
-    /// </summary>
-    private static bool IsOpen(string folder, string current) =>
-        EditorContentState.IsExpanded(folder) ||
-        folder == current ||
-        current.StartsWith(folder + "/", StringComparison.Ordinal);
 
     /// <summary>The last segment of a content-relative folder path ("Models/Crate" → "Crate").</summary>
     private static string LastSegment(string folder)

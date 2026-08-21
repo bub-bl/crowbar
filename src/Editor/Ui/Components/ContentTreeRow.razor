@@ -6,13 +6,14 @@
 @* One row of the content folder tree (sidebar). The folder path travels as a
    [Parameter] (like TreeRow's Id and AddComponentItem's Name): the runtime
    event invoker cannot pass captured locals from an @onclick lambda, so the
-   click handler reads its own parameter. Clicking a folder browses into it
-   (the grid) and toggles its expansion; folders without children have no
-   caret and only navigate. *@
+   click handler reads its own parameter. The caret owns its own @onclick and
+   only toggles the subtree (clicks fire on the deepest handler and stop), so
+   folding never navigates away; clicking the row itself browses into the
+   folder (which reveals it). Folders without children have no caret. *@
 <div class="ctree-row @(Selected ? "ctree-selected" : "")" style="padding-left: @(Indent * 12 + 6)px" @onclick="OnClick">
     @if (HasChildren)
     {
-        <icon name="@(Open ? "Solar/arrows/Bold/alt-arrow-down" : "Solar/arrows/Bold/alt-arrow-right")" />
+        <icon name="@(Open ? "Solar/arrows/Bold/alt-arrow-down" : "Solar/arrows/Bold/alt-arrow-right")" @onclick="Toggle" />
     }
     <icon name="Solar/folders/Bold/folder-2" />
     <span class="ctree-text">@Text</span>
@@ -42,10 +43,9 @@
 
     protected override int BuildHash() => HashCode.Combine(Text, Folder, Indent, HasChildren, Open, Selected);
 
-    private void OnClick()
-    {
-        EditorContentState.NavigateTo(Folder);
-        if (HasChildren)
-            EditorContentState.ToggleExpanded(Folder);
-    }
+    /// <summary>Row click: browse into the folder (which reveals it in the tree).</summary>
+    private void OnClick() => EditorContentState.NavigateTo(Folder);
+
+    /// <summary>Caret click: fold or unfold the subtree without navigating.</summary>
+    private void Toggle() => EditorContentState.ToggleExpanded(Folder);
 }

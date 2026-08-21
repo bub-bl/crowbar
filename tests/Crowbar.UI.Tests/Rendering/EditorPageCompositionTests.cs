@@ -158,6 +158,22 @@ public class EditorPageCompositionTests
     private static IEnumerable<string> IconsOf(Panel root) =>
         TestUi.FindAll(root, p => p is Icon { Name: not null and not "" }).Select(icon => ((Icon)icon).Name!);
 
+    /// <summary>The caret (expand/collapse arrow) icon of a content tree row, or null when the row has no children.</summary>
+    private static Icon? CaretOf(Panel row) =>
+        TestUi.FindAll(row, p => p is Icon i && i.Name is not null &&
+            (i.Name.Contains("alt-arrow-down", StringComparison.Ordinal) ||
+             i.Name.Contains("alt-arrow-right", StringComparison.Ordinal)))
+            .Cast<Icon>().SingleOrDefault();
+
+    /// <summary>Pointer-down/up at the panel's top-left corner (inside its padding for rows, inside the box for icons).</summary>
+    private static void ClickAt(UiSystem ui, Panel panel)
+    {
+        ui.ProcessPointerDown(panel.Layout.X + 2, panel.Layout.Y + 2);
+        ui.ProcessPointerUp(panel.Layout.X + 2, panel.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+    }
+
     [Fact]
     public void EditorPageComposesAllDockablePanels()
     {
@@ -401,6 +417,78 @@ public class EditorPageCompositionTests
         Assert.NotNull(FindText(content, "crumb", t => t == "Crate"));
         // Models stays open: it is an ancestor of the browsed folder.
         Assert.NotNull(FindText(content, "ctree-row", t => t == "industrial_work_light"));
+    }
+
+    [Fact]
+    public void ContentTreeCaretFoldsAndUnfoldsTheSubtreeWithoutNavigating()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // Browse into Models via its label (which also reveals the subtree).
+        var models = FindText(content, "ctree-row", t => t == "Models");
+        Assert.NotNull(models);
+        ClickAt(ui, models!);
+        content = ui.Content!;
+        Assert.NotNull(FindText(content, "ctree-row", t => t == "Crate"));
+
+        // Clicking the caret folds the subtree without navigating: the grid
+        // still shows the Models folders and the caret flips to the right.
+        models = FindText(content, "ctree-row", t => t == "Models");
+        Assert.NotNull(models);
+        var caret = CaretOf(models!);
+        Assert.NotNull(caret);
+        Assert.EndsWith("alt-arrow-down", caret!.Name!, StringComparison.Ordinal);
+        ClickAt(ui, caret);
+        content = ui.Content!;
+
+        Assert.Null(FindText(content, "ctree-row", t => t == "Crate"));
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Crate"));
+        Assert.NotNull(FindText(content, "asset-name", t => t == "industrial_work_light"));
+        models = FindText(content, "ctree-row", t => t == "Models");
+        Assert.NotNull(models);
+        Assert.EndsWith("alt-arrow-right", CaretOf(models!)!.Name!, StringComparison.Ordinal);
+
+        // The same caret reopens the subtree.
+        ClickAt(ui, CaretOf(models!)!);
+        content = ui.Content!;
+        Assert.NotNull(FindText(content, "ctree-row", t => t == "Crate"));
+        Assert.EndsWith("alt-arrow-down", CaretOf(FindText(content, "ctree-row", t => t == "Models")!)!.Name!,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void ContentTreeFoldsTheBrowsedFolder()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // Browse into Models so it is the selected/current folder.
+        var models = FindText(content, "ctree-row", t => t == "Models");
+        Assert.NotNull(models);
+        ClickAt(ui, models!);
+        content = ui.Content!;
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Crate"));
+
+        // The browsed folder itself can be folded: its caret collapses the
+        // subtree, the row stays visible and selected, and the grid (which
+        // navigated independently) keeps showing Models' content.
+        models = FindText(content, "ctree-row", t => t == "Models");
+        Assert.NotNull(models);
+        Assert.True(models!.Classes.Contains("ctree-selected"));
+        ClickAt(ui, CaretOf(models)!);
+        content = ui.Content!;
+
+        Assert.Null(FindText(content, "ctree-row", t => t == "Crate"));
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Crate"));
+        models = FindText(content, "ctree-row", t => t == "Models");
+        Assert.NotNull(models);
+        Assert.True(models!.Classes.Contains("ctree-selected"));
+
+        // Clicking the folded row's label reopens it (navigation reveals).
+        ClickAt(ui, models);
+        content = ui.Content!;
+        Assert.NotNull(FindText(content, "ctree-row", t => t == "Crate"));
     }
 
     [Fact]
