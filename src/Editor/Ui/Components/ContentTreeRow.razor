@@ -15,6 +15,13 @@
     {
         <icon name="@(Open ? "Solar/arrows/Bold/alt-arrow-down" : "Solar/arrows/Bold/alt-arrow-right")" @onclick="Toggle" />
     }
+    else
+    {
+        @* Leaves reserve the caret column so folder icons align across
+           siblings: without it, a leaf's folder glyph sits where its
+           parent's caret row puts its icon and reads as the same level. *@
+        <div class="ctree-caret-slot"></div>
+    }
     <icon name="Solar/folders/Bold/folder-2" />
     <span class="ctree-text">@Text</span>
 </div>

@@ -492,6 +492,49 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void ContentTreeRowsAlignIconsByDepth()
+    {
+        using var ui = CreateEditorUi();
+        // Publish a deeper hierarchy (textures under industrial_work_light)
+        // and browse into the nested folder, mirroring the demo project.
+        EditorContentState.Publish(
+        [
+            new EditorContentState.Entry("Content/Models/Crate/Crate.gltf", "Crate.gltf", "model"),
+            new EditorContentState.Entry("Content/Models/industrial_work_light/industrial_work_light.gltf", "industrial_work_light.gltf", "model"),
+            new EditorContentState.Entry("Content/Models/industrial_work_light/textures/Industrial_Light_baseColor.png", "Industrial_Light_baseColor.png", "texture")
+        ]);
+        EditorContentState.NavigateTo("Models/industrial_work_light");
+        ui.Update();
+        ui.Prepare();
+
+        var content = ui.Content!;
+        var models = FindText(content, "ctree-row", t => t == "Models");
+        var crate = FindText(content, "ctree-row", t => t == "Crate");
+        var industrial = FindText(content, "ctree-row", t => t == "industrial_work_light");
+        var textures = FindText(content, "ctree-row", t => t == "textures");
+        Assert.NotNull(models);
+        Assert.NotNull(crate);
+        Assert.NotNull(industrial);
+        Assert.NotNull(textures);
+
+        // The folder icon of each row: the caret column (12px + 4px gap) is
+        // reserved on every row, so icons align across siblings and step one
+        // level per depth — Crate sits clearly under Models, not at its level.
+        static float FolderX(Panel row) =>
+            TestUi.FindAll(row, p => p is Icon i && i.Name == "Solar/folders/Bold/folder-2")
+                .Cast<Icon>().Single().Layout.X;
+
+        Assert.Equal(FolderX(crate!), FolderX(industrial!));
+        Assert.True(FolderX(models!) < FolderX(crate!), "Models must sit one level above Crate");
+        Assert.True(FolderX(industrial!) < FolderX(textures!), "textures must sit one level below industrial_work_light");
+
+        // Labels align the same way (Crate has no caret, industrial does).
+        static float TextX(Panel row) =>
+            TestUi.FindAll(row, p => p.Classes.Contains("ctree-text")).Single().Layout.X;
+        Assert.Equal(TextX(crate!), TextX(industrial!));
+    }
+
+    [Fact]
     public void ExplorerTreeRowsRenderTheirIcons()
     {
         using var ui = CreateEditorUi();
