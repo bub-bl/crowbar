@@ -16,10 +16,14 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Engine built-ins only: the demo models and sounds live in the game
-         project's Content/ folder (Game/Content), mounted at /Content. -->
+    <!-- Engine built-in content, shipped next to the engine: gizmos and icons
+         for the renderer/UI, and the editor's compile-error sound. Game
+         content lives in the project's Content/ folder (Game/Content),
+         mounted at /Content. Content paths are explicit: Content/ addresses
+         the project, Assets/ and Shaders/ the engine. -->
     <None Include="..\..\Assets\Gizmos\**\*.svg" Link="Assets\Gizmos\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\Assets\Icons\**\*.svg" Link="Assets\Icons\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\Assets\Sounds\**\*" Link="Assets\Sounds\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <PackageReference Include="SixLabors.Fonts" Version="3.1.0" />
     <PackageReference Include="Silk.NET.SDL" Version="2.23.0" />
     <PackageReference Include="Silk.NET.WebGPU" Version="2.23.0" />

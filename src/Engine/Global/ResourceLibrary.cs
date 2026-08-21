@@ -242,6 +242,9 @@ public sealed class ResourceLibrary
     /// Loads a resource of the given <paramref name="resourceType"/> by path
     /// (cached, shared by path). Throws on failure. Internal: the public
     /// loading surface is each type's static (Model.Load, Shader.Load, ...).
+    /// The path is the address: game content is addressed explicitly as
+    /// <c>Content/...</c>, engine content as <c>Assets/...</c> or
+    /// <c>Shaders/...</c> — no implicit prefix or fallback is applied.
     /// </summary>
     internal ResourceFile Load(Type resourceType, string path)
     {
@@ -253,14 +256,20 @@ public sealed class ResourceLibrary
     /// <summary>Internal: loads a resource of type <typeparamref name="T"/> by path (cached, shared by path). Throws on failure.</summary>
     internal T Load<T>(string path) where T : ResourceFile => (T)Load(typeof(T), path);
 
-    /// <summary>Internal: asynchronously loads a resource of type <typeparamref name="T"/> (shared cache, in-flight dedup).</summary>
-    internal async Task<T> LoadAsync<T>(string path, Func<CancellationToken, T> load, CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Internal: asynchronously loads a resource of type <typeparamref name="T"/>
+    /// (shared cache, in-flight dedup). The path is the address (game content
+    /// as <c>Content/...</c>, engine content as <c>Assets/...</c> /
+    /// <c>Shaders/...</c>) and the loader receives it as-is, so it reads the
+    /// file the entry is cached under.
+    /// </summary>
+    internal async Task<T> LoadAsync<T>(string path, Func<string, CancellationToken, T> load, CancellationToken cancellationToken = default)
         where T : ResourceFile
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(load);
         return (T)await GetCache(typeof(T))
-            .LoadAsync(path, token => load(token), cancellationToken)
+            .LoadAsync(path, (_, token) => load(path, token), cancellationToken)
             .ConfigureAwait(false);
     }
 

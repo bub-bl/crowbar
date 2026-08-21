@@ -119,19 +119,22 @@ public class AudioSystemTests
         var path = $"test-tone-{Guid.NewGuid():N}.wav";
         try
         {
+            // The wav lives in the project's Content/ folder and is addressed
+            // explicitly — content paths are always explicit.
             var mono = AudioTestData.Tone(440f, 0.1f);
-            FileSystem.Project.WriteAllBytes(path, AudioTestData.BuildWav(mono, 1));
+            FileSystem.Project.WriteAllBytes($"Content/{path}", AudioTestData.BuildWav(mono, 1));
 
-            system.Play(path);
+            system.Play($"Content/{path}");
             var buffer = RenderOneBlock(system);
 
             Assert.Contains(buffer, sample => MathF.Abs(sample) > 1e-4f);
         }
         finally
         {
-            AudioClip.Invalidate(path);
-            if (FileSystem.Project.FileExists(path))
-                FileSystem.Project.DeleteFile(path);
+            var contentPath = $"Content/{path}";
+            AudioClip.Invalidate(contentPath);
+            if (FileSystem.Project.FileExists(contentPath))
+                FileSystem.Project.DeleteFile(contentPath);
         }
     }
 

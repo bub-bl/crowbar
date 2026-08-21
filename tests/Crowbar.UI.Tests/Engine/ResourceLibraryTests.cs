@@ -101,6 +101,19 @@ public class ResourceLibraryTests
     }
 
     [Fact]
+    public void Load_AddressesThePathAsGiven_NoImplicitResolution()
+    {
+        var library = new ResourceLibrary();
+        library.RegisterLoader<CustomResource>(path => new CustomResource(path));
+
+        // Content addressing is explicit: the loader receives the exact path —
+        // no implicit Content/ prefix and no engine fallback.
+        Assert.Equal("widget.custom", library.Load<CustomResource>("widget.custom").Path);
+        Assert.Equal("Content/widget.custom", library.Load<CustomResource>("Content/widget.custom").Path);
+        Assert.Equal("Assets/widget.custom", library.Load<CustomResource>("Assets/widget.custom").Path);
+    }
+
+    [Fact]
     public void Load_ByType_ReturnsTheResource()
     {
         var library = CreateLibrary();

@@ -331,7 +331,7 @@ public sealed class Model : ResourceFile
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return ResourceLibrary.LoadAsync(path, token => CreateFromFile(path, progress, token), cancellationToken);
+        return ResourceLibrary.LoadAsync(path, (path, token) => CreateFromFile(path, progress, token), cancellationToken);
     }
 
     /// <summary>Allocates a model and imports it into the instance, for the off-thread async path.</summary>

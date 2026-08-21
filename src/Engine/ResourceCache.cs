@@ -19,7 +19,7 @@ internal interface IResourceCache
     bool TryGet(string path, out ResourceFile? resource);
 
     /// <summary>Returns the shared resource, loading it off the calling thread when not cached yet.</summary>
-    Task<ResourceFile> LoadAsync(string path, Func<CancellationToken, ResourceFile> load, CancellationToken cancellationToken);
+    Task<ResourceFile> LoadAsync(string path, Func<string, CancellationToken, ResourceFile> load, CancellationToken cancellationToken);
 
     /// <summary>Every cached resource of this type.</summary>
     IReadOnlyList<ResourceFile> GetAll();
@@ -133,7 +133,7 @@ internal sealed class ResourceCache : IResourceCache
     /// </summary>
     public Task<ResourceFile> LoadAsync(
         string path,
-        Func<CancellationToken, ResourceFile> load,
+        Func<string, CancellationToken, ResourceFile> load,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(load);
@@ -150,7 +150,7 @@ internal sealed class ResourceCache : IResourceCache
             task = Task.Run(() =>
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var value = load(cancellationToken);
+                var value = load(path, cancellationToken);
                 cancellationToken.ThrowIfCancellationRequested();
 
                 lock (_entries)

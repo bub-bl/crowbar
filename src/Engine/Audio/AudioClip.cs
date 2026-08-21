@@ -93,7 +93,7 @@ public sealed class AudioClip : ResourceFile
     public static Task<AudioClip> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return ResourceLibrary.LoadAsync(path, token => CreateFromFile(path, token), cancellationToken);
+        return ResourceLibrary.LoadAsync(path, (path, token) => CreateFromFile(path, token), cancellationToken);
     }
 
     /// <summary>Allocates a clip and decodes it into the instance, for the off-thread async path.</summary>

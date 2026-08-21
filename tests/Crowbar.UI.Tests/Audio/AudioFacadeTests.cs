@@ -17,10 +17,12 @@ public class AudioFacadeTests
         Crowbar.Engine.Audio.Audio.Bind(system);
         try
         {
+            // The wav lives in the project's Content/ folder and is addressed
+            // explicitly — content paths are always explicit.
             var mono = AudioTestData.Tone(440f, 0.1f);
-            FileSystem.Project.WriteAllBytes(path, AudioTestData.BuildWav(mono, 1));
+            FileSystem.Project.WriteAllBytes($"Content/{path}", AudioTestData.BuildWav(mono, 1));
 
-            var handle = await Crowbar.Engine.Audio.Audio.PlayAsync(path);
+            var handle = await Crowbar.Engine.Audio.Audio.PlayAsync($"Content/{path}");
             Assert.True(handle.IsValid);
 
             var buffer = new float[AudioSystem.BlockSize * AudioSystem.Channels];
@@ -30,9 +32,10 @@ public class AudioFacadeTests
         finally
         {
             Crowbar.Engine.Audio.Audio.Unbind();
-            AudioClip.Invalidate(path);
-            if (FileSystem.Project.FileExists(path))
-                FileSystem.Project.DeleteFile(path);
+            var contentPath = $"Content/{path}";
+            AudioClip.Invalidate(contentPath);
+            if (FileSystem.Project.FileExists(contentPath))
+                FileSystem.Project.DeleteFile(contentPath);
         }
     }
 

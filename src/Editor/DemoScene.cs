@@ -99,6 +99,8 @@ public static class DemoScene
         // override is needed.
         var crate = level.SpawnEntity("Crate");
         var crateMesh = crate.AddComponent<MeshRenderer>();
+        // Content paths are explicit: Content/ is the project's folder, so the
+        // demo's models live in Game/Content/Models/... (mounted at /Content).
         crateMesh.Model = ResourceLibrary.LoadModel("Content/Models/Crate/Crate.gltf");
         crateMesh.Local = new Transform(
             new Vector3(1.6f, 0.5f, -1.6f),

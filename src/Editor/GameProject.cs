@@ -131,7 +131,9 @@ public sealed class GameProject
     private void OnReloadFailed(ScriptReloadFailedEventArgs e)
     {
         Log.Warn($"[Scripting] Hot reload FAILED: {e.Error.Message}");
-        Audio.Play("Content/Sounds/ui_compilation_error.wav", bus: AudioBusName.Ui);
+        // The compile-error sound is engine content (Assets/Sounds), addressed
+        // explicitly.
+        Audio.Play("Assets/Sounds/ui_compilation_error.wav", bus: AudioBusName.Ui);
         UiNotifications.Show("Hot reload", $"Failed: {e.Error.Message}", "error");
         // A compilation error is exactly what the popup exists to display.
         _notificationWindow.Show();
