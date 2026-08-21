@@ -633,16 +633,22 @@ public sealed class UiTreePainter
             ? Ellipsize(transformed, contentWidth, measureStyle)
             : transformed;
 
+        // A nowrap line has no wrapping box for the text renderer to align within,
+        // so use the measured position calculated above and render it as a left-
+        // aligned run. Wrapped text keeps the content-box alignment handled by
+        // the renderer.
+        var drawX = wrap == 0f ? x : left;
+        var drawAlign = wrap == 0f ? TextAlign.Left : align;
         var textStyle = new TextStyle(
             style.FontSize, color, style.FontFamily, style.FontWeight,
-            style.LetterSpacing, wrap, lineHeight, align);
+            style.LetterSpacing, wrap, lineHeight, drawAlign);
         if (style.TextShadows.Length > 0)
         {
             var shadow = style.TextShadows[0];
             textStyle = textStyle.WithShadow(
                 new Vector2(shadow.OffsetX, shadow.OffsetY), shadow.BlurRadius, ToColorF(shadow.Color, alpha));
         }
-        _renderer.DrawText(drawText, new Vector2(left, y), textStyle);
+        _renderer.DrawText(drawText, new Vector2(drawX, y), textStyle);
 
         if (panel is TextInput caretInput && caretInput.IsFocused && caretInput.CaretVisible && singleLine)
         {
