@@ -4,7 +4,6 @@
 
 <div class="content-tabs">
     <div class="content-tab @ContentTabClass("content")" @onclick="ShowContent">CONTENT</div>
-    <div class="content-tab @ContentTabClass("output")" @onclick="ShowOutput">OUTPUT</div>
     <div class="content-tab @ContentTabClass("console")" @onclick="ShowConsole">CONSOLE</div>
 </div>
 
@@ -184,7 +183,6 @@
     }
 
     private void ShowContent() => _contentTab = "content";
-    private void ShowOutput() => _contentTab = "output";
     private void ShowConsole() => _contentTab = "console";
 
     private string ContentTabClass(string tab) => _contentTab == tab ? "content-tab-active" : "";
