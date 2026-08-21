@@ -7,10 +7,17 @@
    project's icon pack (Assets/Icons), tinted per kind. Folders navigate into
    themselves on click — the folder path travels as a [Parameter] (the event
    invoker cannot pass captured locals from an @onclick lambda). *@
-<div class="asset-tile @(ListView ? "asset-tile-list" : "asset-tile-grid") asset-scale-@TileScale"
+<div class="asset-tile @(ListView ? "asset-tile-list" : "asset-tile-grid") asset-scale-@TileScale @(Selected ? "asset-selected" : "")"
      @onclick="OnClick" @onmousedown="OnPointerDown">
     <div class="asset-thumb thumb-@Kind">
-        <icon name="@IconName" />
+        @if (Kind == "texture" && Path.Length > 0)
+        {
+            <img class="asset-thumb-image" src="@Path" />
+        }
+        else
+        {
+            <icon name="@IconName" />
+        }
     </div>
     <div class="asset-name">@Name</div>
 </div>
@@ -38,6 +45,10 @@
     [Parameter]
     public bool ListView { get; set; }
 
+    /// <summary>True when this tile is the current content selection.</summary>
+    [Parameter]
+    public bool Selected { get; set; }
+
     /// <summary>Tile scale: 0 (compact), 1 (medium), or 2 (large).</summary>
     [Parameter]
     public int TileScale { get; set; } = 1;
@@ -54,11 +65,12 @@
             _ => "Solar/files/Bold/file"
         };
 
-    protected override int BuildHash() => HashCode.Combine(Name, Kind, IsFolder, Folder, Path, ListView, TileScale);
+    protected override int BuildHash() => HashCode.Combine(Name, Kind, IsFolder, Folder, Path, ListView, Selected, TileScale);
 
     private void OnClick(UiPointerEvent e)
     {
         if (e.Button != 0) return;
+        EditorContentState.Select(Path);
         if (IsFolder && Folder.Length > 0)
             EditorContentState.NavigateTo(Folder);
     }

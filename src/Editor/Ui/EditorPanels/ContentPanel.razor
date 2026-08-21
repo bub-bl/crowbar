@@ -1,6 +1,7 @@
 @inherits Crowbar.UI.RazorPanel
 @namespace Crowbar.Editor.Ui.EditorPanels
 @using Crowbar.UI
+@using System.IO
 
 <div class="content-tabs">
     <div class="content-tab @ContentTabClass("content")" @onclick="ShowContent">CONTENT</div>
@@ -17,6 +18,7 @@
         </div>
     </div>
     <div class="ct-btn" @onclick="ImportPlaceholder">+ Import</div>
+    <div class="ct-btn" @onclick="CreateFolder">+ Folder</div>
     <div class="breadcrumb">
         @foreach (var crumb in Crumbs)
         {
@@ -68,12 +70,34 @@
         @foreach (var item in Items)
         {
             <AssetTile Name="@item.Name" Kind="@item.Kind" IsFolder="@item.IsFolder" Folder="@item.Folder"
-                       Path="@item.Path" ListView="@(EditorContentState.ViewMode == "list")"
+                       Path="@item.Path" Selected="@(item.Path == EditorContentState.SelectedPath)"
+                       ListView="@(EditorContentState.ViewMode == "list")"
                        TileScale="@EditorContentState.TileScale" />
         }
     </div>
 
 </div>
+
+@if (SelectedItem is { } selected)
+{
+    <div class="content-selection-info">
+        <div class="selection-preview thumb-@selected.Kind">
+            @if (selected.Kind == "texture" && !selected.IsFolder)
+            {
+                <img src="@selected.Path" />
+            }
+            else
+            {
+                <icon name="@IconNameFor(selected.Kind, selected.IsFolder)" />
+            }
+        </div>
+        <div class="selection-details">
+            <div class="selection-name">@selected.Name</div>
+            <div class="selection-type">@(selected.IsFolder ? "Folder" : selected.Kind)</div>
+            <div class="selection-path">@selected.Path</div>
+        </div>
+    </div>
+}
 
 @code {
     private readonly record struct Item(string Name, string Kind, bool IsFolder, string Folder, string Path, DateTime Modified);
@@ -81,6 +105,8 @@
     private readonly record struct Crumb(string Text, string Path);
 
     private readonly record struct TreeRow(string Text, string Folder, int Indent, bool HasChildren, bool Open, bool Selected);
+
+    private readonly record struct SearchFilter(string[] Terms, string? Type, string? Extension, string? Path);
 
     private string _contentTab = "content";
     private bool _resizingSidebar;
@@ -94,6 +120,7 @@
         hash.Add(EditorContentState.CurrentFolder);
         hash.Add(EditorContentState.Version);
         hash.Add(EditorContentState.SearchQuery);
+        hash.Add(EditorContentState.SelectedPath);
         hash.Add(EditorContentState.ViewMode);
         hash.Add(EditorContentState.SortMode);
         hash.Add(EditorContentState.TileScale);
@@ -107,7 +134,8 @@
         get
         {
             var current = EditorContentState.CurrentFolder;
-            var searching = EditorContentState.SearchQuery.Length > 0;
+            var filter = ParseSearchFilter(EditorContentState.SearchQuery);
+            var searching = HasFilter(filter);
             var rootHasChildren = SubFolders(string.Empty).Count > 0;
             var rows = new List<TreeRow>
             {
@@ -162,15 +190,13 @@
 
     private bool FolderMatches(string folder)
     {
-        var query = EditorContentState.SearchQuery;
-        if (folder.Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
+        var filter = ParseSearchFilter(EditorContentState.SearchQuery);
+        if (MatchesFolder(folder, filter)) return true;
         var prefix = folder.Length == 0 ? string.Empty : folder + "/";
         return EditorContentState.Entries.Any(entry =>
         {
             var relative = RelativeOf(entry.Path);
-            return relative.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
-                   (entry.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                    relative.Contains(query, StringComparison.OrdinalIgnoreCase));
+            return relative.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) && MatchesEntry(entry, filter);
         });
     }
 
@@ -202,20 +228,19 @@
     {
         get
         {
-            var query = EditorContentState.SearchQuery;
+            var filter = ParseSearchFilter(EditorContentState.SearchQuery);
             var items = new List<Item>();
-            if (query.Length > 0)
+            if (HasFilter(filter))
             {
                 foreach (var folder in AllFolders())
                 {
-                    if (folder.Contains(query, StringComparison.OrdinalIgnoreCase))
+                    if (MatchesFolder(folder, filter))
                         items.Add(new Item(LastSegment(folder), "folder", true, folder, folder, default));
                 }
 
                 foreach (var entry in EditorContentState.Entries)
                 {
-                    if (entry.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-                        entry.Path.Contains(query, StringComparison.OrdinalIgnoreCase))
+                    if (MatchesEntry(entry, filter))
                         items.Add(new Item(entry.Name, entry.Kind, false, string.Empty, entry.Path, entry.Modified));
                 }
                 SortItems(items);
@@ -286,6 +311,82 @@
     private static string RelativeOf(string path) =>
         path.StartsWith("Content/", StringComparison.Ordinal) ? path["Content/".Length..] : path;
 
+    private static SearchFilter ParseSearchFilter(string query)
+    {
+        var terms = new List<string>();
+        string? type = null;
+        string? extension = null;
+        string? path = null;
+        foreach (var token in query.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var separator = token.IndexOf(':');
+            if (separator <= 0 || separator == token.Length - 1)
+            {
+                terms.Add(token);
+                continue;
+            }
+
+            var key = token[..separator].ToLowerInvariant();
+            var value = token[(separator + 1)..];
+            switch (key)
+            {
+                case "type":
+                case "kind":
+                    type = value.ToLowerInvariant();
+                    break;
+                case "ext":
+                case "extension":
+                    extension = value.TrimStart('.').ToLowerInvariant();
+                    break;
+                case "path":
+                    path = value;
+                    break;
+                case "name":
+                    terms.Add(value);
+                    break;
+                default:
+                    terms.Add(token);
+                    break;
+            }
+        }
+
+        return new SearchFilter(terms.ToArray(), type, extension, path);
+    }
+
+    private static bool HasFilter(SearchFilter filter) =>
+        filter.Terms.Length > 0 || filter.Type is not null || filter.Extension is not null || filter.Path is not null;
+
+    private static bool MatchesEntry(EditorContentState.Entry entry, SearchFilter filter)
+    {
+        if (filter.Type is not null && !TypeMatches(entry.Kind, filter.Type)) return false;
+        if (filter.Extension is not null &&
+            !Path.GetExtension(entry.Name).TrimStart('.').Equals(filter.Extension, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (filter.Path is not null && !entry.Path.Contains(filter.Path, StringComparison.OrdinalIgnoreCase)) return false;
+        return filter.Terms.All(term => entry.Name.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                                        entry.Path.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool MatchesFolder(string folder, SearchFilter filter)
+    {
+        if (filter.Type is not null && !TypeMatches("folder", filter.Type)) return false;
+        if (filter.Extension is not null) return false;
+        if (filter.Path is not null && !folder.Contains(filter.Path, StringComparison.OrdinalIgnoreCase)) return false;
+        return filter.Terms.All(term => folder.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool TypeMatches(string kind, string filter) => filter switch
+    {
+        "model" or "models" => kind == "model",
+        "texture" or "textures" or "image" or "images" => kind == "texture",
+        "sound" or "sounds" or "audio" => kind == "sound",
+        "shader" or "shaders" => kind == "shader",
+        "file" or "files" => kind == "file",
+        "folder" or "folders" => kind == "folder",
+        "all" => true,
+        _ => kind.Equals(filter, StringComparison.OrdinalIgnoreCase)
+    };
+
     private static string ParentOf(string relative)
     {
         var slash = relative.LastIndexOf('/');
@@ -302,7 +403,44 @@
     private void ZoomOut() => EditorContentState.AdjustTileScale(-1);
     private void ZoomIn() => EditorContentState.AdjustTileScale(1);
     private void ImportPlaceholder() => UiNotifications.Show("Content", "Import is not available yet.", "info");
+    private void CreateFolder() => EditorContentState.RequestAction(
+        EditorContentState.ActionKind.CreateFolder, EditorContentState.CurrentFolder, "New Folder");
     private void OnSearchInput(string value) => EditorContentState.SetSearchQuery(value);
+
+    private static string IconNameFor(string kind, bool isFolder) => isFolder
+        ? "Solar/folders/Bold/folder-2"
+        : kind switch
+        {
+            "model" => "cube",
+            "sound" => "audio",
+            "shader" => "Solar/it/Bold/code",
+            _ => "Solar/files/Bold/file"
+        };
+
+    private Item? SelectedItem
+    {
+        get
+        {
+            if (EditorContentState.SelectedPath is not { Length: > 0 } selectedPath)
+                return null;
+
+            var visible = Items.FirstOrDefault(item =>
+                item.Path.Equals(selectedPath, StringComparison.OrdinalIgnoreCase));
+            if (visible.Path.Length > 0)
+                return visible;
+
+            var folder = AllFolders().FirstOrDefault(candidate =>
+                candidate.Equals(selectedPath, StringComparison.OrdinalIgnoreCase));
+            if (folder is not null)
+                return new Item(LastSegment(folder), "folder", true, folder, folder, default);
+
+            var entry = EditorContentState.Entries.FirstOrDefault(candidate =>
+                candidate.Path.Equals(selectedPath, StringComparison.OrdinalIgnoreCase));
+            return entry.Path is { Length: > 0 }
+                ? new Item(entry.Name, entry.Kind, false, string.Empty, entry.Path, entry.Modified)
+                : null;
+        }
+    }
 
     private void ExpandAll() => EditorContentState.SetAllExpanded(AllFolders(), true);
     private void CollapseAll() => EditorContentState.SetAllExpanded(AllFolders(), false);

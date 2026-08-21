@@ -25,7 +25,8 @@ public static class EditorContentState
         Open,
         Rename,
         Delete,
-        Reveal
+        Reveal,
+        CreateFolder
     }
 
     public readonly record struct ActionRequest(ActionKind Kind, string Path, string Value = "");
@@ -37,6 +38,7 @@ public static class EditorContentState
     private static readonly List<string> _history = [string.Empty];
     private static int _historyIndex;
     private static string _searchQuery = string.Empty;
+    private static string? _selectedPath;
     private static string _viewMode = "grid";
     private static string _sortMode = "name";
     private static int _tileScale = 1;
@@ -82,6 +84,9 @@ public static class EditorContentState
     /// <summary>Current content search query.</summary>
     public static string SearchQuery => _searchQuery;
 
+    /// <summary>Logical path of the currently selected asset or folder.</summary>
+    public static string? SelectedPath => _selectedPath;
+
     /// <summary>Current content display mode: grid or list.</summary>
     public static string ViewMode => _viewMode;
 
@@ -125,6 +130,22 @@ public static class EditorContentState
         query ??= string.Empty;
         if (string.Equals(_searchQuery, query, StringComparison.Ordinal)) return;
         _searchQuery = query;
+        BumpVersion();
+    }
+
+    public static void Select(string path)
+    {
+        path = (path ?? string.Empty).Trim('/');
+        if (path.Length == 0 || string.Equals(_selectedPath, path, StringComparison.Ordinal)) return;
+        _selectedPath = path;
+        CloseContextMenu();
+        BumpVersion();
+    }
+
+    public static void ClearSelection()
+    {
+        if (_selectedPath is null) return;
+        _selectedPath = null;
         BumpVersion();
     }
 
@@ -297,6 +318,7 @@ public static class EditorContentState
         _historyIndex = 0;
         _currentFolder = string.Empty;
         _searchQuery = string.Empty;
+        _selectedPath = null;
         _viewMode = "grid";
         _sortMode = "name";
         _tileScale = 1;

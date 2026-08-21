@@ -371,7 +371,9 @@ public class EditorPageCompositionTests
         Assert.NotNull(FindText(content, "crumb", t => t == "Crate"));
         var icons = IconsOf(content);
         Assert.Contains("cube", icons);
-        Assert.Contains("paint", icons);
+        var textureThumbnail = TestUi.Find(content,
+            panel => panel is Image image && image.Source == "Content/Models/Crate/Crate_basecolor.png");
+        Assert.NotNull(textureThumbnail);
 
         // Breadcrumb: clicking the Models crumb navigates back up.
         var modelsCrumb = FindText(content, "crumb", t => t == "Models");

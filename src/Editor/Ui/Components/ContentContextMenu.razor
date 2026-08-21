@@ -30,6 +30,8 @@
             @if (menu.IsFolder)
             {
                 <div class="context-menu-item" @onclick="OpenContextFolder">Open</div>
+                <div class="context-menu-item" @onclick="BeginRename">Rename</div>
+                <div class="context-menu-item" @onclick="BeginDelete">Delete</div>
             }
             else
             {
@@ -99,7 +101,7 @@
 
     private void BeginRename()
     {
-        if (EditorContentState.ContextMenu is not { IsFolder: false } menu) return;
+        if (EditorContentState.ContextMenu is not { } menu) return;
         _renamePath = menu.Path;
         _deletePath = null;
         _renameValue = ContextName(menu);
@@ -123,7 +125,7 @@
 
     private void BeginDelete()
     {
-        if (EditorContentState.ContextMenu is not { IsFolder: false } menu) return;
+        if (EditorContentState.ContextMenu is not { } menu) return;
         _deletePath = menu.Path;
         _renamePath = null;
     }

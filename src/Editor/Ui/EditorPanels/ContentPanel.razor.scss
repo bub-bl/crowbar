@@ -239,3 +239,69 @@ root {
     text-align: center;
     vertical-align: center;
 }
+
+.content-selection-info {
+    width: 100%;
+    height: 68px;
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    padding: 7px 10px;
+    background-color: $panel-head;
+    border-top: 1px solid $border;
+    box-sizing: border-box;
+}
+
+.selection-preview {
+    width: 52px;
+    height: 52px;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    background-color: #262626;
+    border: 1px solid $border;
+    border-radius: 3px;
+    box-sizing: border-box;
+
+    icon {
+        width: 30px;
+        height: 30px;
+    }
+
+    img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+}
+
+.selection-details {
+    min-width: 0;
+    flex-grow: 1;
+    gap: 2px;
+    overflow: hidden;
+}
+
+.selection-name {
+    color: $text-bright;
+    font-size: 12px;
+    font-weight: bold;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.selection-type {
+    color: $text-muted;
+    font-size: 10px;
+    text-transform: capitalize;
+}
+
+.selection-path {
+    color: $text-muted;
+    font-size: 10px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}

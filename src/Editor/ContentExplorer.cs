@@ -185,10 +185,19 @@ public sealed class ContentExplorer : IDisposable
                     OpenPath(contentPath);
                     break;
                 case EditorContentState.ActionKind.Rename:
-                    RenameFile(contentPath, action.Value);
+                    if (FileSystem.Project.DirectoryExists(contentPath))
+                        RenameDirectory(contentPath, action.Value);
+                    else
+                        RenameFile(contentPath, action.Value);
                     break;
                 case EditorContentState.ActionKind.Delete:
-                    DeleteFile(contentPath);
+                    if (FileSystem.Project.DirectoryExists(contentPath))
+                        DeleteDirectory(contentPath);
+                    else
+                        DeleteFile(contentPath);
+                    break;
+                case EditorContentState.ActionKind.CreateFolder:
+                    CreateDirectory(contentPath, action.Value);
                     break;
                 case EditorContentState.ActionKind.Reveal:
                     RevealPath(contentPath);
@@ -250,6 +259,64 @@ public sealed class ContentExplorer : IDisposable
         FileSystem.Project.DeleteFile(path);
         UiNotifications.Show("Content", $"Deleted {Path.GetFileName(path)}", "success");
     }
+
+    private static void CreateDirectory(string parentPath, string name)
+    {
+        if (!IsValidName(name))
+        {
+            UiNotifications.Show("Content", "Enter a valid folder name.", "error");
+            return;
+        }
+
+        var destination = parentPath.TrimEnd('/') + "/" + name;
+        if (FileSystem.Project.FileExists(destination) || FileSystem.Project.DirectoryExists(destination))
+        {
+            UiNotifications.Show("Content", $"An item named {name} already exists.", "error");
+            return;
+        }
+
+        FileSystem.Project.CreateDirectory(destination);
+        UiNotifications.Show("Content", $"Created folder {name}", "success");
+    }
+
+    private static void RenameDirectory(string path, string newName)
+    {
+        if (!IsValidName(newName))
+        {
+            UiNotifications.Show("Content", "Enter a valid folder name.", "error");
+            return;
+        }
+
+        var source = FileSystem.Project.ToSystemPath(path);
+        var parent = Directory.GetParent(source)?.FullName;
+        if (parent is null)
+            throw new IOException("The folder has no valid parent.");
+        var destination = Path.Combine(parent, newName);
+        if (File.Exists(destination) || Directory.Exists(destination))
+        {
+            UiNotifications.Show("Content", $"An item named {newName} already exists.", "error");
+            return;
+        }
+
+        Directory.Move(source, destination);
+        UiNotifications.Show("Content", $"Renamed folder to {newName}", "success");
+    }
+
+    private static void DeleteDirectory(string path)
+    {
+        if (!FileSystem.Project.DirectoryExists(path))
+        {
+            UiNotifications.Show("Content", $"Folder not found: {path}", "error");
+            return;
+        }
+
+        Directory.Delete(FileSystem.Project.ToSystemPath(path), recursive: true);
+        UiNotifications.Show("Content", $"Deleted folder {Path.GetFileName(path.TrimEnd('/'))}", "success");
+    }
+
+    private static bool IsValidName(string name) =>
+        !string.IsNullOrWhiteSpace(name) && name.Trim() == name && name is not "." and not ".." &&
+        Path.GetFileName(name) == name && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
 
     private static void RevealPath(string path)
     {
