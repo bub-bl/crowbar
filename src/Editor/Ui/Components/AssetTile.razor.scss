@@ -1,8 +1,16 @@
 @use '../_editor-theme' as *;
 
+// The component root is the flex item of the wrapping .content-grid: it must
+// keep its fixed tile size when the grid shrinks, otherwise the tiles crush
+// onto each other instead of wrapping (like the .tree rows).
+root {
+    flex-shrink: 0;
+}
+
 .asset-tile {
     width: 84px;
     height: 56px;
+    flex-shrink: 0;
     align-items: center;
     gap: 3px;
     cursor: pointer;
@@ -17,13 +25,15 @@
     height: 36px;
     border-radius: 3px;
     border: 1px solid #3a3a3a;
+    background-color: #262626;
     box-sizing: border-box;
-}
+    align-items: center;
+    justify-content: center;
 
-.asset-thumb.circle {
-    width: 34px;
-    height: 34px;
-    border-radius: 50%;
+    icon {
+        width: 20px;
+        height: 20px;
+    }
 }
 
 .asset-name {
@@ -37,18 +47,11 @@
     text-overflow: ellipsis;
 }
 
-.thumb-model { background-color: #6b7280; }
-.thumb-texture { background-color: #8fb7d6; }
-.thumb-sound { background-color: #7a9b5f; }
-.thumb-shader { background-color: #b08f4f; }
-.thumb-file { background-color: #4d4d4d; }
-
-.asset-import {
-    background-color: transparent;
-    border: 1px dashed $border;
-    color: $text-muted;
-    font-size: 16px;
-    text-align: center;
-    vertical-align: center;
-    line-height: 32px;
-}
+// Icon tint per kind: the <icon> draws in the computed color, so the kind
+// colors the thumbnail glyph instead of the tile background.
+.thumb-model { color: #9db2c7; }
+.thumb-texture { color: #8fb7d6; }
+.thumb-sound { color: #7a9b5f; }
+.thumb-shader { color: #d0a85c; }
+.thumb-file { color: #9a9a9a; }
+.thumb-folder { color: #d8b24e; }

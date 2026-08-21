@@ -1,0 +1,51 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+@using Microsoft.AspNetCore.Components
+
+@* One row of the content folder tree (sidebar). The folder path travels as a
+   [Parameter] (like TreeRow's Id and AddComponentItem's Name): the runtime
+   event invoker cannot pass captured locals from an @onclick lambda, so the
+   click handler reads its own parameter. Clicking a folder browses into it
+   (the grid) and toggles its expansion; folders without children have no
+   caret and only navigate. *@
+<div class="ctree-row @(Selected ? "ctree-selected" : "")" style="padding-left: @(Indent * 12 + 6)px" @onclick="OnClick">
+    @if (HasChildren)
+    {
+        <icon name="@(Open ? "Solar/arrows/Bold/alt-arrow-down" : "Solar/arrows/Bold/alt-arrow-right")" />
+    }
+    <icon name="Solar/folders/Bold/folder-2" />
+    <span class="ctree-text">@Text</span>
+</div>
+
+@code {
+    [Parameter]
+    public string Text { get; set; } = string.Empty;
+
+    /// <summary>Content-relative folder path this row browses into ("" = the content root).</summary>
+    [Parameter]
+    public string Folder { get; set; } = string.Empty;
+
+    /// <summary>Tree depth; indentation is 12px per level plus a 6px base.</summary>
+    [Parameter]
+    public int Indent { get; set; }
+
+    [Parameter]
+    public bool HasChildren { get; set; }
+
+    [Parameter]
+    public bool Open { get; set; }
+
+    /// <summary>True when this row is the folder currently browsed.</summary>
+    [Parameter]
+    public bool Selected { get; set; }
+
+    protected override int BuildHash() => HashCode.Combine(Text, Folder, Indent, HasChildren, Open, Selected);
+
+    private void OnClick()
+    {
+        EditorContentState.NavigateTo(Folder);
+        if (HasChildren)
+            EditorContentState.ToggleExpanded(Folder);
+    }
+}

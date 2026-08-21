@@ -93,9 +93,9 @@ public sealed class ContentExplorer : IDisposable
     public void Dispose() => _watcher?.Dispose();
 
     /// <summary>
-    /// Republishes the panel snapshot: every file under <c>/Content</c>,
-    /// categorized by its top-level folder and the thumbnail kind of its
-    /// registered asset type.
+    /// Republishes the panel snapshot: every file under <c>/Content</c> with
+    /// its logical path and the thumbnail kind of its registered asset type;
+    /// the panel derives the folder structure from the paths.
     /// </summary>
     private static void Publish()
     {
@@ -108,8 +108,8 @@ public sealed class ContentExplorer : IDisposable
                 if (ToLogicalPath(file, contentRoot) is not { } logical)
                     continue;
                 entries.Add(new EditorContentState.Entry(
+                    logical,
                     Path.GetFileName(logical),
-                    CategoryOf(logical),
                     KindFor(logical)));
             }
         }
@@ -119,11 +119,7 @@ public sealed class ContentExplorer : IDisposable
             Log.Warn($"[Content] Could not enumerate the project content: {ex.Message}");
         }
 
-        entries.Sort(static (a, b) =>
-        {
-            var category = string.Compare(a.Category, b.Category, StringComparison.OrdinalIgnoreCase);
-            return category != 0 ? category : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
-        });
+        entries.Sort(static (a, b) => string.Compare(a.Path, b.Path, StringComparison.OrdinalIgnoreCase));
         EditorContentState.Publish(entries);
     }
 
@@ -139,13 +135,6 @@ public sealed class ContentExplorer : IDisposable
         if (full.Length <= prefix.Length || !full.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
             return null;
         return "Content/" + full[prefix.Length..];
-    }
-
-    /// <summary>The top-level folder of a logical content path ("Models/Crate/Crate.gltf" → "Models").</summary>
-    private static string CategoryOf(string logical)
-    {
-        var slash = logical.IndexOf('/');
-        return slash < 0 ? string.Empty : logical[..slash];
     }
 
     /// <summary>Thumbnail class for a logical content path, from its registered asset type.</summary>

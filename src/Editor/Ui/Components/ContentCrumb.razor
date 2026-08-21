@@ -1,0 +1,32 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+@using Microsoft.AspNetCore.Components
+
+@* One segment of the content breadcrumb. The folder path travels as a
+   [Parameter] (like ContentTreeRow's Folder): the runtime event invoker
+   cannot pass captured locals from an @onclick lambda, so the click handler
+   reads its own parameter. The last crumb is the folder currently browsed,
+   rendered as plain text. *@
+<div class="crumb @(Active ? "crumb-active" : "")" @onclick="OnClick">@Text</div>
+
+@code {
+    [Parameter]
+    public string Text { get; set; } = string.Empty;
+
+    /// <summary>The content-relative folder this crumb browses into ("" = the content root).</summary>
+    [Parameter]
+    public string Path { get; set; } = string.Empty;
+
+    /// <summary>True for the folder currently browsed (rendered as plain text).</summary>
+    [Parameter]
+    public bool Active { get; set; }
+
+    protected override int BuildHash() => HashCode.Combine(Text, Path, Active);
+
+    private void OnClick()
+    {
+        if (!Active)
+            EditorContentState.NavigateTo(Path);
+    }
+}

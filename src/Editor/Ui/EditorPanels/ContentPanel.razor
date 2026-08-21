@@ -10,20 +10,30 @@
 
 <div class="content-toolbar">
     <div class="ct-btn">+ Import</div>
-    <div class="breadcrumb">Content@(EditorContentState.SelectedCategory.Length > 0 ? " › " + EditorContentState.SelectedCategory : "")</div>
+    <div class="breadcrumb">
+        @foreach (var crumb in Crumbs)
+        {
+            @if (crumb.Path.Length > 0)
+            {
+                <div class="crumb-sep">›</div>
+            }
+            <ContentCrumb Text="@crumb.Text" Path="@crumb.Path" Active="@(crumb.Path == EditorContentState.CurrentFolder)" />
+        }
+    </div>
     <SearchBox Placeholder="Search..." Small="true" />
     <div class="panel-x">×</div>
 </div>
 
 @* The grid mirrors the live project content: the host republishes the file
    list (EditorContentState) on startup, project switch and content changes.
-   Selecting a category in the sidebar filters the rows. *@
+   Browsing is hierarchical — folders and files of the current folder, with
+   the breadcrumb and the sidebar folder tree for navigation. *@
 <div class="content-body">
     <div class="content-sidebar">
-        <ContentSidebarItem Text="Content" Category="" Active="@(EditorContentState.SelectedCategory.Length == 0)" />
-        @foreach (var category in Categories)
+        @foreach (var row in TreeRows)
         {
-            <ContentSidebarItem Text="@category" Category="@category" Active="@(EditorContentState.SelectedCategory == category)" />
+            <ContentTreeRow Text="@row.Text" Folder="@row.Folder" Indent="@row.Indent"
+                            HasChildren="@row.HasChildren" Open="@row.Open" Selected="@row.Selected" />
         }
     </div>
     <div class="content-grid">
@@ -31,49 +41,150 @@
         {
             <div class="grid-empty">No content — put assets in the project's Content/ folder.</div>
         }
-        @foreach (var group in Groups)
+        @foreach (var item in Items)
         {
-            <div class="grid-row-title">@GroupTitle(group.Category)</div>
-            <div class="asset-row">
-                @foreach (var entry in group.Entries)
-                {
-                    <AssetTile Name="@entry.Name" Kind="@entry.Kind" />
-                }
-            </div>
+            <AssetTile Name="@item.Name" Kind="@item.Kind" IsFolder="@item.IsFolder" Folder="@item.Folder" />
         }
     </div>
 </div>
 
 @code {
-    private readonly record struct Group(string Category, IReadOnlyList<EditorContentState.Entry> Entries);
+    private readonly record struct Item(string Name, string Kind, bool IsFolder, string Folder);
+
+    private readonly record struct Crumb(string Text, string Path);
+
+    private readonly record struct TreeRow(string Text, string Folder, int Indent, bool HasChildren, bool Open, bool Selected);
 
     private string _contentTab = "content";
 
     // Re-renders only when the host republishes the content snapshot, the
-    // sidebar selection changes, or another tab is opened.
-    protected override int BuildHash() => HashCode.Combine(_contentTab, EditorContentState.SelectedCategory, EditorContentState.Version);
+    // browsed folder changes, or another tab is opened.
+    protected override int BuildHash() => HashCode.Combine(_contentTab, EditorContentState.CurrentFolder, EditorContentState.Version);
 
-    /// <summary>Content categories (top-level folders) for the sidebar.</summary>
-    private IReadOnlyList<string> Categories => EditorContentState.Entries
-        .Select(entry => entry.Category)
-        .Where(category => category.Length > 0)
-        .Distinct()
-        .OrderBy(category => category, StringComparer.OrdinalIgnoreCase)
-        .ToArray();
-
-    /// <summary>Rows grouped by category, filtered by the selected one.</summary>
-    private IReadOnlyList<Group> Groups
+    /// <summary>Pre-order rows of the content folder tree (the sidebar).</summary>
+    private IReadOnlyList<TreeRow> TreeRows
     {
         get
         {
-            var selected = EditorContentState.SelectedCategory;
-            return EditorContentState.Entries
-                .Where(entry => selected.Length == 0 || entry.Category == selected)
-                .GroupBy(entry => entry.Category)
-                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(group => new Group(group.Key, group.ToArray()))
-                .ToArray();
+            var current = EditorContentState.CurrentFolder;
+            var rows = new List<TreeRow>
+            {
+                new("Content", string.Empty, 0, HasChildren: SubFolders(string.Empty).Count > 0, Open: true, Selected: current.Length == 0)
+            };
+            foreach (var folder in SubFolders(string.Empty))
+                AppendFolder(rows, folder, 1, current);
+            return rows;
         }
+    }
+
+    private void AppendFolder(List<TreeRow> rows, string folder, int depth, string current)
+    {
+        var children = SubFolders(folder);
+        rows.Add(new TreeRow(LastSegment(folder), folder, depth, children.Count > 0, IsOpen(folder, current), folder == current));
+        if (!IsOpen(folder, current)) return;
+        foreach (var child in children)
+            AppendFolder(rows, folder + "/" + child, depth + 1, current);
+    }
+
+    /// <summary>
+    /// Immediate subfolders of <paramref name="folder"/> ("" = the content
+    /// root), derived from the published file paths — folders are what files
+    /// live in, so an empty folder has no entry anywhere.
+    /// </summary>
+    private static IReadOnlyList<string> SubFolders(string folder)
+    {
+        var prefix = folder.Length == 0 ? string.Empty : folder + "/";
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<string>();
+        foreach (var entry in EditorContentState.Entries)
+        {
+            var relative = RelativeOf(entry.Path);
+            if (!relative.StartsWith(prefix, StringComparison.Ordinal) || relative.Length == prefix.Length)
+                continue;
+            var rest = relative[prefix.Length..];
+            if (!rest.Contains('/')) continue; // a file directly in `folder`, not a subfolder
+            var sub = rest.Split('/')[0];
+            if (seen.Add(sub)) result.Add(sub);
+        }
+
+        result.Sort(StringComparer.OrdinalIgnoreCase);
+        return result;
+    }
+
+    /// <summary>
+    /// A folder is open when the user expanded it, when it is the folder
+    /// browsed, or when it is an ancestor of it — the path to the current
+    /// folder is always visible.
+    /// </summary>
+    private static bool IsOpen(string folder, string current) =>
+        EditorContentState.IsExpanded(folder) ||
+        folder == current ||
+        current.StartsWith(folder + "/", StringComparison.Ordinal);
+
+    /// <summary>The last segment of a content-relative folder path ("Models/Crate" → "Crate").</summary>
+    private static string LastSegment(string folder)
+    {
+        var slash = folder.LastIndexOf('/');
+        return slash < 0 ? folder : folder[(slash + 1)..];
+    }
+
+    /// <summary>Breadcrumb segments: the content root plus one crumb per browsed folder.</summary>
+    private IReadOnlyList<Crumb> Crumbs
+    {
+        get
+        {
+            var crumbs = new List<Crumb> { new("Content", string.Empty) };
+            var running = string.Empty;
+            foreach (var segment in EditorContentState.Breadcrumb)
+            {
+                running = running.Length == 0 ? segment : running + "/" + segment;
+                crumbs.Add(new Crumb(segment, running));
+            }
+            return crumbs;
+        }
+    }
+
+    /// <summary>Folders and files of the current folder, folders first.</summary>
+    private IReadOnlyList<Item> Items
+    {
+        get
+        {
+            var current = EditorContentState.CurrentFolder;
+            var folders = new List<Item>();
+            var files = new List<Item>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var entry in EditorContentState.Entries)
+            {
+                var relative = RelativeOf(entry.Path);
+                var parent = ParentOf(relative);
+                if (parent == current)
+                {
+                    files.Add(new Item(entry.Name, entry.Kind, IsFolder: false, Folder: string.Empty));
+                    continue;
+                }
+
+                if (!parent.StartsWith(current.Length == 0 ? string.Empty : current + "/", StringComparison.Ordinal))
+                    continue;
+                var folder = relative[(current.Length == 0 ? 0 : current.Length + 1)..].Split('/')[0];
+                if (folder.Length > 0 && seen.Add(folder))
+                    folders.Add(new Item(folder, "folder", IsFolder: true, Folder: current.Length == 0 ? folder : current + "/" + folder));
+            }
+
+            folders.Sort(static (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            files.Sort(static (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            return folders.Concat(files).ToArray();
+        }
+    }
+
+    /// <summary>The content-relative form of a logical path ("Content/Models/Crate.gltf" → "Models/Crate.gltf").</summary>
+    private static string RelativeOf(string path) =>
+        path.StartsWith("Content/", StringComparison.Ordinal) ? path["Content/".Length..] : path;
+
+    /// <summary>The parent folder of a content-relative path ("Models/Crate/Crate.gltf" → "Models/Crate").</summary>
+    private static string ParentOf(string relative)
+    {
+        var slash = relative.LastIndexOf('/');
+        return slash < 0 ? string.Empty : relative[..slash];
     }
 
     private void ShowContent() => _contentTab = "content";
@@ -81,6 +192,4 @@
     private void ShowConsole() => _contentTab = "console";
 
     private string ContentTabClass(string tab) => _contentTab == tab ? "content-tab-active" : "";
-
-    private static string GroupTitle(string category) => category.Length == 0 ? "ROOT" : category.ToUpperInvariant();
 }

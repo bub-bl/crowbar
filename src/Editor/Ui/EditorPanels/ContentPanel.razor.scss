@@ -79,9 +79,11 @@ root {
     line-height: 22px;
     flex-direction: row;
     align-items: center;
+    overflow: hidden;
 }
 
 .crumb-sep {
+    margin: 0 4px;
     color: $accent-hover;
 }
 
@@ -108,38 +110,23 @@ root {
 }
 
 .content-sidebar {
-    width: 130px;
+    width: 160px;
     flex-grow: 0;
-    padding: 6px 0;
+    padding: 4px 0;
     border-right: 1px solid $border;
     box-sizing: border-box;
-    gap: 1px;
     overflow: auto;
 }
 
 .content-grid {
     flex-grow: 1;
-    padding: 5px 10px;
+    padding: 6px 10px;
     box-sizing: border-box;
-    gap: 3px;
-    overflow: auto;
-}
-
-.grid-row-title {
-    width: 100%;
-    flex-shrink: 0;
-    height: 14px;
-    color: $text-muted;
-    font-size: 9px;
-    font-weight: bold;
-    line-height: 14px;
-}
-
-.asset-row {
-    width: 100%;
-    flex-shrink: 0;
     flex-direction: row;
-    gap: 7px;
+    flex-wrap: wrap;
+    align-content: flex-start;
+    gap: 4px 7px;
+    overflow: auto;
 }
 
 .grid-empty {

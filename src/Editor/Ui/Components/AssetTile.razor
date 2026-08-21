@@ -1,9 +1,16 @@
 @inherits Crowbar.UI.RazorPanel
 @namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
 @using Microsoft.AspNetCore.Components
 
-<div class="asset-tile">
-    <div class="asset-thumb @(Circle ? "circle" : "") @(Import ? "asset-import" : "") thumb-@Kind">@(Import ? "+" : "")</div>
+@* One tile of the content grid: a folder or a file. The thumbnail is the
+   project's icon pack (Assets/Icons), tinted per kind. Folders navigate into
+   themselves on click — the folder path travels as a [Parameter] (the event
+   invoker cannot pass captured locals from an @onclick lambda). *@
+<div class="asset-tile" @onclick="OnClick">
+    <div class="asset-thumb thumb-@Kind">
+        <icon name="@IconName" />
+    </div>
     <div class="asset-name">@Name</div>
 </div>
 
@@ -11,15 +18,35 @@
     [Parameter]
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>Thumbnail color class suffix: <c>wood</c>, <c>metal</c>, <c>beton</c> or <c>glass</c>.</summary>
+    /// <summary>Thumbnail kind: model, texture, sound, shader, file or folder.</summary>
     [Parameter]
-    public string Kind { get; set; } = "wood";
+    public string Kind { get; set; } = "file";
 
+    /// <summary>True for a folder tile: clicking browses into <see cref="Folder"/>.</summary>
     [Parameter]
-    public bool Circle { get; set; }
+    public bool IsFolder { get; set; }
 
+    /// <summary>Content-relative folder path this tile browses into ("" for files).</summary>
     [Parameter]
-    public bool Import { get; set; }
+    public string Folder { get; set; } = string.Empty;
 
-    protected override int BuildHash() => HashCode.Combine(Name, Kind, Circle, Import);
+    /// <summary>Project icon for the kind, from the Assets/Icons pack.</summary>
+    private string IconName => IsFolder
+        ? "Solar/folders/Bold/folder-2"
+        : Kind switch
+        {
+            "model" => "cube",
+            "texture" => "paint",
+            "sound" => "audio",
+            "shader" => "Solar/it/Bold/code",
+            _ => "Solar/files/Bold/file"
+        };
+
+    protected override int BuildHash() => HashCode.Combine(Name, Kind, IsFolder, Folder);
+
+    private void OnClick()
+    {
+        if (IsFolder && Folder.Length > 0)
+            EditorContentState.NavigateTo(Folder);
+    }
 }

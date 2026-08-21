@@ -130,16 +130,19 @@ public class EditorPageCompositionTests
 
     /// <summary>
     /// Publishes a content snapshot shaped like the demo project's assets
-    /// (models in Models/, a sound in Sounds/), so the Content panel asserts
-    /// see the tiles the host would publish from the live content folder.
+    /// (a level at the root, models and textures under Models/, a sound under
+    /// Sounds/), so the Content panel asserts see the tiles the host would
+    /// publish from the live content folder.
     /// </summary>
     internal static void PublishDemoContentState()
     {
         EditorContentState.Publish(
         [
-            new EditorContentState.Entry("Crate.gltf", "Models", "model"),
-            new EditorContentState.Entry("industrial_work_light.gltf", "Models", "model"),
-            new EditorContentState.Entry("ui_compilation_error.wav", "Sounds", "sound")
+            new EditorContentState.Entry("Content/Demo.level", "Demo.level", "file"),
+            new EditorContentState.Entry("Content/Models/Crate/Crate.gltf", "Crate.gltf", "model"),
+            new EditorContentState.Entry("Content/Models/Crate/Crate_basecolor.png", "Crate_basecolor.png", "texture"),
+            new EditorContentState.Entry("Content/Models/industrial_work_light/industrial_work_light.gltf", "industrial_work_light.gltf", "model"),
+            new EditorContentState.Entry("Content/Sounds/ui_compilation_error.wav", "ui_compilation_error.wav", "sound")
         ]);
     }
 
@@ -169,9 +172,9 @@ public class EditorPageCompositionTests
         Assert.NotNull(FindText(content, "dock-tab", t => t == "INSPECTOR"));
         Assert.NotNull(FindText(content, "dock-tab", t => t == "CONTENT"));
         Assert.NotNull(TestUi.Find(content, p => p.Classes.Contains("viewport-toolbar")));
-        var csActive = TestUi.Find(content, p => p.Classes.Contains("cs-active"));
-        Assert.NotNull(csActive);
-        Assert.Contains("Content", TestUi.Texts(csActive!));
+        var selectedRow = TestUi.Find(content, p => p.Classes.Contains("ctree-selected"));
+        Assert.NotNull(selectedRow);
+        Assert.Contains("Content", TestUi.Texts(selectedRow!));
         Assert.NotNull(FindText(content, "status-item", t => t.StartsWith("FPS:", StringComparison.Ordinal)));
     }
 
@@ -291,34 +294,39 @@ public class EditorPageCompositionTests
         using var ui = CreateEditorUi();
         var content = ui.Content!;
 
-        // The grid mirrors the published snapshot: category titles and asset
-        // tiles with the kind of their registered resource type.
-        Assert.NotNull(FindText(content, "grid-row-title", t => t == "MODELS"));
-        Assert.NotNull(FindText(content, "grid-row-title", t => t == "SOUNDS"));
-        Assert.NotNull(FindText(content, "asset-name", t => t == "Crate.gltf"));
-        Assert.NotNull(FindText(content, "asset-name", t => t == "ui_compilation_error.wav"));
+        // At the content root the grid lists the top-level folders plus root
+        // files (folders and files both use the project's icon pack).
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Models"));
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Sounds"));
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Demo.level"));
 
-        // The sidebar lists the root plus one entry per category.
-        var sidebar = TestUi.FindAll(content, p => p.Classes.Contains("cs-item"))
+        // The sidebar is a folder tree: the root plus one row per top-level
+        // folder (root files are not folders and stay in the grid).
+        var sidebar = TestUi.FindAll(content, p => p.Classes.Contains("ctree-row"))
             .SelectMany(TestUi.Texts)
             .ToArray();
         Assert.Contains("Content", sidebar);
         Assert.Contains("Models", sidebar);
         Assert.Contains("Sounds", sidebar);
+        Assert.DoesNotContain("Demo.level", sidebar);
 
-        // The model tile carries the kind of its registered type (Model).
-        var modelThumb = TestUi.FindAll(content, p => p.Classes.Contains("asset-thumb"))
-            .First(p => p.Classes.Contains("thumb-model"));
-        Assert.NotNull(modelThumb);
+        // The breadcrumb shows the content root, the folder tiles carry the
+        // project's folder icon and the root file its generic file icon.
+        Assert.NotNull(FindText(content, "crumb", t => t == "Content"));
+        var icons = IconsOf(content);
+        Assert.Contains("Solar/folders/Bold/folder-2", icons);
+        Assert.Contains("Solar/files/Bold/file", icons);
     }
 
     [Fact]
-    public void ContentPanelCategoryClickFiltersTheGrid()
+    public void ContentPanelBrowsesIntoFoldersAndBack()
     {
         using var ui = CreateEditorUi();
         var content = ui.Content!;
 
-        var models = FindText(content, "cs-item", t => t == "Models");
+        // Sidebar tree: clicking Models browses into it and shows its folders
+        // (no files at that level).
+        var models = FindText(content, "ctree-row", t => t == "Models");
         Assert.NotNull(models);
         ui.ProcessPointerDown(models!.Layout.X + 2, models.Layout.Y + 2);
         ui.ProcessPointerUp(models.Layout.X + 2, models.Layout.Y + 2);
@@ -326,9 +334,73 @@ public class EditorPageCompositionTests
         ui.Prepare();
 
         content = ui.Content!;
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Crate"));
+        Assert.NotNull(FindText(content, "asset-name", t => t == "industrial_work_light"));
+        Assert.Null(FindText(content, "asset-name", t => t == "Crate.gltf"));
+        Assert.NotNull(FindText(content, "crumb", t => t == "Models"));
+
+        // Folder tile: clicking Crate browses into it and shows its files,
+        // each tile carrying the icon of its registered asset type.
+        var crate = FindText(content, "asset-name", t => t == "Crate");
+        Assert.NotNull(crate);
+        ui.ProcessPointerDown(crate!.Layout.X + 2, crate.Layout.Y + 2);
+        ui.ProcessPointerUp(crate.Layout.X + 2, crate.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+
+        content = ui.Content!;
         Assert.NotNull(FindText(content, "asset-name", t => t == "Crate.gltf"));
-        Assert.Null(FindText(content, "asset-name", t => t == "ui_compilation_error.wav"));
-        Assert.NotNull(FindText(content, "breadcrumb", t => t == "Content › Models"));
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Crate_basecolor.png"));
+        Assert.Null(FindText(content, "asset-name", t => t == "industrial_work_light"));
+        Assert.NotNull(FindText(content, "crumb", t => t == "Crate"));
+        var icons = IconsOf(content);
+        Assert.Contains("cube", icons);
+        Assert.Contains("paint", icons);
+
+        // Breadcrumb: clicking the Models crumb navigates back up.
+        var modelsCrumb = FindText(content, "crumb", t => t == "Models");
+        Assert.NotNull(modelsCrumb);
+        ui.ProcessPointerDown(modelsCrumb!.Layout.X + 2, modelsCrumb.Layout.Y + 2);
+        ui.ProcessPointerUp(modelsCrumb.Layout.X + 2, modelsCrumb.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+
+        content = ui.Content!;
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Crate"));
+        Assert.Null(FindText(content, "asset-name", t => t == "Crate.gltf"));
+    }
+
+    [Fact]
+    public void ContentPanelSidebarIsAFolderTree()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // Expanding Models reveals its folders, indented under it.
+        var models = FindText(content, "ctree-row", t => t == "Models");
+        Assert.NotNull(models);
+        ui.ProcessPointerDown(models!.Layout.X + 2, models.Layout.Y + 2);
+        ui.ProcessPointerUp(models.Layout.X + 2, models.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+
+        content = ui.Content!;
+        Assert.NotNull(FindText(content, "ctree-row", t => t == "Crate"));
+        Assert.NotNull(FindText(content, "ctree-row", t => t == "industrial_work_light"));
+
+        // Clicking a tree row navigates the grid and keeps the path open.
+        var crate = FindText(content, "ctree-row", t => t == "Crate");
+        Assert.NotNull(crate);
+        ui.ProcessPointerDown(crate!.Layout.X + 2, crate.Layout.Y + 2);
+        ui.ProcessPointerUp(crate.Layout.X + 2, crate.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+
+        content = ui.Content!;
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Crate.gltf"));
+        Assert.NotNull(FindText(content, "crumb", t => t == "Crate"));
+        // Models stays open: it is an ancestor of the browsed folder.
+        Assert.NotNull(FindText(content, "ctree-row", t => t == "industrial_work_light"));
     }
 
     [Fact]

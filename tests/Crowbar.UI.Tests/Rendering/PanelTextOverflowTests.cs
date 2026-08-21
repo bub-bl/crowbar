@@ -77,6 +77,25 @@ public class PanelTextOverflowTests
         }
     }
 
+    [Fact]
+    public void ContentTreeLabelsFitOnOneLine()
+    {
+        using var ui = EditorPageCompositionTests.CreateEditorUi();
+        var content = ui.Content!;
+
+        // The content tree labels use ellipsis overflow. Regression: the
+        // ellipsis fast path in TextLayout.Wrap duplicated the line when the
+        // text fit, so a label measured 40px tall inside its 20px row and the
+        // glyphs got crushed. A fitting label must stay on a single line.
+        foreach (var row in TestUi.FindAll(content, p => p.Classes.Contains("ctree-row")))
+        {
+            var label = row.Children.FirstOrDefault(c => c.Classes.Contains("ctree-text"));
+            Assert.NotNull(label);
+            Assert.True(label!.Layout.Height <= row.Layout.Height + 0.5f,
+                $"content tree label height {label.Layout.Height} exceeds its row height {row.Layout.Height}");
+        }
+    }
+
     private static Panel? Ancestor(Panel panel, Func<Panel, bool> predicate)
     {
         for (var p = panel; p is not null; p = p.Parent)

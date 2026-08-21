@@ -118,14 +118,11 @@ internal static class TextLayout
     {
         var lines = new List<string>();
         // Fast path: the common case (no explicit newline) avoids the Split
-        // allocation entirely when the text fits the box.
+        // allocation entirely when the text fits the box. Fitting text needs
+        // no ellipsis, so both overflow modes return the single line here —
+        // falling through would append it a second time in the wrap branches.
         if (text.IndexOf('\n') < 0 && (width <= 0 || Measure(font, text, letterSpacing) <= width))
-        {
-            if (textOverflow.Equals("ellipsis", StringComparison.OrdinalIgnoreCase))
-                lines.Add(text);
-            else
-                return [text];
-        }
+            return [text];
         if (whiteSpace.Equals("pre", StringComparison.OrdinalIgnoreCase) ||
             whiteSpace.Equals("nowrap", StringComparison.OrdinalIgnoreCase))
         {

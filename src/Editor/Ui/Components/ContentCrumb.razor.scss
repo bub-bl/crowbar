@@ -1,0 +1,23 @@
+@use '../_editor-theme' as *;
+
+.crumb {
+    height: 18px;
+    padding: 0 2px;
+    color: $text-muted;
+    font-size: 10px;
+    line-height: 18px;
+    cursor: pointer;
+
+    &:hover {
+        color: $text-bright;
+    }
+}
+
+.crumb-active {
+    color: $text;
+    cursor: default;
+
+    &:hover {
+        color: $text;
+    }
+}
