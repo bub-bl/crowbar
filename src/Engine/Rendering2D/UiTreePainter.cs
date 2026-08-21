@@ -608,13 +608,30 @@ public sealed class UiTreePainter
         var wrap = style.WhiteSpace is "nowrap" or "pre" ? 0f : contentWidth;
         var singleLine = wrap == 0f || !transformed.Contains('\n');
 
-        // Selection highlight and caret are placed with the same measurement the
-        // renderer uses for alignment, so they track the glyphs exactly.
+        // text-overflow: ellipsis truncates the painted line to the content box.
+        // The alignment origin must be computed from that painted string, not the
+        // original overflowing value. Otherwise centered text falls back to the
+        // left edge and glyph side bearings can clip its first letter.
         var measureStyle = new TextStyle(style.FontSize, color, style.FontFamily, style.FontWeight, style.LetterSpacing);
-        var measured = singleLine ? _renderer.MeasureText(transformed, measureStyle) : 0f;
-        var x = align == TextAlign.Center ? left + Math.Max(0, (contentWidth - measured) / 2f)
-            : align == TextAlign.Right ? left + Math.Max(0, contentWidth - measured)
-            : left;
+        var canEllipsize = singleLine && contentWidth > 0 &&
+            style.TextOverflow.Equals("ellipsis", StringComparison.OrdinalIgnoreCase);
+        var overflowing = canEllipsize && _renderer.MeasureText(transformed, measureStyle) > contentWidth;
+        // Glyph quads include a small MSDF field around the ink. When an
+        // overflowing centered run starts exactly at the clip edge, that field
+        // clips the first glyph's left side bearing (most visible on names such
+        // as `Crate_basecolor...`). Reserve the field on both sides before
+        // truncating and aligning the painted run.
+        var textInset = overflowing ? Math.Min(GlyphRasterizer.Padding, contentWidth / 2f) : 0f;
+        var paintWidth = Math.Max(0, contentWidth - textInset * 2f);
+        var drawText = overflowing
+            ? Ellipsize(transformed, paintWidth, measureStyle)
+            : transformed;
+        var measured = singleLine ? _renderer.MeasureText(drawText, measureStyle) : 0f;
+        var alignmentLeft = left + textInset;
+        var alignmentWidth = Math.Max(0, contentWidth - textInset * 2f);
+        var x = align == TextAlign.Center ? alignmentLeft + Math.Max(0, (alignmentWidth - measured) / 2f)
+            : align == TextAlign.Right ? alignmentLeft + Math.Max(0, alignmentWidth - measured)
+            : alignmentLeft;
 
         if (!isPlaceholder && panel is TextInput input && input.HasSelection && singleLine)
         {
@@ -624,16 +641,6 @@ public sealed class UiTreePainter
             var selRight = x + _renderer.MeasureText(transformed[..end], measureStyle);
             _renderer.DrawRect(new RectF(selLeft, y, Math.Max(0, selRight - selLeft), lineHeight), ColorF.FromRgba(50, 120, 220).WithAlpha(alpha));
         }
-
-        // text-overflow: ellipsis truncates the painted line to the content box.
-        // The layout pass measured it the same way (a trailing ellipsis), but
-        // SixLabors only wraps and never ellipsizes, so the raw string would
-        // spill past the clipped box. Truncate before drawing so the glyphs
-        // match the measured layout box.
-        var drawText = singleLine && contentWidth > 0 &&
-            style.TextOverflow.Equals("ellipsis", StringComparison.OrdinalIgnoreCase)
-            ? Ellipsize(transformed, contentWidth, measureStyle)
-            : transformed;
 
         // A nowrap line has no wrapping box for the text renderer to align within,
         // so use the measured position calculated above and render it as a left-

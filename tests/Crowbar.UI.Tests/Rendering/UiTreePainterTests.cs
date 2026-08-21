@@ -236,6 +236,22 @@ public class UiTreePainterTests
     }
 
     [Fact]
+    public void Paint_CenteredEllipsizedTextKeepsLeadingGlyphInsideBox()
+    {
+        using var ui = TestUi.Create(320, 200);
+        var label = new Label("Crate_basecolor_roughness");
+        label.AddClass("label");
+        ui.Screen.AddChild(label);
+        ui.LoadStyles(".label { position: absolute; left: 10px; top: 10px; width: 70px; color: #ffffff; font-size: 20px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }");
+
+        var (renderer, _) = Paint(ui);
+
+        Assert.NotEmpty(renderer.TexturedVerts);
+        var minX = renderer.TexturedVerts.Min(vertex => vertex.Position.X);
+        Assert.True(minX >= 10f, $"the leading glyph must not be clipped by the text container (min X: {minX:0.##})");
+    }
+
+    [Fact]
     public void Paint_TextEllipsisInheritedByDescendantTextNode()
     {
         // The real editor tree is <span class="tree-text">Label</span>: the
