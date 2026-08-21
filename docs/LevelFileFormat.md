@@ -71,7 +71,7 @@ writing to a `.tmp` file and then `MoveFile` over the destination.
 
 | Field | Role |
 |---|---|
-| `type` | Short name of the type (e.g. `MeshRenderer`, `PointLight`). Resolved via `ComponentTypeRegistry` on load. |
+| `type` | Short name of the type (e.g. `MeshRenderer`, `PointLight`). Resolved via `TypeRegistry` on load. |
 | `transform` | Local transform of spatial components (`TransformComponent`), in canonical form `px,py,pz,rx,ry,rz,rw,sx,sy,sz` (invariant culture). Absent for purely logical components. |
 | `properties` | Values of public **writable** properties marked `[Property]` (the same reflective contract as the inspector). Read-only properties (derived values, e.g. `DirectionalLight.Direction`) are not persisted: they recompute. |
 

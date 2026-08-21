@@ -57,7 +57,7 @@ public sealed class StatusBarTests
     }
 
     [Fact]
-    public void ComponentTypeRegistryRegistersAndUnregistersAssemblyComponents()
+    public void TypeRegistryRegistersAndUnregistersAssemblyComponents()
     {
         using var dir = TestUi.TempDir("registry");
         dir.Write("Demo.cs", """
@@ -70,20 +70,20 @@ public sealed class StatusBarTests
             """);
 
         using var assembly = new ScriptCompiler([typeof(ScriptHost).Assembly]).CompileDirectory(dir.Path, "RegistryGame");
-        var engineOnlyCount = ComponentTypeRegistry.AllComponentTypes.Count;
+        var engineOnlyCount = GlobalNamespaces.TypeLibrary.Registry.All.Count;
 
         // The editor registers the game project's assembly: concrete,
         // instantiable Component types become attachable by their short name.
-        ComponentTypeRegistry.RegisterAssembly(assembly.Assembly);
-        Assert.Contains(ComponentTypeRegistry.AllComponentTypes, t => t.Name == "DemoComponent");
-        Assert.Null(ComponentTypeRegistry.Resolve("AbstractComponent")); // abstract
-        Assert.Null(ComponentTypeRegistry.Resolve("NoCtorComponent")); // no parameterless constructor
-        Assert.Null(ComponentTypeRegistry.Resolve("NotAComponent")); // not a Component
+        GlobalNamespaces.TypeLibrary.Registry.RegisterAssembly(assembly.Assembly);
+        Assert.Contains(GlobalNamespaces.TypeLibrary.Registry.All, t => t.Name == "DemoComponent");
+        Assert.Null(GlobalNamespaces.TypeLibrary.Registry.Resolve("AbstractComponent")); // abstract
+        Assert.Null(GlobalNamespaces.TypeLibrary.Registry.Resolve("NoCtorComponent")); // no parameterless constructor
+        Assert.Null(GlobalNamespaces.TypeLibrary.Registry.Resolve("NotAComponent")); // not a Component
 
         // A full reload unregisters the previous generation's types.
-        ComponentTypeRegistry.UnregisterAssembly(assembly.Assembly);
-        Assert.Equal(engineOnlyCount, ComponentTypeRegistry.AllComponentTypes.Count);
-        Assert.Null(ComponentTypeRegistry.Resolve("DemoComponent"));
+        GlobalNamespaces.TypeLibrary.Registry.UnregisterAssembly(assembly.Assembly);
+        Assert.Equal(engineOnlyCount, GlobalNamespaces.TypeLibrary.Registry.All.Count);
+        Assert.Null(GlobalNamespaces.TypeLibrary.Registry.Resolve("DemoComponent"));
     }
 
     [Fact]
@@ -107,8 +107,8 @@ public sealed class StatusBarTests
 
         // The editor resolves the component by name through the registry — it
         // never references the game's types — then attaches an instance.
-        ComponentTypeRegistry.RegisterAssembly(assembly.Assembly);
-        var type = ComponentTypeRegistry.Resolve("DemoComponent");
+        GlobalNamespaces.TypeLibrary.Registry.RegisterAssembly(assembly.Assembly);
+        var type = GlobalNamespaces.TypeLibrary.Registry.Resolve("DemoComponent");
         Assert.NotNull(type);
 
         using var world = new World();

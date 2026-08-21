@@ -64,14 +64,10 @@ public readonly record struct ModelLoadProgress(ModelLoadStage Stage, float Frac
 /// (<see cref="Load"/>), which also converts glTF PBR materials and their
 /// textures into engine <see cref="Material"/>s using the standard PBR shader.
 /// </summary>
-public sealed class Model
+public sealed class Model : ResourceFile
 {
     private static readonly Assimp Api = Assimp.GetApi();
     private static Model? _error;
-
-    internal static readonly ResourceCache<Model> Cache = new(
-        static path => ImportModel(path, null, CancellationToken.None),
-        static model => model.ReleaseResources());
 
     public string Name { get; }
     public IReadOnlyList<Mesh> Meshes { get; }
@@ -88,9 +84,11 @@ public sealed class Model
     /// <summary>
     /// The content path this model was loaded from, or null for procedural
     /// models (primitives and the error model). Shared cache identity:
-    /// <see cref="Retain"/>/<see cref="Release"/> act on this path.
+    /// <see cref="Retain"/>/<see cref="Release"/> act on this path. It is a
+    /// facade over the inherited <see cref="ResourceFile.Path"/>, which is
+    /// empty for procedural models.
     /// </summary>
-    public string? ResourcePath { get; }
+    public string? ResourcePath => string.IsNullOrEmpty(Path) ? null : Path;
 
     /// <summary>
     /// Every material referenced by the model's meshes, in the order the
@@ -143,7 +141,8 @@ public sealed class Model
             : Bounds.FromPoints(meshes.SelectMany(mesh => mesh.Vertices).Select(v => v.Position));
         IsProcedural = isProcedural;
         IsError = isError;
-        ResourcePath = resourcePath;
+        if (resourcePath is not null)
+            Path = resourcePath;
     }
 
     /// <summary>
@@ -183,10 +182,18 @@ public sealed class Model
     /// imported model across every load of the same path. See
     /// <see cref="ImportModel"/> for the conversion details.
     /// </summary>
+    /// <summary>The raw importer used by the shared cache (no progress, no cancellation).</summary>
+    internal static Model Import(string path) => ImportModel(path, null, CancellationToken.None);
+
+    /// <summary>
+    /// Imports a 3D model file, sharing the instance across every load of the
+    /// same path through the global <see cref="Global.ResourceLibrary"/> cache.
+    /// Throws when the file is missing or unreadable.
+    /// </summary>
     public static Model Load(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return Cache.Load(path);
+        return ResourceLibrary.Load<Model>(path);
     }
 
     /// <summary>
@@ -314,46 +321,47 @@ public sealed class Model
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return Cache.LoadAsync(path, token => ImportModel(path, progress, token), cancellationToken);
+        return ResourceLibrary.LoadAsync(path, token => ImportModel(path, progress, token), cancellationToken);
     }
 
     /// <summary>Records a holder reference for a file-loaded model (no-op for procedural models).</summary>
     public void Retain()
     {
         if (ResourcePath is not null)
-            Cache.Retain(ResourcePath);
+            ResourceLibrary.Retain<Model>(ResourcePath);
     }
 
     /// <summary>Drops a holder reference; the cache entry is discarded when the last holder releases.</summary>
     public void Release()
     {
         if (ResourcePath is not null)
-            Cache.Release(ResourcePath);
+            ResourceLibrary.Release<Model>(ResourcePath);
     }
 
     /// <summary>Discards the cached model at <paramref name="path"/> so the next load re-imports it.</summary>
-    public static void Invalidate(string path) => Cache.Invalidate(path);
+    public static void Invalidate(string path) => ResourceLibrary.Invalidate<Model>(path);
 
     /// <summary>Discards every cached model.</summary>
-    public static void ClearCache() => Cache.Clear();
+    public static void ClearCache() => ResourceLibrary.Clear<Model>();
 
-    internal static int CachedCount => Cache.Count;
+    internal static int CachedCount => ResourceLibrary.CachedCount<Model>();
 
-    internal static int GetReferenceCount(string path) => Cache.GetReferenceCount(path);
+    internal static int GetReferenceCount(string path) => ResourceLibrary.GetReferenceCount<Model>(path);
 
     private IEnumerable<Texture2D> DistinctTextures() =>
         Materials.SelectMany(material => material.Textures.Values).Distinct();
+
+    /// <summary>Releases the model's textures when the cache discards it (the last holder released).</summary>
+    internal void ReleaseResources()
+    {
+        foreach (var texture in DistinctTextures())
+            texture.Release();
+    }
 
     private void RetainTextures()
     {
         foreach (var texture in DistinctTextures())
             texture.Retain();
-    }
-
-    private void ReleaseResources()
-    {
-        foreach (var texture in DistinctTextures())
-            texture.Release();
     }
 
     private static Model CreateErrorModel()

@@ -13,26 +13,33 @@ namespace Crowbar.Engine.Audio;
 /// <see cref="AudioStream"/>). Channels are normalized to interleaved stereo
 /// <see cref="float"/>.
 /// </summary>
-public sealed class AudioClip
+public sealed class AudioClip : ResourceFile
 {
-    internal static readonly ResourceCache<AudioClip> Cache = new(CreateLoaded);
+    /// <summary>The raw importer used by the shared cache.</summary>
+    internal static AudioClip Import(string path) => CreateLoaded(path);
 
     /// <summary>Maximum number of min/max buckets in the waveform <see cref="Envelope"/>.</summary>
     public const int MaxEnvelopeBuckets = 1024;
 
     /// <summary>
     /// The content path the clip came from, or null for a clip created in code
-    /// (<see cref="Create"/>). Identity of the shared cache.
+    /// (<see cref="Create"/>). Identity of the shared cache. It is a facade
+    /// over the inherited <see cref="ResourceFile.Path"/>, which is empty for
+    /// created clips.
     /// </summary>
-    public string? ResourcePath { get; }
+    public string? ResourcePath => string.IsNullOrEmpty(Path) ? null : Path;
 
     public string Name { get; }
     public int SampleRate { get; }
     public int Channels { get; }
     public int Frames { get; }
 
-    /// <summary>Interleaved stereo samples (length = <see cref="Frames"/> x 2).</summary>
-    public float[] Data { get; }
+    /// <summary>
+    /// Interleaved stereo samples (length = <see cref="Frames"/> x 2). Hides
+    /// the base <see cref="ResourceFile.Data"/> stream, which has no meaning
+    /// for a clip — the samples <em>are</em> the content, decoded eagerly.
+    /// </summary>
+    public new float[] Data { get; }
 
     /// <summary>Number of (min, max) buckets in <see cref="Envelope"/>.</summary>
     public int EnvelopeBucketCount { get; }
@@ -51,7 +58,8 @@ public sealed class AudioClip
     private AudioClip(string name, string? resourcePath, int sampleRate, int channels, float[] data)
     {
         Name = name;
-        ResourcePath = resourcePath;
+        if (resourcePath is not null)
+            Path = resourcePath;
         SampleRate = sampleRate;
         Channels = channels;
         Data = data;
@@ -64,10 +72,15 @@ public sealed class AudioClip
     /// Opens an audio file (WAV, AIFF, ...) and decodes it fully. The same path
     /// always returns the same instance (decoded once).
     /// </summary>
+    /// <summary>
+    /// Opens an audio file (WAV, AIFF, ...) and decodes it fully, sharing the
+    /// instance across every load of the same path through the global
+    /// <see cref="Global.ResourceLibrary"/> cache.
+    /// </summary>
     public static AudioClip Load(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return Cache.Load(path);
+        return ResourceLibrary.Load<AudioClip>(path);
     }
 
     /// <summary>
@@ -77,7 +90,7 @@ public sealed class AudioClip
     public static Task<AudioClip> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return Cache.LoadAsync(path, token => DecodeFile(path, token), cancellationToken);
+        return ResourceLibrary.LoadAsync(path, token => DecodeFile(path, token), cancellationToken);
     }
 
     /// <summary>
@@ -109,26 +122,26 @@ public sealed class AudioClip
     }
 
     /// <summary>Drops the cached clip at <paramref name="path"/> so it is re-decoded on next load.</summary>
-    public static void Invalidate(string path) => Cache.Invalidate(path);
+    public static void Invalidate(string path) => ResourceLibrary.Invalidate<AudioClip>(path);
 
     /// <summary>Drops every cached clip.</summary>
-    public static void ClearCache() => Cache.Clear();
+    public static void ClearCache() => ResourceLibrary.Clear<AudioClip>();
 
     /// <summary>Registers a retaining reference for a clip loaded from a file.</summary>
     public void Retain()
     {
         if (ResourcePath is not null)
-            Cache.Retain(ResourcePath);
+            ResourceLibrary.Retain<AudioClip>(ResourcePath);
     }
 
     /// <summary>Releases a retaining reference (the entry is dropped on the last release).</summary>
     public void Release()
     {
         if (ResourcePath is not null)
-            Cache.Release(ResourcePath);
+            ResourceLibrary.Release<AudioClip>(ResourcePath);
     }
 
-    internal static int CachedCount => Cache.Count;
+    internal static int CachedCount => ResourceLibrary.CachedCount<AudioClip>();
 
     /// <summary>
     /// Merges <paramref name="clips"/> into one stereo clip (same sample rate).

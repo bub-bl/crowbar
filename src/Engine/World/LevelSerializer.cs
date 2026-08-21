@@ -321,7 +321,7 @@ public static class LevelSerializer
 
     private static void AddComponent(Entity entity, LevelComponentData componentData, Action<string> warning)
     {
-        var type = ComponentTypeRegistry.Resolve(componentData.Type);
+        var type = TypeLibrary.Registry.Resolve(componentData.Type);
         if (type is null)
         {
             warning($"Unknown component type '{componentData.Type}' on '{entity.Name}'; skipped (forward compatibility).");

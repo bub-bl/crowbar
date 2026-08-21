@@ -11,15 +11,20 @@ namespace Crowbar.Engine;
 /// Names that resolve to nothing are skipped by the deserializer — that is what
 /// makes a level file tolerant of components that were renamed or removed since
 /// it was saved.
+///
+/// An instance is owned by <see cref="Global.TypeLibrary"/> (its
+/// <c>Registry</c> property) — the registry is the cacheable index behind the
+/// library, and it is deliberately an instance rather than a static so the
+/// library owns its state.
 /// </summary>
-public static class ComponentTypeRegistry
+public sealed class TypeRegistry
 {
-    private static Dictionary<string, Type>? _index;
-    private static readonly Dictionary<string, Assembly> Owner = new(StringComparer.Ordinal);
-    private static readonly Lock Lock = new();
+    private Dictionary<string, Type>? _index;
+    private readonly Dictionary<string, Assembly> _owner = new(StringComparer.Ordinal);
+    private readonly Lock _lock = new();
 
     /// <summary>Resolves a component type by its short name, or null when unknown.</summary>
-    public static Type? Resolve(string shortName)
+    public Type? Resolve(string shortName)
     {
         if (string.IsNullOrEmpty(shortName))
             return null;
@@ -34,17 +39,17 @@ public static class ComponentTypeRegistry
     /// components are already indexed; this is for individual game component
     /// types.
     /// </summary>
-    public static void Register(Type type)
+    public void Register(Type type)
     {
         ArgumentNullException.ThrowIfNull(type);
         if (!typeof(Component).IsAssignableFrom(type))
             throw new ArgumentException($"'{type.Name}' is not a Component type.", nameof(type));
 
-        lock (Lock)
+        lock (_lock)
         {
             var index = _index ??= BuildIndex();
             index[type.Name] = type;
-            Owner[type.Name] = type.Assembly;
+            _owner[type.Name] = type.Assembly;
         }
     }
 
@@ -53,10 +58,10 @@ public static class ComponentTypeRegistry
     /// assembly (the editor calls this after loading or hot-reloading the game
     /// project, so its components become attachable).
     /// </summary>
-    public static void RegisterAssembly(Assembly assembly)
+    public void RegisterAssembly(Assembly assembly)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        lock (Lock)
+        lock (_lock)
         {
             var index = _index ??= BuildIndex();
             foreach (var type in assembly.GetTypes())
@@ -66,7 +71,7 @@ public static class ComponentTypeRegistry
                 if (type.GetConstructor(Type.EmptyTypes) is null)
                     continue;
                 index[type.Name] = type;
-                Owner[type.Name] = assembly;
+                _owner[type.Name] = assembly;
             }
         }
     }
@@ -75,17 +80,17 @@ public static class ComponentTypeRegistry
     /// Removes every component type contributed by an assembly (called on full
     /// hot reload so types of the unloaded generation no longer resolve).
     /// </summary>
-    public static void UnregisterAssembly(Assembly assembly)
+    public void UnregisterAssembly(Assembly assembly)
     {
         ArgumentNullException.ThrowIfNull(assembly);
-        lock (Lock)
+        lock (_lock)
         {
             if (_index is null)
                 return;
-            foreach (var name in Owner.Where(kv => kv.Value == assembly).Select(kv => kv.Key).ToArray())
+            foreach (var name in _owner.Where(kv => kv.Value == assembly).Select(kv => kv.Key).ToArray())
             {
                 _index.Remove(name);
-                Owner.Remove(name);
+                _owner.Remove(name);
             }
         }
     }
@@ -95,7 +100,7 @@ public static class ComponentTypeRegistry
     /// own components plus the registered game project's. The editor uses this
     /// to build its Add Component list.
     /// </summary>
-    public static IReadOnlyList<Type> AllComponentTypes
+    public IReadOnlyList<Type> All
     {
         get
         {

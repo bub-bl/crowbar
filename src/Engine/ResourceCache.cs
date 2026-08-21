@@ -61,6 +61,13 @@ internal sealed class ResourceCache<T> where T : class
         return false;
     }
 
+    /// <summary>Snapshot of every cached value (for enumeration, e.g. <c>ResourceLibrary.GetAll</c>).</summary>
+    public T[] Snapshot()
+    {
+        lock (_entries)
+            return [.. _entries.Values.Select(entry => entry.Value)];
+    }
+
     /// <summary>
     /// Returns the shared instance for <paramref name="path"/>, loading it on
     /// first use. Does not record a holder; call <see cref="Retain"/> when the

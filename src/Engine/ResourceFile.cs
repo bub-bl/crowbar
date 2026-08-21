@@ -2,6 +2,17 @@
 
 namespace Crowbar.Engine;
 
+/// <summary>
+/// The base of every resource in the engine. Two families inherit it:
+/// file <em>documents</em> (<see cref="LevelFile"/>, <see cref="CrowbarProjectFile"/>)
+/// that parse their <see cref="Data"/> through <see cref="Load"/>, and loaded
+/// <em>assets</em> (<see cref="Model"/>, <see cref="Texture2D"/>,
+/// <see cref="Audio.AudioClip"/>, <see cref="Shader"/>) imported by
+/// <see cref="Global.ResourceLibrary"/> and shared by their <see cref="Path"/>
+/// through the engine's global cache. Custom game resources inherit it and
+/// register their loader with <see cref="Global.ResourceLibrary.RegisterLoader{T}"/>
+/// to become cacheable too.
+/// </summary>
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class AssetTypeAttribute(string extension) : Attribute
 {

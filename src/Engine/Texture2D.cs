@@ -15,7 +15,7 @@ namespace Crowbar.Engine;
 /// <see cref="Height"/> or <see cref="Pixels"/>, so importing a model records
 /// its texture set without decoding every image up front.
 /// </summary>
-public sealed class Texture2D
+public sealed class Texture2D : ResourceFile
 {
     private readonly Lock _decodeLock = new();
     private (int Width, int Height, byte[] Pixels)? _decoded;
@@ -30,9 +30,11 @@ public sealed class Texture2D
     /// <summary>
     /// The content path this texture was loaded from, or null for textures
     /// created in code (<see cref="Create"/>). Shared cache identity:
-    /// <see cref="Retain"/>/<see cref="Release"/> act on this path.
+    /// <see cref="Retain"/>/<see cref="Release"/> act on this path. It is a
+    /// facade over the inherited <see cref="ResourceFile.Path"/>, which is
+    /// empty for created textures.
     /// </summary>
-    public string? ResourcePath { get; }
+    public string? ResourcePath => string.IsNullOrEmpty(Path) ? null : Path;
 
     public string Name { get; }
 
@@ -95,12 +97,14 @@ public sealed class Texture2D
         }
     }
 
-    internal static readonly ResourceCache<Texture2D> Cache = new(CreateLazy);
+    /// <summary>The raw importer used by the shared cache.</summary>
+    internal static Texture2D Import(string path) => CreateLazy(path);
 
     private Texture2D(string name, string? resourcePath, (int Width, int Height, byte[] Pixels)? decoded = null)
     {
         Name = name;
-        ResourcePath = resourcePath;
+        if (resourcePath is not null)
+            Path = resourcePath;
         _decoded = decoded;
     }
 
@@ -110,35 +114,40 @@ public sealed class Texture2D
     /// once per path and the renderer uploads a single GPU texture for it. The
     /// decode itself is deferred until the pixels are first read.
     /// </summary>
+    /// <summary>
+    /// Opens an image file and returns its texture, sharing the instance across
+    /// every load of the same path through the global
+    /// <see cref="Global.ResourceLibrary"/> cache.
+    /// </summary>
     public static Texture2D Load(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return Cache.Load(path);
+        return ResourceLibrary.Load<Texture2D>(path);
     }
 
     /// <summary>Records a holder reference for a file-loaded texture (no-op for created textures).</summary>
     public void Retain()
     {
         if (ResourcePath is not null)
-            Cache.Retain(ResourcePath);
+            ResourceLibrary.Retain<Texture2D>(ResourcePath);
     }
 
     /// <summary>Drops a holder reference; the cache entry is discarded when the last holder releases.</summary>
     public void Release()
     {
         if (ResourcePath is not null)
-            Cache.Release(ResourcePath);
+            ResourceLibrary.Release<Texture2D>(ResourcePath);
     }
 
     /// <summary>Discards the cached texture at <paramref name="path"/> so the next load re-decodes it.</summary>
-    public static void Invalidate(string path) => Cache.Invalidate(path);
+    public static void Invalidate(string path) => ResourceLibrary.Invalidate<Texture2D>(path);
 
     /// <summary>Discards every cached texture.</summary>
-    public static void ClearCache() => Cache.Clear();
+    public static void ClearCache() => ResourceLibrary.Clear<Texture2D>();
 
-    internal static int CachedCount => Cache.Count;
+    internal static int CachedCount => ResourceLibrary.CachedCount<Texture2D>();
 
-    internal static int GetReferenceCount(string path) => Cache.GetReferenceCount(path);
+    internal static int GetReferenceCount(string path) => ResourceLibrary.GetReferenceCount<Texture2D>(path);
 
     /// <summary>
     /// Creates the lazy cache entry: validate the file exists now (so a missing

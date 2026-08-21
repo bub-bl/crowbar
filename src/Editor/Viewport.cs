@@ -61,37 +61,13 @@ public sealed class Viewport
         // Selection requested from the Explorer (UI → host): applied to the
         // viewport gizmos, then the hierarchy is republished so the panel
         // reflects the current state (levels, entities, attachments).
+        var selected = renderer?.Gizmos.Selection;
         if (EditorExplorerState.ConsumeRequestedSelection() is { } requestedId &&
             world.FindEntity(requestedId) is { } requested)
             renderer?.Gizmos.Selection = requested;
-
-        // Edits queued by the inspector (UI → host) are written back to the
-        // selected entity inside one undo window: the whole batch (a field
-        // commit) is a single undoable step. A successful edit marks the level
-        // dirty through Level.MarkDirty (inside ApplyEdit).
-        var selected = renderer?.Gizmos.Selection;
-        var pendingEdits = EditorInspectorState.ConsumeEdits();
-        if (selected is not null && pendingEdits.Count > 0)
-        {
-            using var step = _editor.Level.Step("Edit a property");
-            foreach (var (key, value) in pendingEdits)
-                InspectorStateBuilder.ApplyEdit(selected, key, value);
-        }
-
-        // The inspector's Add Component requests are applied inside one undoable
-        // step (attaching marks the level dirty), then the inspector is
-        // republished so the new component's section appears immediately.
-        var addRequests = EditorInspectorState.ConsumeAddComponentRequests();
-        if (selected is not null && addRequests.Count > 0)
-        {
-            using var step = _editor.Level.Step("Add a component");
-            foreach (var typeName in addRequests)
-                TypeLibrary.AddComponent(selected, typeName);
-        }
-        EditorInspectorState.PublishAvailableComponents(TypeLibrary.AttachableTo(selected));
+        selected = renderer?.Gizmos.Selection;
 
         ExplorerTreeBuilder.Publish(world, selected);
-        InspectorStateBuilder.Publish(selected);
 
         if (renderer is null)
             return; // headless: no gizmo interaction

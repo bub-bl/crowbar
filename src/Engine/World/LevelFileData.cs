@@ -45,7 +45,7 @@ public sealed class LevelEntityData
 
 /// <summary>
 /// One component of a saved entity. <see cref="Type"/> is the component's short
-/// type name (resolved through <see cref="ComponentTypeRegistry"/> on load —
+/// type name (resolved through <see cref="TypeRegistry"/> on load —
 /// unknown names are skipped, which is the forward-compatibility contract).
 /// <see cref="Transform"/> carries the local transform of spatial components
 /// (TransformComponent-derived) in the canonical string format, and

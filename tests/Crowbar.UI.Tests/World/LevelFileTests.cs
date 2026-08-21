@@ -279,13 +279,13 @@ public class LevelFileTests
     }
 
     [Fact]
-    public void ComponentTypeRegistry_ResolvesEngineComponentsAndRejectsUnknownNames()
+    public void TypeRegistry_ResolvesEngineComponentsAndRejectsUnknownNames()
     {
-        Assert.Equal(typeof(MeshRenderer), ComponentTypeRegistry.Resolve("MeshRenderer"));
-        Assert.Equal(typeof(PointLight), ComponentTypeRegistry.Resolve("PointLight"));
-        Assert.Equal(typeof(Camera), ComponentTypeRegistry.Resolve("Camera"));
-        Assert.Null(ComponentTypeRegistry.Resolve("HologramProjector"));
-        Assert.Null(ComponentTypeRegistry.Resolve(""));
+        Assert.Equal(typeof(MeshRenderer), GlobalNamespaces.TypeLibrary.Registry.Resolve("MeshRenderer"));
+        Assert.Equal(typeof(PointLight), GlobalNamespaces.TypeLibrary.Registry.Resolve("PointLight"));
+        Assert.Equal(typeof(Camera), GlobalNamespaces.TypeLibrary.Registry.Resolve("Camera"));
+        Assert.Null(GlobalNamespaces.TypeLibrary.Registry.Resolve("HologramProjector"));
+        Assert.Null(GlobalNamespaces.TypeLibrary.Registry.Resolve(""));
     }
 
     [Fact]
@@ -296,7 +296,7 @@ public class LevelFileTests
         // level load must then pick it up and restore its properties. This is
         // the contract the editor relies on when it starts the game project
         // before loading the saved level.
-        ComponentTypeRegistry.Register(typeof(DemoTestComponent));
+        GlobalNamespaces.TypeLibrary.Registry.Register(typeof(DemoTestComponent));
 
         using var sourceWorld = new World();
         var source = sourceWorld.CreateLevel("GameComponents");

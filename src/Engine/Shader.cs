@@ -53,23 +53,19 @@ public sealed record ShaderParameterDefinition(string Name, Type Type);
 /// sidecar (<c>-reflection-json</c>) that describes its entry points, bind
 /// groups, struct definitions and material parameters. Slang is the single
 /// source of truth — the engine never re-derives the layout from source text.
+///
+/// Shaders are cached through the global <see cref="Global.ResourceLibrary"/>
+/// like <see cref="Model"/> and <see cref="Texture2D"/>: loading the same
+/// shader twice returns the same instance. Shaders are compiled at build time
+/// (slangc) and never hot-reloaded, so the loaded instance never goes stale;
+/// <see cref="Invalidate"/> and <see cref="ClearCache"/> exist for tooling
+/// and tests. This cache is what keeps material restore cheap: without it,
+/// every undo/redo re-read the WGSL file and its reflection sidecar once per
+/// material.
 /// </summary>
-public sealed class Shader
+public sealed class Shader : ResourceFile
 {
-    /// <summary>
-    /// Process-wide cache keyed by the canonical content path, like
-    /// <see cref="Model"/> and <see cref="Texture2D"/>: loading the same
-    /// shader twice returns the same instance. Shaders are compiled at build
-    /// time (slangc) and never hot-reloaded, so the loaded instance never
-    /// goes stale; <see cref="Invalidate"/> and <see cref="ClearCache"/> exist
-    /// for tooling and tests. This cache is what keeps material restore cheap:
-    /// without it, every undo/redo re-read the WGSL file and its reflection
-    /// sidecar once per material.
-    /// </summary>
-    private static readonly ResourceCache<Shader> Cache = new(static path => LoadUncached(path));
-
-    public string Path { get; }
-
+    /// <summary>The canonical resolved path of the file, for diagnostics.</summary>
     public string FilePath { get; }
 
     public string Name { get; }
@@ -183,17 +179,20 @@ public sealed class Shader
                    $"Shader '{Name}' has no technique named '{name}'. Available: {string.Join(", ", Techniques.Select(t => t.Name))}");
     }
 
+    /// <summary>The raw importer used by the shared <see cref="Global.ResourceLibrary"/> cache.</summary>
+    internal static Shader Import(string path) => LoadUncached(path);
+
     public static Shader Load(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return Cache.Load(path);
+        return ResourceLibrary.Load<Shader>(path);
     }
 
     /// <summary>Discards the cached shader at <paramref name="path"/> so the next load re-reads it.</summary>
-    public static void Invalidate(string path) => Cache.Invalidate(path);
+    public static void Invalidate(string path) => ResourceLibrary.Invalidate<Shader>(path);
 
     /// <summary>Discards every cached shader.</summary>
-    public static void ClearCache() => Cache.Clear();
+    public static void ClearCache() => ResourceLibrary.Clear<Shader>();
 
     private static Shader LoadUncached(string path)
     {

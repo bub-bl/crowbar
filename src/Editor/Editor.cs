@@ -47,6 +47,9 @@ public sealed class Editor : Application
     /// <summary>The persistent notification popup window.</summary>
     public NotificationWindow NotificationWindow { get; private set; } = null!;
 
+    /// <summary>Consumes and applies inspector UI requests (property edits, component additions).</summary>
+    public InspectorBridge InspectorBridge { get; private set; } = null!;
+
     // The engine exposes Platform/OpenWindow/Viewport* as protected session
     // members; the editor tools reach them through these public accessors.
     public new IPlatform Platform => base.Platform;
@@ -67,6 +70,7 @@ public sealed class Editor : Application
         NotificationWindow = new NotificationWindow(this);
         GameProject = new GameProject(NotificationWindow);
         Viewport = new Viewport(this);
+        InspectorBridge = new InspectorBridge(this);
         Shortcuts = new Shortcuts(this, NotificationWindow);
 
         // The translation gizmo snap follows the grid cell size.
@@ -142,8 +146,10 @@ public sealed class Editor : Application
         // Script host: applies detected hot reloads and prunes the toasts.
         GameProject.Update();
 
-        // Viewport interaction: gizmos, picking, selection, inspector/explorer.
+        // Viewport interaction: gizmos, picking, selection, explorer.
         Viewport.Update(deltaTime, ViewportWidth, ViewportHeight);
+        // Inspector bridge: consume UI requests (edits, add-component), publish state.
+        InspectorBridge.Update(Game.Renderer?.Gizmos.Selection);
 
         Level.PublishUndoState();
         Level.DetectUnbracketedMutations();
