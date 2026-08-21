@@ -5,19 +5,17 @@ namespace Crowbar.Engine.Audio;
 /// <summary>
 /// Short sound fully decoded in memory, ready to be played by the mixer. It is
 /// the audio equivalent of <see cref="Texture2D"/>: a file asset loaded through
-/// the global <see cref="ResourceCache{T}"/> (canonical path, sharing by path,
-/// <see cref="Invalidate"/> for hot reload) and a pure CPU representation, with
-/// no backend dependency.
+/// the global <see cref="Global.ResourceLibrary"/> (canonical path, sharing by
+/// path, <see cref="Invalidate"/> for hot reload) and a pure CPU
+/// representation, with no backend dependency.
 ///
 /// Files are decoded on open (they are short by nature; long music goes through
 /// <see cref="AudioStream"/>). Channels are normalized to interleaved stereo
 /// <see cref="float"/>.
 /// </summary>
+[FileAsset]
 public sealed class AudioClip : ResourceFile
 {
-    /// <summary>The raw importer used by the shared cache.</summary>
-    internal static AudioClip Import(string path) => CreateLoaded(path);
-
     /// <summary>Maximum number of min/max buckets in the waveform <see cref="Envelope"/>.</summary>
     public const int MaxEnvelopeBuckets = 1024;
 
@@ -29,22 +27,22 @@ public sealed class AudioClip : ResourceFile
     /// </summary>
     public string? ResourcePath => string.IsNullOrEmpty(Path) ? null : Path;
 
-    public string Name { get; }
-    public int SampleRate { get; }
-    public int Channels { get; }
-    public int Frames { get; }
+    public string Name { get; private set; } = string.Empty;
+    public int SampleRate { get; private set; }
+    public int Channels { get; private set; }
+    public int Frames { get; private set; }
 
     /// <summary>
     /// Interleaved stereo samples (length = <see cref="Frames"/> x 2). Hides
     /// the base <see cref="ResourceFile.Data"/> stream, which has no meaning
     /// for a clip — the samples <em>are</em> the content, decoded eagerly.
     /// </summary>
-    public new float[] Data { get; }
+    public new float[] Data { get; private set; } = [];
 
     /// <summary>Number of (min, max) buckets in <see cref="Envelope"/>.</summary>
-    public int EnvelopeBucketCount { get; }
+    public int EnvelopeBucketCount { get; private set; }
 
-    private readonly float[] _envelope;
+    private float[] _envelope = [];
 
     public TimeSpan Duration => TimeSpan.FromSeconds(Frames / (double)SampleRate);
 
@@ -54,6 +52,11 @@ public sealed class AudioClip : ResourceFile
     /// in O(buckets) without scanning the samples every frame.
     /// </summary>
     public ReadOnlySpan<float> Envelope => _envelope.AsSpan(0, EnvelopeBucketCount * 2);
+
+    /// <summary>Allocated by the library, then populated through <see cref="Load"/>.</summary>
+    private AudioClip()
+    {
+    }
 
     private AudioClip(string name, string? resourcePath, int sampleRate, int channels, float[] data)
     {
@@ -90,7 +93,16 @@ public sealed class AudioClip : ResourceFile
     public static Task<AudioClip> LoadAsync(string path, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return ResourceLibrary.LoadAsync(path, token => DecodeFile(path, token), cancellationToken);
+        return ResourceLibrary.LoadAsync(path, token => CreateFromFile(path, token), cancellationToken);
+    }
+
+    /// <summary>Allocates a clip and decodes it into the instance, for the off-thread async path.</summary>
+    private static AudioClip CreateFromFile(string path, CancellationToken token)
+    {
+        var clip = new AudioClip();
+        clip.Path = path;
+        clip.LoadInto(token);
+        return clip;
     }
 
     /// <summary>
@@ -284,18 +296,20 @@ public sealed class AudioClip : ResourceFile
         return envelope;
     }
 
-    private static AudioClip CreateLoaded(string path)
-    {
-        if (!FileSystem.Content.FileExists(path))
-            throw new FileNotFoundException("Audio file not found.", path);
+    /// <summary>
+    /// Decodes the file at <see cref="ResourceFile.Path"/> into this instance.
+    /// The library allocates the clip, assigns its path and calls this; loading
+    /// the same path twice returns the same instance through the shared cache.
+    /// </summary>
+    public override void Load() => LoadInto(CancellationToken.None);
 
-        return DecodeFile(path, CancellationToken.None);
-    }
-
-    private static AudioClip DecodeFile(string path, CancellationToken cancellationToken)
+    private void LoadInto(CancellationToken cancellationToken)
     {
-        var data = FileSystem.Content.ReadAllBytes(path);
-        using var decoder = AudioDecoderFactory.CreateFromBytes(path, data);
+        if (!FileSystem.Content.FileExists(Path))
+            throw new FileNotFoundException("Audio file not found.", Path);
+
+        var data = FileSystem.Content.ReadAllBytes(Path);
+        using var decoder = AudioDecoderFactory.CreateFromBytes(Path, data);
 
         var buffer = new List<float>((int)Math.Min(decoder.TotalFrames, 1 << 20) * 2 + 2);
         var scratch = new float[4096 * 2];
@@ -309,13 +323,15 @@ public sealed class AudioClip : ResourceFile
         }
 
         if (buffer.Count == 0)
-            throw new InvalidDataException($"The audio file '{path}' contains no samples.");
+            throw new InvalidDataException($"The audio file '{Path}' contains no samples.");
 
-        return new AudioClip(
-            PathUtil.GetFileNameWithoutExtension(path),
-            path,
-            decoder.SampleRate,
-            2,
-            buffer.ToArray());
+        Name = PathUtil.GetFileNameWithoutExtension(Path);
+        SampleRate = decoder.SampleRate;
+        Channels = 2;
+        Data = buffer.ToArray();
+        Frames = Data.Length / Channels;
+        EnvelopeBucketCount = Frames == 0 ? 0 : Math.Min(MaxEnvelopeBuckets, Frames);
+        _envelope = ComputeEnvelope(Data, Channels, Frames, EnvelopeBucketCount);
+        IsValid = true;
     }
 }

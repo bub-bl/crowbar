@@ -63,26 +63,27 @@ public sealed record ShaderParameterDefinition(string Name, Type Type);
 /// every undo/redo re-read the WGSL file and its reflection sidecar once per
 /// material.
 /// </summary>
+[FileAsset]
 public sealed class Shader : ResourceFile
 {
     /// <summary>The canonical resolved path of the file, for diagnostics.</summary>
-    public string FilePath { get; }
+    public string FilePath { get; private set; } = string.Empty;
 
-    public string Name { get; }
+    public string Name { get; private set; } = string.Empty;
 
     /// <summary>The compiled WGSL source, ready for the WebGPU backend.</summary>
-    public string Source { get; }
+    public string Source { get; private set; } = string.Empty;
 
-    public IReadOnlyList<ShaderEntryPoint> EntryPoints { get; }
+    public IReadOnlyList<ShaderEntryPoint> EntryPoints { get; private set; } = [];
 
     /// <summary>Every resource binding declared by the shader, sorted by group then slot.</summary>
-    public IReadOnlyList<ShaderBinding> Bindings { get; }
+    public IReadOnlyList<ShaderBinding> Bindings { get; private set; } = [];
 
     /// <summary>Every struct definition the shader declares.</summary>
-    public IReadOnlyList<ShaderStruct> Structs { get; }
+    public IReadOnlyList<ShaderStruct> Structs { get; private set; } = [];
 
     /// <summary>Render passes (vertex/fragment pairs) the shader exposes.</summary>
-    public IReadOnlyList<ShaderTechnique> Techniques { get; }
+    public IReadOnlyList<ShaderTechnique> Techniques { get; private set; } = [];
 
     /// <summary>
     /// Fields of the material uniform struct (the uniform binding in group &gt;= 1
@@ -90,36 +91,14 @@ public sealed class Shader : ResourceFile
     /// <see cref="Material"/> can set, packed by <see cref="UniformPacker"/>
     /// into the struct's exact layout.
     /// </summary>
-    public IReadOnlyList<ShaderStructField> MaterialFields { get; }
+    public IReadOnlyList<ShaderStructField> MaterialFields { get; private set; } = [];
 
     /// <summary>The material fields mapped to CLR types, for parameter validation.</summary>
-    public IReadOnlyList<ShaderParameterDefinition> Parameters { get; }
+    public IReadOnlyList<ShaderParameterDefinition> Parameters { get; private set; } = [];
 
-    private Shader(
-        string requestedPath,
-        FilePath filePath,
-        string source,
-        IReadOnlyList<ShaderEntryPoint> entryPoints,
-        IReadOnlyList<ShaderBinding> bindings,
-        IReadOnlyList<ShaderStruct> structs,
-        IReadOnlyList<ShaderTechnique> techniques)
+    /// <summary>Allocated by the library, then populated through <see cref="Load"/>.</summary>
+    private Shader()
     {
-        Path = requestedPath;
-        FilePath = filePath.FullName;
-        Source = source;
-        Name = filePath.GetNameWithoutExtension() ?? string.Empty;
-        EntryPoints = entryPoints;
-        Bindings = bindings;
-        Structs = structs;
-        Techniques = techniques;
-        MaterialFields = FindMaterialFields();
-        Parameters =
-        [
-            .. MaterialFields
-                .Select(field => ShaderParameter.TryParseParameter(field.Name, field.Type))
-                .Where(parameter => parameter != null)
-                .Select(parameter => parameter!)
-        ];
     }
 
     public ShaderEntryPoint GetEntryPoint(string name)
@@ -179,27 +158,19 @@ public sealed class Shader : ResourceFile
                    $"Shader '{Name}' has no technique named '{name}'. Available: {string.Join(", ", Techniques.Select(t => t.Name))}");
     }
 
-    /// <summary>The raw importer used by the shared <see cref="Global.ResourceLibrary"/> cache.</summary>
-    internal static Shader Import(string path) => LoadUncached(path);
-
-    public static Shader Load(string path)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return ResourceLibrary.Load<Shader>(path);
-    }
-
-    /// <summary>Discards the cached shader at <paramref name="path"/> so the next load re-reads it.</summary>
-    public static void Invalidate(string path) => ResourceLibrary.Invalidate<Shader>(path);
-
-    /// <summary>Discards every cached shader.</summary>
-    public static void ClearCache() => ResourceLibrary.Clear<Shader>();
-
-    private static Shader LoadUncached(string path)
+    /// <summary>
+    /// Reads the WGSL file and its reflection sidecar and populates this
+    /// instance. The library allocates the instance, assigns
+    /// <see cref="ResourceFile.Path"/> and calls this; loading the same shader
+    /// twice returns the same instance through the shared
+    /// <see cref="Global.ResourceLibrary"/> cache.
+    /// </summary>
+    public override void Load()
     {
         var fs = FileSystem.Content;
-        var candidates = FileSystemService.IsRooted(path)
-            ? [fs.ToFilePath(path)]
-            : new[] { fs.ToFilePath(path), fs.ToWorkingDirectoryPath(path) };
+        var candidates = FileSystemService.IsRooted(Path)
+            ? [fs.ToFilePath(Path)]
+            : new[] { fs.ToFilePath(Path), fs.ToWorkingDirectoryPath(Path) };
 
         foreach (var candidate in candidates)
         {
@@ -214,16 +185,40 @@ public sealed class Shader : ResourceFile
                     sidecar.FullName);
 
             using var json = JsonDocument.Parse(fs.ReadAllText(sidecar));
-            var entryPoints = SlangShaderReflection.DetectEntryPoints(json);
-            var (bindings, structs) = SlangShaderReflection.DetectBindingsAndStructs(json);
-            var techniques = SlangShaderReflection.DetectTechniques(entryPoints);
-            return new Shader(path, candidate, source, entryPoints, bindings, structs, techniques);
+            EntryPoints = SlangShaderReflection.DetectEntryPoints(json);
+            (Bindings, Structs) = SlangShaderReflection.DetectBindingsAndStructs(json);
+            Techniques = SlangShaderReflection.DetectTechniques(EntryPoints);
+            FilePath = candidate.FullName;
+            Name = candidate.GetNameWithoutExtension() ?? string.Empty;
+            Source = source;
+            MaterialFields = FindMaterialFields();
+            Parameters =
+            [
+                .. MaterialFields
+                    .Select(field => ShaderParameter.TryParseParameter(field.Name, field.Type))
+                    .Where(parameter => parameter != null)
+                    .Select(parameter => parameter!)
+            ];
+            IsValid = true;
+            return;
         }
 
         throw new FileNotFoundException(
-            $"Shader file '{path}' was not found.",
-            path);
+            $"Shader file '{Path}' was not found.",
+            Path);
     }
+
+    public static Shader Load(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        return ResourceLibrary.Load<Shader>(path);
+    }
+
+    /// <summary>Discards the cached shader at <paramref name="path"/> so the next load re-reads it.</summary>
+    public static void Invalidate(string path) => ResourceLibrary.Invalidate<Shader>(path);
+
+    /// <summary>Discards every cached shader.</summary>
+    public static void ClearCache() => ResourceLibrary.Clear<Shader>();
 
     private IReadOnlyList<ShaderStructField> FindMaterialFields()
     {

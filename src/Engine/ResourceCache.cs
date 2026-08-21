@@ -3,6 +3,44 @@ using Crowbar.FileSystems;
 namespace Crowbar.Engine;
 
 /// <summary>
+/// Non-generic view of a per-type resource cache, so the library can hold
+/// every type's cache in one <see cref="Dictionary{Type, IResourceCache}"/>
+/// and retrieve a resource by its <see cref="Type"/>.
+/// </summary>
+internal interface IResourceCache
+{
+    /// <summary>Number of cached entries (regardless of how many holders each has).</summary>
+    int Count { get; }
+
+    /// <summary>Returns the cached resource for <paramref name="path"/>, loading it on first use.</summary>
+    ResourceFile Load(string path);
+
+    /// <summary>Returns the cached resource for <paramref name="path"/>, or false when not loaded.</summary>
+    bool TryGet(string path, out ResourceFile? resource);
+
+    /// <summary>Returns the shared resource, loading it off the calling thread when not cached yet.</summary>
+    Task<ResourceFile> LoadAsync(string path, Func<CancellationToken, ResourceFile> load, CancellationToken cancellationToken);
+
+    /// <summary>Every cached resource of this type.</summary>
+    IReadOnlyList<ResourceFile> GetAll();
+
+    /// <summary>Records a holder reference for the cached entry at <paramref name="path"/>.</summary>
+    void Retain(string path);
+
+    /// <summary>Drops a holder reference; the entry is discarded when the last holder releases.</summary>
+    void Release(string path);
+
+    /// <summary>Discards the entry at <paramref name="path"/> so the next load re-imports it.</summary>
+    void Invalidate(string path);
+
+    /// <summary>Discards every cached entry.</summary>
+    void Clear();
+
+    /// <summary>Number of holders recorded for the entry at <paramref name="path"/>.</summary>
+    int GetReferenceCount(string path);
+}
+
+/// <summary>
 /// A process-wide cache of file-backed resources keyed by their canonical
 /// content path, so loading the same path twice returns the same instance and
 /// a model or texture is never imported or decoded more than once per path.
@@ -10,28 +48,27 @@ namespace Crowbar.Engine;
 /// Reference counting is holder-based: <see cref="Load"/> returns the shared
 /// instance without recording a holder (the cache itself keeps the entry
 /// alive), <see cref="Retain"/> records a holder and <see cref="Release"/>
-/// drops one. When the last holder releases, the entry is discarded and the
-/// optional <c>released</c> callback runs so the resource can free what it owns.
-/// <see cref="Invalidate"/> discards an entry immediately (asset reload) and
-/// <see cref="Clear"/> discards everything.
+/// drops one. When the last holder releases, the entry is discarded and
+/// disposed (resources are <see cref="IDisposable"/> through
+/// <see cref="ResourceFile"/>, so they free what they own — a model releases
+/// its retained textures). <see cref="Invalidate"/> discards an entry
+/// immediately (asset reload) and <see cref="Clear"/> discards everything.
 /// </summary>
-internal sealed class ResourceCache<T> where T : class
+internal sealed class ResourceCache : IResourceCache
 {
     private sealed class Entry
     {
-        public required T Value { get; init; }
+        public required ResourceFile Value { get; init; }
         public int References;
     }
 
     private readonly Dictionary<string, Entry> _entries = [];
-    private readonly Dictionary<string, Task<T>> _inFlight = [];
-    private readonly Func<string, T> _load;
-    private readonly Action<T>? _released;
+    private readonly Dictionary<string, Task<ResourceFile>> _inFlight = [];
+    private readonly Func<string, ResourceFile> _load;
 
-    public ResourceCache(Func<string, T> load, Action<T>? released = null)
+    public ResourceCache(Func<string, ResourceFile> load)
     {
         _load = load ?? throw new ArgumentNullException(nameof(load));
-        _released = released;
     }
 
     /// <summary>Number of cached entries (regardless of how many holders each has).</summary>
@@ -44,8 +81,8 @@ internal sealed class ResourceCache<T> where T : class
         }
     }
 
-    /// <summary>Returns the cached instance for <paramref name="path"/>, or false when not loaded.</summary>
-    public bool TryGet(string path, out T value)
+    /// <summary>Returns the cached resource for <paramref name="path"/>, or false when not loaded.</summary>
+    public bool TryGet(string path, out ResourceFile? value)
     {
         var key = CanonicalKey(path);
         lock (_entries)
@@ -57,12 +94,12 @@ internal sealed class ResourceCache<T> where T : class
             }
         }
 
-        value = null!;
+        value = null;
         return false;
     }
 
-    /// <summary>Snapshot of every cached value (for enumeration, e.g. <c>ResourceLibrary.GetAll</c>).</summary>
-    public T[] Snapshot()
+    /// <summary>Every cached resource (for enumeration, e.g. <c>ResourceLibrary.GetAll</c>).</summary>
+    public IReadOnlyList<ResourceFile> GetAll()
     {
         lock (_entries)
             return [.. _entries.Values.Select(entry => entry.Value)];
@@ -73,7 +110,7 @@ internal sealed class ResourceCache<T> where T : class
     /// first use. Does not record a holder; call <see cref="Retain"/> when the
     /// caller keeps a long-lived reference it wants to keep the entry alive for.
     /// </summary>
-    public T Load(string path)
+    public ResourceFile Load(string path)
     {
         var key = CanonicalKey(path);
         lock (_entries)
@@ -94,12 +131,15 @@ internal sealed class ResourceCache<T> where T : class
     /// completed value is installed into the cache so later (sync or async)
     /// loads reuse it. A pre-cancelled token skips the load entirely.
     /// </summary>
-    public Task<T> LoadAsync(string path, Func<CancellationToken, T> load, CancellationToken cancellationToken = default)
+    public Task<ResourceFile> LoadAsync(
+        string path,
+        Func<CancellationToken, ResourceFile> load,
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(load);
 
         var key = CanonicalKey(path);
-        Task<T> task;
+        Task<ResourceFile> task;
         lock (_entries)
         {
             if (_entries.TryGetValue(key, out var entry))
@@ -118,8 +158,8 @@ internal sealed class ResourceCache<T> where T : class
                     if (_entries.TryGetValue(key, out var existing))
                     {
                         // Another load finished first: keep the shared instance
-                        // and release the duplicate we just produced.
-                        _released?.Invoke(value);
+                        // and dispose the duplicate we just produced.
+                        Dispose(value);
                         return existing.Value;
                     }
 
@@ -157,13 +197,13 @@ internal sealed class ResourceCache<T> where T : class
 
     /// <summary>
     /// Drops one holder. When the last holder releases, the entry is discarded
-    /// and its <c>released</c> callback runs. Entries with no holders are left
-    /// in place (the cache owns them) until invalidated or cleared.
+    /// and disposed. Entries with no holders are left in place (the cache owns
+    /// them) until invalidated or cleared.
     /// </summary>
     public void Release(string path)
     {
         var key = CanonicalKey(path);
-        T? released = null;
+        ResourceFile? released = null;
         lock (_entries)
         {
             if (!_entries.TryGetValue(key, out var entry) || entry.References == 0)
@@ -178,14 +218,14 @@ internal sealed class ResourceCache<T> where T : class
         }
 
         if (released is not null)
-            _released?.Invoke(released);
+            Dispose(released);
     }
 
     /// <summary>Discards the entry at <paramref name="path"/> so the next load re-imports it.</summary>
     public void Invalidate(string path)
     {
         var key = CanonicalKey(path);
-        T? released = null;
+        ResourceFile? released = null;
         lock (_entries)
         {
             if (_entries.Remove(key, out var entry))
@@ -193,13 +233,13 @@ internal sealed class ResourceCache<T> where T : class
         }
 
         if (released is not null)
-            _released?.Invoke(released);
+            Dispose(released);
     }
 
-    /// <summary>Discards every entry and runs each entry's <c>released</c> callback.</summary>
+    /// <summary>Discards every entry and disposes each one.</summary>
     public void Clear()
     {
-        T[] released;
+        ResourceFile[] released;
         lock (_entries)
         {
             released = [.. _entries.Values.Select(entry => entry.Value)];
@@ -207,8 +247,11 @@ internal sealed class ResourceCache<T> where T : class
         }
 
         foreach (var value in released)
-            _released?.Invoke(value);
+            Dispose(value);
     }
+
+    /// <summary>Disposes a discarded resource so it frees what it owns (models release their textures).</summary>
+    private static void Dispose(ResourceFile value) => value.Dispose();
 
     /// <summary>Number of holders recorded for the entry at <paramref name="path"/>.</summary>
     public int GetReferenceCount(string path)

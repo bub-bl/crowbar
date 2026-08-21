@@ -15,6 +15,7 @@ namespace Crowbar.Engine;
 /// <see cref="Height"/> or <see cref="Pixels"/>, so importing a model records
 /// its texture set without decoding every image up front.
 /// </summary>
+[FileAsset]
 public sealed class Texture2D : ResourceFile
 {
     private readonly Lock _decodeLock = new();
@@ -36,7 +37,7 @@ public sealed class Texture2D : ResourceFile
     /// </summary>
     public string? ResourcePath => string.IsNullOrEmpty(Path) ? null : Path;
 
-    public string Name { get; }
+    public string Name { get; private set; } = string.Empty;
 
     public int Width => EnsureDecoded().Width;
     public int Height => EnsureDecoded().Height;
@@ -97,8 +98,25 @@ public sealed class Texture2D : ResourceFile
         }
     }
 
-    /// <summary>The raw importer used by the shared cache.</summary>
-    internal static Texture2D Import(string path) => CreateLazy(path);
+    /// <summary>
+    /// Validates the file and records its name; the actual decode stays lazy
+    /// (see <see cref="Width"/>). The library allocates the instance, assigns
+    /// its path and calls this; loading the same path twice returns the same
+    /// instance through the shared cache.
+    /// </summary>
+    public override void Load()
+    {
+        if (!FileSystem.Content.FileExists(Path))
+            throw new FileNotFoundException("Texture file not found.", Path);
+
+        Name = PathUtil.GetFileNameWithoutExtension(Path);
+        IsValid = true;
+    }
+
+    /// <summary>Allocated by the library, then populated through <see cref="Load"/>.</summary>
+    private Texture2D()
+    {
+    }
 
     private Texture2D(string name, string? resourcePath, (int Width, int Height, byte[] Pixels)? decoded = null)
     {
@@ -109,15 +127,10 @@ public sealed class Texture2D : ResourceFile
     }
 
     /// <summary>
-    /// Opens an image file (PNG, JPEG, WebP, …) and returns its RGBA8 texture.
-    /// The same path always returns the same instance, so a texture is decoded
-    /// once per path and the renderer uploads a single GPU texture for it. The
-    /// decode itself is deferred until the pixels are first read.
-    /// </summary>
-    /// <summary>
-    /// Opens an image file and returns its texture, sharing the instance across
-    /// every load of the same path through the global
-    /// <see cref="Global.ResourceLibrary"/> cache.
+    /// Opens an image file (PNG, JPEG, WebP, …) and returns its RGBA8 texture,
+    /// sharing the instance across every load of the same path through the
+    /// global <see cref="Global.ResourceLibrary"/> cache. The decode itself is
+    /// deferred until the pixels are first read.
     /// </summary>
     public static Texture2D Load(string path)
     {
@@ -148,19 +161,6 @@ public sealed class Texture2D : ResourceFile
     internal static int CachedCount => ResourceLibrary.CachedCount<Texture2D>();
 
     internal static int GetReferenceCount(string path) => ResourceLibrary.GetReferenceCount<Texture2D>(path);
-
-    /// <summary>
-    /// Creates the lazy cache entry: validate the file exists now (so a missing
-    /// texture fails at load, like the eager path), but defer the actual decode
-    /// until the renderer first reads the pixels.
-    /// </summary>
-    private static Texture2D CreateLazy(string path)
-    {
-        if (!FileSystem.Content.FileExists(path))
-            throw new FileNotFoundException("Texture file not found.", path);
-
-        return new Texture2D(PathUtil.GetFileNameWithoutExtension(path), path);
-    }
 
     private (int Width, int Height, byte[] Pixels) EnsureDecoded()
     {

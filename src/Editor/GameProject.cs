@@ -42,12 +42,18 @@ public sealed class GameProject
             var previous = host.Current;
             host.WatchDirectory(gameDirectory, "GameProject");
             // A project switch or full reload compiled a new assembly: drop the
-            // previous generation's component types, then register the fresh
-            // project's so they become attachable.
+            // previous generation's component types and resource types, then
+            // register the fresh project's so they become attachable/loadable.
             if (previous is not null)
+            {
                 TypeLibrary.Unregister(previous.Assembly);
+                ResourceLibrary.Unregister(previous.Assembly);
+            }
             if (host.Current is { } current)
+            {
                 TypeLibrary.Register(current.Assembly);
+                ResourceLibrary.Register(current.Assembly);
+            }
             // The project's own code publishes editor status through
             // Editor.StatusBar; clear a previous project's entries so only the
             // live project's registrations survive.
@@ -109,9 +115,14 @@ public sealed class GameProject
         // live assembly unchanged, so the types stay valid.
         if (e.Mode == ScriptReloadMode.FullReload)
         {
-            // A full reload only runs when a previous assembly exists.
+            // A full reload only runs when a previous assembly exists. Both the
+            // component types and the resource types point at the new
+            // generation: the old types no longer resolve, and their caches are
+            // dropped with the old assembly.
             TypeLibrary.Unregister(e.Previous!.Assembly);
             TypeLibrary.Register(e.Current.Assembly);
+            ResourceLibrary.Unregister(e.Previous!.Assembly);
+            ResourceLibrary.Register(e.Current.Assembly);
         }
     }
 

@@ -1,0 +1,3 @@
+// The shared API shorthand (defined in the engine): this project's files can
+// write Log.Info(...), TypeLibrary.Resolve(...), Game.World, ...
+global using static Crowbar.Engine.GlobalNamespaces;

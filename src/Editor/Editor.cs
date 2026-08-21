@@ -62,6 +62,11 @@ public sealed class Editor : Application
 
     protected override void OnInitialize()
     {
+        // The editor may ship its own [FileAsset] resource types: register its
+        // assembly like the engine's. Currently a no-op, kept so future editor
+        // assets load through the same path.
+        ResourceLibrary.Register(typeof(Editor).Assembly);
+
         // The editor tools: wired here (the engine session is up), by
         // constructor — a dependency DAG, no locator. The shared Game API was
         // already bound to this session by the Application constructor.

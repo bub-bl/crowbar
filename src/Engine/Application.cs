@@ -124,11 +124,16 @@ public abstract class Application : WindowSession
     }
 
     /// <summary>
-    /// Initializes the shared services (audio, viewport camera) before the
-    /// subclass content setup runs.
+    /// Initializes the shared services (resources, audio, viewport camera)
+    /// before the subclass content setup runs.
     /// </summary>
     protected override void OnLoaded()
     {
+        // Register the engine's resource types (Model, Texture2D, AudioClip,
+        // Shader) before any content loads. Each app registers its own
+        // assemblies from its own composition point (the editor registers
+        // its, the game project registers the loaded game assembly).
+        GlobalNamespaces.ResourceLibrary.Register(typeof(Global.ResourceLibrary).Assembly);
         InitializeAudio();
         // The viewport camera is a world entity (a "Camera" entity with a
         // Camera component), so it is part of the world before subclasses wire

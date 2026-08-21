@@ -61,25 +61,26 @@ public readonly record struct ModelLoadProgress(ModelLoadStage Stage, float Frac
 /// <see cref="Material"/>s referenced by them. Procedural primitives
 /// (<see cref="CreateCube"/>, <see cref="CreatePlane"/>) are built in code;
 /// files (glTF, OBJ, FBX, …) are imported through Assimp
-/// (<see cref="Load"/>), which also converts glTF PBR materials and their
+/// (<see cref="Load(string)"/>), which also converts glTF PBR materials and their
 /// textures into engine <see cref="Material"/>s using the standard PBR shader.
 /// </summary>
+[FileAsset]
 public sealed class Model : ResourceFile
 {
     private static readonly Assimp Api = Assimp.GetApi();
     private static Model? _error;
 
-    public string Name { get; }
-    public IReadOnlyList<Mesh> Meshes { get; }
+    public string Name { get; private set; } = string.Empty;
+    public IReadOnlyList<Mesh> Meshes { get; private set; } = [];
 
     /// <summary>Every node in the model's hierarchy, flattened in pre-order.</summary>
-    public IReadOnlyList<ModelNode> Nodes { get; }
+    public IReadOnlyList<ModelNode> Nodes { get; private set; } = [];
 
     /// <summary>The root node of the hierarchy, or null for a model with no nodes.</summary>
     public ModelNode? Root => Nodes.FirstOrDefault(node => node.Parent is null);
 
     /// <summary>Every drawable (mesh, node) occurrence; several may share one mesh.</summary>
-    public IReadOnlyList<ModelMeshInstance> MeshInstances { get; }
+    public IReadOnlyList<ModelMeshInstance> MeshInstances { get; private set; } = [];
 
     /// <summary>
     /// The content path this model was loaded from, or null for procedural
@@ -94,10 +95,10 @@ public sealed class Model : ResourceFile
     /// Every material referenced by the model's meshes, in the order the
     /// meshes first use them. Unreferenced importer materials are omitted.
     /// </summary>
-    public IReadOnlyList<Material> Materials { get; }
+    public IReadOnlyList<Material> Materials { get; private set; } = [];
 
     /// <summary>Model-space bounding box of all meshes, used by editor picking.</summary>
-    public Bounds Bounds { get; }
+    public Bounds Bounds { get; private set; }
 
     /// <summary>
     /// The bounds used for view culling. With no LOD system yet this is the
@@ -107,10 +108,10 @@ public sealed class Model : ResourceFile
     public Bounds RenderBounds => Bounds;
 
     /// <summary>True when the model was built in code (a primitive or the error model).</summary>
-    public bool IsProcedural { get; }
+    public bool IsProcedural { get; private set; }
 
     /// <summary>True for the placeholder <see cref="Error"/> model.</summary>
-    public bool IsError { get; }
+    public bool IsError { get; private set; }
 
     /// <summary>Total number of meshes in this model.</summary>
     public int MeshCount => Meshes.Count;
@@ -143,6 +144,11 @@ public sealed class Model : ResourceFile
         IsError = isError;
         if (resourcePath is not null)
             Path = resourcePath;
+    }
+
+    /// <summary>Allocated by the library, then populated through <see cref="Load"/>.</summary>
+    private Model()
+    {
     }
 
     /// <summary>
@@ -178,12 +184,13 @@ public sealed class Model : ResourceFile
     public Material? GetMaterial(int index) => index >= 0 && index < Materials.Count ? Materials[index] : null;
 
     /// <summary>
-    /// Imports a 3D model file through Assimp (glTF, OBJ, FBX, …), sharing the
-    /// imported model across every load of the same path. See
-    /// <see cref="ImportModel"/> for the conversion details.
+    /// Populates this instance from <see cref="ResourceFile.Path"/> through
+    /// Assimp (glTF, OBJ, FBX, …). The library allocates the instance, assigns
+    /// its path and calls this; loading the same path twice returns the same
+    /// instance through the shared cache. See <see cref="Load(string)"/> for
+    /// the entry point.
     /// </summary>
-    /// <summary>The raw importer used by the shared cache (no progress, no cancellation).</summary>
-    internal static Model Import(string path) => ImportModel(path, null, CancellationToken.None);
+    public override void Load() => ImportInto(Path, null, CancellationToken.None);
 
     /// <summary>
     /// Imports a 3D model file, sharing the instance across every load of the
@@ -198,14 +205,14 @@ public sealed class Model : ResourceFile
 
     /// <summary>
     /// The actual Assimp import: the scene is triangulated, smoothed and
-    /// optimized at load time and released before returning, so the returned
-    /// model owns only managed data. glTF materials are converted to the
-    /// standard PBR shader with their texture set (albedo, normal,
-    /// metallic-roughness, occlusion, emissive) resolved relative to the
-    /// model file.
+    /// optimized at load time and released before returning, so the model owns
+    /// only managed data. glTF materials are converted to the standard PBR
+    /// shader with their texture set (albedo, normal, metallic-roughness,
+    /// occlusion, emissive) resolved relative to the model file.
     /// </summary>
-    private static unsafe Model ImportModel(string path, IProgress<ModelLoadProgress>? progress, CancellationToken cancellationToken)
+    private unsafe void ImportInto(string path, IProgress<ModelLoadProgress>? progress, CancellationToken cancellationToken)
     {
+        Path = path;
         cancellationToken.ThrowIfCancellationRequested();
         progress?.Report(new ModelLoadProgress(ModelLoadStage.Validating, 0f));
 
@@ -290,16 +297,19 @@ public sealed class Model : ResourceFile
                 ConvertNode(scene->MRootNode, meshes, nodes, instances);
 
             cancellationToken.ThrowIfCancellationRequested();
-            var model = new Model(
-                PathUtil.GetFileNameWithoutExtension(path),
-                meshes,
-                materials,
-                resourcePath: path,
-                nodes: nodes,
-                instances: instances);
-            model.RetainTextures();
+            Name = PathUtil.GetFileNameWithoutExtension(path);
+            Meshes = meshes;
+            Materials = materials;
+            Nodes = nodes;
+            MeshInstances = instances;
+            Bounds = MeshInstances.Count > 0
+                ? ComputeInstanceBounds(MeshInstances)
+                : Bounds.FromPoints(meshes.SelectMany(mesh => mesh.Vertices).Select(v => v.Position));
+            IsProcedural = false;
+            IsError = false;
+            IsValid = true;
+            RetainTextures();
             progress?.Report(new ModelLoadProgress(ModelLoadStage.Done, 1f));
-            return model;
         }
         finally
         {
@@ -308,11 +318,11 @@ public sealed class Model : ResourceFile
     }
 
     /// <summary>
-    /// Loads a model off the calling thread (see <see cref="Load"/>). Reports
-    /// <see cref="ModelLoadProgress"/> as the import advances and checks
-    /// <paramref name="cancellationToken"/> between stages. The result is shared
-    /// with <see cref="Load"/> through the same cache; a cancelled token skips
-    /// the import and the returned task faults with
+    /// Loads a model off the calling thread (see <see cref="Load(string)"/>).
+    /// Reports <see cref="ModelLoadProgress"/> as the import advances and
+    /// checks <paramref name="cancellationToken"/> between stages. The result
+    /// is shared with <see cref="Load(string)"/> through the same cache; a
+    /// cancelled token skips the import and the returned task faults with
     /// <see cref="OperationCanceledException"/>.
     /// </summary>
     public static Task<Model> LoadAsync(
@@ -321,7 +331,15 @@ public sealed class Model : ResourceFile
         CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return ResourceLibrary.LoadAsync(path, token => ImportModel(path, progress, token), cancellationToken);
+        return ResourceLibrary.LoadAsync(path, token => CreateFromFile(path, progress, token), cancellationToken);
+    }
+
+    /// <summary>Allocates a model and imports it into the instance, for the off-thread async path.</summary>
+    private static Model CreateFromFile(string path, IProgress<ModelLoadProgress>? progress, CancellationToken token)
+    {
+        var model = new Model();
+        model.ImportInto(path, progress, token);
+        return model;
     }
 
     /// <summary>Records a holder reference for a file-loaded model (no-op for procedural models).</summary>
@@ -351,9 +369,15 @@ public sealed class Model : ResourceFile
     private IEnumerable<Texture2D> DistinctTextures() =>
         Materials.SelectMany(material => material.Textures.Values).Distinct();
 
-    /// <summary>Releases the model's textures when the cache discards it (the last holder released).</summary>
-    internal void ReleaseResources()
+    /// <summary>
+    /// Releases the model's retained textures when the cache discards the
+    /// entry (the last holder released, or an invalidate/clear): each texture
+    /// drops the holder recorded at import, so its own cache entry is free to
+    /// go when nothing else references it.
+    /// </summary>
+    public override void Unload()
     {
+        base.Unload();
         foreach (var texture in DistinctTextures())
             texture.Release();
     }

@@ -3,9 +3,11 @@ using Crowbar.Engine.Global;
 namespace Crowbar.Engine.Tests;
 
 /// <summary>
-/// Tests for the generic cache API of <see cref="ResourceLibrary"/>: per-type
-/// caches owned by one library instance, sharing by path, loader registration
-/// for custom resource types, and the invalidation/clear lifecycle.
+/// Tests for the cache API of <see cref="ResourceLibrary"/>: per-type caches
+/// owned by one library instance, sharing by path, assembly registration
+/// (<see cref="ResourceLibrary.Register"/>/<see cref="ResourceLibrary.Unregister"/>),
+/// loader registration for custom resource types, and the invalidation/clear
+/// lifecycle.
 /// </summary>
 public class ResourceLibraryTests
 {
@@ -19,16 +21,47 @@ public class ResourceLibraryTests
         }
     }
 
+    /// <summary>A resource that records when the cache disposes it on eviction.</summary>
+    private sealed class TrackingResource : ResourceFile
+    {
+        public int UnloadCount { get; private set; }
+
+        public override void Unload()
+        {
+            base.Unload();
+            UnloadCount++;
+        }
+    }
+
+    /// <summary>A library with the engine's resource types registered (like Application.OnLoaded does).</summary>
+    private static ResourceLibrary CreateLibrary()
+    {
+        var library = new ResourceLibrary();
+        library.Register(typeof(Model).Assembly);
+        return library;
+    }
+
     [Fact]
     public void Load_SharesTheSameInstanceForTheSamePath()
     {
-        var library = new ResourceLibrary();
+        var library = CreateLibrary();
 
         var first = library.Load<Model>("Assets/Models/Crate/Crate.gltf");
         var second = library.Load<Model>("Assets/Models/Crate/Crate.gltf");
 
         Assert.Same(first, second);
         Assert.Equal(1, library.CachedCount<Model>());
+    }
+
+    [Fact]
+    public void Load_ByType_ReturnsTheResource()
+    {
+        var library = CreateLibrary();
+
+        var model = library.Load(typeof(Model), "Assets/Models/Crate/Crate.gltf");
+
+        Assert.IsType<Model>(model);
+        Assert.Same(model, library.Load<Model>("Assets/Models/Crate/Crate.gltf"));
     }
 
     [Fact]
@@ -90,27 +123,76 @@ public class ResourceLibraryTests
     }
 
     [Fact]
-    public void ReleasedCallback_RunsWhenTheEntryIsDiscarded()
+    public void DiscardedEntries_AreDisposed()
     {
         var library = new ResourceLibrary();
-        var released = 0;
-        library.RegisterLoader<CustomResource>(
-            path => new CustomResource(path),
-            _ => released++);
+        var loaded = new List<TrackingResource>();
+        library.RegisterLoader<TrackingResource>(path =>
+        {
+            var resource = new TrackingResource();
+            loaded.Add(resource);
+            return resource;
+        });
 
-        library.Load<CustomResource>("Assets/Data/a.custom");
-        library.Load<CustomResource>("Assets/Data/b.custom");
-        Assert.Equal(0, released);
+        library.Load<TrackingResource>("Assets/Data/a.custom");
+        library.Load<TrackingResource>("Assets/Data/b.custom");
+        Assert.All(loaded, resource => Assert.Equal(0, resource.UnloadCount));
 
-        library.Clear<CustomResource>();
+        library.Clear<TrackingResource>();
 
-        Assert.Equal(2, released);
+        Assert.All(loaded, resource => Assert.Equal(1, resource.UnloadCount));
+    }
+
+    [Fact]
+    public void RegisterAssembly_DiscoversResourceTypes()
+    {
+        // Registering an assembly discovers every [FileAsset]-marked type in
+        // it (Model, Texture2D, AudioClip, Shader) with no explicit loader
+        // registration.
+        var library = new ResourceLibrary();
+        library.Register(typeof(Model).Assembly);
+
+        var model = library.Load<Model>("Assets/Models/Crate/Crate.gltf");
+
+        Assert.NotNull(model);
+        Assert.Equal(1, library.CachedCount<Model>());
+    }
+
+    [Fact]
+    public void Register_IsIdempotent()
+    {
+        var library = new ResourceLibrary();
+        library.Register(typeof(Model).Assembly);
+
+        var first = library.Load<Model>("Assets/Models/Crate/Crate.gltf");
+
+        // Registering the same assembly again must not reset the caches.
+        library.Register(typeof(Model).Assembly);
+
+        Assert.Same(first, library.Load<Model>("Assets/Models/Crate/Crate.gltf"));
+        Assert.Equal(1, library.CachedCount<Model>());
+    }
+
+    [Fact]
+    public void Unregister_RemovesTheAssemblysResourceTypes()
+    {
+        var library = new ResourceLibrary();
+        library.Register(typeof(Model).Assembly);
+        library.Load<Model>("Assets/Models/Crate/Crate.gltf");
+        Assert.Equal(1, library.CachedCount<Model>());
+
+        library.Unregister(typeof(Model).Assembly);
+
+        // The types no longer resolve: loading a model throws like a type
+        // that was never registered.
+        var error = Assert.Throws<InvalidOperationException>(() => library.Load<Model>("Assets/Models/Crate/Crate.gltf"));
+        Assert.Contains("No loader registered", error.Message);
     }
 
     [Fact]
     public void RetainAndRelease_DiscardTheEntryWhenTheLastHolderReleases()
     {
-        var library = new ResourceLibrary();
+        var library = CreateLibrary();
 
         var path = "Assets/Models/Crate/Crate.gltf";
         var model = library.Load<Model>(path);
@@ -127,7 +209,7 @@ public class ResourceLibraryTests
     [Fact]
     public void LoadModel_MissingFile_ReturnsErrorModelWithoutCachingTheFailure()
     {
-        var library = new ResourceLibrary();
+        var library = CreateLibrary();
 
         var model = library.LoadModel("Assets/Models/Missing/Missing.gltf");
 
@@ -139,18 +221,19 @@ public class ResourceLibraryTests
     [Fact]
     public async Task LoadAsync_InstallsIntoTheSameCacheAsSyncLoad()
     {
-        var library = new ResourceLibrary();
         var path = WriteCubeObj();
         try
         {
-            var model = await library.LoadAsync(path, _ => Model.Import(path));
+            // Model.LoadAsync runs the Assimp import off-thread and installs
+            // the result in the global cache, so the next sync load returns
+            // the very same instance (no second import).
+            var model = await Model.LoadAsync(path);
 
-            Assert.Same(model, library.Load<Model>(path));
-            Assert.Equal(1, library.CachedCount<Model>());
+            Assert.Same(model, Model.Load(path));
         }
         finally
         {
-            library.Invalidate<Model>(path);
+            Model.Invalidate(path);
             File.Delete(path);
         }
     }
