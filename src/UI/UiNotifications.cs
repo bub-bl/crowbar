@@ -74,4 +74,15 @@ public static class UiNotifications
                 Version++;
         }
     }
+
+    /// <summary>Clears every toast and the latest notification (test isolation between editor page renders).</summary>
+    public static void Reset()
+    {
+        lock (Items)
+        {
+            Items.Clear();
+            _latest = null;
+            Version++;
+        }
+    }
 }

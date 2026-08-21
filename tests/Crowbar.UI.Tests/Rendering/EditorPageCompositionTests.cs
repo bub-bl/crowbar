@@ -34,10 +34,14 @@ public class EditorPageCompositionTests
         // The inspector reads its own snapshot the same way (see
         // PublishDemoInspectorState), so publish both before the first frame.
         // Inspector section ids are stable strings, so reset the shared state
-        // first or a collapse left by another test would leak in.
+        // first or a collapse left by another test would leak in. The content
+        // panel selection is shared the same way. (Notification toasts are
+        // cleaned up by the notification tests themselves.)
         EditorInspectorState.Reset();
+        EditorContentState.Reset();
         PublishDemoExplorerState();
         PublishDemoInspectorState();
+        PublishDemoContentState();
         // The DockArea positions its dock groups from the rect of its own root,
         // which is only known after a layout pass: run one full frame like the
         // app loop (render to lay out, update to rebuild, render to paint) so
@@ -124,6 +128,21 @@ public class EditorPageCompositionTests
         ]);
     }
 
+    /// <summary>
+    /// Publishes a content snapshot shaped like the demo project's assets
+    /// (models in Models/, a sound in Sounds/), so the Content panel asserts
+    /// see the tiles the host would publish from the live content folder.
+    /// </summary>
+    internal static void PublishDemoContentState()
+    {
+        EditorContentState.Publish(
+        [
+            new EditorContentState.Entry("Crate.gltf", "Models", "model"),
+            new EditorContentState.Entry("industrial_work_light.gltf", "Models", "model"),
+            new EditorContentState.Entry("ui_compilation_error.wav", "Sounds", "sound")
+        ]);
+    }
+
     /// <summary>Text lives on child text panels, so match against the descendant text.</summary>
     private static Panel? FindText(Panel root, string className, Func<string, bool> match) =>
         TestUi.FindAll(root, p => p.Classes.Contains(className)).FirstOrDefault(p => TestUi.Texts(p).Any(match));
@@ -131,6 +150,10 @@ public class EditorPageCompositionTests
     /// <summary>Finds the first text input whose value equals <paramref name="value"/>.</summary>
     private static TextInput? FindInput(Panel root, string value) =>
         TestUi.FindAll(root, p => p is TextInput).Cast<TextInput>().FirstOrDefault(input => input.Value == value);
+
+    /// <summary>Names of the icon panels under <paramref name="root"/> (the text carets became icons).</summary>
+    private static IEnumerable<string> IconsOf(Panel root) =>
+        TestUi.FindAll(root, p => p is Icon { Name: not null and not "" }).Select(icon => ((Icon)icon).Name!);
 
     [Fact]
     public void EditorPageComposesAllDockablePanels()
@@ -263,6 +286,52 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void ContentPanelShowsThePublishedProjectAssets()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // The grid mirrors the published snapshot: category titles and asset
+        // tiles with the kind of their registered resource type.
+        Assert.NotNull(FindText(content, "grid-row-title", t => t == "MODELS"));
+        Assert.NotNull(FindText(content, "grid-row-title", t => t == "SOUNDS"));
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Crate.gltf"));
+        Assert.NotNull(FindText(content, "asset-name", t => t == "ui_compilation_error.wav"));
+
+        // The sidebar lists the root plus one entry per category.
+        var sidebar = TestUi.FindAll(content, p => p.Classes.Contains("cs-item"))
+            .SelectMany(TestUi.Texts)
+            .ToArray();
+        Assert.Contains("Content", sidebar);
+        Assert.Contains("Models", sidebar);
+        Assert.Contains("Sounds", sidebar);
+
+        // The model tile carries the kind of its registered type (Model).
+        var modelThumb = TestUi.FindAll(content, p => p.Classes.Contains("asset-thumb"))
+            .First(p => p.Classes.Contains("thumb-model"));
+        Assert.NotNull(modelThumb);
+    }
+
+    [Fact]
+    public void ContentPanelCategoryClickFiltersTheGrid()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        var models = FindText(content, "cs-item", t => t == "Models");
+        Assert.NotNull(models);
+        ui.ProcessPointerDown(models!.Layout.X + 2, models.Layout.Y + 2);
+        ui.ProcessPointerUp(models.Layout.X + 2, models.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+
+        content = ui.Content!;
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Crate.gltf"));
+        Assert.Null(FindText(content, "asset-name", t => t == "ui_compilation_error.wav"));
+        Assert.NotNull(FindText(content, "breadcrumb", t => t == "Content › Models"));
+    }
+
+    [Fact]
     public void ExplorerTreeRowsRenderTheirIcons()
     {
         using var ui = CreateEditorUi();
@@ -324,26 +393,36 @@ public class EditorPageCompositionTests
     [Fact]
     public void NotificationsRenderAsToastsAndPrune()
     {
-        using var ui = CreateEditorUi();
-        var content = ui.Content!;
+        // The toasts this test shows are process-global: they must not leak
+        // into the next test of the collection (a leftover toast overlays the
+        // page and swallows clicks), so they are cleared on the way out.
+        try
+        {
+            using var ui = CreateEditorUi();
+            var content = ui.Content!;
 
-        UiNotifications.Show("Hot reload", "Full reload: 3 instance(s) migrated", "success");
+            UiNotifications.Show("Hot reload", "Full reload: 3 instance(s) migrated", "success");
 
-        // Notifications' own BuildHash (UiNotifications.Version) changed, so
-        // the descendant-aware render loop rebuilds the tree on ui.Update().
-        ui.Update();
-        ui.Prepare();
+            // Notifications' own BuildHash (UiNotifications.Version) changed, so
+            // the descendant-aware render loop rebuilds the tree on ui.Update().
+            ui.Update();
+            ui.Prepare();
 
-        // The toast is rendered with its title and message text.
-        var toast = TestUi.Find(content, p => p.Classes.Contains("notification") && p.Classes.Contains("success"));
-        Assert.NotNull(toast);
-        Assert.Contains(TestUi.Texts(toast!), t => t.Contains("Hot reload", StringComparison.Ordinal));
-        Assert.Contains(TestUi.Texts(toast!), t => t.Contains("3 instance(s)", StringComparison.Ordinal));
+            // The toast is rendered with its title and message text.
+            var toast = TestUi.Find(content, p => p.Classes.Contains("notification") && p.Classes.Contains("success"));
+            Assert.NotNull(toast);
+            Assert.Contains(TestUi.Texts(toast!), t => t.Contains("Hot reload", StringComparison.Ordinal));
+            Assert.Contains(TestUi.Texts(toast!), t => t.Contains("3 instance(s)", StringComparison.Ordinal));
 
-        // Version bumps so the component re-renders.
-        var versionBefore = UiNotifications.Version;
-        UiNotifications.Show("Hot reload", "IL fast path: 2 method(s) patched", "success");
-        Assert.True(UiNotifications.Version > versionBefore);
+            // Version bumps so the component re-renders.
+            var versionBefore = UiNotifications.Version;
+            UiNotifications.Show("Hot reload", "IL fast path: 2 method(s) patched", "success");
+            Assert.True(UiNotifications.Version > versionBefore);
+        }
+        finally
+        {
+            UiNotifications.Reset();
+        }
     }
 
     [Fact]
@@ -353,10 +432,11 @@ public class EditorPageCompositionTests
         var content = ui.Content!;
 
         // The Transform section starts open: its Position/Rotation/Scale rows
-        // are visible and the caret points down.
+        // are visible and the caret icon points down (text carets were replaced
+        // by arrow icons, so the icon name is asserted, not a glyph).
         var transformHead = TestUi.FindAll(content, p => p.Classes.Contains("insp-section-head"))
             .Single(head => TestUi.Texts(head).Any(t => t == "Transform"));
-        Assert.Contains("▾", TestUi.Texts(transformHead));
+        Assert.Contains("Solar/arrows/Bold/alt-arrow-down", IconsOf(transformHead));
         Assert.NotNull(TestUi.Find(content, p => TestUi.Texts(p).Any(t => t == "Position")));
 
         // Click the header: the body collapses and the caret flips.
@@ -368,7 +448,7 @@ public class EditorPageCompositionTests
         Assert.Null(TestUi.Find(ui.Content!, p => TestUi.Texts(p).Any(t => t == "Position")));
         transformHead = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("insp-section-head"))
             .Single(head => TestUi.Texts(head).Any(t => t == "Transform"));
-        Assert.Contains("▸", TestUi.Texts(transformHead));
+        Assert.Contains("Solar/arrows/Bold/alt-arrow-right", IconsOf(transformHead));
 
         // Republishing the same snapshot (the host does this every frame) must
         // not reopen the section the user folded.
@@ -467,36 +547,46 @@ public class EditorPageCompositionTests
     [Fact]
     public void NotificationPage_CompilesAndRendersTheSingleLatestNotification()
     {
-        using var ui = CreateEditorUi();
-        ui.Navigate("/notifications");
-        ui.Update();
-        ui.Prepare();
+        // The notifications this test pushes are process-global and would leak
+        // into the next test (a leftover toast overlays the page and swallows
+        // clicks), so they are cleared on the way out.
+        try
+        {
+            using var ui = CreateEditorUi();
+            ui.Navigate("/notifications");
+            ui.Update();
+            ui.Prepare();
 
-        // The notification-window page compiled: before anything is pushed the
-        // popup is empty (no header, no feed, no empty state — nothing at all).
-        Assert.Equal("/notifications", ui.CurrentUrl);
-        Assert.NotNull(ui.Content);
-        Assert.Empty(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("notify")));
+            // The notification-window page compiled: before anything is pushed the
+            // popup is empty (no header, no feed, no empty state — nothing at all).
+            Assert.Equal("/notifications", ui.CurrentUrl);
+            Assert.NotNull(ui.Content);
+            Assert.Empty(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("notify")));
 
-        // A success compilation result renders as the single popup.
-        UiNotifications.Show("Hot reload", "Full reload: 3 instance(s) migrated", "success");
-        ui.Update();
-        ui.Prepare();
+            // A success compilation result renders as the single popup.
+            UiNotifications.Show("Hot reload", "Full reload: 3 instance(s) migrated", "success");
+            ui.Update();
+            ui.Prepare();
 
-        var popup = TestUi.Find(ui.Content!, p => p.Classes.Contains("notify") && p.Classes.Contains("success"));
-        Assert.NotNull(popup);
-        Assert.Contains(TestUi.Texts(popup!), t => t.Contains("Full reload: 3 instance(s)", StringComparison.Ordinal));
+            var popup = TestUi.Find(ui.Content!, p => p.Classes.Contains("notify") && p.Classes.Contains("success"));
+            Assert.NotNull(popup);
+            Assert.Contains(TestUi.Texts(popup!), t => t.Contains("Full reload: 3 instance(s)", StringComparison.Ordinal));
 
-        // A newer notification replaces the previous one: still a single popup,
-        // now the error — the window never shows several notifications at once.
-        UiNotifications.Show("Hot reload", "Failed: compilation error", "error");
-        ui.Update();
-        ui.Prepare();
+            // A newer notification replaces the previous one: still a single popup,
+            // now the error — the window never shows several notifications at once.
+            UiNotifications.Show("Hot reload", "Failed: compilation error", "error");
+            ui.Update();
+            ui.Prepare();
 
-        var popups = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("notify"));
-        Assert.Single(popups);
-        Assert.Contains("error", popups[0].Classes);
-        Assert.Contains(TestUi.Texts(popups[0]), t => t.Contains("Failed: compilation error", StringComparison.Ordinal));
+            var popups = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("notify"));
+            Assert.Single(popups);
+            Assert.Contains("error", popups[0].Classes);
+            Assert.Contains(TestUi.Texts(popups[0]), t => t.Contains("Failed: compilation error", StringComparison.Ordinal));
+        }
+        finally
+        {
+            UiNotifications.Reset();
+        }
     }
 
     [Fact]

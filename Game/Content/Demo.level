@@ -164,7 +164,7 @@
           "transform": "1.6,0.5,-1.6,0,0.30070582,0,0.95371693,1,1,1",
           "properties": {
             "Model": {
-              "path": "Assets/Models/Crate/Crate.gltf"
+              "path": "Content/Models/Crate/Crate.gltf"
             }
           }
         },
@@ -187,7 +187,7 @@
           "transform": "-1.6,0.5,-1.6,-0,-0.21643962,-0,0.976296,0.012653108,0.012653108,0.012653108",
           "properties": {
             "Model": {
-              "path": "Assets/Models/industrial_work_light/industrial_work_light.gltf"
+              "path": "Content/Models/industrial_work_light/industrial_work_light.gltf"
             }
           }
         }

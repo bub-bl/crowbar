@@ -2,6 +2,10 @@ using Crowbar.UI;
 
 namespace Crowbar.UI.Tests.Rendering;
 
+// Renders the editor page through CreateEditorUi: shares the process-global
+// editor state, so it must serialize with the EditorPage collection.
+[Collection("EditorPage")]
+
 /// <summary>
 /// Exercises the DockArea's real interaction wiring on the rendered editor
 /// page: grabbing a tab, dragging it onto a drop zone and releasing must

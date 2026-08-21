@@ -1,5 +1,6 @@
 @inherits Crowbar.UI.RazorPanel
 @namespace Crowbar.Editor.Ui.EditorPanels
+@using Crowbar.UI
 
 <div class="content-tabs">
     <div class="content-tab @ContentTabClass("content")" @onclick="ShowContent">CONTENT</div>
@@ -9,58 +10,71 @@
 
 <div class="content-toolbar">
     <div class="ct-btn">+ Import</div>
-    <div class="ct-btn">New folder</div>
-    <div class="breadcrumb">Assets&#160;<span class="crumb-sep">›</span>&#160;Structures</div>
+    <div class="breadcrumb">Content@(EditorContentState.SelectedCategory.Length > 0 ? " › " + EditorContentState.SelectedCategory : "")</div>
     <SearchBox Placeholder="Search..." Small="true" />
     <div class="panel-x">×</div>
 </div>
 
+@* The grid mirrors the live project content: the host republishes the file
+   list (EditorContentState) on startup, project switch and content changes.
+   Selecting a category in the sidebar filters the rows. *@
 <div class="content-body">
     <div class="content-sidebar">
-        <div class="cs-item cs-active">Content</div>
-        <div class="cs-item">Assets › Structures</div>
-        <div class="cs-item">Props</div>
-        <div class="cs-item">Nature</div>
-        <div class="cs-item">Materials</div>
-        <div class="cs-item">Sounds</div>
-        <div class="cs-item">Scripts</div>
-        <div class="cs-item">Experiences</div>
-        <div class="cs-item">Addons</div>
+        <ContentSidebarItem Text="Content" Category="" Active="@(EditorContentState.SelectedCategory.Length == 0)" />
+        @foreach (var category in Categories)
+        {
+            <ContentSidebarItem Text="@category" Category="@category" Active="@(EditorContentState.SelectedCategory == category)" />
+        }
     </div>
     <div class="content-grid">
-        <div class="grid-row-title">MODELS</div>
-        <div class="asset-row">
-            @foreach (var model in Models)
-            {
-                <AssetTile Name="@model" Kind="@ThumbKind(model)" />
-            }
-        </div>
-        <div class="grid-row-title">MATERIALS</div>
-        <div class="asset-row">
-            @foreach (var material in Materials)
-            {
-                <AssetTile Name="@material" Kind="@ThumbKind(material)" Circle="true" />
-            }
-            <AssetTile Name="Import" Kind="wood" Circle="true" Import="true" />
-        </div>
+        @if (EditorContentState.Entries.Count == 0)
+        {
+            <div class="grid-empty">No content — put assets in the project's Content/ folder.</div>
+        }
+        @foreach (var group in Groups)
+        {
+            <div class="grid-row-title">@GroupTitle(group.Category)</div>
+            <div class="asset-row">
+                @foreach (var entry in group.Entries)
+                {
+                    <AssetTile Name="@entry.Name" Kind="@entry.Kind" />
+                }
+            </div>
+        }
     </div>
 </div>
 
 @code {
-    private static readonly string[] Models =
-    [
-        "wood_house.glb", "metal_hangar.glb", "water_tower.glb", "shed.glb", "wood_wall.glb",
-        "wood_door.glb", "window.glb", "wood_stairs.glb", "wood_roof.glb"
-    ];
-
-    private static readonly string[] Materials =
-    [
-        "wood_wall.mat", "wood_roof.mat", "wood_floor.mat", "metal.mat", "concrete.mat", "wood_door.mat", "window_glass.mat"
-    ];
+    private readonly record struct Group(string Category, IReadOnlyList<EditorContentState.Entry> Entries);
 
     private string _contentTab = "content";
 
-    protected override int BuildHash() => HashCode.Combine(_contentTab);
+    // Re-renders only when the host republishes the content snapshot, the
+    // sidebar selection changes, or another tab is opened.
+    protected override int BuildHash() => HashCode.Combine(_contentTab, EditorContentState.SelectedCategory, EditorContentState.Version);
+
+    /// <summary>Content categories (top-level folders) for the sidebar.</summary>
+    private IReadOnlyList<string> Categories => EditorContentState.Entries
+        .Select(entry => entry.Category)
+        .Where(category => category.Length > 0)
+        .Distinct()
+        .OrderBy(category => category, StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    /// <summary>Rows grouped by category, filtered by the selected one.</summary>
+    private IReadOnlyList<Group> Groups
+    {
+        get
+        {
+            var selected = EditorContentState.SelectedCategory;
+            return EditorContentState.Entries
+                .Where(entry => selected.Length == 0 || entry.Category == selected)
+                .GroupBy(entry => entry.Category)
+                .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => new Group(group.Key, group.ToArray()))
+                .ToArray();
+        }
+    }
 
     private void ShowContent() => _contentTab = "content";
     private void ShowOutput() => _contentTab = "output";
@@ -68,11 +82,5 @@
 
     private string ContentTabClass(string tab) => _contentTab == tab ? "content-tab-active" : "";
 
-    private static string ThumbKind(string name) => name.Contains("metal", StringComparison.OrdinalIgnoreCase)
-        ? "metal"
-        : name.Contains("concrete", StringComparison.OrdinalIgnoreCase)
-            ? "concrete"
-            : name.Contains("glass", StringComparison.OrdinalIgnoreCase) || name.Contains("window", StringComparison.OrdinalIgnoreCase)
-                ? "glass"
-                : "wood";
+    private static string GroupTitle(string category) => category.Length == 0 ? "ROOT" : category.ToUpperInvariant();
 }

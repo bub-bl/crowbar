@@ -1,0 +1,27 @@
+@use '../_editor-theme' as *;
+
+.cs-item {
+    width: 130px;
+    flex-shrink: 0;
+    height: 20px;
+    padding-left: 12px;
+    color: $text-muted;
+    font-size: 10px;
+    line-height: 20px;
+    box-sizing: border-box;
+
+    &:hover {
+        background-color: $panel-hover;
+        color: $text;
+    }
+}
+
+.cs-active {
+    background-color: $accent;
+    color: $text-bright;
+
+    &:hover {
+        background-color: $accent-hover;
+        color: $text-bright;
+    }
+}

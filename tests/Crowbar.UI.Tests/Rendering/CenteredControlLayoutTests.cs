@@ -2,6 +2,9 @@ using Crowbar.UI;
 
 namespace Crowbar.UI.Tests.Rendering;
 
+// Renders the editor page through CreateEditorUi: shares the process-global
+// editor state, so it must serialize with the EditorPage collection.
+[Collection("EditorPage")]
 public class CenteredControlLayoutTests
 {
     private static void AssertTextCentered(Panel parent, string context)

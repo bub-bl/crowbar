@@ -3,6 +3,10 @@ using Crowbar.UI.Tests.Rendering;
 
 namespace Crowbar.UI.Tests.Input;
 
+// Renders the editor page through CreateEditorUi: shares the process-global
+// editor state, so it must serialize with the EditorPage collection.
+[Collection("EditorPage")]
+
 /// <summary>
 /// The <c>cursor</c> CSS property is resolved by the UI on pointer move: the
 /// deepest hovered panel with an explicit cursor (its own or an ancestor's)

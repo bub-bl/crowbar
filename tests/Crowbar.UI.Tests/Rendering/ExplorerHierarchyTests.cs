@@ -71,7 +71,7 @@ public class ExplorerHierarchyTests
         using var ui = CreateEditorUiWith(nodes, selection: null);
         var rowsBefore = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("tree-row")).ToList();
         Assert.Equal(3, rowsBefore.Count);
-        Assert.Equal("▾", CaretOf(RowWithText(rowsBefore, "Structures")));
+        Assert.Equal("Solar/arrows/Bold/alt-arrow-down", CaretIconOf(RowWithText(rowsBefore, "Structures")));
 
         EditorExplorerState.ToggleCollapsed(structures);
         ui.Update();
@@ -80,7 +80,7 @@ public class ExplorerHierarchyTests
         var rowsAfter = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("tree-row")).ToList();
         Assert.Equal(2, rowsAfter.Count); // the house is hidden under the collapsed folder
         Assert.DoesNotContain(rowsAfter, r => TestUi.Texts(r).Any(t => t == "House"));
-        Assert.Equal("▸", CaretOf(RowWithText(rowsAfter, "Structures")));
+        Assert.Equal("Solar/arrows/Bold/alt-arrow-right", CaretIconOf(RowWithText(rowsAfter, "Structures")));
     }
 
     private static UiSystem CreateEditorUiWith(IReadOnlyList<EditorExplorerState.TreeNode> nodes, Guid? selection)
@@ -96,5 +96,8 @@ public class ExplorerHierarchyTests
 
     private static string? IndentOf(Panel row) => row.InlineStyle.GetValueOrDefault("padding-left");
 
-    private static string? CaretOf(Panel row) => TestUi.Texts(row).FirstOrDefault(t => t is "▸" or "▾");
+    /// <summary>The caret icon name of a folder row (text carets became arrow icons).</summary>
+    private static string? CaretIconOf(Panel row) => TestUi.FindAll(row, p => p is Icon)
+        .Select(icon => ((Icon)icon).Name)
+        .FirstOrDefault(name => name is "Solar/arrows/Bold/alt-arrow-down" or "Solar/arrows/Bold/alt-arrow-right");
 }

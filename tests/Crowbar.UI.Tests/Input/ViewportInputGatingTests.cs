@@ -3,6 +3,10 @@ using Crowbar.UI.Tests.Rendering;
 
 namespace Crowbar.UI.Tests.Input;
 
+// Renders the editor page through CreateEditorUi: shares the process-global
+// editor state, so it must serialize with the EditorPage collection.
+[Collection("EditorPage")]
+
 /// <summary>
 /// The engine must not treat right-drags over the editor UI as viewport input:
 /// the camera orbit only starts when the press begins inside the scene

@@ -38,6 +38,9 @@ public sealed class Editor : Application
     /// <summary>The game project (scripts): compile, watch, hot reload → notifications.</summary>
     public GameProject GameProject { get; private set; } = null!;
 
+    /// <summary>The open project's content: panel snapshot + hot-reload watch.</summary>
+    public ContentExplorer ContentExplorer { get; private set; } = null!;
+
     /// <summary>The 3D viewport: gizmos, picking, selection, panel publishing.</summary>
     public Viewport Viewport { get; private set; } = null!;
 
@@ -74,6 +77,7 @@ public sealed class Editor : Application
         Level = new EditorLevel();
         NotificationWindow = new NotificationWindow(this);
         GameProject = new GameProject(NotificationWindow);
+        ContentExplorer = new ContentExplorer();
         Viewport = new Viewport(this);
         InspectorBridge = new InspectorBridge(this);
         Shortcuts = new Shortcuts(this, NotificationWindow);
@@ -87,6 +91,10 @@ public sealed class Editor : Application
         // file name. A broken file falls back to the bare demo project instead
         // of blocking startup.
         Project.LoadStartup(_startupProjectFile);
+
+        // The content panel snapshot and its hot-reload watch start on the
+        // project root the filesystem was configured with.
+        ContentExplorer.Start();
 
         // The game project must start before the level is loaded: only its
         // registered component types resolve when a saved document is
@@ -150,6 +158,9 @@ public sealed class Editor : Application
 
         // Script host: applies detected hot reloads and prunes the toasts.
         GameProject.Update();
+
+        // Content hot reload: applies the changes the content watcher detected.
+        ContentExplorer.Update();
 
         // Viewport interaction: gizmos, picking, selection, explorer.
         Viewport.Update(deltaTime, ViewportWidth, ViewportHeight);
@@ -242,6 +253,9 @@ public sealed class Editor : Application
         // so this one call redirects all subsequent reads/writes.
         ApplyProjectRoot(projectRoot);
 
+        // Re-point the content panel and its watcher at the new project's assets.
+        ContentExplorer.Start();
+
         Project.Commit(project, projectFilePath);
 
         // Reload the game project from the new root first: its component types
@@ -301,6 +315,7 @@ public sealed class Editor : Application
 
     public override void Dispose()
     {
+        ContentExplorer.Dispose();
         GameProject.Dispose();
         base.Dispose();
     }
@@ -311,7 +326,8 @@ public sealed class Editor : Application
     /// <summary>
     /// Composes the editor's filesystems: <see cref="FileSystem.Content"/> is the
     /// read-only base content (the output directory's shaders/assets plus the
-    /// repo's <c>Editor/Ui</c> mounted at <c>/Ui</c> for hot reload), and
+    /// repo's <c>Editor/Ui</c> mounted at <c>/Ui</c> for hot reload and the
+    /// open project's <c>Content/</c> folder mounted at <c>/Content</c>), and
     /// <see cref="FileSystem.Project"/> is the read-write project rooted at the
     /// directory of the <c>.crproj</c> being opened (<paramref name="projectFilePath"/>,
     /// the double-click launch path) — or the repo's <c>Game/</c> directory
@@ -337,13 +353,21 @@ public sealed class Editor : Application
     }
 
     /// <summary>
-    /// Re-roots the project filesystem (and nothing else) at
-    /// <paramref name="projectRoot"/>. The backend and the read-only content view
-    /// are kept as configured at startup; only <see cref="FileSystem.Project"/>
-    /// moves, which is exactly the contract of a project switch.
+    /// Re-roots the project filesystem at <paramref name="projectRoot"/> and
+    /// remounts the project's <c>Content/</c> folder into the read-only content
+    /// view at <c>/Content</c> (so <c>Content/Models/...</c> paths resolve to
+    /// the open project's assets). The backend and the engine built-ins are
+    /// kept; only the project view and the <c>/Content</c> mount move, which is
+    /// exactly the contract of a project switch.
     /// </summary>
     public static void ApplyProjectRoot(string projectRoot)
     {
+        var mounts = new Dictionary<FilePath, string>(_content.Mounts)
+        {
+            ["/Content"] = Path.Combine(projectRoot, "Content")
+        };
+        _content = new FileSystemService(new ReadOnlyFileSystem(_backend), _content.ContentRoot, mounts);
+
         var project = new FileSystemService(_backend, projectRoot);
         FileSystem.Configure(_backend, _content, project);
     }

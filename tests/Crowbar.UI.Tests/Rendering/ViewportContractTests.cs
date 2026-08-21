@@ -2,6 +2,10 @@ using Crowbar.UI;
 
 namespace Crowbar.UI.Tests.Rendering;
 
+// Renders the editor page through CreateEditorUi: shares the process-global
+// editor state, so it must serialize with the EditorPage collection.
+[Collection("EditorPage")]
+
 /// <summary>
 /// The DockArea publishes the docked 3D viewport's content rectangle to its
 /// hosting <see cref="UiSystem.SceneViewport"/>; the engine host reads it to

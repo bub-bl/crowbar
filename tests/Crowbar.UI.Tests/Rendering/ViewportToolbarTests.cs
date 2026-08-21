@@ -2,6 +2,10 @@ using Crowbar.UI;
 
 namespace Crowbar.UI.Tests.Rendering;
 
+// Renders the editor page through CreateEditorUi: shares the process-global
+// editor state, so it must serialize with the EditorPage collection.
+[Collection("EditorPage")]
+
 /// <summary>
 /// The viewport toolbar writes the requested gizmo tool through the static
 /// <see cref="GizmoToolState"/> bridge, which the editor host reads each

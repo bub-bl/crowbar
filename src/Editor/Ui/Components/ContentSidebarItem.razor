@@ -1,0 +1,26 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+@using Microsoft.AspNetCore.Components
+
+@* One entry of the content panel's sidebar. The category travels as a
+   [Parameter] (like TreeRow's Id and AddComponentItem's Name): the runtime
+   event invoker cannot pass captured locals from an @onclick lambda, so the
+   click handler reads its own parameter instead. *@
+<div class="cs-item @(Active ? "cs-active" : "")" @onclick="OnClick">@Text</div>
+
+@code {
+    [Parameter]
+    public string Text { get; set; } = string.Empty;
+
+    /// <summary>The category this item selects ("" = the content root).</summary>
+    [Parameter]
+    public string Category { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool Active { get; set; }
+
+    protected override int BuildHash() => HashCode.Combine(Text, Category, Active);
+
+    private void OnClick() => EditorContentState.SelectCategory(Category);
+}

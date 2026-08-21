@@ -75,12 +75,26 @@ public class ResourceLibraryTests
     }
 
     [Fact]
+    public void Unregister_DropsTheAssemblysExtensions()
+    {
+        var library = new ResourceLibrary();
+        library.RegisterLoader<CustomResource>(path => new CustomResource(path));
+        Assert.Equal(typeof(CustomResource), library.GetTypeForExtension("custom"));
+
+        library.Unregister(typeof(CustomResource).Assembly);
+
+        // The extension must not keep resolving to a type from the unloaded
+        // assembly (a hot-reload would otherwise return a stale Type).
+        Assert.Null(library.GetTypeForExtension("custom"));
+    }
+
+    [Fact]
     public void Load_SharesTheSameInstanceForTheSamePath()
     {
         var library = CreateLibrary();
 
-        var first = library.Load<Model>("Assets/Models/Crate/Crate.gltf");
-        var second = library.Load<Model>("Assets/Models/Crate/Crate.gltf");
+        var first = library.Load<Model>("Content/Models/Crate/Crate.gltf");
+        var second = library.Load<Model>("Content/Models/Crate/Crate.gltf");
 
         Assert.Same(first, second);
         Assert.Equal(1, library.CachedCount<Model>());
@@ -91,10 +105,10 @@ public class ResourceLibraryTests
     {
         var library = CreateLibrary();
 
-        var model = library.Load(typeof(Model), "Assets/Models/Crate/Crate.gltf");
+        var model = library.Load(typeof(Model), "Content/Models/Crate/Crate.gltf");
 
         Assert.IsType<Model>(model);
-        Assert.Same(model, library.Load<Model>("Assets/Models/Crate/Crate.gltf"));
+        Assert.Same(model, library.Load<Model>("Content/Models/Crate/Crate.gltf"));
     }
 
     [Fact]
@@ -156,6 +170,32 @@ public class ResourceLibraryTests
     }
 
     [Fact]
+    public void Invalidate_ByPath_ResolvesTheTypeFromTheExtension()
+    {
+        var library = new ResourceLibrary();
+        library.RegisterLoader<CustomResource>(path => new CustomResource(path));
+
+        var path = "Assets/Data/settings.custom";
+        library.Load<CustomResource>(path);
+        Assert.Equal(1, library.CachedCount<CustomResource>());
+
+        // The content hot-reload path: invalidate without naming the type —
+        // the extension registry resolves it (.custom → CustomResource).
+        Assert.True(library.Invalidate(path));
+        Assert.Equal(0, library.CachedCount<CustomResource>());
+        Assert.False(library.TryGet(path, out CustomResource? _));
+    }
+
+    [Fact]
+    public void Invalidate_ByPath_UnknownExtension_IsANoOp()
+    {
+        var library = CreateLibrary();
+
+        // No registered resource type loads .txt: not an asset, nothing to drop.
+        Assert.False(library.Invalidate("Assets/Data/notes.txt"));
+    }
+
+    [Fact]
     public void DiscardedEntries_AreDisposed()
     {
         var library = new ResourceLibrary();
@@ -211,7 +251,7 @@ public class ResourceLibraryTests
         var library = new ResourceLibrary();
         library.Register(typeof(Model).Assembly);
 
-        var model = library.Load<Model>("Assets/Models/Crate/Crate.gltf");
+        var model = library.Load<Model>("Content/Models/Crate/Crate.gltf");
 
         Assert.NotNull(model);
         Assert.Equal(1, library.CachedCount<Model>());
@@ -223,12 +263,12 @@ public class ResourceLibraryTests
         var library = new ResourceLibrary();
         library.Register(typeof(Model).Assembly);
 
-        var first = library.Load<Model>("Assets/Models/Crate/Crate.gltf");
+        var first = library.Load<Model>("Content/Models/Crate/Crate.gltf");
 
         // Registering the same assembly again must not reset the caches.
         library.Register(typeof(Model).Assembly);
 
-        Assert.Same(first, library.Load<Model>("Assets/Models/Crate/Crate.gltf"));
+        Assert.Same(first, library.Load<Model>("Content/Models/Crate/Crate.gltf"));
         Assert.Equal(1, library.CachedCount<Model>());
     }
 
@@ -237,14 +277,14 @@ public class ResourceLibraryTests
     {
         var library = new ResourceLibrary();
         library.Register(typeof(Model).Assembly);
-        library.Load<Model>("Assets/Models/Crate/Crate.gltf");
+        library.Load<Model>("Content/Models/Crate/Crate.gltf");
         Assert.Equal(1, library.CachedCount<Model>());
 
         library.Unregister(typeof(Model).Assembly);
 
         // The types no longer resolve: loading a model throws like a type
         // that was never registered.
-        var error = Assert.Throws<InvalidOperationException>(() => library.Load<Model>("Assets/Models/Crate/Crate.gltf"));
+        var error = Assert.Throws<InvalidOperationException>(() => library.Load<Model>("Content/Models/Crate/Crate.gltf"));
         Assert.Contains("No loader registered", error.Message);
     }
 
@@ -253,7 +293,7 @@ public class ResourceLibraryTests
     {
         var library = CreateLibrary();
 
-        var path = "Assets/Models/Crate/Crate.gltf";
+        var path = "Content/Models/Crate/Crate.gltf";
         var model = library.Load<Model>(path);
         Assert.Equal(0, library.GetReferenceCount<Model>(path));
 
@@ -270,7 +310,7 @@ public class ResourceLibraryTests
     {
         var library = CreateLibrary();
 
-        var model = library.LoadModel("Assets/Models/Missing/Missing.gltf");
+        var model = library.LoadModel("Content/Models/Missing/Missing.gltf");
 
         Assert.Same(Model.Error, model);
         // The failure is not cached: no entry, so a later call re-attempts.

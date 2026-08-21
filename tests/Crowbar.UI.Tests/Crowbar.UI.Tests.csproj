@@ -30,5 +30,9 @@
   <ItemGroup>
     <!-- Binary golden fixtures for the compressed decoders (MIT, from NVorbis). -->
     <None Include="Audio\Fixtures\**\*" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The demo project's content (Game/Content) doubles as test fixtures: it
+         is copied to the test output so content paths like Content/Models/...
+         resolve through the test content root. -->
+    <None Include="..\..\Game\Content\**\*" Link="Content\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

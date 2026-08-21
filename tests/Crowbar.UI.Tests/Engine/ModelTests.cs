@@ -45,7 +45,7 @@ public class ModelTests
         // so its geometric normal (right-hand cross product) points opposite
         // its stored normal. Both procedural and Assimp-imported geometry must
         // follow that convention, or front faces get culled as back faces.
-        foreach (var model in new[] { Model.CreateCube(), Model.Load("Assets/Models/Crate/Crate.gltf") })
+        foreach (var model in new[] { Model.CreateCube(), Model.Load("Content/Models/Crate/Crate.gltf") })
         {
             foreach (var mesh in model.Meshes)
             {
@@ -118,7 +118,7 @@ public class ModelTests
     {
         // The committed sample crate ships next to the engine shaders in the
         // test output, so it exercises the real content-path resolution.
-        var model = Model.Load("Assets/Models/Crate/Crate.gltf");
+        var model = Model.Load("Content/Models/Crate/Crate.gltf");
 
         Assert.Equal("Crate", model.Name);
         Assert.True(Model.HasRenderMeshes(model));
@@ -156,7 +156,7 @@ public class ModelTests
         // The real Sketchfab sample (scene.bin + 4 textures committed next to
         // the .gltf) exercises the whole glTF pipeline on production geometry:
         // two PBR materials, two meshes, node transforms baked in.
-        var model = Model.Load("Assets/Models/industrial_work_light/industrial_work_light.gltf");
+        var model = Model.Load("Content/Models/industrial_work_light/industrial_work_light.gltf");
 
         Assert.Equal("industrial_work_light", model.Name);
         Assert.True(Model.HasRenderMeshes(model));

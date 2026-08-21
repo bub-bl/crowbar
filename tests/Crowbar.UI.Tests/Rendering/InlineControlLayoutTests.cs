@@ -2,6 +2,10 @@ using Crowbar.UI;
 
 namespace Crowbar.UI.Tests.Rendering;
 
+// Renders the editor page through CreateEditorUi: shares the process-global
+// editor state, so it must serialize with the EditorPage collection.
+[Collection("EditorPage")]
+
 /// <summary>
 /// Icon + text and text + caret controls must lay their children out on one
 /// line (side by side), not stacked. The engine defaults a <c>div</c> to a
@@ -73,8 +77,11 @@ public class InlineControlLayoutTests
 
         var local = TestUi.Find(content, p => p.Classes.Contains("vt-local"));
         Assert.NotNull(local);
-        var label = local!.Children.Single(c => c.TagName == "text");
-        var caret = local.Children.Single(c => c.Classes.Contains("caret"));
+        // The label is a <span> (a Label panel) and the text caret became an
+        // arrow icon (8721bff): the two children are the label and the icon,
+        // still sitting side by side.
+        var label = local!.Children.OfType<Label>().Single();
+        var caret = local.Children.OfType<Icon>().Single();
         AssertSameLine(label, caret, "vt-local label/caret");
     }
 
@@ -90,7 +97,9 @@ public class InlineControlLayoutTests
         var head = TestUi.Find(content, p => p.Classes.Contains("insp-section-head") &&
             TestUi.Texts(p).Any(t => t == "Transform"));
         Assert.NotNull(head);
-        var caret = head!.Children.Single(c => c.Classes.Contains("caret"));
+        // The Transform section has no entity icon, so the single icon child is
+        // the caret (a text caret became an arrow icon in 8721bff).
+        var caret = head!.Children.OfType<Icon>().Single();
         var title = head.Children.Single(c => c.Classes.Contains("insp-section-title"));
         AssertSameLine(caret, title, "insp-section-head caret/title");
     }

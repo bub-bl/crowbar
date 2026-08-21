@@ -99,7 +99,7 @@ public static class DemoScene
         // override is needed.
         var crate = level.SpawnEntity("Crate");
         var crateMesh = crate.AddComponent<MeshRenderer>();
-        crateMesh.Model = ResourceLibrary.LoadModel("Assets/Models/Crate/Crate.gltf");
+        crateMesh.Model = ResourceLibrary.LoadModel("Content/Models/Crate/Crate.gltf");
         crateMesh.Local = new Transform(
             new Vector3(1.6f, 0.5f, -1.6f),
             Rotation.FromYaw(35f),
@@ -112,7 +112,7 @@ public static class DemoScene
         // reports the missing file and falls back to the error model.
         var workLight = level.SpawnEntity("IndustrialWorkLight");
         var workLightMesh = workLight.AddComponent<MeshRenderer>();
-        var workLightModel = ResourceLibrary.LoadModel("Assets/Models/industrial_work_light/industrial_work_light.gltf");
+        var workLightModel = ResourceLibrary.LoadModel("Content/Models/industrial_work_light/industrial_work_light.gltf");
         workLightMesh.Model = workLightModel;
 
         // Sketchfab models arrive with arbitrary extents; normalize the bounds

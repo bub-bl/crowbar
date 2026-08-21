@@ -107,6 +107,18 @@ public sealed class ResourceLibrary
                 _caches.Remove(type);
                 _owners.Remove(type);
             }
+
+            // The extension registry must not keep pointing at the unloaded
+            // generation's types: drop every extension whose type belongs to
+            // the assembly being unregistered, or GetTypeForExtension would
+            // resolve to a stale Type from a dead assembly.
+            foreach (var extension in _extensions
+                         .Where(entry => entry.Value.Assembly == assembly)
+                         .Select(entry => entry.Key)
+                         .ToArray())
+            {
+                _extensions.Remove(extension);
+            }
         }
 
         foreach (var cache in caches)
@@ -277,6 +289,24 @@ public sealed class ResourceLibrary
 
     /// <summary>Discards the cached entry at <paramref name="path"/> so the next load re-reads it.</summary>
     public void Invalidate<T>(string path) where T : ResourceFile => GetCache(typeof(T)).Invalidate(path);
+
+    /// <summary>
+    /// Discards the cached entry at <paramref name="path"/> so the next load
+    /// re-reads it. The resource type is resolved from the path's extension
+    /// through the extension registry — the content hot-reload path: the
+    /// host's content watcher calls this with a changed file, whatever its
+    /// type. Returns false when no registered resource type loads the
+    /// extension (the file is not a known asset, so nothing is invalidated).
+    /// </summary>
+    public bool Invalidate(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var type = GetTypeForExtension(Path.GetExtension(path));
+        if (type is null)
+            return false;
+        GetCache(type).Invalidate(path);
+        return true;
+    }
 
     /// <summary>Discards every cached entry of type <typeparamref name="T"/>.</summary>
     public void Clear<T>() where T : ResourceFile => GetCache(typeof(T)).Clear();

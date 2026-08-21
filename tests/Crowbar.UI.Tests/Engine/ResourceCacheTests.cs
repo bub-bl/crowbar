@@ -5,7 +5,7 @@ public class ResourceCacheTests
     [Fact]
     public void Load_ReturnsTheSameModelInstanceForTheSamePath()
     {
-        const string path = "Assets/Models/Crate/Crate.gltf";
+        const string path = "Content/Models/Crate/Crate.gltf";
 
         var first = Model.Load(path);
         var second = Model.Load(path);
@@ -17,7 +17,7 @@ public class ResourceCacheTests
     [Fact]
     public void Load_SharesTextureInstancesAcrossLoads()
     {
-        const string path = "Assets/Models/Crate/Crate.gltf";
+        const string path = "Content/Models/Crate/Crate.gltf";
 
         var first = Model.Load(path);
         var second = Model.Load(path);
