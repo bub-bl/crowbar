@@ -20,6 +20,19 @@ namespace Crowbar.Engine.Tests;
 public class WindowSessionTests
 {
     [Fact]
+    public void ApplicationConstructor_RegistersEngineResourceTypesBeforeTheRendererLoads()
+    {
+        using var app = new HostTestApp();
+
+        // The renderer loads shaders in its constructor (Application..ctor →
+        // Attach → Renderer), so the engine's resource types must be
+        // registered before that point. TryGet throws when no cache is
+        // registered for the type — the exact "No loader registered for
+        // resource type 'Shader'" startup crash this guards against.
+        Assert.False(GlobalNamespaces.ResourceLibrary.TryGet<Shader>("Shaders/__never_loaded__.wgsl", out Shader? _));
+    }
+
+    [Fact]
     public void Session_InitializesExactlyOnce()
     {
         var window = new FakeWindow();
