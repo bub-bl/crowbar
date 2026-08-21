@@ -199,9 +199,11 @@ public sealed class UiTreePainter
         if (panel is ToggleInput toggle)
             DrawToggle(panel, rect, alpha, toggle);
 
-        var text = panel.TagName == "text" ? panel.Text : panel is TextInput input ? input.Value : string.Empty;
-        if (!string.IsNullOrEmpty(text))
-            DrawText(panel, rect, text, alpha);
+        var input = panel as TextInput;
+        var text = panel.TagName == "text" ? panel.Text : input?.Value ?? string.Empty;
+        var isPlaceholder = input is not null && text.Length == 0 && input.Placeholder.Length > 0;
+        if (!string.IsNullOrEmpty(text) || isPlaceholder)
+            DrawText(panel, rect, isPlaceholder ? input!.Placeholder : text, alpha, isPlaceholder);
         // Generated ::before/::after content of non-text panels paints as a
         // decorative line at the content box start (before) / end (after), using
         // the pseudo element's own computed style.
@@ -569,7 +571,7 @@ public sealed class UiTreePainter
         }
     }
 
-    private void DrawText(Panel panel, RectF rect, string text, float alpha)
+    private void DrawText(Panel panel, RectF rect, string text, float alpha, bool isPlaceholder = false)
     {
         var style = panel.ComputedStyle;
         var padding = panel.LayoutPadding;
@@ -580,7 +582,7 @@ public sealed class UiTreePainter
 
         // ::before/::after content of a text panel joins the text as one flow
         // (the layout box already measured it the same way).
-        var displayText = panel is TextInput || (panel.PseudoBefore is null && panel.PseudoAfter is null)
+        var displayText = panel is TextInput && !isPlaceholder || (panel.PseudoBefore is null && panel.PseudoAfter is null)
             ? text
             : (panel.PseudoBefore?.Text ?? string.Empty) + text + (panel.PseudoAfter?.Text ?? string.Empty);
         var transformed = ApplyTextTransform(displayText, style.TextTransform);
@@ -614,7 +616,7 @@ public sealed class UiTreePainter
             : align == TextAlign.Right ? left + Math.Max(0, contentWidth - measured)
             : left;
 
-        if (panel is TextInput input && input.HasSelection && singleLine)
+        if (!isPlaceholder && panel is TextInput input && input.HasSelection && singleLine)
         {
             var start = Math.Clamp(Math.Min(input.SelectionStart, input.SelectionEnd), 0, transformed.Length);
             var end = Math.Clamp(Math.Max(input.SelectionStart, input.SelectionEnd), 0, transformed.Length);

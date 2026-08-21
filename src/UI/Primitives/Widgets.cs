@@ -20,6 +20,8 @@ public class TextInput : Panel
 {
     public TextInput() { TagName = "input"; }
     public string Value { get; private set; } = string.Empty;
+    /// <summary>Hint rendered while the input has no value.</summary>
+    public string Placeholder { get; internal set; } = string.Empty;
     /// <summary>
     /// The value attribute the parser last applied to this input. The typed
     /// value wins only while this stays unchanged, so a parent changing the

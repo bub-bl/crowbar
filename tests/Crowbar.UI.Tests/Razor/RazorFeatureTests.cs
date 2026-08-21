@@ -5,6 +5,36 @@ namespace Crowbar.UI.Tests.Razor;
 public class RazorFeatureTests
 {
     [Fact]
+    public void PlaceholderInputCanReceiveKeyboardSearchText()
+    {
+        using var ui = TestUi.Create();
+        ui.LoadRazor("""
+            <div class="root">
+              <input class="field" placeholder="Search..." @oninput="OnSearch" />
+              <label>@query</label>
+            </div>
+            @code {
+                private string query = string.Empty;
+                private void OnSearch(string value) { query = value; }
+            }
+            """, "SearchDemo");
+        ui.LoadStyles(".field { width: 160px; height: 24px; }");
+        ui.Prepare();
+
+        var input = TestUi.Find(ui.Screen, p => p is TextInput) as TextInput;
+        Assert.NotNull(input);
+        Assert.Equal("Search...", input!.Placeholder);
+
+        ui.ProcessPointerDown(input.Layout.X + 1, input.Layout.Y + 1);
+        Assert.True(input.IsFocused);
+        ui.ProcessKey(0x41, true); // A
+        ui.Update();
+        ui.Prepare();
+
+        Assert.Contains("a", TestUi.Texts(ui.Screen));
+    }
+
+    [Fact]
     public void KeyPreservesInputStateAcrossSiblingInsertion()
     {
         using var ui = TestUi.Create();

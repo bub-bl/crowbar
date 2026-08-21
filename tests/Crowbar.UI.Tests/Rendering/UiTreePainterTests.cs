@@ -408,6 +408,26 @@ public class UiTreePainterTests
     }
 
     [Fact]
+    public void Paint_EmptyInputDrawsPlaceholder()
+    {
+        using var ui = TestUi.Create(240, 100);
+        ui.LoadRazor("""
+            <input class="field" placeholder="Search..." />
+            """, "PlaceholderDemo");
+        ui.LoadStyles(".field { position: absolute; left: 10px; top: 10px; width: 160px; height: 24px; color: #ffffff; font-size: 16px; white-space: nowrap; }");
+        ui.Prepare();
+
+        var input = TestUi.Find(ui.Screen, p => p is TextInput) as TextInput;
+        Assert.NotNull(input);
+        Assert.Equal("Search...", input!.Placeholder);
+
+        var renderer = new Renderer2D();
+        new UiTreePainter(renderer).Paint(ui.Screen);
+
+        Assert.Contains(renderer.Commands, c => c.Kind == BatchKind.Glyph);
+    }
+
+    [Fact]
     public void Paint_FocusedInputDrawsCaret()
     {
         using var ui = TestUi.Create(240, 100);

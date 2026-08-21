@@ -81,15 +81,15 @@ root {
 }
 
 .ct-icon-btn {
-    width: 24px;
+    width: 32px;
     padding: 0;
     align-items: center;
     justify-content: center;
     text-align: center;
 
     icon {
-        width: 14px;
-        height: 14px;
+        width: 22px;
+        height: 22px;
     }
 }
 
@@ -123,6 +123,12 @@ root {
     font-size: 11px;
     line-height: 20px;
     box-sizing: border-box;
+    cursor: text;
+
+    &:focus {
+        border-color: $accent;
+        color: $text-bright;
+    }
 }
 
 .crumb-sep {

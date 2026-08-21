@@ -460,16 +460,22 @@ public sealed class YogaLayoutEngine
     private void ApplyTextMeasure(Node node, Panel panel, ComputedStyle style, UiImageCache cache, float intrinsicRatio, SvgIconCache? iconCache = null)
     {
         var state = GetOrCreateState(panel);
-        var text = panel is TextInput input ? input.Value : panel.Text;
-        if ((panel.TagName.Equals("text", StringComparison.OrdinalIgnoreCase) || panel is TextInput) && text.Length > 0)
+        var input = panel as TextInput;
+        var text = input?.Value ?? panel.Text;
+        var placeholder = input is { Value.Length: 0, Placeholder.Length: > 0 } ? input.Placeholder : string.Empty;
+        if ((panel.TagName.Equals("text", StringComparison.OrdinalIgnoreCase) || panel is TextInput) &&
+            (text.Length > 0 || placeholder.Length > 0))
         {
             // No pseudo content: displayText is the panel's own string instance,
             // so an unchanged panel compares by reference and never re-measures.
+            // A placeholder participates in intrinsic sizing just like the hint
+            // painted by UiTreePainter; explicit width constraints still win.
+            var sourceText = text.Length > 0 ? text : placeholder;
             var before = panel.PseudoBefore?.Text;
             var after = panel.PseudoAfter?.Text;
             var displayText = before is null && after is null
-                ? text
-                : (before ?? string.Empty) + text + (after ?? string.Empty);
+                ? sourceText
+                : (before ?? string.Empty) + sourceText + (after ?? string.Empty);
             var key = MeasureKey(style);
             if (!state.HasMeasureFunc || !Equals(state.MeasureSig, displayText) || state.MeasureKey != key)
             {

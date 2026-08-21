@@ -268,6 +268,11 @@ internal static class HtmlPanelParser
                 }
             else if (attribute.Name.LocalName.Equals("value", StringComparison.OrdinalIgnoreCase) && panel is TextInput)
                 declaredValue = attribute.Value;
+            else if (attribute.Name.LocalName.Equals("placeholder", StringComparison.OrdinalIgnoreCase) && panel is TextInput placeholderInput)
+            {
+                placeholderInput.Placeholder = attribute.Value;
+                panel.Attributes[attribute.Name.LocalName] = attribute.Value;
+            }
             else if (attribute.Name.LocalName.Equals("src", StringComparison.OrdinalIgnoreCase) && panel is Image image)
             {
                 // The image source feeds the renderer (object-fit) and the
@@ -439,6 +444,11 @@ internal static class HtmlPanelParser
         }
         else if (name.Equals("disabled", StringComparison.OrdinalIgnoreCase)) panel.IsEnabled = false;
         else if (name.Equals("checked", StringComparison.OrdinalIgnoreCase) && panel is ToggleInput) panel.IsChecked = IsTruthyAttribute(value);
+        else if (name.Equals("placeholder", StringComparison.OrdinalIgnoreCase) && panel is TextInput textInput)
+        {
+            textInput.Placeholder = value;
+            panel.Attributes[name] = value;
+        }
         else if (name.Equals("tooltip", StringComparison.OrdinalIgnoreCase)) panel.Tooltip = value;
         else if (name.Equals("src", StringComparison.OrdinalIgnoreCase) && panel is Image image)
         {
