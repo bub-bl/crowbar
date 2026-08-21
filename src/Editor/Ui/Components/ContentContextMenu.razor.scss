@@ -16,6 +16,15 @@ root {
     z-index: 1000;
 }
 
+.content-context-layer {
+    position: absolute;
+    left: 0px;
+    top: 0px;
+    right: 0px;
+    bottom: 0px;
+    overflow: visible;
+}
+
 .content-context-menu {
     position: absolute;
     z-index: 1001;

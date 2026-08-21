@@ -387,6 +387,31 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void ContentContextMenuClosesWhenClickingOutsideWithLeftButton()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        var asset = FindText(content, "asset-name", t => t == "Demo.level");
+        Assert.NotNull(asset);
+
+        // Open the menu with the secondary button on a content tile.
+        ui.ProcessPointerDown(asset!.Layout.X + 2, asset.Layout.Y + 2, button: 1);
+        ui.ProcessPointerUp(asset.Layout.X + 2, asset.Layout.Y + 2, button: 1);
+        ui.Update();
+        ui.Prepare();
+        Assert.NotNull(TestUi.Find(ui.Content, p => p.Classes.Contains("content-context-menu")));
+
+        // The transparent full-editor layer receives left clicks outside the
+        // menu, while the menu itself consumes clicks so editing remains safe.
+        ui.ProcessPointerDown(5, 5, button: 0);
+        ui.ProcessPointerUp(5, 5, button: 0);
+        ui.Update();
+        ui.Prepare();
+
+        Assert.Null(TestUi.Find(ui.Content, p => p.Classes.Contains("content-context-menu")));
+    }
+
+    [Fact]
     public void ContentPanelSidebarIsAFolderTree()
     {
         using var ui = CreateEditorUi();

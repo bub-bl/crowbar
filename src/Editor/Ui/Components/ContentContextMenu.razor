@@ -4,7 +4,8 @@
 
 @if (EditorContentState.ContextMenu is { } menu)
 {
-    <div class="content-context-menu" style="@ContextMenuStyle(menu)" @onmousedown="ConsumeContextPointer">
+    <div class="content-context-layer" @onclick="CloseFromOutside">
+        <div class="content-context-menu" style="@ContextMenuStyle(menu)" @onmousedown="ConsumeContextPointer" @onclick="ConsumeContextClick">
         @if (_renamePath == menu.Path)
         {
             <div class="context-menu-title">Rename</div>
@@ -38,6 +39,7 @@
             }
             <div class="context-menu-item" @onclick="RevealContextPath">Reveal in Explorer</div>
         }
+        </div>
     </div>
 }
 
@@ -64,6 +66,18 @@
         menu.Path.Trim('/').Split('/').LastOrDefault() ?? "Content";
 
     private bool ConsumeContextPointer(UiPointerEvent e) => true;
+
+    private void ConsumeContextClick(UiPointerEvent e)
+    {
+        // The menu owns the click so it does not bubble to the transparent
+        // full-editor layer and close while editing or choosing an action.
+    }
+
+    private void CloseFromOutside(UiPointerEvent e)
+    {
+        if (e.Button == 0)
+            EditorContentState.CloseContextMenu();
+    }
 
     private void OpenContextFolder()
     {
