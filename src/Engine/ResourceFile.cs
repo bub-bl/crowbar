@@ -13,25 +13,21 @@ namespace Crowbar.Engine;
 /// the same model: the instance is allocated, its <see cref="Path"/> is
 /// assigned, then <see cref="Load"/> populates it and <see cref="Unload"/>
 /// releases what it owns. Custom game resources mark themselves
-/// <see cref="FileAssetAttribute"/> to become cacheable too.
+/// <see cref="AssetTypeAttribute"/> to become cacheable too.
 /// </summary>
-[AttributeUsage(AttributeTargets.Class)]
-public sealed class AssetTypeAttribute(string extension) : Attribute
-{
-    public string Extension { get; } = extension;
-}
-
 /// <summary>
-/// Marks a <see cref="ResourceFile"/> subclass as a file-backed asset shared
-/// by path through <see cref="Global.ResourceLibrary"/>: registering an
-/// assembly discovers every marked type and lets the library allocate, load
-/// and cache its instances. File documents (<see cref="LevelFile"/>,
-/// <see cref="CrowbarProjectFile"/>) don't carry it — they are parsed on
-/// demand rather than cached by path.
+/// Marks a <see cref="ResourceFile"/> subclass as a file-backed type and
+/// declares the file extensions it loads. Registering an assembly discovers
+/// every marked type: the library allocates its instances, assigns their
+/// <see cref="ResourceFile.Path"/> and populates them through the
+/// <see cref="ResourceFile.Load"/> override, then shares them by path through
+/// <see cref="Global.ResourceLibrary"/>.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class)]
-public sealed class FileAssetAttribute : Attribute
+public sealed class AssetTypeAttribute(params string[] extensions) : Attribute
 {
+    /// <summary>The file extensions this type loads, without the leading dot (e.g. "gltf").</summary>
+    public IReadOnlyList<string> Extensions { get; } = extensions;
 }
 
 public abstract class ResourceFile : IValid, IDisposable

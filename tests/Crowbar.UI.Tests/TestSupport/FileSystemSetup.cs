@@ -25,7 +25,7 @@ internal static class FileSystemSetup
             new FileSystemService(backend, AppContext.BaseDirectory));
 
         // The engine's resource types (Model, Texture2D, AudioClip, Shader)
-        // are discovered through their [FileAsset] marker; production apps
+        // are discovered through their [AssetType] marker; production apps
         // register the assembly in Application.OnLoaded, and tests that load
         // resources directly (Model.Load, ...) need it registered on the
         // global library too.

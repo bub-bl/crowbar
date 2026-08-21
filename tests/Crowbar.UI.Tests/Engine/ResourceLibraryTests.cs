@@ -146,7 +146,7 @@ public class ResourceLibraryTests
     [Fact]
     public void RegisterAssembly_DiscoversResourceTypes()
     {
-        // Registering an assembly discovers every [FileAsset]-marked type in
+        // Registering an assembly discovers every [AssetType]-marked type in
         // it (Model, Texture2D, AudioClip, Shader) with no explicit loader
         // registration.
         var library = new ResourceLibrary();

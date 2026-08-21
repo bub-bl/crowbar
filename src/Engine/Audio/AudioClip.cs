@@ -13,7 +13,7 @@ namespace Crowbar.Engine.Audio;
 /// <see cref="AudioStream"/>). Channels are normalized to interleaved stereo
 /// <see cref="float"/>.
 /// </summary>
-[FileAsset]
+[AssetType("wav", "aiff", "ogg", "mp3")]
 public sealed class AudioClip : ResourceFile
 {
     /// <summary>Maximum number of min/max buckets in the waveform <see cref="Envelope"/>.</summary>

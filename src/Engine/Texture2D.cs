@@ -15,7 +15,7 @@ namespace Crowbar.Engine;
 /// <see cref="Height"/> or <see cref="Pixels"/>, so importing a model records
 /// its texture set without decoding every image up front.
 /// </summary>
-[FileAsset]
+[AssetType("png", "jpg", "jpeg", "webp")]
 public sealed class Texture2D : ResourceFile
 {
     private readonly Lock _decodeLock = new();

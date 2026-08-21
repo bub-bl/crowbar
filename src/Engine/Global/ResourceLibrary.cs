@@ -20,7 +20,7 @@ namespace Crowbar.Engine.Global;
 /// <see cref="Register"/>. The application host registers the engine's own
 /// types (Model, Texture2D, AudioClip, Shader) at startup, the editor registers
 /// its assembly, and the game project registers its loaded assembly.
-/// A type participates by marking itself <see cref="FileAssetAttribute"/>; the
+/// A type participates by marking itself <see cref="AssetTypeAttribute"/>; the
 /// library allocates each instance, assigns its <see cref="ResourceFile.Path"/>
 /// and lets its <see cref="ResourceFile.Load"/> override populate it. Custom
 /// resource types may do the same, or register their loader explicitly with
@@ -37,7 +37,7 @@ public sealed class ResourceLibrary
 
     /// <summary>
     /// Registers the resource types of <paramref name="assembly"/>: every
-    /// <see cref="FileAssetAttribute"/>-marked type gets its own cache,
+    /// <see cref="AssetTypeAttribute"/>-marked type gets its own cache,
     /// populated through <see cref="ResourceFile.Load"/>. Idempotent — an
     /// assembly already registered is skipped. Called by the composition root
     /// for the engine, editor and game assemblies.
@@ -48,7 +48,7 @@ public sealed class ResourceLibrary
 
         foreach (var type in assembly.GetTypes())
         {
-            if (type.IsAbstract || !type.IsDefined(typeof(FileAssetAttribute)))
+            if (type.IsAbstract || !type.IsDefined(typeof(AssetTypeAttribute)))
                 continue;
 
             RegisterCacheFor(type);
@@ -87,7 +87,7 @@ public sealed class ResourceLibrary
     /// <summary>
     /// Registers the loader used to load a resource type by path. Custom
     /// <see cref="ResourceFile"/> subclasses call this to become cacheable
-    /// without carrying the <see cref="FileAssetAttribute"/> marker.
+    /// without carrying the <see cref="AssetTypeAttribute"/> marker.
     /// </summary>
     public void RegisterLoader<T>(Func<string, T> loader) where T : ResourceFile
     {
@@ -101,7 +101,7 @@ public sealed class ResourceLibrary
     }
 
     /// <summary>
-    /// Registers the cache of one <see cref="FileAssetAttribute"/>-marked type:
+    /// Registers the cache of one <see cref="AssetTypeAttribute"/>-marked type:
     /// the library allocates each instance through its parameterless
     /// constructor, assigns <see cref="ResourceFile.Path"/> and lets the type's
     /// <see cref="ResourceFile.Load"/> override populate it. The constructor

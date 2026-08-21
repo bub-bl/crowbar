@@ -63,7 +63,7 @@ public sealed record ShaderParameterDefinition(string Name, Type Type);
 /// every undo/redo re-read the WGSL file and its reflection sidecar once per
 /// material.
 /// </summary>
-[FileAsset]
+[AssetType("wgsl")]
 public sealed class Shader : ResourceFile
 {
     /// <summary>The canonical resolved path of the file, for diagnostics.</summary>

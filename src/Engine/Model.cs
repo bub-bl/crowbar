@@ -64,7 +64,7 @@ public readonly record struct ModelLoadProgress(ModelLoadStage Stage, float Frac
 /// (<see cref="Load(string)"/>), which also converts glTF PBR materials and their
 /// textures into engine <see cref="Material"/>s using the standard PBR shader.
 /// </summary>
-[FileAsset]
+[AssetType("gltf", "obj", "fbx")]
 public sealed class Model : ResourceFile
 {
     private static readonly Assimp Api = Assimp.GetApi();

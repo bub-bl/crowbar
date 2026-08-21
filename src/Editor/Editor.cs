@@ -62,7 +62,7 @@ public sealed class Editor : Application
 
     protected override void OnInitialize()
     {
-        // The editor may ship its own [FileAsset] resource types: register its
+        // The editor may ship its own [AssetType] resource types: register its
         // assembly like the engine's. Currently a no-op, kept so future editor
         // assets load through the same path.
         ResourceLibrary.Register(typeof(Editor).Assembly);
