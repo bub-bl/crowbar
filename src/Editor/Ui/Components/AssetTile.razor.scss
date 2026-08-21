@@ -9,7 +9,6 @@ root {
 
 .asset-tile {
     width: 84px;
-    height: 56px;
     flex-shrink: 0;
     align-items: center;
     gap: 3px;
@@ -22,7 +21,7 @@ root {
 
 .asset-thumb {
     width: 56px;
-    height: 36px;
+    height: 62px;
     border-radius: 3px;
     border: 1px solid #3a3a3a;
     background-color: #262626;
@@ -30,9 +29,13 @@ root {
     align-items: center;
     justify-content: center;
 
+    &:hover {
+        background-color: #3a3a3a;
+    }
+
     icon {
-        width: 20px;
-        height: 20px;
+        width: 28px;
+        height: 28px;
     }
 }
 
