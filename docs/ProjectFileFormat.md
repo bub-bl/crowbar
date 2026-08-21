@@ -9,8 +9,9 @@ human and diff-friendly in version control. The container is the DTO
 atomically: writing to a `.tmp` file and then moving over the destination.
 
 The file lives **at the root of the project directory it describes**: that
-directory <em>is</em> the project. The project content (`.level` levels, game
-project code, assets) lives next to the `.crproj`.
+directory <em>is</em> the project. The project is laid out with two folders
+next to the `.crproj`: `Content/` for the game's assets and `.level` levels,
+and `Code/` for the game project's C# sources (`Game.csproj`).
 
 ## Example
 
@@ -42,7 +43,8 @@ project code, assets) lives next to the `.crproj`.
   its first argument (`Crowbar.Editor.exe "C:\Projects\MyGame\MyGame.crproj"`).
   It reads it via `CrowbarProjectFile.LoadFromDisk` (before any filesystem
   configuration) and then **roots the project filesystem on the file's
-  directory**, so levels and game project code are saved next to the project.
+  directory**, so levels are saved in the project's `Content/` folder and the
+  game project code in `Code/`, both under the project directory.
 - **From the editor**: the "folder" button in the toolbar opens the Windows
   Explorer window (native `GetOpenFileName` dialog) to pick a `.crproj`; the
   editor then re-roots the project filesystem, reloads the level, and

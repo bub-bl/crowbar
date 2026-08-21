@@ -15,8 +15,8 @@
          this project. These references declare the project's API surface: they are
          mirrored by the in-memory compiler so the hot-reloaded assembly sees exactly
          what the project references. -->
-    <ProjectReference Include="..\src\Engine\Engine.csproj" />
-    <ProjectReference Include="..\src\FileSystem\Crowbar.FileSystem.csproj" />
-    <ProjectReference Include="..\src\UI\Crowbar.UI.csproj" />
+    <ProjectReference Include="..\..\src\Engine\Engine.csproj" />
+    <ProjectReference Include="..\..\src\FileSystem\Crowbar.FileSystem.csproj" />
+    <ProjectReference Include="..\..\src\UI\Crowbar.UI.csproj" />
   </ItemGroup>
 </Project>

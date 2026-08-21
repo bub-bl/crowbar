@@ -1,9 +1,9 @@
-// Demo game project: a .NET 11 class library (Game/Game.csproj) referencing the
-// engine. It's a real game project, like Unity or Unreal: it ships Components
-// the editor can attach to entities, and it's never referenced by the editor.
-// The editor's ScriptHost loads it at runtime into its own collectible assembly
-// context and hot-reloads it from the Game/ folder. Edit this file while the
-// editor is running:
+// Demo game project: a .NET 11 class library (Game/Code/Game.csproj) referencing
+// the engine. It's a real game project, like Unity or Unreal: it ships
+// Components the editor can attach to entities, and it's never referenced by
+// the editor. The editor's ScriptHost loads it at runtime into its own
+// collectible assembly context and hot-reloads it from the Game/Code folder.
+// Edit this file while the editor is running:
 //   - changing a method body → IL hot reload (fast path), instances keep their
 //     identity and their state;
 //   - adding/removing a field or method → full reload, state is migrated.

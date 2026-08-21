@@ -6,8 +6,9 @@ using Crowbar.UI;
 namespace Crowbar.Editor;
 
 /// <summary>
-/// The game project: a real .NET library project (Game/Game.csproj) referencing
-/// the engine. It is loaded at runtime into its own collectible assembly context
+/// The game project: a real .NET library project (Game/Code/Game.csproj)
+/// referencing the engine. It is loaded at runtime into its own collectible
+/// assembly context
 /// — the engine and the editor never reference the project — and hot-reloaded on
 /// every edit (IL fast path when only method bodies change, otherwise a full
 /// reload with state migration). Its component types are registered in
@@ -25,19 +26,20 @@ public sealed class GameProject
 
     /// <summary>
     /// (Re)loads the game project from the current project root: compiles every
-    /// *.cs file under <see cref="FileSystem.Project"/>'s root into the
-    /// collectible assembly context, registers its component types so the editor
-    /// can attach them, and watches the directory for hot reload. Calling it
-    /// again (project switch) compiles the new project from scratch. Must run
-    /// before the level is loaded: only its registered component types resolve
-    /// when a saved document is materialized.
+    /// *.cs file under the project's <c>Code/</c> folder into the collectible
+    /// assembly context, registers its component types so the editor can attach
+    /// them, and watches the folder for hot reload. Calling it again (project
+    /// switch) compiles the new project from scratch. Must run before the level
+    /// is loaded: only its registered component types resolve when a saved
+    /// document is materialized.
     /// </summary>
     public void Start()
     {
         try
         {
-            // The game project is the whole project (FileSystem.Project): "." is its root.
-            const string gameDirectory = ".";
+            // The game code lives in the project's Code/ folder (Game/Code),
+            // next to the Content/ assets; only it is compiled and watched.
+            const string gameDirectory = "Code";
             var host = EnsureHost();
             var previous = host.Current;
             host.WatchDirectory(gameDirectory, "GameProject");

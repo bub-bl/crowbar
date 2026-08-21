@@ -32,11 +32,12 @@ public sealed class Project
 
     /// <summary>
     /// The project-relative path the open level is saved to and loaded from
-    /// (Ctrl+S). Named after the project so each project carries its own level;
-    /// the bare demo run falls back to "Demo.level".
+    /// (Ctrl+S). Levels are project content, so they live in the project's
+    /// <c>Content/</c> folder; each project carries its own level named after
+    /// it, and the bare demo run falls back to "Content/Demo.level".
     /// </summary>
     public string LevelFileName =>
-        _file is { Name.Length: > 0 } project ? $"{project.Name}.level" : "Demo.level";
+        _file is { Name.Length: > 0 } project ? $"Content/{project.Name}.level" : "Content/Demo.level";
 
     /// <summary>
     /// Opens the <c>.crproj</c> given on the command line (double-click launch).
