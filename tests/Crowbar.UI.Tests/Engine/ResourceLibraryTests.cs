@@ -1,3 +1,4 @@
+using Crowbar.Engine.Audio;
 using Crowbar.Engine.Global;
 
 namespace Crowbar.Engine.Tests;
@@ -46,6 +47,31 @@ public class ResourceLibraryTests
         var library = new ResourceLibrary();
         library.Register(typeof(Model).Assembly);
         return library;
+    }
+
+    [Fact]
+    public void GetTypeForExtension_ResolvesAttributeDeclaredExtensions()
+    {
+        var library = CreateLibrary();
+
+        Assert.Equal(typeof(Model), library.GetTypeForExtension("gltf"));
+        Assert.Equal(typeof(Model), library.GetTypeForExtension(".GLTF")); // case-insensitive, leading dot optional
+        Assert.Equal(typeof(Texture2D), library.GetTypeForExtension("jpeg"));
+        Assert.Equal(typeof(AudioClip), library.GetTypeForExtension("ogg"));
+        Assert.Equal(typeof(Shader), library.GetTypeForExtension("wgsl"));
+        Assert.Equal(typeof(LevelFile), library.GetTypeForExtension("level"));
+        Assert.Equal(typeof(CrowbarProjectFile), library.GetTypeForExtension("crproj"));
+        Assert.Null(library.GetTypeForExtension("unknown"));
+    }
+
+    [Fact]
+    public void GetTypeForExtension_IncludesRegisterLoaderTypes()
+    {
+        var library = new ResourceLibrary();
+        library.RegisterLoader<CustomResource>(path => new CustomResource(path));
+
+        Assert.Equal(typeof(CustomResource), library.GetTypeForExtension("custom"));
+        Assert.Equal(typeof(CustomResource), library.Extensions["custom"]);
     }
 
     [Fact]

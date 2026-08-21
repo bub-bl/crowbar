@@ -11,8 +11,14 @@ namespace Crowbar.Engine.Global;
 /// the engine's per-type resource caches: instead of every resource class
 /// carrying its own static cache, the caches live here in one
 /// <see cref="Dictionary{Type, IResourceCache}"/> keyed by the resource type,
-/// and the classes' <c>Load</c> statics delegate to it. Content code never
-/// repeats the try/catch dance — <see cref="LoadModel"/> substitutes
+/// and the classes' <c>Load</c> statics delegate to it. Loading is exposed
+/// through each type's static (<c>Model.Load</c>, <c>Shader.Load</c>, ...); the
+/// library's own <see cref="Load"/> / <see cref="LoadAsync{T}"/> are internal
+/// implementation those facades call. Registering an assembly also builds an
+/// extension → type registry from the <see cref="AssetTypeAttribute"/>
+/// declarations (<see cref="GetTypeForExtension"/>), so a file extension
+/// resolves to the resource type that loads it. Content code never repeats the
+/// try/catch dance — <see cref="LoadModel"/> substitutes
 /// <see cref="Model.Error"/> for an unreadable model.
 ///
 /// Which assemblies participate is decided by the composition root, not by
@@ -34,6 +40,7 @@ public sealed class ResourceLibrary
 {
     private readonly Dictionary<Type, IResourceCache> _caches = [];
     private readonly Dictionary<Type, Assembly> _owners = [];
+    private readonly Dictionary<string, Type> _extensions = [];
     private readonly Lock _lock = new();
 
     /// <summary>
@@ -127,6 +134,8 @@ public sealed class ResourceLibrary
         {
             _caches[typeof(T)] = new ResourceCache(path => loader(path));
             _owners[typeof(T)] = typeof(T).Assembly;
+            foreach (var extension in typeof(T).GetCustomAttribute<AssetTypeAttribute>()?.Extensions ?? [])
+                AddExtension(extension, typeof(T));
         }
     }
 
@@ -161,25 +170,79 @@ public sealed class ResourceLibrary
                 return resource;
             });
             _owners[type] = type.Assembly;
+            foreach (var extension in type.GetCustomAttribute<AssetTypeAttribute>()?.Extensions ?? [])
+                AddExtension(extension, type);
+        }
+    }
+
+    /// <summary>Records that <paramref name="type"/> loads <paramref name="extension"/>, rejecting collisions.</summary>
+    private void AddExtension(string extension, Type type)
+    {
+        var key = NormalizeExtension(extension);
+        if (key.Length == 0)
+            return;
+
+        lock (_lock)
+        {
+            if (_extensions.TryGetValue(key, out var existing))
+            {
+                if (existing != type)
+                {
+                    throw new InvalidOperationException(
+                        $"The file extension '{key}' is already declared by '{existing.Name}'; an extension belongs to one resource type only.");
+                }
+                return;
+            }
+
+            _extensions[key] = type;
+        }
+    }
+
+    /// <summary>Canonical extension form: trimmed, leading dot stripped, lower-cased.</summary>
+    private static string NormalizeExtension(string extension) =>
+        extension.Trim().TrimStart('.').ToLowerInvariant();
+
+    /// <summary>
+    /// Returns the resource type that declared <paramref name="extension"/> in
+    /// its <see cref="AssetTypeAttribute"/>, or null when no registered type
+    /// loads it. The match is case-insensitive and the leading dot is optional
+    /// ("gltf", ".GLTF" and "Gltf" all resolve to <see cref="Model"/>).
+    /// </summary>
+    public Type? GetTypeForExtension(string extension)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(extension);
+        var key = NormalizeExtension(extension);
+        lock (_lock)
+            return _extensions.TryGetValue(key, out var type) ? type : null;
+    }
+
+    /// <summary>Every registered file extension mapped to its resource type (snapshot).</summary>
+    public IReadOnlyDictionary<string, Type> Extensions
+    {
+        get
+        {
+            lock (_lock)
+                return new Dictionary<string, Type>(_extensions);
         }
     }
 
     /// <summary>
     /// Loads a resource of the given <paramref name="resourceType"/> by path
-    /// (cached, shared by path). Throws on failure.
+    /// (cached, shared by path). Throws on failure. Internal: the public
+    /// loading surface is each type's static (Model.Load, Shader.Load, ...).
     /// </summary>
-    public ResourceFile Load(Type resourceType, string path)
+    internal ResourceFile Load(Type resourceType, string path)
     {
         ArgumentNullException.ThrowIfNull(resourceType);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return GetCache(resourceType).Load(path);
     }
 
-    /// <summary>Loads a resource of type <typeparamref name="T"/> by path (cached, shared by path). Throws on failure.</summary>
-    public T Load<T>(string path) where T : ResourceFile => (T)Load(typeof(T), path);
+    /// <summary>Internal: loads a resource of type <typeparamref name="T"/> by path (cached, shared by path). Throws on failure.</summary>
+    internal T Load<T>(string path) where T : ResourceFile => (T)Load(typeof(T), path);
 
-    /// <summary>Asynchronously loads a resource of type <typeparamref name="T"/> (shared cache, in-flight dedup).</summary>
-    public async Task<T> LoadAsync<T>(string path, Func<CancellationToken, T> load, CancellationToken cancellationToken = default)
+    /// <summary>Internal: asynchronously loads a resource of type <typeparamref name="T"/> (shared cache, in-flight dedup).</summary>
+    internal async Task<T> LoadAsync<T>(string path, Func<CancellationToken, T> load, CancellationToken cancellationToken = default)
         where T : ResourceFile
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
