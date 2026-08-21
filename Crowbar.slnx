@@ -6,5 +6,4 @@
   <Folder Name="/Tests/">
     <Project Path="tests/Crowbar.UI.Tests/Crowbar.UI.Tests.csproj" />
   </Folder>
-  <Project Path="Game/Game.csproj" />
 </Solution>
