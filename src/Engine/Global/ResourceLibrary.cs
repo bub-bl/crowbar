@@ -20,10 +20,11 @@ namespace Crowbar.Engine.Global;
 /// <see cref="Register"/>. The application host registers the engine's own
 /// types (Model, Texture2D, AudioClip, Shader) at startup, the editor registers
 /// its assembly, and the game project registers its loaded assembly.
-/// A type participates by marking itself <see cref="AssetTypeAttribute"/>; the
-/// library allocates each instance, assigns its <see cref="ResourceFile.Path"/>
+/// A type participates by marking itself <see cref="AssetTypeAttribute"/>, which
+/// is mandatory for every <see cref="ResourceFile"/> subclass; the library
+/// allocates each instance, assigns its <see cref="ResourceFile.Path"/>
 /// and lets its <see cref="ResourceFile.Load"/> override populate it. Custom
-/// resource types may do the same, or register their loader explicitly with
+/// resource types may do the same, or override the load itself with
 /// <see cref="RegisterLoader{T}"/>. Every cached resource is shared by path and
 /// reference-counted (<see cref="Retain{T}"/> / <see cref="Release{T}"/>); a
 /// discarded entry is disposed so it frees what it owns (a model releases its
@@ -38,7 +39,9 @@ public sealed class ResourceLibrary
     /// <summary>
     /// Registers the resource types of <paramref name="assembly"/>: every
     /// <see cref="AssetTypeAttribute"/>-marked type gets its own cache,
-    /// populated through <see cref="ResourceFile.Load"/>. Idempotent — an
+    /// populated through <see cref="ResourceFile.Load"/>. The marker is
+    /// mandatory — an assembly containing a concrete <see cref="ResourceFile"/>
+    /// subclass without it is rejected — and registration is idempotent: an
     /// assembly already registered is skipped. Called by the composition root
     /// for the engine, editor and game assemblies.
     /// </summary>
@@ -46,9 +49,28 @@ public sealed class ResourceLibrary
     {
         ArgumentNullException.ThrowIfNull(assembly);
 
-        foreach (var type in assembly.GetTypes())
+        var types = assembly.GetTypes();
+
+        // Every concrete ResourceFile subclass must declare its file type;
+        // without the marker it would silently never be loadable through the
+        // library. Fail fast here so a new type missing the attribute cannot
+        // slip in unnoticed.
+        var unmarked = types
+            .Where(type => !type.IsAbstract
+                           && !type.IsGenericTypeDefinition
+                           && typeof(ResourceFile).IsAssignableFrom(type)
+                           && !type.IsDefined(typeof(AssetTypeAttribute)))
+            .ToArray();
+        if (unmarked.Length > 0)
         {
-            if (type.IsAbstract || !type.IsDefined(typeof(AssetTypeAttribute)))
+            throw new InvalidOperationException(
+                "Every ResourceFile subclass must be marked with [AssetType] to declare its file type. " +
+                $"Missing on: {string.Join(", ", unmarked.Select(type => type.Name))}.");
+        }
+
+        foreach (var type in types)
+        {
+            if (type.IsAbstract || type.IsGenericTypeDefinition || !type.IsDefined(typeof(AssetTypeAttribute)))
                 continue;
 
             RegisterCacheFor(type);
@@ -85,13 +107,21 @@ public sealed class ResourceLibrary
     }
 
     /// <summary>
-    /// Registers the loader used to load a resource type by path. Custom
-    /// <see cref="ResourceFile"/> subclasses call this to become cacheable
-    /// without carrying the <see cref="AssetTypeAttribute"/> marker.
+    /// Registers a custom loader used to load a resource type by path. The
+    /// <see cref="AssetTypeAttribute"/> marker stays mandatory — it declares
+    /// the type as file-backed — and this only overrides <em>how</em> the type
+    /// is loaded (construction and <see cref="ResourceFile.Load"/> are replaced
+    /// by the given loader).
     /// </summary>
     public void RegisterLoader<T>(Func<string, T> loader) where T : ResourceFile
     {
         ArgumentNullException.ThrowIfNull(loader);
+        if (!typeof(T).IsDefined(typeof(AssetTypeAttribute)))
+        {
+            throw new InvalidOperationException(
+                $"Resource type '{typeof(T).Name}' must be marked with [AssetType] to declare its file type " +
+                "before a loader can be registered.");
+        }
 
         lock (_lock)
         {

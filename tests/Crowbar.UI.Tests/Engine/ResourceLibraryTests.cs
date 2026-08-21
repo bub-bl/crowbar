@@ -12,6 +12,7 @@ namespace Crowbar.Engine.Tests;
 public class ResourceLibraryTests
 {
     /// <summary>A custom resource type with no engine knowledge, inheriting <see cref="ResourceFile"/>.</summary>
+    [AssetType("custom")]
     private sealed class CustomResource : ResourceFile
     {
         public CustomResource(string path)
@@ -22,6 +23,7 @@ public class ResourceLibraryTests
     }
 
     /// <summary>A resource that records when the cache disposes it on eviction.</summary>
+    [AssetType("custom")]
     private sealed class TrackingResource : ResourceFile
     {
         public int UnloadCount { get; private set; }
@@ -31,6 +33,11 @@ public class ResourceLibraryTests
             base.Unload();
             UnloadCount++;
         }
+    }
+
+    /// <summary>A <see cref="ResourceFile"/> subclass that deliberately skips the mandatory marker.</summary>
+    private sealed class UnmarkedResource : ResourceFile
+    {
     }
 
     /// <summary>A library with the engine's resource types registered (like Application.OnLoaded does).</summary>
@@ -141,6 +148,32 @@ public class ResourceLibraryTests
         library.Clear<TrackingResource>();
 
         Assert.All(loaded, resource => Assert.Equal(1, resource.UnloadCount));
+    }
+
+    [Fact]
+    public void Register_AssemblyWithUnmarkedResourceFile_Throws()
+    {
+        var library = new ResourceLibrary();
+
+        // The test assembly contains UnmarkedResource, a ResourceFile subclass
+        // without the mandatory [AssetType] marker: registration must reject it.
+        var error = Assert.Throws<InvalidOperationException>(
+            () => library.Register(typeof(ResourceLibraryTests).Assembly));
+
+        Assert.Contains("UnmarkedResource", error.Message);
+        Assert.Contains("[AssetType]", error.Message);
+    }
+
+    [Fact]
+    public void RegisterLoader_UnmarkedResourceType_Throws()
+    {
+        var library = new ResourceLibrary();
+
+        var error = Assert.Throws<InvalidOperationException>(
+            () => library.RegisterLoader<UnmarkedResource>(path => new UnmarkedResource()));
+
+        Assert.Contains("UnmarkedResource", error.Message);
+        Assert.Contains("[AssetType]", error.Message);
     }
 
     [Fact]

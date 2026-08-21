@@ -12,16 +12,19 @@ namespace Crowbar.Engine;
 /// <see cref="Path"/> through the engine's global cache. Both families follow
 /// the same model: the instance is allocated, its <see cref="Path"/> is
 /// assigned, then <see cref="Load"/> populates it and <see cref="Unload"/>
-/// releases what it owns. Custom game resources mark themselves
-/// <see cref="AssetTypeAttribute"/> to become cacheable too.
+/// releases what it owns. Custom game resources must mark themselves
+/// <see cref="AssetTypeAttribute"/> to become cacheable too — the marker is
+/// mandatory for every concrete subclass (enforced by
+/// <see cref="Global.ResourceLibrary.Register"/>).
 /// </summary>
 /// <summary>
 /// Marks a <see cref="ResourceFile"/> subclass as a file-backed type and
-/// declares the file extensions it loads. Registering an assembly discovers
-/// every marked type: the library allocates its instances, assigns their
-/// <see cref="ResourceFile.Path"/> and populates them through the
-/// <see cref="ResourceFile.Load"/> override, then shares them by path through
-/// <see cref="Global.ResourceLibrary"/>.
+/// declares the file extensions it loads. The marker is mandatory for every
+/// concrete subclass — registering an assembly that contains one without it
+/// fails. Registering an assembly discovers every marked type: the library
+/// allocates its instances, assigns their <see cref="ResourceFile.Path"/> and
+/// populates them through the <see cref="ResourceFile.Load"/> override, then
+/// shares them by path through <see cref="Global.ResourceLibrary"/>.
 /// </summary>
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class AssetTypeAttribute(params string[] extensions) : Attribute
