@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using Crowbar.Engine;
 using Crowbar.Engine.Audio;
 using Crowbar.FileSystems;
@@ -65,6 +66,7 @@ public sealed class ContentExplorer : IDisposable
     /// </summary>
     public void Update()
     {
+        ProcessAction();
         if (_pending.IsEmpty)
             return;
 
@@ -110,7 +112,8 @@ public sealed class ContentExplorer : IDisposable
                 entries.Add(new EditorContentState.Entry(
                     logical,
                     Path.GetFileName(logical),
-                    KindFor(logical)));
+                    KindFor(logical),
+                    FileSystem.Content.GetLastWriteTimeUtc(file)));
             }
         }
         catch (Exception ex)
@@ -163,6 +166,108 @@ public sealed class ContentExplorer : IDisposable
             if (renderer.Model is not { } model || !reloaded.Contains(model.Path))
                 continue;
             renderer.Model = ResourceLibrary.LoadModel(model.Path);
+        }
+    }
+
+    private void ProcessAction()
+    {
+        if (!EditorContentState.TryConsumeAction(out var action))
+            return;
+
+        try
+        {
+            var contentPath = action.Path.StartsWith("Content/", StringComparison.OrdinalIgnoreCase)
+                ? action.Path
+                : "Content/" + action.Path.Trim('/');
+            switch (action.Kind)
+            {
+                case EditorContentState.ActionKind.Open:
+                    OpenPath(contentPath);
+                    break;
+                case EditorContentState.ActionKind.Rename:
+                    RenameFile(contentPath, action.Value);
+                    break;
+                case EditorContentState.ActionKind.Delete:
+                    DeleteFile(contentPath);
+                    break;
+                case EditorContentState.ActionKind.Reveal:
+                    RevealPath(contentPath);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            UiNotifications.Show("Content", $"Operation failed: {ex.Message}", "error");
+        }
+    }
+
+    private static void OpenPath(string path)
+    {
+        if (!FileSystem.Project.FileExists(path))
+        {
+            UiNotifications.Show("Content", $"File not found: {path}", "error");
+            return;
+        }
+
+        var process = Process.Start(new ProcessStartInfo(FileSystem.Project.ToSystemPath(path))
+        {
+            UseShellExecute = true
+        });
+        if (process is null)
+            UiNotifications.Show("Content", "Could not open the file.", "error");
+    }
+
+    private static void RenameFile(string path, string newName)
+    {
+        newName = newName.Trim();
+        if (newName.Length == 0 || newName is "." or ".." || Path.GetFileName(newName) != newName ||
+            newName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        {
+            UiNotifications.Show("Content", "Enter a valid file name.", "error");
+            return;
+        }
+
+        if (!FileSystem.Project.FileExists(path))
+        {
+            UiNotifications.Show("Content", $"File not found: {path}", "error");
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(path.Replace('/', Path.DirectorySeparatorChar))?.Replace(Path.DirectorySeparatorChar, '/') ?? "";
+        var destination = directory.Length == 0 ? newName : directory + "/" + newName;
+        FileSystem.Project.MoveFile(path, destination);
+        UiNotifications.Show("Content", $"Renamed to {newName}", "success");
+    }
+
+    private static void DeleteFile(string path)
+    {
+        if (!FileSystem.Project.FileExists(path))
+        {
+            UiNotifications.Show("Content", $"File not found: {path}", "error");
+            return;
+        }
+
+        FileSystem.Project.DeleteFile(path);
+        UiNotifications.Show("Content", $"Deleted {Path.GetFileName(path)}", "success");
+    }
+
+    private static void RevealPath(string path)
+    {
+        var physical = FileSystem.Project.ToSystemPath(path);
+        var directory = Directory.Exists(physical) ? physical : Path.GetDirectoryName(physical) ?? physical;
+        if (OperatingSystem.IsWindows())
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{physical}\"")
+            {
+                UseShellExecute = true
+            });
+        }
+        else
+        {
+            Process.Start(new ProcessStartInfo("xdg-open", directory)
+            {
+                UseShellExecute = false
+            });
         }
     }
 

@@ -7,7 +7,8 @@
    project's icon pack (Assets/Icons), tinted per kind. Folders navigate into
    themselves on click — the folder path travels as a [Parameter] (the event
    invoker cannot pass captured locals from an @onclick lambda). *@
-<div class="asset-tile" @onclick="OnClick">
+<div class="asset-tile @(ListView ? "asset-tile-list" : "asset-tile-grid") asset-scale-@TileScale"
+     @onclick="OnClick" @onmousedown="OnPointerDown">
     <div class="asset-thumb thumb-@Kind">
         <icon name="@IconName" />
     </div>
@@ -30,6 +31,17 @@
     [Parameter]
     public string Folder { get; set; } = string.Empty;
 
+    /// <summary>Logical content path used by context-menu actions.</summary>
+    [Parameter]
+    public string Path { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool ListView { get; set; }
+
+    /// <summary>Tile scale: 0 (compact), 1 (medium), or 2 (large).</summary>
+    [Parameter]
+    public int TileScale { get; set; } = 1;
+
     /// <summary>Project icon for the kind, from the Assets/Icons pack.</summary>
     private string IconName => IsFolder
         ? "Solar/folders/Bold/folder-2"
@@ -42,11 +54,19 @@
             _ => "Solar/files/Bold/file"
         };
 
-    protected override int BuildHash() => HashCode.Combine(Name, Kind, IsFolder, Folder);
+    protected override int BuildHash() => HashCode.Combine(Name, Kind, IsFolder, Folder, Path, ListView, TileScale);
 
-    private void OnClick()
+    private void OnClick(UiPointerEvent e)
     {
+        if (e.Button != 0) return;
         if (IsFolder && Folder.Length > 0)
             EditorContentState.NavigateTo(Folder);
+    }
+
+    private bool OnPointerDown(UiPointerEvent e)
+    {
+        if (e.Button != 1) return false;
+        EditorContentState.OpenContextMenu(Path, IsFolder, e.X, e.Y);
+        return true;
     }
 }

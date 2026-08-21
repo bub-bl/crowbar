@@ -51,6 +51,15 @@ root {
     gap: 8px;
     border-top: 1px solid $border;
     box-sizing: border-box;
+    overflow: hidden;
+}
+
+.content-navigation,
+.content-display-controls {
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
 }
 
 .ct-btn {
@@ -71,6 +80,24 @@ root {
     }
 }
 
+.ct-icon-btn {
+    width: 24px;
+    padding: 0;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+
+    icon {
+        width: 14px;
+        height: 14px;
+    }
+}
+
+.ct-btn-disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
 .breadcrumb {
     flex-grow: 1;
     height: 22px;
@@ -79,7 +106,23 @@ root {
     line-height: 22px;
     flex-direction: row;
     align-items: center;
+    min-width: 80px;
     overflow: hidden;
+}
+
+.content-search {
+    width: 140px;
+    height: 22px;
+    flex-shrink: 1;
+    min-width: 80px;
+    padding: 0 7px;
+    border: 1px solid $border;
+    border-radius: 3px;
+    background-color: $input-bg;
+    color: $text;
+    font-size: 11px;
+    line-height: 20px;
+    box-sizing: border-box;
 }
 
 .crumb-sep {
@@ -104,6 +147,7 @@ root {
 .content-body {
     width: 100%;
     flex-grow: 1;
+    position: relative;
     flex-direction: row;
     border-top: 1px solid $border;
     box-sizing: border-box;
@@ -112,10 +156,46 @@ root {
 .content-sidebar {
     width: 160px;
     flex-grow: 0;
+    flex-shrink: 0;
     padding: 4px 0;
     border-right: 1px solid $border;
     box-sizing: border-box;
     overflow: auto;
+}
+
+.sidebar-toolbar {
+    height: 24px;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+    padding: 0 5px;
+    box-sizing: border-box;
+    flex-shrink: 0;
+}
+
+.sidebar-action {
+    height: 18px;
+    padding: 0 4px;
+    color: $text-muted;
+    font-size: 9px;
+    line-height: 18px;
+    cursor: pointer;
+    white-space: nowrap;
+
+    &:hover {
+        color: $text-bright;
+    }
+}
+
+.sidebar-resizer {
+    width: 5px;
+    flex-shrink: 0;
+    cursor: ew-resize;
+    background-color: transparent;
+
+    &:hover {
+        background-color: $accent;
+    }
 }
 
 .content-grid {
@@ -129,6 +209,13 @@ root {
     overflow: auto;
 }
 
+.content-grid-list {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-content: stretch;
+    gap: 2px;
+}
+
 .grid-empty {
     width: 100%;
     height: 60px;
@@ -136,4 +223,70 @@ root {
     font-size: 10px;
     text-align: center;
     vertical-align: center;
+}
+
+.content-context-menu {
+    position: absolute;
+    z-index: 100;
+    width: 180px;
+    min-height: 40px;
+    padding: 5px;
+    background-color: $panel-head;
+    border: 1px solid $border;
+    border-radius: 3px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45);
+    box-sizing: border-box;
+}
+
+.context-menu-title {
+    height: 20px;
+    padding: 0 6px;
+    color: $text-bright;
+    font-size: 10px;
+    line-height: 20px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.context-menu-item {
+    height: 22px;
+    padding: 0 6px;
+    color: $text;
+    font-size: 10px;
+    line-height: 22px;
+    cursor: pointer;
+
+    &:hover {
+        background-color: $panel-hover;
+        color: $text-bright;
+    }
+}
+
+.context-menu-warning {
+    padding: 3px 6px 6px;
+    color: $text-muted;
+    font-size: 9px;
+}
+
+.context-menu-actions {
+    flex-direction: row;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.context-menu-danger {
+    color: #e08080;
+}
+
+.context-rename-input {
+    width: 100%;
+    height: 22px;
+    padding: 0 5px;
+    background-color: $input-bg;
+    border: 1px solid $accent;
+    color: $text;
+    font-size: 10px;
+    line-height: 20px;
+    box-sizing: border-box;
 }

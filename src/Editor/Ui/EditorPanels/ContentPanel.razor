@@ -8,7 +8,15 @@
 </div>
 
 <div class="content-toolbar">
-    <div class="ct-btn">+ Import</div>
+    <div class="content-navigation">
+        <div class="ct-btn ct-icon-btn @DisabledClass(!EditorContentState.CanGoBack)" @onclick="GoBack" tooltip="Back">
+            <icon name="Solar/arrows/Bold/round-arrow-left" />
+        </div>
+        <div class="ct-btn ct-icon-btn @DisabledClass(!EditorContentState.CanGoForward)" @onclick="GoForward" tooltip="Forward">
+            <icon name="Solar/arrows/Bold/round-arrow-right" />
+        </div>
+    </div>
+    <div class="ct-btn" @onclick="ImportPlaceholder">+ Import</div>
     <div class="breadcrumb">
         @foreach (var crumb in Crumbs)
         {
@@ -19,46 +27,122 @@
             <ContentCrumb Text="@crumb.Text" Path="@crumb.Path" Active="@(crumb.Path == EditorContentState.CurrentFolder)" />
         }
     </div>
-    <SearchBox Placeholder="Search..." Small="true" />
-    <div class="panel-x">×</div>
+    <div class="content-display-controls">
+        <div class="ct-btn ct-icon-btn" @onclick="ToggleView" tooltip="Switch view">
+            <icon name="@ViewIconName" />
+        </div>
+        <div class="ct-btn" @onclick="CycleSort">Sort: @SortLabel</div>
+        <div class="ct-btn ct-icon-btn" @onclick="ZoomOut" tooltip="Zoom out">
+            <icon name="Solar/ui/Bold/minus-circle" />
+        </div>
+        <div class="ct-btn ct-icon-btn" @onclick="ZoomIn" tooltip="Zoom in">
+            <icon name="Solar/ui/Bold/add-circle" />
+        </div>
+    </div>
+    <input class="content-search" value="@EditorContentState.SearchQuery" placeholder="Search..." @oninput="OnSearchInput" />
+    <div class="panel-x" @onclick="CloseContextMenu">×</div>
 </div>
 
 @* The grid mirrors the live project content: the host republishes the file
    list (EditorContentState) on startup, project switch and content changes.
    Browsing is hierarchical — folders and files of the current folder, with
    the breadcrumb and the sidebar folder tree for navigation. *@
-<div class="content-body">
-    <div class="content-sidebar">
+<div class="content-body" @onmousemove="OnBodyPointerMove" @onmouseup="OnBodyPointerUp">
+    <div class="content-sidebar" style="width: @(EditorContentState.SidebarWidth)px">
+        <div class="sidebar-toolbar">
+            <div class="sidebar-action" @onclick="ExpandAll">Expand all</div>
+            <div class="sidebar-action" @onclick="CollapseAll">Collapse all</div>
+        </div>
         @foreach (var row in TreeRows)
         {
             <ContentTreeRow Text="@row.Text" Folder="@row.Folder" Indent="@row.Indent"
                             HasChildren="@row.HasChildren" Open="@row.Open" Selected="@row.Selected" />
         }
     </div>
-    <div class="content-grid">
-        @if (EditorContentState.Entries.Count == 0)
+    <div class="sidebar-resizer" @onmousedown="BeginSidebarResize"></div>
+    <div class="content-grid @(EditorContentState.ViewMode == "list" ? "content-grid-list" : "")">
+        @if (Items.Count == 0)
         {
-            <div class="grid-empty">No content — put assets in the project's Content/ folder.</div>
+            <div class="grid-empty">No matching content.</div>
         }
         @foreach (var item in Items)
         {
-            <AssetTile Name="@item.Name" Kind="@item.Kind" IsFolder="@item.IsFolder" Folder="@item.Folder" />
+            <AssetTile Name="@item.Name" Kind="@item.Kind" IsFolder="@item.IsFolder" Folder="@item.Folder"
+                       Path="@item.Path" ListView="@(EditorContentState.ViewMode == "list")"
+                       TileScale="@EditorContentState.TileScale" />
         }
     </div>
+
+    @if (EditorContentState.ContextMenu is { } menu)
+    {
+        <div class="content-context-menu" style="@ContextMenuStyle(menu)" @onmousedown="ConsumeContextPointer">
+            @if (_renamePath == menu.Path)
+            {
+                <div class="context-menu-title">Rename</div>
+                <input class="context-rename-input" value="@_renameValue" @oninput="OnRenameInput" @onkeydown="OnRenameKeyDown" />
+                <div class="context-menu-actions">
+                    <div class="context-menu-item" @onclick="ConfirmRename">Save</div>
+                    <div class="context-menu-item" @onclick="CancelInlineAction">Cancel</div>
+                </div>
+            }
+            else if (_deletePath == menu.Path)
+            {
+                <div class="context-menu-title">Delete @ContextName(menu)</div>
+                <div class="context-menu-warning">This cannot be undone.</div>
+                <div class="context-menu-actions">
+                    <div class="context-menu-item context-menu-danger" @onclick="ConfirmDelete">Delete</div>
+                    <div class="context-menu-item" @onclick="CancelInlineAction">Cancel</div>
+                </div>
+            }
+            else
+            {
+                <div class="context-menu-title">@ContextName(menu)</div>
+                @if (menu.IsFolder)
+                {
+                    <div class="context-menu-item" @onclick="OpenContextFolder">Open</div>
+                }
+                else
+                {
+                    <div class="context-menu-item" @onclick="OpenContextFile">Open</div>
+                    <div class="context-menu-item" @onclick="BeginRename">Rename</div>
+                    <div class="context-menu-item" @onclick="BeginDelete">Delete</div>
+                }
+                <div class="context-menu-item" @onclick="RevealContextPath">Reveal in Explorer</div>
+            }
+        </div>
+    }
 </div>
 
 @code {
-    private readonly record struct Item(string Name, string Kind, bool IsFolder, string Folder);
+    private readonly record struct Item(string Name, string Kind, bool IsFolder, string Folder, string Path, DateTime Modified);
 
     private readonly record struct Crumb(string Text, string Path);
 
     private readonly record struct TreeRow(string Text, string Folder, int Indent, bool HasChildren, bool Open, bool Selected);
 
     private string _contentTab = "content";
+    private bool _resizingSidebar;
+    private float _resizeStartX;
+    private float _resizeStartWidth;
+    private string? _renamePath;
+    private string _renameValue = string.Empty;
+    private string? _deletePath;
 
-    // Re-renders only when the host republishes the content snapshot, the
-    // browsed folder changes, or another tab is opened.
-    protected override int BuildHash() => HashCode.Combine(_contentTab, EditorContentState.CurrentFolder, EditorContentState.Version);
+    protected override int BuildHash()
+    {
+        var hash = new HashCode();
+        hash.Add(_contentTab);
+        hash.Add(EditorContentState.CurrentFolder);
+        hash.Add(EditorContentState.Version);
+        hash.Add(EditorContentState.SearchQuery);
+        hash.Add(EditorContentState.ViewMode);
+        hash.Add(EditorContentState.SortMode);
+        hash.Add(EditorContentState.TileScale);
+        hash.Add(EditorContentState.SidebarWidth);
+        hash.Add(_renamePath);
+        hash.Add(_deletePath);
+        return hash.ToHashCode();
+    }
 
     /// <summary>Pre-order rows of the content folder tree (the sidebar).</summary>
     private IReadOnlyList<TreeRow> TreeRows
@@ -66,35 +150,38 @@
         get
         {
             var current = EditorContentState.CurrentFolder;
+            var searching = EditorContentState.SearchQuery.Length > 0;
+            var rootHasChildren = SubFolders(string.Empty).Count > 0;
             var rows = new List<TreeRow>
             {
-                new("Content", string.Empty, 0, HasChildren: SubFolders(string.Empty).Count > 0,
-                    Open: EditorContentState.IsOpen(string.Empty), Selected: current.Length == 0)
+                new("Content", string.Empty, 0, rootHasChildren,
+                    EditorContentState.IsOpen(string.Empty), current.Length == 0)
             };
-            if (EditorContentState.IsOpen(string.Empty))
+            if (EditorContentState.IsOpen(string.Empty) || searching)
             {
                 foreach (var folder in SubFolders(string.Empty))
-                    AppendFolder(rows, folder, 1, current);
+                    AppendFolder(rows, folder, 1, current, searching);
             }
 
             return rows;
         }
     }
 
-    private void AppendFolder(List<TreeRow> rows, string folder, int depth, string current)
+    private void AppendFolder(List<TreeRow> rows, string folder, int depth, string current, bool searching)
     {
+        if (searching && !FolderMatches(folder)) return;
         var children = SubFolders(folder);
+        var open = EditorContentState.IsOpen(folder) || searching;
         rows.Add(new TreeRow(LastSegment(folder), folder, depth, children.Count > 0,
-            EditorContentState.IsOpen(folder), folder == current));
-        if (!EditorContentState.IsOpen(folder)) return;
+            open, folder == current));
+        if (!open) return;
         foreach (var child in children)
-            AppendFolder(rows, folder + "/" + child, depth + 1, current);
+            AppendFolder(rows, folder + "/" + child, depth + 1, current, searching);
     }
 
     /// <summary>
     /// Immediate subfolders of <paramref name="folder"/> ("" = the content
-    /// root), derived from the published file paths — folders are what files
-    /// live in, so an empty folder has no entry anywhere.
+    /// root), derived from the published file paths.
     /// </summary>
     private static IReadOnlyList<string> SubFolders(string folder)
     {
@@ -107,7 +194,7 @@
             if (!relative.StartsWith(prefix, StringComparison.Ordinal) || relative.Length == prefix.Length)
                 continue;
             var rest = relative[prefix.Length..];
-            if (!rest.Contains('/')) continue; // a file directly in `folder`, not a subfolder
+            if (!rest.Contains('/')) continue;
             var sub = rest.Split('/')[0];
             if (seen.Add(sub)) result.Add(sub);
         }
@@ -116,7 +203,21 @@
         return result;
     }
 
-    /// <summary>The last segment of a content-relative folder path ("Models/Crate" → "Crate").</summary>
+    private bool FolderMatches(string folder)
+    {
+        var query = EditorContentState.SearchQuery;
+        if (folder.Contains(query, StringComparison.OrdinalIgnoreCase)) return true;
+        var prefix = folder.Length == 0 ? string.Empty : folder + "/";
+        return EditorContentState.Entries.Any(entry =>
+        {
+            var relative = RelativeOf(entry.Path);
+            return relative.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                   (entry.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                    relative.Contains(query, StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    /// <summary>The last segment of a content-relative folder path.</summary>
     private static string LastSegment(string folder)
     {
         var slash = folder.LastIndexOf('/');
@@ -139,11 +240,31 @@
         }
     }
 
-    /// <summary>Folders and files of the current folder, folders first.</summary>
+    /// <summary>Folders and files of the current folder, or global search results.</summary>
     private IReadOnlyList<Item> Items
     {
         get
         {
+            var query = EditorContentState.SearchQuery;
+            var items = new List<Item>();
+            if (query.Length > 0)
+            {
+                foreach (var folder in AllFolders())
+                {
+                    if (folder.Contains(query, StringComparison.OrdinalIgnoreCase))
+                        items.Add(new Item(LastSegment(folder), "folder", true, folder, folder, default));
+                }
+
+                foreach (var entry in EditorContentState.Entries)
+                {
+                    if (entry.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                        entry.Path.Contains(query, StringComparison.OrdinalIgnoreCase))
+                        items.Add(new Item(entry.Name, entry.Kind, false, string.Empty, entry.Path, entry.Modified));
+                }
+                SortItems(items);
+                return items.ToArray();
+            }
+
             var current = EditorContentState.CurrentFolder;
             var folders = new List<Item>();
             var files = new List<Item>();
@@ -154,7 +275,7 @@
                 var parent = ParentOf(relative);
                 if (parent == current)
                 {
-                    files.Add(new Item(entry.Name, entry.Kind, IsFolder: false, Folder: string.Empty));
+                    files.Add(new Item(entry.Name, entry.Kind, false, string.Empty, entry.Path, entry.Modified));
                     continue;
                 }
 
@@ -162,20 +283,52 @@
                     continue;
                 var folder = relative[(current.Length == 0 ? 0 : current.Length + 1)..].Split('/')[0];
                 if (folder.Length > 0 && seen.Add(folder))
-                    folders.Add(new Item(folder, "folder", IsFolder: true, Folder: current.Length == 0 ? folder : current + "/" + folder));
+                    folders.Add(new Item(folder, "folder", true,
+                        current.Length == 0 ? folder : current + "/" + folder,
+                        current.Length == 0 ? folder : current + "/" + folder, default));
             }
 
-            folders.Sort(static (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            files.Sort(static (a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+            SortItems(folders);
+            SortItems(files);
             return folders.Concat(files).ToArray();
         }
     }
 
-    /// <summary>The content-relative form of a logical path ("Content/Models/Crate.gltf" → "Models/Crate.gltf").</summary>
+    private IReadOnlyList<string> AllFolders()
+    {
+        var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in EditorContentState.Entries)
+        {
+            var relative = RelativeOf(entry.Path);
+            var parent = ParentOf(relative);
+            while (parent.Length > 0)
+            {
+                folders.Add(parent);
+                parent = ParentOf(parent);
+            }
+        }
+        return folders.OrderBy(folder => folder, StringComparer.OrdinalIgnoreCase).ToArray();
+    }
+
+    private static void SortItems(List<Item> items)
+    {
+        items.Sort((a, b) =>
+        {
+            var comparison = EditorContentState.SortMode switch
+            {
+                "type" => string.Compare(a.Kind, b.Kind, StringComparison.OrdinalIgnoreCase),
+                "modified" => b.Modified.CompareTo(a.Modified),
+                _ => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
+            };
+            return comparison != 0
+                ? comparison
+                : string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
     private static string RelativeOf(string path) =>
         path.StartsWith("Content/", StringComparison.Ordinal) ? path["Content/".Length..] : path;
 
-    /// <summary>The parent folder of a content-relative path ("Models/Crate/Crate.gltf" → "Models/Crate").</summary>
     private static string ParentOf(string relative)
     {
         var slash = relative.LastIndexOf('/');
@@ -185,5 +338,134 @@
     private void ShowContent() => _contentTab = "content";
     private void ShowConsole() => _contentTab = "console";
 
-    private string ContentTabClass(string tab) => _contentTab == tab ? "content-tab-active" : "";
+    private void GoBack() => EditorContentState.GoBack();
+    private void GoForward() => EditorContentState.GoForward();
+    private void ToggleView() => EditorContentState.SetViewMode(EditorContentState.ViewMode == "grid" ? "list" : "grid");
+    private void CycleSort() => EditorContentState.CycleSortMode();
+    private void ZoomOut() => EditorContentState.AdjustTileScale(-1);
+    private void ZoomIn() => EditorContentState.AdjustTileScale(1);
+    private void ImportPlaceholder() => UiNotifications.Show("Content", "Import is not available yet.", "info");
+    private void OnSearchInput(string value) => EditorContentState.SetSearchQuery(value);
+
+    private void ExpandAll() => EditorContentState.SetAllExpanded(AllFolders(), true);
+    private void CollapseAll() => EditorContentState.SetAllExpanded(AllFolders(), false);
+
+    private bool BeginSidebarResize(UiPointerEvent e)
+    {
+        if (e.Button != 0) return false;
+        _resizingSidebar = true;
+        _resizeStartX = e.X;
+        _resizeStartWidth = EditorContentState.SidebarWidth;
+        return true;
+    }
+
+    private bool OnBodyPointerMove(UiPointerEvent e)
+    {
+        if (!_resizingSidebar) return false;
+        EditorContentState.SetSidebarWidth(_resizeStartWidth + e.X - _resizeStartX);
+        return true;
+    }
+
+    private bool OnBodyPointerUp(UiPointerEvent e)
+    {
+        if (!_resizingSidebar) return false;
+        _resizingSidebar = false;
+        return true;
+    }
+
+    private void CloseContextMenu()
+    {
+        _renamePath = null;
+        _deletePath = null;
+        EditorContentState.CloseContextMenu();
+    }
+
+    private string ViewIconName => EditorContentState.ViewMode == "grid"
+        ? "Solar/list/Bold/list"
+        : "Solar/tools/Bold/three-squares";
+
+    private string SortLabel => EditorContentState.SortMode switch
+    {
+        "type" => "Type",
+        "modified" => "Modified",
+        _ => "Name"
+    };
+
+    private static string DisabledClass(bool disabled) => disabled ? "ct-btn-disabled" : string.Empty;
+
+    private string ContextMenuStyle(EditorContentState.ContextMenuState menu)
+    {
+        var x = Math.Clamp(menu.X - Layout.X - 8, 4, Math.Max(4, Layout.Width - 190));
+        var y = Math.Clamp(menu.Y - Layout.Y - 34, 4, Math.Max(4, Layout.Height - 170));
+        return $"left: {x:0}px; top: {y:0}px;";
+    }
+
+    private static string ContextName(EditorContentState.ContextMenuState menu) =>
+        menu.Path.Trim('/').Split('/').LastOrDefault() ?? "Content";
+
+    private bool ConsumeContextPointer(UiPointerEvent e) => true;
+
+    private void OpenContextFolder()
+    {
+        if (EditorContentState.ContextMenu is { } menu)
+            EditorContentState.NavigateTo(menu.Path);
+    }
+
+    private void OpenContextFile()
+    {
+        if (EditorContentState.ContextMenu is { } menu)
+            EditorContentState.RequestAction(EditorContentState.ActionKind.Open, menu.Path);
+    }
+
+    private void RevealContextPath()
+    {
+        if (EditorContentState.ContextMenu is { } menu)
+            EditorContentState.RequestAction(EditorContentState.ActionKind.Reveal, menu.Path);
+    }
+
+    private void BeginRename()
+    {
+        if (EditorContentState.ContextMenu is not { IsFolder: false } menu) return;
+        _renamePath = menu.Path;
+        _deletePath = null;
+        _renameValue = ContextName(menu);
+    }
+
+    private void OnRenameInput(string value) => _renameValue = value;
+
+    private void OnRenameKeyDown(KeyEvent e)
+    {
+        if (!e.IsDown) return;
+        if (e.KeyCode == 13) ConfirmRename();
+        else if (e.KeyCode == 27) CancelInlineAction();
+    }
+
+    private void ConfirmRename()
+    {
+        if (_renamePath is not null)
+            EditorContentState.RequestAction(EditorContentState.ActionKind.Rename, _renamePath, _renameValue);
+        _renamePath = null;
+    }
+
+    private void BeginDelete()
+    {
+        if (EditorContentState.ContextMenu is not { IsFolder: false } menu) return;
+        _deletePath = menu.Path;
+        _renamePath = null;
+    }
+
+    private void ConfirmDelete()
+    {
+        if (_deletePath is not null)
+            EditorContentState.RequestAction(EditorContentState.ActionKind.Delete, _deletePath);
+        _deletePath = null;
+    }
+
+    private void CancelInlineAction()
+    {
+        _renamePath = null;
+        _deletePath = null;
+    }
+
+    private string ContentTabClass(string tab) => _contentTab == tab ? "content-tab-active" : string.Empty;
 }

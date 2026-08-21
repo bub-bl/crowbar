@@ -10,7 +10,8 @@
    only toggles the subtree (clicks fire on the deepest handler and stop), so
    folding never navigates away; clicking the row itself browses into the
    folder (which reveals it). Folders without children have no caret. *@
-<div class="ctree-row @(Selected ? "ctree-selected" : "")" style="padding-left: @(Indent * 12 + 6)px" @onclick="OnClick">
+<div class="ctree-row @(Selected ? "ctree-selected" : "")" style="padding-left: @(Indent * 12 + 6)px"
+     @onclick="OnClick" @onmousedown="OnPointerDown">
     @if (HasChildren)
     {
         <icon name="@(Open ? "Solar/arrows/Bold/alt-arrow-down" : "Solar/arrows/Bold/alt-arrow-right")" @onclick="Toggle" />
@@ -51,7 +52,18 @@
     protected override int BuildHash() => HashCode.Combine(Text, Folder, Indent, HasChildren, Open, Selected);
 
     /// <summary>Row click: browse into the folder (which reveals it in the tree).</summary>
-    private void OnClick() => EditorContentState.NavigateTo(Folder);
+    private void OnClick(UiPointerEvent e)
+    {
+        if (e.Button == 0)
+            EditorContentState.NavigateTo(Folder);
+    }
+
+    private bool OnPointerDown(UiPointerEvent e)
+    {
+        if (e.Button != 1) return false;
+        EditorContentState.OpenContextMenu(Folder, true, e.X, e.Y);
+        return true;
+    }
 
     /// <summary>Caret click: fold or unfold the subtree without navigating.</summary>
     private void Toggle() => EditorContentState.ToggleExpanded(Folder);

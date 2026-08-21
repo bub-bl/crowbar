@@ -18,10 +18,31 @@ public static class EditorContentState
     /// (model/texture/sound/shader/file), derived from the file's registered
     /// asset type.
     /// </summary>
-    public readonly record struct Entry(string Path, string Name, string Kind);
+    public readonly record struct Entry(string Path, string Name, string Kind, DateTime Modified = default);
+
+    public enum ActionKind
+    {
+        Open,
+        Rename,
+        Delete,
+        Reveal
+    }
+
+    public readonly record struct ActionRequest(ActionKind Kind, string Path, string Value = "");
+
+    public readonly record struct ContextMenuState(string Path, bool IsFolder, float X, float Y);
 
     private static IReadOnlyList<Entry> _entries = [];
     private static string _currentFolder = string.Empty;
+    private static readonly List<string> _history = [string.Empty];
+    private static int _historyIndex;
+    private static string _searchQuery = string.Empty;
+    private static string _viewMode = "grid";
+    private static string _sortMode = "name";
+    private static int _tileScale = 1;
+    private static float _sidebarWidth = 160;
+    private static ContextMenuState? _contextMenu;
+    private static ActionRequest? _pendingAction;
     // Folders the user expanded and folders the user collapsed in the sidebar
     // tree. IsOpen consults the collapse set first, so an explicit collapse
     // wins over the always-open path rule: a folder on the browsed path (or
@@ -49,6 +70,28 @@ public static class EditorContentState
     /// </summary>
     public static int Version => _version;
 
+    /// <summary>Current content search query.</summary>
+    public static string SearchQuery => _searchQuery;
+
+    /// <summary>Current content display mode: grid or list.</summary>
+    public static string ViewMode => _viewMode;
+
+    /// <summary>Current content sort mode: name, type or modified.</summary>
+    public static string SortMode => _sortMode;
+
+    /// <summary>Content tile scale: 0 (compact), 1 (medium), or 2 (large).</summary>
+    public static int TileScale => _tileScale;
+
+    /// <summary>Content sidebar width in pixels.</summary>
+    public static float SidebarWidth => _sidebarWidth;
+
+    /// <summary>Whether a previous or next folder is available.</summary>
+    public static bool CanGoBack => _historyIndex > 0;
+    public static bool CanGoForward => _historyIndex < _history.Count - 1;
+
+    /// <summary>Currently open context menu, if any.</summary>
+    public static ContextMenuState? ContextMenu => _contextMenu;
+
     /// <summary>
     /// Replaces the snapshot, bumping <see cref="Version"/> only when the list
     /// actually changed (the host republishes on every content change, so a
@@ -68,13 +111,135 @@ public static class EditorContentState
     /// destination and its ancestors are revealed: navigation makes the
     /// browsed path visible in the tree, dropping any earlier collapse.
     /// </summary>
+    public static void SetSearchQuery(string query)
+    {
+        query ??= string.Empty;
+        if (string.Equals(_searchQuery, query, StringComparison.Ordinal)) return;
+        _searchQuery = query;
+        _version++;
+    }
+
+    public static void SetViewMode(string mode)
+    {
+        mode = mode.Equals("list", StringComparison.OrdinalIgnoreCase) ? "list" : "grid";
+        if (_viewMode == mode) return;
+        _viewMode = mode;
+        _version++;
+    }
+
+    public static void CycleSortMode()
+    {
+        _sortMode = _sortMode switch
+        {
+            "name" => "type",
+            "type" => "modified",
+            _ => "name"
+        };
+        _version++;
+    }
+
+    public static void AdjustTileScale(int delta)
+    {
+        var next = Math.Clamp(_tileScale + delta, 0, 2);
+        if (next == _tileScale) return;
+        _tileScale = next;
+        _version++;
+    }
+
+    public static void SetSidebarWidth(float width)
+    {
+        var next = Math.Clamp(width, 120f, 320f);
+        if (Math.Abs(next - _sidebarWidth) < 0.5f) return;
+        _sidebarWidth = next;
+        _version++;
+    }
+
     public static void NavigateTo(string folder)
     {
         folder = (folder ?? string.Empty).Trim('/');
         var navigated = !string.Equals(_currentFolder, folder, StringComparison.Ordinal);
         var revealed = Reveal(folder);
         if (!navigated && !revealed) return;
+        if (navigated)
+        {
+            if (_historyIndex < _history.Count - 1)
+                _history.RemoveRange(_historyIndex + 1, _history.Count - _historyIndex - 1);
+            _history.Add(folder);
+            _historyIndex++;
+        }
         _currentFolder = folder;
+        CloseContextMenu();
+        _version++;
+    }
+
+    public static void GoBack()
+    {
+        if (!CanGoBack) return;
+        _historyIndex--;
+        _currentFolder = _history[_historyIndex];
+        Reveal(_currentFolder);
+        CloseContextMenu();
+        _version++;
+    }
+
+    public static void GoForward()
+    {
+        if (!CanGoForward) return;
+        _historyIndex++;
+        _currentFolder = _history[_historyIndex];
+        Reveal(_currentFolder);
+        CloseContextMenu();
+        _version++;
+    }
+
+    public static void OpenContextMenu(string path, bool isFolder, float x, float y)
+    {
+        _contextMenu = new ContextMenuState(path, isFolder, x, y);
+        _version++;
+    }
+
+    public static void CloseContextMenu()
+    {
+        if (_contextMenu is null) return;
+        _contextMenu = null;
+        _version++;
+    }
+
+    public static void RequestAction(ActionKind kind, string path, string value = "")
+    {
+        _pendingAction = new ActionRequest(kind, path, value);
+        CloseContextMenu();
+        _version++;
+    }
+
+    public static bool TryConsumeAction(out ActionRequest action)
+    {
+        if (_pendingAction is not { } pending)
+        {
+            action = default;
+            return false;
+        }
+
+        _pendingAction = null;
+        action = pending;
+        return true;
+    }
+
+    public static void SetAllExpanded(IEnumerable<string> folders, bool expanded)
+    {
+        foreach (var folder in folders)
+        {
+            if (expanded)
+            {
+                Expanded.Add(folder);
+                Collapsed.Remove(folder);
+            }
+            else
+            {
+                Expanded.Remove(folder);
+                if (folder.Length > 0) Collapsed.Add(folder);
+            }
+        }
         _version++;
     }
 
@@ -118,8 +283,19 @@ public static class EditorContentState
     {
         Expanded.Clear();
         Collapsed.Clear();
-        NavigateTo(string.Empty);
+        _history.Clear();
+        _history.Add(string.Empty);
+        _historyIndex = 0;
+        _currentFolder = string.Empty;
+        _searchQuery = string.Empty;
+        _viewMode = "grid";
+        _sortMode = "name";
+        _tileScale = 1;
+        _sidebarWidth = 160;
+        _contextMenu = null;
+        _pendingAction = null;
         Publish([]);
+        _version++;
     }
 
     /// <summary>
