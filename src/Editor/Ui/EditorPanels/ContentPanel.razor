@@ -425,8 +425,9 @@
                 return null;
 
             var visible = Items.FirstOrDefault(item =>
+                item.Path is { Length: > 0 } &&
                 item.Path.Equals(selectedPath, StringComparison.OrdinalIgnoreCase));
-            if (visible.Path.Length > 0)
+            if (visible.Path is { Length: > 0 })
                 return visible;
 
             var folder = AllFolders().FirstOrDefault(candidate =>
