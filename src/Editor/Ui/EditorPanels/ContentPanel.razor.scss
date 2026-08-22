@@ -145,19 +145,6 @@ root {
     color: $accent-hover;
 }
 
-.panel-x {
-    width: 18px;
-    height: 20px;
-    color: $text-muted;
-    font-size: 13px;
-    text-align: center;
-    vertical-align: center;
-    line-height: 20px;
-
-    &:hover {
-        color: $text-bright;
-    }
-}
 
 .content-body {
     width: 100%;

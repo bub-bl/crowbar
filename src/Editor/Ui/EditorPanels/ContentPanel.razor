@@ -41,7 +41,6 @@
         </div>
     </div>
     <input class="content-search" value="@EditorContentState.SearchQuery" placeholder="Search..." @oninput="OnSearchInput" />
-    <div class="panel-x" @onclick="CloseContextMenu">×</div>
 </div>
 
 @* The grid mirrors the live project content: the host republishes the file
@@ -524,8 +523,6 @@
         EditorContentState.OpenEmptyContextMenu(EditorContentState.CurrentFolder, e.X, e.Y);
         return true;
     }
-
-    private void CloseContextMenu() => EditorContentState.CloseContextMenu();
 
     private string ViewIconName => EditorContentState.ViewMode == "grid"
         ? "Solar/list/Bold/list"
