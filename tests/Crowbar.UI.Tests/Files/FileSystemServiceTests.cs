@@ -24,6 +24,39 @@ public class FileSystemServiceTests
         => Assert.True(FileSystemService.IsRooted(Path.GetFullPath(".")));
 
     [Fact]
+    public void EnumerateDirectories_RecursiveReturnsSubdirectories()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), "crowbar-fs-dirs-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, "a", "b"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "a", "c"));
+            Directory.CreateDirectory(Path.Combine(tempDir, "d"));
+            var service = new FileSystemService(ZioFileSystem.Physical(), AppContext.BaseDirectory);
+
+            var directories = service.EnumerateDirectories(tempDir, "*", recursive: true)
+                .Select(service.ToSystemPath)
+                .Select(p => Path.GetFullPath(p))
+                .ToArray();
+
+            string[] expected =
+            [
+                Path.Combine(tempDir, "a"),
+                Path.Combine(tempDir, "a", "b"),
+                Path.Combine(tempDir, "a", "c"),
+                Path.Combine(tempDir, "d")
+            ];
+            Assert.Equal(expected.Length, directories.Length);
+            foreach (var dir in expected)
+                Assert.Contains(dir, directories, StringComparer.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void ToFilePath_LeadingSlashResolvesThroughMount()
     {
         var tempDir = Path.Combine(Path.GetTempPath(), "crowbar-fs-mount-" + Guid.NewGuid().ToString("N"));

@@ -55,6 +55,13 @@ internal sealed class ZioFileSystem : IFileSystem
                 recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
             .Select(path => new FilePath(path.FullName));
 
+    public IEnumerable<FilePath> EnumerateDirectories(FilePath directory, string pattern = "*", bool recursive = false)
+        => _inner.EnumerateDirectories(
+                ToUPath(directory),
+                pattern,
+                recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly)
+            .Select(path => new FilePath(path.FullName));
+
     public DateTime GetLastWriteTime(FilePath path) => _inner.GetLastWriteTime(ToUPath(path));
 
     public bool CanWatch(FilePath directory) => _inner.CanWatch(ToUPath(directory));

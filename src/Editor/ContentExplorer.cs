@@ -95,9 +95,10 @@ public sealed class ContentExplorer : IDisposable
     public void Dispose() => _watcher?.Dispose();
 
     /// <summary>
-    /// Republishes the panel snapshot: every file under <c>/Content</c> with
-    /// its logical path and the thumbnail kind of its registered asset type;
-    /// the panel derives the folder structure from the paths.
+    /// Republishes the panel snapshot: every folder under <c>/Content</c>
+    /// (including empty ones, so a brand-new folder is visible) and every file
+    /// with its logical path and the thumbnail kind of its registered asset
+    /// type.
     /// </summary>
     private static void Publish()
     {
@@ -105,6 +106,17 @@ public sealed class ContentExplorer : IDisposable
         try
         {
             var contentRoot = FileSystem.Content.ToFilePath("/Content");
+            foreach (var directory in FileSystem.Content.EnumerateDirectories("/Content", "*", recursive: true))
+            {
+                if (ToLogicalPath(directory, contentRoot) is not { } logical)
+                    continue;
+                entries.Add(new EditorContentState.Entry(
+                    logical,
+                    Path.GetFileName(logical),
+                    "folder",
+                    FileSystem.Content.GetLastWriteTimeUtc(directory)));
+            }
+
             foreach (var file in FileSystem.Content.EnumerateFiles("/Content", "*", recursive: true))
             {
                 if (ToLogicalPath(file, contentRoot) is not { } logical)
@@ -209,6 +221,11 @@ public sealed class ContentExplorer : IDisposable
                     RevealPath(contentPath);
                     break;
             }
+
+            // Every applied mutation (or open/refresh) republishes the snapshot
+            // immediately, so a created folder/file shows up in the drawer right
+            // away instead of waiting for the content watcher to notice it.
+            Publish();
         }
         catch (Exception ex)
         {

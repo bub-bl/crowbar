@@ -150,6 +150,12 @@ public sealed class FileSystemService
     public IEnumerable<FilePath> EnumerateFiles(FilePath directory, string pattern = "*", bool recursive = false)
         => Backend.EnumerateFiles(directory, pattern, recursive);
 
+    public IEnumerable<FilePath> EnumerateDirectories(string directory, string pattern = "*", bool recursive = false)
+        => Backend.EnumerateDirectories(ToFilePath(directory), pattern, recursive);
+
+    public IEnumerable<FilePath> EnumerateDirectories(FilePath directory, string pattern = "*", bool recursive = false)
+        => Backend.EnumerateDirectories(directory, pattern, recursive);
+
     public DateTime GetLastWriteTimeUtc(string path) => Backend.GetLastWriteTime(ToFilePath(path));
 
     public DateTime GetLastWriteTimeUtc(FilePath path) => Backend.GetLastWriteTime(path);

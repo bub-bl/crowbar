@@ -179,9 +179,14 @@
             if (!relative.StartsWith(prefix, StringComparison.Ordinal) || relative.Length == prefix.Length)
                 continue;
             var rest = relative[prefix.Length..];
-            if (!rest.Contains('/')) continue;
-            var sub = rest.Split('/')[0];
-            if (seen.Add(sub)) result.Add(sub);
+            string? sub;
+            if (rest.Contains('/'))
+                sub = rest.Split('/')[0];
+            else if (entry.Kind == "folder")
+                sub = rest; // A directory directly inside the folder (possibly empty) is a subfolder.
+            else
+                continue; // A file directly inside the folder ends the branch.
+            if (sub.Length > 0 && seen.Add(sub)) result.Add(sub);
         }
 
         result.Sort(StringComparer.OrdinalIgnoreCase);
@@ -240,6 +245,10 @@
 
                 foreach (var entry in EditorContentState.Entries)
                 {
+                    // Explicit directories are already listed as folders above;
+                    // only real files are shown as file tiles here.
+                    if (entry.Kind == "folder")
+                        continue;
                     if (MatchesEntry(entry, filter))
                         items.Add(new Item(entry.Name, entry.Kind, false, string.Empty, entry.Path, entry.Modified));
                 }
@@ -255,6 +264,16 @@
             {
                 var relative = RelativeOf(entry.Path);
                 var parent = ParentOf(relative);
+                if (entry.Kind == "folder")
+                {
+                    // Explicitly listed directories (including empty ones) are
+                    // folders; only those directly inside the browsed folder
+                    // become a tile here (the sidebar surfaces nested ones).
+                    if (parent == current && seen.Add(LastSegment(relative)))
+                        folders.Add(new Item(LastSegment(relative), "folder", true, entry.Path, entry.Path, entry.Modified));
+                    continue;
+                }
+
                 if (parent == current)
                 {
                     files.Add(new Item(entry.Name, entry.Kind, false, string.Empty, entry.Path, entry.Modified));
@@ -282,6 +301,20 @@
         foreach (var entry in EditorContentState.Entries)
         {
             var relative = RelativeOf(entry.Path);
+            if (entry.Kind == "folder")
+            {
+                // Explicitly listed directories (including empty ones) are
+                // folders themselves; add them and their ancestors.
+                folders.Add(relative);
+                var ancestor = ParentOf(relative);
+                while (ancestor.Length > 0)
+                {
+                    folders.Add(ancestor);
+                    ancestor = ParentOf(ancestor);
+                }
+                continue;
+            }
+
             var parent = ParentOf(relative);
             while (parent.Length > 0)
             {

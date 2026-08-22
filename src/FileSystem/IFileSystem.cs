@@ -35,6 +35,9 @@ internal interface IFileSystem : IDisposable
 
     IEnumerable<FilePath> EnumerateFiles(FilePath directory, string pattern = "*", bool recursive = false);
 
+    /// <summary>Enumerates the sub-directories of <paramref name="directory"/> matching the pattern.</summary>
+    IEnumerable<FilePath> EnumerateDirectories(FilePath directory, string pattern = "*", bool recursive = false);
+
     /// <summary>The file's last write time in UTC.</summary>
     DateTime GetLastWriteTime(FilePath path);
 

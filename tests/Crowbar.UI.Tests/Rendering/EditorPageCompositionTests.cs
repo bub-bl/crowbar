@@ -619,6 +619,27 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void ContentEmptyFolderAppearsInGridAndTree()
+    {
+        using var ui = CreateEditorUi();
+        // A brand-new empty folder: the host publishes it as a "folder" entry
+        // (there are no files under it yet), and it must still appear in the
+        // grid and the sidebar tree exactly like a file-backed folder.
+        EditorContentState.Publish(
+        [
+            new EditorContentState.Entry("Content/NewFolder", "NewFolder", "folder"),
+            new EditorContentState.Entry("Content/Demo.level", "Demo.level", "file")
+        ]);
+        ui.Update();
+        ui.Prepare();
+        var content = ui.Content!;
+
+        Assert.NotNull(FindText(content, "asset-name", t => t == "NewFolder"));
+        Assert.NotNull(FindText(content, "ctree-row", t => t == "NewFolder"));
+        Assert.NotNull(FindText(content, "asset-name", t => t == "Demo.level"));
+    }
+
+    [Fact]
     public void RightClickOnContentTileKeepsTheItemMenu()
     {
         using var ui = CreateEditorUi();

@@ -44,6 +44,9 @@ internal sealed class ReadOnlyFileSystem : IFileSystem
     public IEnumerable<FilePath> EnumerateFiles(FilePath directory, string pattern = "*", bool recursive = false)
         => _inner.EnumerateFiles(directory, pattern, recursive);
 
+    public IEnumerable<FilePath> EnumerateDirectories(FilePath directory, string pattern = "*", bool recursive = false)
+        => _inner.EnumerateDirectories(directory, pattern, recursive);
+
     public DateTime GetLastWriteTime(FilePath path) => _inner.GetLastWriteTime(path);
 
     public bool CanWatch(FilePath directory) => _inner.CanWatch(directory);
