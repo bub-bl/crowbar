@@ -182,6 +182,13 @@ public sealed class Editor : Application
         !Ui.PointerPressConsumed && Viewport.ContainsPointer(ViewportWidth, ViewportHeight);
 
     /// <summary>
+    /// Hides the cursor only for the editor's viewport mouse-look session.
+    /// Other editor windows, including the notification popup, keep their
+    /// cursor visible.
+    /// </summary>
+    protected override bool HideCursorWhileLooking => true;
+
+    /// <summary>
     /// While typing in a field (TextInput), the ZQSD/space keys go back to
     /// the field: the camera must not move at the same time. While a
     /// modifier is held (Ctrl+Z, Ctrl+S, Ctrl+Shift+Z, …) the movement keys

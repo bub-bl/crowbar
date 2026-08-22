@@ -34,6 +34,30 @@ public class ApplicationLookTests
     }
 
     [Fact]
+    public void GenericWindowSessionKeepsTheCursorVisibleDuringLook()
+    {
+        var source = new FakeInputSource();
+        Input.Bind(source);
+        var session = new GenericLookSession();
+
+        source.Mouse = new MouseSnapshot
+        {
+            Position = new Vector2(100, 100),
+            Buttons = RightDown
+        };
+        Input.Poll();
+        session.TickLook();
+
+        // The base window session may look around, but it must not hide the
+        // cursor: cursor hiding is an editor viewport policy.
+        Assert.Null(source.LastCursorVisible);
+
+        source.Mouse = source.Mouse with { Buttons = 0 };
+        Input.Poll();
+        session.TickLook();
+    }
+
+    [Fact]
     public void OrbitHidesTheCursorWhileTheRightButtonIsHeld()
     {
         using var app = new LookTestApp();
@@ -358,6 +382,11 @@ public class ApplicationLookTests
         Input.Poll();
         app.TickZoom();
         Assert.Equal(start, app.TestCamera.Position); // zero delta: no zoom
+    }
+
+    private sealed class GenericLookSession : WindowSession
+    {
+        public void TickLook() => LookWithMouse();
     }
 
     private sealed class LookTestApp : Application

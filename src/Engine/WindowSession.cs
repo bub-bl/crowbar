@@ -503,8 +503,10 @@ public class WindowSession : IDisposable
     /// <summary>
     /// True when the OS cursor is hidden for the duration of a mouse-look
     /// session (it is restored as soon as the right button is released).
+    /// Window-specific scene viewports should opt in; generic windows keep the
+    /// cursor visible even when they use the default camera controller.
     /// </summary>
-    protected virtual bool HideCursorWhileLooking => true;
+    protected virtual bool HideCursorWhileLooking => false;
 
     /// <summary>
     /// Rectangle (window pixels, origin top-left) in which the cursor is
@@ -609,6 +611,7 @@ public class WindowSession : IDisposable
             return;
         _disposed = true;
         OnClosing();
+        RestoreCursorIfHidden();
         ReleasePointerModal();
         ReleasePanModal();
         Ui.Dispose();
