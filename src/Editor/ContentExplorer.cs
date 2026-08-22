@@ -217,6 +217,9 @@ public sealed class ContentExplorer : IDisposable
                 case EditorContentState.ActionKind.Refresh:
                     Publish();
                     break;
+                case EditorContentState.ActionKind.Reimport:
+                    ReimportPath(contentPath);
+                    break;
                 case EditorContentState.ActionKind.Reveal:
                     RevealPath(contentPath);
                     break;
@@ -364,6 +367,27 @@ public sealed class ContentExplorer : IDisposable
     private static bool IsValidName(string name) =>
         !string.IsNullOrWhiteSpace(name) && name.Trim() == name && name is not "." and not ".." &&
         Path.GetFileName(name) == name && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
+
+    /// <summary>
+    /// Re-imports an asset: discards its cached resource so the next load
+    /// re-reads it, re-resolves every scene mesh renderer bound to a reloaded
+    /// model, and lets the caller republish the snapshot.
+    /// </summary>
+    private static void ReimportPath(string path)
+    {
+        if (!FileSystem.Project.FileExists(path))
+        {
+            UiNotifications.Show("Content", $"File not found: {path}", "error");
+            return;
+        }
+
+        var reloaded = new HashSet<string>(StringComparer.Ordinal);
+        if (ResourceLibrary.Invalidate(path))
+            reloaded.Add(path);
+        if (reloaded.Count > 0)
+            ReloadSceneModels(reloaded);
+        UiNotifications.Show("Content", $"Reimported {Path.GetFileName(path)}", "success");
+    }
 
     private static void RevealPath(string path)
     {

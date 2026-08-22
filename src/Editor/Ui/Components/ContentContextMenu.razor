@@ -57,6 +57,13 @@
             }
             else
             {
+                @* Options specific to the resource type come first, then the
+                   actions every file offers. Add one @if block plus its
+                   handler method for each new per-kind option. *@
+                @if (menu.Kind is "model" or "texture" or "sound" or "shader")
+                {
+                    <div class="context-menu-item" @onclick="ReimportContextPath">Reimport</div>
+                }
                 <div class="context-menu-item" @onclick="OpenContextFile">Open</div>
                 <div class="context-menu-item" @onclick="BeginRename">Rename</div>
                 <div class="context-menu-item" @onclick="BeginDelete">Delete</div>
@@ -192,6 +199,13 @@
     {
         if (EditorContentState.ContextMenu is { } menu)
             EditorContentState.RequestAction(EditorContentState.ActionKind.Reveal, menu.Path);
+    }
+
+    /// <summary>Re-queues the item through the content host so the resource is reloaded from disk.</summary>
+    private void ReimportContextPath()
+    {
+        if (EditorContentState.ContextMenu is { IsFolder: false } menu)
+            EditorContentState.RequestAction(EditorContentState.ActionKind.Reimport, menu.Path);
     }
 
     private void BeginRename()

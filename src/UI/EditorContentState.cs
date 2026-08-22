@@ -28,7 +28,8 @@ public static class EditorContentState
         Reveal,
         CreateFolder,
         CreateFile,
-        Refresh
+        Refresh,
+        Reimport
     }
 
     public readonly record struct ActionRequest(ActionKind Kind, string Path, string Value = "");
@@ -37,9 +38,12 @@ public static class EditorContentState
     /// An open context menu. <see cref="IsEmpty"/> is true for the menu opened
     /// by a right-click on the content panel's empty area: <see cref="Path"/>
     /// then carries the folder being browsed (the target of its new-item
-    /// actions), not an item the menu acts on.
+    /// actions), not an item the menu acts on. <see cref="Kind"/> is the
+    /// thumbnail kind of the item the menu acts on (model/texture/sound/
+    /// shader/file, "folder" for a folder row): the menu uses it to show
+    /// type-specific actions (e.g. Reimport for a model).
     /// </summary>
-    public readonly record struct ContextMenuState(string Path, bool IsFolder, float X, float Y, bool IsEmpty = false);
+    public readonly record struct ContextMenuState(string Path, bool IsFolder, float X, float Y, bool IsEmpty = false, string Kind = "file");
 
     private static IReadOnlyList<Entry> _entries = [];
     private static string _currentFolder = string.Empty;
@@ -230,9 +234,9 @@ public static class EditorContentState
         BumpVersion();
     }
 
-    public static void OpenContextMenu(string path, bool isFolder, float x, float y)
+    public static void OpenContextMenu(string path, bool isFolder, float x, float y, string kind = "file")
     {
-        _contextMenu = new ContextMenuState(path, isFolder, x, y);
+        _contextMenu = new ContextMenuState(path, isFolder, x, y, Kind: kind);
         BumpVersion();
     }
 

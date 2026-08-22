@@ -740,6 +740,60 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void ContentTileMenuShowsOptionsForTheAssetType()
+    {
+        using var ui = CreateEditorUi();
+        // Publish a model and a plain file at the content root so both tiles
+        // are visible: the model menu must offer a type-specific action
+        // (Reimport) that the plain file menu does not.
+        EditorContentState.Publish(
+        [
+            new EditorContentState.Entry("Content/Crate.gltf", "Crate.gltf", "model"),
+            new EditorContentState.Entry("Content/Demo.level", "Demo.level", "file")
+        ]);
+        ui.Update();
+        ui.Prepare();
+        var content = ui.Content!;
+
+        var model = FindText(content, "asset-name", t => t == "Crate.gltf");
+        Assert.NotNull(model);
+        ui.ProcessPointerDown(model!.Layout.X + 2, model.Layout.Y + 2, button: 1);
+        ui.ProcessPointerUp(model.Layout.X + 2, model.Layout.Y + 2, button: 1);
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+
+        var menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu"));
+        Assert.NotNull(menu);
+        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Reimport"));
+
+        // Choosing Reimport queues the type-specific action for the host.
+        ClickAt(ui, FindText(ui.Content!, "context-menu-item", t => t == "Reimport")!);
+        Assert.True(EditorContentState.TryConsumeAction(out var action));
+        Assert.Equal(EditorContentState.ActionKind.Reimport, action.Kind);
+        Assert.Equal("Content/Crate.gltf", action.Path);
+        Assert.Null(TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu")));
+
+        // A plain file gets the generic actions only: no Reimport.
+        ui.Update();
+        ui.Prepare();
+        content = ui.Content!;
+        var file = FindText(content, "asset-name", t => t == "Demo.level");
+        Assert.NotNull(file);
+        ui.ProcessPointerDown(file!.Layout.X + 2, file.Layout.Y + 2, button: 1);
+        ui.ProcessPointerUp(file.Layout.X + 2, file.Layout.Y + 2, button: 1);
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+
+        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Open"));
+        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Rename"));
+        Assert.Null(FindText(ui.Content!, "context-menu-item", t => t == "Reimport"));
+    }
+
+    [Fact]
     public void ContentPanelSidebarIsAFolderTree()
     {
         using var ui = CreateEditorUi();
