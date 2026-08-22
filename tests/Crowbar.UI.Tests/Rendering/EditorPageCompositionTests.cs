@@ -442,9 +442,10 @@ public class EditorPageCompositionTests
         content = ui.Content!;
         var menu = TestUi.Find(content, p => p.Classes.Contains("content-context-menu"));
         Assert.NotNull(menu);
-        // The title is the browsed folder (the content root here), the actions
-        // create items inside it — no item actions (Open/Rename/...).
-        Assert.Contains("Content", TestUi.Texts(menu!));
+        // The empty-area menu carries no folder title, just the actions that
+        // create items inside the browsed folder — no item actions
+        // (Open/Rename/...).
+        Assert.Null(TestUi.Find(menu!, p => p.Classes.Contains("context-menu-title")));
         Assert.NotNull(FindText(content, "context-menu-item", t => t == "New Folder"));
         Assert.NotNull(FindText(content, "context-menu-item", t => t == "New File"));
         Assert.NotNull(FindText(content, "context-menu-item", t => t == "Import..."));

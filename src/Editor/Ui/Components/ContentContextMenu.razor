@@ -19,7 +19,8 @@
             }
             else
             {
-                <div class="context-menu-title">@ContextName(menu)</div>
+                // The empty-area menu has no title: the actions target the
+                // folder being browsed, so the header would be noise.
                 <div class="context-menu-item" @onclick="BeginCreateFolder">New Folder</div>
                 <div class="context-menu-item" @onclick="BeginCreateFile">New File</div>
                 <div class="context-menu-separator"></div>
