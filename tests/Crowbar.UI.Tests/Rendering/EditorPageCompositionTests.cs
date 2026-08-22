@@ -620,6 +620,57 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void ContentContextMenuSwitchesToTileMenuOnRightClickOverTile()
+    {
+        using var ui = CreateEditorUi();
+        // Deterministic root content: a model and a plain file, so the grid's
+        // top-right stays empty for the first (empty-area) menu.
+        EditorContentState.Publish(
+        [
+            new EditorContentState.Entry("Content/Crate.gltf", "Crate.gltf", "model"),
+            new EditorContentState.Entry("Content/Demo.level", "Demo.level", "file")
+        ]);
+        ui.Update();
+        ui.Prepare();
+        var content = ui.Content!;
+
+        // Open the empty-area menu in the grid's empty top-right (tiles flow
+        // from the top-left).
+        var grid = TestUi.Find(content, p => p.Classes.Contains("content-grid"));
+        Assert.NotNull(grid);
+        var x = grid!.Layout.Right - 25;
+        var y = grid.Layout.Y + 30;
+        ui.ProcessPointerDown(x, y, button: 1);
+        ui.ProcessPointerUp(x, y, button: 1);
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+
+        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "New Folder"));
+
+        // Right-click on the model tile while the empty-area menu is open: the
+        // overlay intercepts the press, but must open the tile's item menu
+        // (title + type-specific action) instead of keeping the empty menu.
+        content = ui.Content!;
+        var tile = FindText(content, "asset-name", t => t == "Crate.gltf");
+        Assert.NotNull(tile);
+        ui.ProcessPointerDown(tile!.Layout.X + 2, tile.Layout.Y + 2, button: 1);
+        ui.ProcessPointerUp(tile.Layout.X + 2, tile.Layout.Y + 2, button: 1);
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+
+        var menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu"));
+        Assert.NotNull(menu);
+        Assert.NotNull(FindText(ui.Content!, "context-menu-title", t => t == "Crate.gltf"));
+        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Reimport"));
+        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Open"));
+        Assert.Null(FindText(ui.Content!, "context-menu-item", t => t == "New Folder"));
+    }
+
+    [Fact]
     public void ContentEmptyFolderAppearsInGridAndTree()
     {
         using var ui = CreateEditorUi();

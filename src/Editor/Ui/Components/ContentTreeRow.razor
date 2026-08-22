@@ -11,6 +11,7 @@
    folding never navigates away; clicking the row itself browses into the
    folder (which reveals it). Folders without children have no caret. *@
 <div class="ctree-row @(Selected ? "ctree-selected" : "")" style="padding-left: @(Indent * 12 + 6)px"
+     data-folder="@Folder"
      @onclick="OnClick" @onmousedown="OnPointerDown">
     @if (HasChildren)
     {

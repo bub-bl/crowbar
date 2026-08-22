@@ -158,11 +158,14 @@
     private bool ConsumeContextClick(UiPointerEvent e) => false;
 
     /// <summary>
-    /// Right-click on the overlay while a menu is open reopens the empty-area
-    /// menu at the new press position, so the menu follows a new right-click
-    /// location instead of staying where it was. A press inside the menu box
-    /// is owned by the menu (its pointer handler already ran) and is left
-    /// alone. Left-clicks return false so the click still reaches
+    /// Right-click on the overlay while a menu is open reopens the menu at the
+    /// new press position, so the menu follows a new right-click location
+    /// instead of staying where it was. A press inside the menu box is owned
+    /// by the menu (its pointer handler already ran) and is left alone. A
+    /// press on an item under the overlay — the overlay is the hit target
+    /// while a menu is open, so the tile or tree row never receives the event
+    /// itself — opens that item's menu instead of the empty-area menu.
+    /// Left-clicks return false so the click still reaches
     /// <see cref="CloseFromOutside"/>.
     /// </summary>
     private bool RepositionFromOutside(UiPointerEvent e)
@@ -173,8 +176,46 @@
             e.X >= _menuPanel.Layout.X && e.X <= _menuPanel.Layout.Right &&
             e.Y >= _menuPanel.Layout.Y && e.Y <= _menuPanel.Layout.Bottom)
             return false;
+
+        // The overlay is the hit target while a menu is open, so the item
+        // under the press never receives the event itself: resolve what it
+        // landed on and open that item's menu. Items are recognized by class
+        // and data attributes — the runtime Razor compiler cannot reference
+        // the editor component types from @code.
+        var under = HitTestUnderneath(e.X, e.Y);
+        for (var current = under; current is not null; current = current.Parent)
+        {
+            if (current.Classes.Contains("asset-tile") &&
+                current.Attributes.TryGetValue("data-path", out var tilePath) && tilePath.Length > 0)
+            {
+                var isFolder = bool.TryParse(current.Attributes.GetValueOrDefault("data-isfolder"), out var folder) && folder;
+                var kind = current.Attributes.GetValueOrDefault("data-kind", "file");
+                EditorContentState.OpenContextMenu(tilePath, isFolder, e.X, e.Y, kind);
+                return true;
+            }
+            if (current.Classes.Contains("ctree-row") &&
+                current.Attributes.TryGetValue("data-folder", out var folderPath))
+            {
+                EditorContentState.OpenContextMenu(folderPath, true, e.X, e.Y, "folder");
+                return true;
+            }
+        }
+
         EditorContentState.OpenEmptyContextMenu(EditorContentState.CurrentFolder, e.X, e.Y);
         return true;
+    }
+
+    /// <summary>
+    /// Hit-tests the tree below the overlay at the given point: the overlay is
+    /// the topmost hit target while a menu is open, so the search starts at
+    /// the tree root and skips this overlay's subtree to find what a press
+    /// actually landed on (a tile, a tree row, or plain empty space).
+    /// </summary>
+    private Panel? HitTestUnderneath(float x, float y)
+    {
+        Panel root = this;
+        while (root.Parent is { } parent) root = parent;
+        return root.HitTest(x, y, this);
     }
 
     private void CloseFromOutside(UiPointerEvent e)

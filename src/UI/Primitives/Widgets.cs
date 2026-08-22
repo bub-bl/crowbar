@@ -278,9 +278,15 @@ public static class PanelExtensions
     /// be dragged. Children of an overflow:visible panel may be hit even when
     /// the pointer lies outside the panel itself.
     /// </summary>
-    public static Panel? HitTest(this Panel panel, float x, float y)
+    /// <param name="ignore">
+    /// Subtree to skip (this panel and everything under it): a full-editor
+    /// overlay hit-tests what a press landed on below itself without the
+    /// overlay claiming the hit.
+    /// </param>
+    public static Panel? HitTest(this Panel panel, float x, float y, Panel? ignore = null)
     {
-        if (!panel.IsVisible || panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
+        if (ReferenceEquals(panel, ignore) || !panel.IsVisible ||
+            panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
         var inside = x >= panel.Layout.X && x <= panel.Layout.Right && y >= panel.Layout.Y && y <= panel.Layout.Bottom;
 
         // A visible scrollbar owns its zone: report the container so the input
@@ -307,7 +313,7 @@ public static class PanelExtensions
             var ordered = children.OrderBy(child => child.ComputedStyle.ZIndex).ToList();
             for (var i = ordered.Count - 1; i >= 0; i--)
             {
-                var hit = ordered[i].HitTest(x + panel.ScrollX, y + panel.ScrollY);
+                var hit = ordered[i].HitTest(x + panel.ScrollX, y + panel.ScrollY, ignore);
                 if (hit is not null) return hit;
             }
         }
@@ -315,7 +321,7 @@ public static class PanelExtensions
         {
             for (var i = children.Count - 1; i >= 0; i--)
             {
-                var hit = children[i].HitTest(x + panel.ScrollX, y + panel.ScrollY);
+                var hit = children[i].HitTest(x + panel.ScrollX, y + panel.ScrollY, ignore);
                 if (hit is not null) return hit;
             }
         }

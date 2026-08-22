@@ -8,6 +8,7 @@
    themselves on click — the folder path travels as a [Parameter] (the event
    invoker cannot pass captured locals from an @onclick lambda). *@
 <div class="asset-tile @(ListView ? "asset-tile-list" : "asset-tile-grid") asset-scale-@TileScale @(Selected ? "asset-selected" : "")"
+     data-path="@Path" data-kind="@Kind" data-isfolder="@IsFolder"
      @onclick="OnClick" @onmousedown="OnPointerDown">
     <div class="asset-thumb thumb-@Kind">
         @if (Kind == "texture" && Path.Length > 0)
