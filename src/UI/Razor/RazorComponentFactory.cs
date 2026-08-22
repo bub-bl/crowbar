@@ -95,8 +95,9 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         {
             // Disk cache: the same component content compiled from a different
             // path (or a previous launch) is served without a Roslyn emit. The
-            // hash covers the source, class, base type, reference locations and
-            // the whole platform assembly set, so any change invalidates it.
+            // hash covers the source, class, base type, the referenced
+            // assemblies' identity and the whole platform assembly set, so any
+            // change invalidates it.
             var sourceText = ReadFileTextCached(razorPath);
             var cachePath = RazorCacheFile(ComputeCacheHash(sourceText, className, baseType, references));
             assembly = TryLoadFromDisk(cachePath);
@@ -209,8 +210,19 @@ public sealed class RazorComponentFactory(IReadOnlyDictionary<string, RazorCompo
         // .NET versions: fold it into the key so an upgrade never serves stale
         // assemblies.
         builder.Append(AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? string.Empty).Append('\n');
-        foreach (var location in references.Select(r => r.Location).OrderBy(l => l, StringComparer.Ordinal))
-            builder.Append(location).Append('\n');
+        // The assembly set the compilation actually references (see
+        // CompileAssembly). A referenced assembly's API can change without its
+        // location moving — a rebuild of Crowbar.UI in place, e.g. a removed
+        // method — so the ModuleVersionId (unique per emitted assembly) is
+        // folded in: a cached template compiled against an older API is never
+        // served, and the editor always binds against the running assemblies.
+        var effective = references
+            .Concat([typeof(object).Assembly, typeof(Enumerable).Assembly,
+                typeof(RazorPanel).Assembly, typeof(RazorProjectEngine).Assembly])
+            .Distinct()
+            .OrderBy(assembly => assembly.Location, StringComparer.Ordinal);
+        foreach (var assembly in effective)
+            builder.Append(assembly.Location).Append('|').Append(assembly.ManifestModule.ModuleVersionId).Append('\n');
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(builder.ToString())));
     }
 
