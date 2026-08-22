@@ -310,7 +310,12 @@ public sealed class ResourceLibrary
     public bool Invalidate(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        var type = GetTypeForExtension(Path.GetExtension(path));
+        // A path without an extension (a directory, a folder the content
+        // watcher reports) cannot be a registered asset: nothing to discard.
+        var extension = Path.GetExtension(path);
+        if (string.IsNullOrWhiteSpace(extension))
+            return false;
+        var type = GetTypeForExtension(extension);
         if (type is null)
             return false;
         GetCache(type).Invalidate(path);

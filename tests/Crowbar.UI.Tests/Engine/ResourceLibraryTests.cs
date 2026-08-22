@@ -209,6 +209,18 @@ public class ResourceLibraryTests
     }
 
     [Fact]
+    public void Invalidate_ByPath_NoExtension_DoesNotThrow()
+    {
+        var library = CreateLibrary();
+
+        // A folder (or any extension-less path) reported by the content
+        // watcher is not a resource: invalidating it must be a no-op, not
+        // throw on an empty extension.
+        Assert.False(library.Invalidate("Content/NewFolder"));
+        Assert.False(library.Invalidate("Assets/Data/notes"));
+    }
+
+    [Fact]
     public void DiscardedEntries_AreDisposed()
     {
         var library = new ResourceLibrary();
