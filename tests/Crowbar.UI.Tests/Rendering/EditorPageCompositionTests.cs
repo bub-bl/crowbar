@@ -567,6 +567,58 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void ContentContextMenuRepositionsOnSubsequentRightClick()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // Open the empty-area menu at one spot of the content grid (top-right
+        // stays empty: tiles flow from the top-left).
+        var grid = TestUi.Find(content, p => p.Classes.Contains("content-grid"));
+        Assert.NotNull(grid);
+        var p1 = (grid!.Layout.Right - 25, grid.Layout.Y + 30);
+        ui.ProcessPointerDown(p1.Item1, p1.Item2, button: 1);
+        ui.ProcessPointerUp(p1.Item1, p1.Item2, button: 1);
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+
+        var menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu"));
+        Assert.NotNull(menu);
+        var firstX = menu!.Layout.X;
+        var firstY = menu.Layout.Y;
+
+        // Right-click again on the sidebar's empty area below the tree rows
+        // (far from the open menu and from every tile): the menu must move
+        // there instead of staying where it was.
+        var sidebar = TestUi.Find(content, p => p.Classes.Contains("content-sidebar"));
+        Assert.NotNull(sidebar);
+        var px = sidebar!.Layout.X + 60;
+        var py = sidebar.Layout.Bottom - 25;
+        Assert.True(Math.Abs(px - firstX) > 1f, "second press must be a different spot");
+        ui.ProcessPointerDown(px, py, button: 1);
+        ui.ProcessPointerUp(px, py, button: 1);
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+
+        menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu"));
+        Assert.NotNull(menu);
+        // The menu moved from the grid to the sidebar (a clear lateral shift;
+        // the vertical stays clamped to the window bottom for both spots).
+        Assert.True(menu!.Layout.X < firstX - 100f,
+            $"menu left {menu.Layout.X} must move left of first open {firstX}");
+        // Still fully inside the window.
+        var viewport = ui.Screen.Layout;
+        Assert.True(menu.Layout.Right <= viewport.Width - 4,
+            $"menu right {menu.Layout.Right} must fit width {viewport.Width}");
+        Assert.True(menu.Layout.Bottom <= viewport.Height - 4,
+            $"menu bottom {menu.Layout.Bottom} must fit height {viewport.Height}");
+    }
+
+    [Fact]
     public void RightClickOnContentTileKeepsTheItemMenu()
     {
         using var ui = CreateEditorUi();

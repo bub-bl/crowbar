@@ -4,8 +4,8 @@
 
 @if (EditorContentState.ContextMenu is { } menu)
 {
-    <div class="content-context-layer" @onclick="CloseFromOutside">
-        <div class="content-context-menu" style="@ContextMenuStyle(menu)" @onmousedown="ConsumeContextPointer" @onclick="ConsumeContextClick">
+    <div class="content-context-layer" @onmousedown="RepositionFromOutside" @onclick="CloseFromOutside">
+        <div class="content-context-menu" @ref="_menuPanel" style="@ContextMenuStyle(menu)" @onmousedown="ConsumeContextPointer" @onclick="ConsumeContextClick">
         @if (menu.IsEmpty)
         {
             @if (_createKind is not null)
@@ -133,12 +133,38 @@
         return path.Length == 0 ? "Content" : path.Split('/').Last();
     }
 
+    // The transparent layer intercepts every press outside the menu (it is the
+    // hit target while the menu is open, so the content panel underneath never
+    // sees these events). The open menu box itself, captured for the check in
+    // RepositionFromOutside.
+    private Panel? _menuPanel;
+
     private bool ConsumeContextPointer(UiPointerEvent e) => true;
 
     private void ConsumeContextClick(UiPointerEvent e)
     {
         // The menu owns the click so it does not bubble to the transparent
         // full-editor layer and close while editing or choosing an action.
+    }
+
+    /// <summary>
+    /// Right-click on the overlay while a menu is open reopens the empty-area
+    /// menu at the new press position, so the menu follows a new right-click
+    /// location instead of staying where it was. A press inside the menu box
+    /// is owned by the menu (its pointer handler already ran) and is left
+    /// alone. Left-clicks return false so the click still reaches
+    /// <see cref="CloseFromOutside"/>.
+    /// </summary>
+    private bool RepositionFromOutside(UiPointerEvent e)
+    {
+        if (e.Button != 1) return false;
+        if (EditorContentState.ContextMenu is null) return false;
+        if (_menuPanel is not null &&
+            e.X >= _menuPanel.Layout.X && e.X <= _menuPanel.Layout.Right &&
+            e.Y >= _menuPanel.Layout.Y && e.Y <= _menuPanel.Layout.Bottom)
+            return false;
+        EditorContentState.OpenEmptyContextMenu(EditorContentState.CurrentFolder, e.X, e.Y);
+        return true;
     }
 
     private void CloseFromOutside(UiPointerEvent e)
