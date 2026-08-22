@@ -139,13 +139,15 @@
     // RepositionFromOutside.
     private Panel? _menuPanel;
 
-    private bool ConsumeContextPointer(UiPointerEvent e) => true;
+    // These two consume presses/clicks on the menu without requesting a
+    // render: a rebuild replaces the TextInput instance and only carries over
+    // the caret and selection (not the in-flight drag/modifier state), so any
+    // render here would break mouse selection and Shift+arrow / Ctrl+A while
+    // editing the inline name input. Returning false keeps the event handled
+    // (the click dispatch still stops at the menu) without that rebuild.
+    private bool ConsumeContextPointer(UiPointerEvent e) => false;
 
-    private void ConsumeContextClick(UiPointerEvent e)
-    {
-        // The menu owns the click so it does not bubble to the transparent
-        // full-editor layer and close while editing or choosing an action.
-    }
+    private bool ConsumeContextClick(UiPointerEvent e) => false;
 
     /// <summary>
     /// Right-click on the overlay while a menu is open reopens the empty-area
@@ -201,11 +203,17 @@
 
     private void OnRenameInput(string value) => _renameValue = value;
 
-    private void OnRenameKeyDown(KeyEvent e)
+    /// <summary>
+    /// Handles Enter (confirm) and Escape (cancel) on the rename input. Other
+    /// keys return false so the input's own selection handling (Shift+arrow,
+    /// Ctrl+A, ...) is not interrupted by a rebuild between key events.
+    /// </summary>
+    private bool OnRenameKeyDown(KeyEvent e)
     {
-        if (!e.IsDown) return;
-        if (e.KeyCode == 13) ConfirmRename();
-        else if (e.KeyCode == 27) CancelInlineAction();
+        if (!e.IsDown) return false;
+        if (e.KeyCode == 13) { ConfirmRename(); return true; }
+        if (e.KeyCode == 27) { CancelInlineAction(); return true; }
+        return false;
     }
 
     private void ConfirmRename()
@@ -258,11 +266,13 @@
 
     private void OnCreateInput(string value) => _createValue = value;
 
-    private void OnCreateKeyDown(KeyEvent e)
+    /// <summary>Enter confirms, Escape cancels; other keys pass through to the input's selection handling.</summary>
+    private bool OnCreateKeyDown(KeyEvent e)
     {
-        if (!e.IsDown) return;
-        if (e.KeyCode == 13) ConfirmCreate();
-        else if (e.KeyCode == 27) CancelInlineAction();
+        if (!e.IsDown) return false;
+        if (e.KeyCode == 13) { ConfirmCreate(); return true; }
+        if (e.KeyCode == 27) { CancelInlineAction(); return true; }
+        return false;
     }
 
     private void ConfirmCreate()

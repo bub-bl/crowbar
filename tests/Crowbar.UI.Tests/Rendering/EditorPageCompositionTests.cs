@@ -663,6 +663,82 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void ContextMenuInputSupportsMouseAndKeyboardSelection()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        var asset = FindText(content, "asset-name", t => t == "Demo.level");
+        Assert.NotNull(asset);
+
+        // Open the item menu and switch it to the inline rename input.
+        ui.ProcessPointerDown(asset!.Layout.X + 2, asset.Layout.Y + 2, button: 1);
+        ui.ProcessPointerUp(asset.Layout.X + 2, asset.Layout.Y + 2, button: 1);
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+        var rename = FindText(ui.Content!, "context-menu-item", t => t == "Rename");
+        Assert.NotNull(rename);
+        ClickAt(ui, rename!);
+
+        // Click the input to focus it and park the caret at the start.
+        var input = TestUi.Find(ui.Content!, p => p is TextInput && p.Classes.Contains("context-rename-input"));
+        Assert.NotNull(input);
+        var textInput = (TextInput)input!;
+        Assert.Equal("Demo.level", textInput.Value);
+        ui.ProcessPointerDown(textInput.Layout.X + 3, textInput.Layout.Y + 3);
+        ui.ProcessPointerUp(textInput.Layout.X + 3, textInput.Layout.Y + 3);
+        ui.Update();
+        ui.Prepare();
+
+        // Ctrl+A selects the whole value (no rebuild may interrupt the key
+        // sequence, or the control state would be lost between the keys).
+        ui.ProcessKey(0x11, isDown: true);
+        ui.ProcessKey(0x41, isDown: true);
+        ui.ProcessKey(0x41, isDown: false);
+        ui.ProcessKey(0x11, isDown: false);
+        ui.Update();
+        ui.Prepare();
+        input = TestUi.Find(ui.Content!, p => p is TextInput && p.Classes.Contains("context-rename-input"));
+        Assert.NotNull(input);
+        textInput = (TextInput)input;
+        Assert.True(textInput.HasSelection, "Ctrl+A must select the whole value");
+        Assert.Equal(0, textInput.SelectionStart);
+        Assert.Equal("Demo.level".Length, textInput.SelectionEnd);
+
+        // Shift+arrow extends the selection from the caret: a plain arrow
+        // collapses it, then Shift+Left re-selects the last character.
+        ui.ProcessKey(0x27, isDown: true);
+        ui.ProcessKey(0x27, isDown: false);
+        ui.ProcessKey(0x10, isDown: true);
+        ui.ProcessKey(0x25, isDown: true);
+        ui.ProcessKey(0x25, isDown: false);
+        ui.ProcessKey(0x10, isDown: false);
+        ui.Update();
+        ui.Prepare();
+        input = TestUi.Find(ui.Content!, p => p is TextInput && p.Classes.Contains("context-rename-input"));
+        Assert.NotNull(input);
+        textInput = (TextInput)input;
+        Assert.True(textInput.HasSelection, "Shift+arrow must extend the selection");
+        // Shift+Left anchors at the caret (10) and moves the other end to 9:
+        // the selection covers exactly the last character.
+        Assert.Equal("Demo.level".Length, Math.Max(textInput.SelectionStart, textInput.SelectionEnd));
+        Assert.Equal("Demo.level".Length - 1, Math.Min(textInput.SelectionStart, textInput.SelectionEnd));
+
+        // Mouse drag selects a range: press, move, release.
+        ui.ProcessPointerDown(textInput.Layout.X + 3, textInput.Layout.Y + 3);
+        ui.ProcessPointerMove(textInput.Layout.X + 70, textInput.Layout.Y + 3);
+        ui.ProcessPointerUp(textInput.Layout.X + 70, textInput.Layout.Y + 3);
+        ui.Update();
+        ui.Prepare();
+        input = TestUi.Find(ui.Content!, p => p is TextInput && p.Classes.Contains("context-rename-input"));
+        Assert.NotNull(input);
+        textInput = (TextInput)input;
+        Assert.True(textInput.HasSelection, "mouse drag must select text");
+        Assert.True(textInput.SelectionStart < textInput.SelectionEnd);
+    }
+
+    [Fact]
     public void ContentPanelSidebarIsAFolderTree()
     {
         using var ui = CreateEditorUi();
