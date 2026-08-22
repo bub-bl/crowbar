@@ -18,7 +18,6 @@
         </div>
     </div>
     <div class="ct-btn" @onclick="ImportPlaceholder">+ Import</div>
-    <div class="ct-btn" @onclick="CreateFolder">+ Folder</div>
     <div class="breadcrumb">
         @foreach (var crumb in Crumbs)
         {
@@ -436,8 +435,6 @@
     private void ZoomOut() => EditorContentState.AdjustTileScale(-1);
     private void ZoomIn() => EditorContentState.AdjustTileScale(1);
     private void ImportPlaceholder() => UiNotifications.Show("Content", "Import is not available yet.", "info");
-    private void CreateFolder() => EditorContentState.RequestAction(
-        EditorContentState.ActionKind.CreateFolder, EditorContentState.CurrentFolder, "New Folder");
     private void OnSearchInput(string value) => EditorContentState.SetSearchQuery(value);
 
     private static string IconNameFor(string kind, bool isFolder) => isFolder
