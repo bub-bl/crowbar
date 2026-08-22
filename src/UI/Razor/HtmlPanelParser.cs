@@ -237,6 +237,9 @@ internal static class HtmlPanelParser
         // can see it and selectors keep matching.
         var keyAttribute = element.Attribute("data-codex-key");
         var effectiveKey = keyAttribute is not null ? $"{key}/key:{keyAttribute.Value}" : key;
+        // The key is the panel's stable identity across re-renders (the tree is
+        // rebuilt on every render, so instance references are not stable).
+        panel.Key = effectiveKey;
         if (element.Attribute("data-codex-ref") is { } elementRef)
             runtime.AddRef(CleanRefName(elementRef.Value), panel);
         // The panel tree is rebuilt on every render: keep the running CSS

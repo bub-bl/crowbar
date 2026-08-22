@@ -4,12 +4,13 @@
 @using Microsoft.AspNetCore.Components
 
 @* One tile of the content grid: a folder or a file. The thumbnail is the
-   project's icon pack (Assets/Icons), tinted per kind. Folders navigate into
-   themselves on click — the folder path travels as a [Parameter] (the event
-   invoker cannot pass captured locals from an @onclick lambda). *@
+   project's icon pack (Assets/Icons), tinted per kind. A single click selects
+   the tile; a double click browses folders into themselves. The folder path
+   travels as a [Parameter] (the event invoker cannot pass captured locals
+   from an @onclick lambda). *@
 <div class="asset-tile @(ListView ? "asset-tile-list" : "asset-tile-grid") asset-scale-@TileScale @(Selected ? "asset-selected" : "")"
      data-path="@Path" data-isfolder="@IsFolder"
-     @onclick="OnClick" @onmousedown="OnPointerDown">
+     @onclick="OnClick" @ondblclick="OnDoubleClick" @onmousedown="OnPointerDown">
     <div class="asset-thumb thumb-@Kind">
         @if (Kind == "texture" && Path.Length > 0)
         {
@@ -31,7 +32,7 @@
     [Parameter]
     public string Kind { get; set; } = "file";
 
-    /// <summary>True for a folder tile: clicking browses into <see cref="Folder"/>.</summary>
+    /// <summary>True for a folder tile: double-clicking browses into <see cref="Folder"/>.</summary>
     [Parameter]
     public bool IsFolder { get; set; }
 
@@ -72,8 +73,13 @@
     {
         if (e.Button != 0) return;
         EditorContentState.Select(Path);
-        if (IsFolder && Folder.Length > 0)
-            EditorContentState.NavigateTo(Folder);
+    }
+
+    /// <summary>Double click: browse folders into themselves (files just stay selected).</summary>
+    private void OnDoubleClick(UiPointerEvent e)
+    {
+        if (e.Button != 0 || !IsFolder || Folder.Length == 0) return;
+        EditorContentState.NavigateTo(Folder);
     }
 
     private bool OnPointerDown(UiPointerEvent e)

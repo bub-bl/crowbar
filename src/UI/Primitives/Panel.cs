@@ -49,6 +49,14 @@ public class Panel
 
     private readonly HashSet<string> _scopeIds = new(StringComparer.OrdinalIgnoreCase);
     public IReadOnlySet<string> ScopeIds => _scopeIds;
+    /// <summary>
+    /// The reconciliation identity of this panel in the render tree (the
+    /// positional path the Razor parser assigns, e.g. "root/2/0"). Stable
+    /// across re-renders as long as the structure is unchanged, unlike the
+    /// panel instance itself (the tree is rebuilt on every render) — hit-test
+    /// logic such as double-click detection compares keys, not references.
+    /// </summary>
+    public string? Key { get; internal set; }
     public Panel? Parent { get; private set; }
     public IReadOnlyList<Panel> Children => _childrenView ??= new ReadOnlyCollection<Panel>(_children);
     /// <summary>

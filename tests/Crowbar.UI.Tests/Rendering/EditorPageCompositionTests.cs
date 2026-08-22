@@ -174,6 +174,18 @@ public class EditorPageCompositionTests
         ui.Prepare();
     }
 
+    /// <summary>Two clicks at the same spot: a double click on folders browses into them.</summary>
+    private static void DoubleClickAt(UiSystem ui, Panel panel)
+    {
+        ClickAt(ui, panel);
+        var x = panel.Layout.X + 2;
+        var y = panel.Layout.Y + 2;
+        ui.ProcessPointerDown(x, y);
+        ui.ProcessPointerUp(x, y);
+        ui.Update();
+        ui.Prepare();
+    }
+
     /// <summary>
     /// A point inside the content grid that no tile occupies (the grid's
     /// top-right corner): tiles flow from the top-left, so the right edge
@@ -367,14 +379,11 @@ public class EditorPageCompositionTests
         Assert.Null(FindText(content, "asset-name", t => t == "Crate.gltf"));
         Assert.NotNull(FindText(content, "crumb", t => t == "Models"));
 
-        // Folder tile: clicking Crate browses into it and shows its files,
-        // each tile carrying the icon of its registered asset type.
+        // Folder tile: double-clicking Crate browses into it and shows its
+        // files, each tile carrying the icon of its registered asset type.
         var crate = FindText(content, "asset-name", t => t == "Crate");
         Assert.NotNull(crate);
-        ui.ProcessPointerDown(crate!.Layout.X + 2, crate.Layout.Y + 2);
-        ui.ProcessPointerUp(crate.Layout.X + 2, crate.Layout.Y + 2);
-        ui.Update();
-        ui.Prepare();
+        DoubleClickAt(ui, crate!);
 
         content = ui.Content!;
         Assert.NotNull(FindText(content, "asset-name", t => t == "Crate.gltf"));

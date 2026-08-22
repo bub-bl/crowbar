@@ -10,7 +10,11 @@ public sealed partial class UiSystem
     private Panel? _pointerCapture;
     private Panel? _scrollDragPanel;
     private bool _scrollDragVertical;
-    private Panel? _lastClickPanel;
+    // Double-click identity: the previous press's panel reconciliation key,
+    // not the panel reference — the render tree is rebuilt on every render, so
+    // an unchanged element becomes a new instance that ReferenceEquals would
+    // reject (and any click that re-renders would break the detection).
+    private string? _lastClickKey;
     private long _lastClickTime;
     private float _lastClickX;
     private float _lastClickY;
@@ -88,7 +92,7 @@ public sealed partial class UiSystem
         _pointerCapture = null;
         _scrollDragPanel = null;
         _scrollDragVertical = false;
-        _lastClickPanel = null;
+        _lastClickKey = null;
         _lastClickTime = 0;
         PointerPressConsumed = false;
         HoveredCursor = "auto";
@@ -183,14 +187,16 @@ public sealed partial class UiSystem
             if (current.HasClickedHandler) { current.RaiseClicked(e); break; }
         }
         // Double-click: a second press close in time and space to the first
-        // one fires DoubleClicked on the hit panel path.
+        // one fires DoubleClicked on the hit panel path. The hit panel is
+        // compared by its reconciliation key so a re-render between the two
+        // presses (selection, hover, ...) does not break the detection.
         var now = Environment.TickCount64;
-        if (_lastClickPanel is not null && ReferenceEquals(_lastClickPanel, hit) &&
+        if (_lastClickKey is not null && hit.Key == _lastClickKey &&
             now - _lastClickTime < 400 && Math.Abs(x - _lastClickX) < 6 && Math.Abs(y - _lastClickY) < 6)
         {
             for (var current = hit; current is not null; current = current.Parent) current.RaiseDoubleClicked(e);
         }
-        _lastClickPanel = hit;
+        _lastClickKey = hit.Key;
         _lastClickTime = now;
         _lastClickX = x;
         _lastClickY = y;
