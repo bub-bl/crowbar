@@ -76,9 +76,13 @@
 
 </div>
 
-@if (SelectedItem is { } selected)
-{
-    <div class="content-selection-info">
+@* The selection footer is always present so its height (68px) is reserved:
+   appearing only after a selection would re-flow the grid and move the tile
+   under the cursor between the two presses of a double-click. The content is
+   shown only when an item is selected. *@
+<div class="content-selection-info">
+    @if (SelectedItem is { } selected)
+    {
         <div class="selection-preview thumb-@selected.Kind">
             @if (selected.Kind == "texture" && !selected.IsFolder)
             {
@@ -94,8 +98,8 @@
             <div class="selection-type">@(selected.IsFolder ? "Folder" : selected.Kind)</div>
             <div class="selection-path">@selected.Path</div>
         </div>
-    </div>
-}
+    }
+</div>
 
 @code {
     private readonly record struct Item(string Name, string Kind, bool IsFolder, string Folder, string Path, DateTime Modified);

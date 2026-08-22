@@ -4,9 +4,6 @@ using Crowbar.Engine;
 using Crowbar.Engine.Audio;
 using Crowbar.FileSystems;
 using Crowbar.UI;
-// Engine-internal (see Editor.cs): reached through InternalsVisibleTo, aliased
-// so the bare name does not collide with the GlobalNamespaces shorthand.
-using AssetActions = Crowbar.Engine.Global.AssetActions;
 
 namespace Crowbar.Editor;
 
@@ -104,13 +101,11 @@ public sealed class ContentExplorer : IDisposable
     /// Republishes the panel snapshot: every folder under <c>/Content</c>
     /// (including empty ones, so a brand-new folder is visible) and every file
     /// with its logical path and the thumbnail kind of its registered asset
-    /// type, plus each file's type-declared context actions
-    /// (AssetActions.ForPath).
+    /// type.
     /// </summary>
     private static void Publish()
     {
         var entries = new List<EditorContentState.Entry>();
-        var actions = new Dictionary<string, IReadOnlyList<EditorContentState.ContextAction>>(StringComparer.Ordinal);
         try
         {
             var contentRoot = FileSystem.Content.ToFilePath("/Content");
@@ -134,14 +129,6 @@ public sealed class ContentExplorer : IDisposable
                     Path.GetFileName(logical),
                     KindFor(logical),
                     FileSystem.Content.GetLastWriteTimeUtc(file)));
-
-                var fileActions = AssetActions.ForPath(logical);
-                if (fileActions.Count > 0)
-                {
-                    actions[logical] = fileActions
-                        .Select(action => new EditorContentState.ContextAction(action.Id, action.Label, action.IsDanger))
-                        .ToArray();
-                }
             }
         }
         catch (Exception ex)
@@ -151,7 +138,7 @@ public sealed class ContentExplorer : IDisposable
         }
 
         entries.Sort(static (a, b) => string.Compare(a.Path, b.Path, StringComparison.OrdinalIgnoreCase));
-        EditorContentState.Publish(entries, actions);
+        EditorContentState.Publish(entries);
     }
 
     /// <summary>
@@ -223,6 +210,10 @@ public sealed class ContentExplorer : IDisposable
                         DeleteDirectory(contentPath);
                     else
                         DeleteFile(contentPath);
+                    // The deleted item can no longer be selected: drop it so a
+                    // following Delete key press does not target a ghost path.
+                    if (string.Equals(EditorContentState.SelectedPath, contentPath, StringComparison.OrdinalIgnoreCase))
+                        EditorContentState.ClearSelection();
                     break;
                 case EditorContentState.ActionKind.CreateFolder:
                     CreateDirectory(contentPath, action.Value);
@@ -232,9 +223,6 @@ public sealed class ContentExplorer : IDisposable
                     break;
                 case EditorContentState.ActionKind.Refresh:
                     Publish();
-                    break;
-                case EditorContentState.ActionKind.Command:
-                    RunContextAction(contentPath, action.Value);
                     break;
                 case EditorContentState.ActionKind.Reveal:
                     RevealPath(contentPath);
@@ -383,19 +371,6 @@ public sealed class ContentExplorer : IDisposable
     private static bool IsValidName(string name) =>
         !string.IsNullOrWhiteSpace(name) && name.Trim() == name && name is not "." and not ".." &&
         Path.GetFileName(name) == name && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
-
-    /// <summary>
-    /// Runs a type-declared context action (an [AssetAction] id) on the file,
-    /// wiring the notifications callback into the handler's context. An id no
-    /// registered action provides (e.g. the declaring game assembly was
-    /// hot-reloaded away) is reported instead of silently dropped.
-    /// </summary>
-    private static void RunContextAction(string path, string id)
-    {
-        if (AssetActions.Execute(id, path, (title, message, kind) => UiNotifications.Show(title, message, kind)))
-            return;
-        UiNotifications.Show("Content", $"Unknown action: {id}", "error");
-    }
 
     private static void RevealPath(string path)
     {

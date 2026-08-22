@@ -101,6 +101,10 @@ internal static class HtmlPanelParser
             if (!string.IsNullOrWhiteSpace(text.Value))
             {
                 var textPanel = new Panel { TagName = "text", Text = text.Value };
+                // Text panels are hit targets like any other panel: carry the
+                // reconciliation key so identity-based logic (double-click
+                // detection) works on text the same way it does on elements.
+                textPanel.Key = key;
                 if (!string.IsNullOrEmpty(runtime.ScopeId)) textPanel.AddScope(runtime.ScopeId);
                 TransferAnimationState(previousTree, key, textPanel);
                 parent.AddChild(textPanel);
@@ -403,7 +407,7 @@ internal static class HtmlPanelParser
         foreach (Match match in FragmentMarkerRegex.Matches(content))
         {
             if (match.Index > position)
-                AddSpliceText(parent, content[position..match.Index], runtime, ref insertIndex);
+                AddSpliceText(parent, content[position..match.Index], runtime, $"{parentKey}/{insertIndex}", ref insertIndex);
             var fragmentName = match.Groups[1].Success ? match.Groups[1].Value : "ChildContent";
             var panels = runtime.GetFragmentPanels(fragmentName);
             if (panels is not null)
@@ -426,7 +430,7 @@ internal static class HtmlPanelParser
         }
 
         if (position < content.Length)
-            AddSpliceText(parent, content[position..], runtime, ref insertIndex);
+            AddSpliceText(parent, content[position..], runtime, $"{parentKey}/{insertIndex}", ref insertIndex);
     }
 
     /// <summary>Applies one attribute value to a panel (used by @attributes splatting).</summary>
@@ -474,10 +478,11 @@ internal static class HtmlPanelParser
         return name.StartsWith("this.", StringComparison.Ordinal) ? name[5..] : name;
     }
 
-    private static void AddSpliceText(Panel parent, string text, RazorPanel runtime, ref int insertIndex)
+    private static void AddSpliceText(Panel parent, string text, RazorPanel runtime, string key, ref int insertIndex)
     {
         if (string.IsNullOrWhiteSpace(text)) return;
         var textPanel = new Panel { TagName = "text", Text = text };
+        textPanel.Key = key;
         if (!string.IsNullOrEmpty(runtime.ScopeId)) textPanel.AddScope(runtime.ScopeId);
         parent.AddChild(textPanel);
         insertIndex++;

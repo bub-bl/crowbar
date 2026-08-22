@@ -28,19 +28,8 @@ public static class EditorContentState
         Reveal,
         CreateFolder,
         CreateFile,
-        Refresh,
-        // Runs a type-declared context action ([AssetAction]): the action id
-        // travels in the request's Value, the host executes its handler.
-        Command
+        Refresh
     }
-
-    /// <summary>
-    /// One item of a file's context menu, declared on the file's registered
-    /// resource type (an [AssetAction] static method) and published by the
-    /// host with the snapshot. The id is the key the host's action registry
-    /// executes on click.
-    /// </summary>
-    public readonly record struct ContextAction(string Id, string Label, bool IsDanger = false);
 
     public readonly record struct ActionRequest(ActionKind Kind, string Path, string Value = "");
 
@@ -48,17 +37,11 @@ public static class EditorContentState
     /// An open context menu. <see cref="IsEmpty"/> is true for the menu opened
     /// by a right-click on the content panel's empty area: <see cref="Path"/>
     /// then carries the folder being browsed (the target of its new-item
-    /// actions), not an item the menu acts on. The menu's type-specific
-    /// actions are looked up by path through <see cref="ActionsFor"/>.
+    /// actions), not an item the menu acts on.
     /// </summary>
     public readonly record struct ContextMenuState(string Path, bool IsFolder, float X, float Y, bool IsEmpty = false);
 
     private static IReadOnlyList<Entry> _entries = [];
-    private static readonly IReadOnlyDictionary<string, IReadOnlyList<ContextAction>> EmptyActions =
-        new Dictionary<string, IReadOnlyList<ContextAction>>(StringComparer.Ordinal);
-    // Per-file type-declared context actions, keyed by the file's logical
-    // content path and published with the snapshot (see ActionsFor).
-    private static IReadOnlyDictionary<string, IReadOnlyList<ContextAction>> _actions = EmptyActions;
     private static string _currentFolder = string.Empty;
     private static readonly List<string> _history = [string.Empty];
     private static int _historyIndex;
@@ -136,20 +119,11 @@ public static class EditorContentState
     /// actually changed (the host republishes on every content change, so a
     /// no-op must not force a panel rebuild).
     /// </summary>
-    public static void Publish(IReadOnlyList<Entry> entries, IReadOnlyDictionary<string, IReadOnlyList<ContextAction>>? actions = null)
+    public static void Publish(IReadOnlyList<Entry> entries)
     {
-        actions ??= EmptyActions;
-        if (entries.SequenceEqual(_entries) && actions.SequenceEqual(_actions)) return;
+        if (entries.SequenceEqual(_entries)) return;
         _entries = entries;
-        _actions = actions;
         BumpVersion();
-    }
-
-    /// <summary>Type-declared context actions for the file at <paramref name="path"/>, as published with the snapshot.</summary>
-    public static IReadOnlyList<ContextAction> ActionsFor(string path)
-    {
-        path = (path ?? string.Empty).Trim('/');
-        return _actions.TryGetValue(path, out var actions) ? actions : [];
     }
 
     /// <summary>
@@ -206,6 +180,15 @@ public static class EditorContentState
     {
         var next = Math.Clamp(_tileScale + delta, 0, 2);
         if (next == _tileScale) return;
+        _tileScale = next;
+        BumpVersion();
+    }
+
+    /// <summary>Sets the tile scale directly (0 compact, 1 medium, 2 large), clamped to the valid range.</summary>
+    public static void SetTileScale(int scale)
+    {
+        var next = Math.Clamp(scale, 0, 2);
+        if (_tileScale == next) return;
         _tileScale = next;
         BumpVersion();
     }
@@ -370,7 +353,6 @@ public static class EditorContentState
         _sidebarWidth = 160;
         _contextMenu = null;
         _pendingAction = null;
-        _actions = EmptyActions;
         Publish([]);
         BumpVersion();
     }

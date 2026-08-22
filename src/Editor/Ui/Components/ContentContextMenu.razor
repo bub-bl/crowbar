@@ -57,16 +57,6 @@
             }
             else
             {
-                @* Options declared on the file's registered resource type
-                   (an [AssetAction] static method, e.g. Reimport) come first,
-                   then the actions every file offers. The item carries its
-                   action id as a data attribute: the runtime event invoker
-                   cannot pass captured locals from a Razor lambda. *@
-                @foreach (var action in EditorContentState.ActionsFor(menu.Path))
-                {
-                    <div class="context-menu-item @(action.IsDanger ? "context-menu-danger" : "")"
-                         data-action-id="@action.Id" @onclick="RunContextAction">@action.Label</div>
-                }
                 <div class="context-menu-item" @onclick="OpenContextFile">Open</div>
                 <div class="context-menu-item" @onclick="BeginRename">Rename</div>
                 <div class="context-menu-item" @onclick="BeginDelete">Delete</div>
@@ -242,28 +232,6 @@
     {
         if (EditorContentState.ContextMenu is { } menu)
             EditorContentState.RequestAction(EditorContentState.ActionKind.Reveal, menu.Path);
-    }
-
-    /// <summary>
-    /// Runs a type-declared action: the clicked item's id is read back from
-    /// its data attribute by hit-testing the press position (the runtime event
-    /// invoker cannot pass captured locals from a Razor lambda), like the dock
-    /// tabs resolve their item id. The host looks the id up in the asset
-    /// action registry and executes the handler.
-    /// </summary>
-    private void RunContextAction(UiPointerEvent e)
-    {
-        var hit = this.HitTest(e.X, e.Y);
-        for (var current = hit; current is not null; current = current.Parent)
-        {
-            if (current.Classes.Contains("context-menu-item") &&
-                current.Attributes.TryGetValue("data-action-id", out var id) && id.Length > 0)
-            {
-                if (EditorContentState.ContextMenu is { IsFolder: false } menu)
-                    EditorContentState.RequestAction(EditorContentState.ActionKind.Command, menu.Path, id);
-                return;
-            }
-        }
     }
 
     private void BeginRename()

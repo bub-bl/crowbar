@@ -17,7 +17,7 @@ public class AssetActionsTests
     private static class DeclaredActions
     {
         /// <summary>Filtered by explicit extensions; reports through the context's notification callback.</summary>
-        [AssetAction("convert", "Convert to Splat", Extensions = new[] { "png", "jpg" })]
+        [AssetAction("convert", "Convert to Splat", Extensions = ["png", "jpg"])]
         public static void Convert(AssetActionContext ctx)
         {
             Invocations.Add($"convert:{ctx.Path}");

@@ -1,11 +1,13 @@
 using Crowbar.Engine.InputSystem;
+using Crowbar.UI;
 
 namespace Crowbar.Editor;
 
 /// <summary>
 /// The editor's global keyboard shortcuts: Ctrl+S saves the level, Ctrl+Z
 /// undoes, Ctrl+Shift+Z (and Ctrl+Y) redo, Ctrl+Shift+N toggles the notification
-/// window. Owned by the <see cref="Editor"/> instance. Registered once at
+/// window, and Delete removes the file or folder selected in the Content drawer.
+/// Owned by the <see cref="Editor"/> instance. Registered once at
 /// startup and fired by <see cref="Update"/> (called each frame after the input
 /// poll, so the press edges are fresh). Shortcuts never fire while a text field
 /// owns the keyboard — the UI consumes it then, so a field's own editing is
@@ -35,6 +37,9 @@ public sealed class Shortcuts
 
         ShortcutManager.Instance.Register(new KeyChord(Key.S, KeyModifiers.Control), _editor.SaveLevel);
         ShortcutManager.Instance.Register(new KeyChord(input.KeyForChar('n'), KeyModifiers.Control | KeyModifiers.Shift), _notificationWindow.Toggle);
+        // The physical Delete key (Fn+N on laptops without a dedicated key):
+        // deletes whatever the Content drawer currently has selected.
+        ShortcutManager.Instance.Register(new KeyChord(Key.Delete), DeleteSelectedContent);
         ShortcutManager.Instance.Register(new KeyChord(undoKey, KeyModifiers.Control), _editor.Level.Undo);
         ShortcutManager.Instance.Register(new KeyChord(undoKey, KeyModifiers.Control | KeyModifiers.Shift), _editor.Level.Redo);
         ShortcutManager.Instance.Register(new KeyChord(redoKey, KeyModifiers.Control), _editor.Level.Redo);
@@ -42,4 +47,18 @@ public sealed class Shortcuts
 
     /// <summary>Fires the shortcuts whose chord was pressed this frame.</summary>
     public void Update() => ShortcutManager.Instance.Update();
+
+    /// <summary>
+    /// Deletes the file or folder selected in the Content drawer (Delete / Fn+N
+    /// on compact keyboards). The request runs through the same host path as
+    /// the context menu's Delete action, which shows a notification on success;
+    /// nothing happens without a selection. Deleting is intentionally direct
+    /// (no confirmation) — the context menu keeps its explicit confirm flow.
+    /// </summary>
+    private void DeleteSelectedContent()
+    {
+        if (EditorContentState.SelectedPath is not { Length: > 0 } path)
+            return;
+        EditorContentState.RequestAction(EditorContentState.ActionKind.Delete, path);
+    }
 }

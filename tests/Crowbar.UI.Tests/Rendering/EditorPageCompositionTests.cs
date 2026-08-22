@@ -633,17 +633,12 @@ public class EditorPageCompositionTests
     {
         using var ui = CreateEditorUi();
         // Deterministic root content: a model and a plain file, so the grid's
-        // top-right stays empty for the first (empty-area) menu. The model's
-        // entry carries its declared action, like the host publishes it.
+        // top-right stays empty for the first (empty-area) menu.
         EditorContentState.Publish(
         [
             new EditorContentState.Entry("Content/Crate.gltf", "Crate.gltf", "model"),
             new EditorContentState.Entry("Content/Demo.level", "Demo.level", "file")
-        ],
-        new Dictionary<string, IReadOnlyList<EditorContentState.ContextAction>>
-        {
-            ["Content/Crate.gltf"] = [new EditorContentState.ContextAction("reimport", "Reimport")]
-        });
+        ]);
         ui.Update();
         ui.Prepare();
         var content = ui.Content!;
@@ -665,7 +660,7 @@ public class EditorPageCompositionTests
 
         // Right-click on the model tile while the empty-area menu is open: the
         // overlay intercepts the press, but must open the tile's item menu
-        // (title + type-specific action) instead of keeping the empty menu.
+        // (title + item actions) instead of keeping the empty menu.
         content = ui.Content!;
         var tile = FindText(content, "asset-name", t => t == "Crate.gltf");
         Assert.NotNull(tile);
@@ -679,7 +674,6 @@ public class EditorPageCompositionTests
         var menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu"));
         Assert.NotNull(menu);
         Assert.NotNull(FindText(ui.Content!, "context-menu-title", t => t == "Crate.gltf"));
-        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Reimport"));
         Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Open"));
         Assert.Null(FindText(ui.Content!, "context-menu-item", t => t == "New Folder"));
     }
@@ -802,75 +796,6 @@ public class EditorPageCompositionTests
         textInput = (TextInput)input;
         Assert.True(textInput.HasSelection, "mouse drag must select text");
         Assert.True(textInput.SelectionStart < textInput.SelectionEnd);
-    }
-
-    [Fact]
-    public void ContentTileMenuShowsOptionsForTheAssetType()
-    {
-        using var ui = CreateEditorUi();
-        // Publish a model and a plain file at the content root so both tiles
-        // are visible: the model's entry carries its declared actions (as the
-        // host publishes them from the [AssetAction] declarations — Reimport,
-        // plus a destructive game action), the plain file has none.
-        EditorContentState.Publish(
-        [
-            new EditorContentState.Entry("Content/Crate.gltf", "Crate.gltf", "model"),
-            new EditorContentState.Entry("Content/Demo.level", "Demo.level", "file")
-        ],
-        new Dictionary<string, IReadOnlyList<EditorContentState.ContextAction>>
-        {
-            ["Content/Crate.gltf"] =
-            [
-                new EditorContentState.ContextAction("reimport", "Reimport"),
-                new EditorContentState.ContextAction("mygame.delete-source", "Delete Source", IsDanger: true)
-            ]
-        });
-        ui.Update();
-        ui.Prepare();
-        var content = ui.Content!;
-
-        var model = FindText(content, "asset-name", t => t == "Crate.gltf");
-        Assert.NotNull(model);
-        ui.ProcessPointerDown(model!.Layout.X + 2, model.Layout.Y + 2, button: 1);
-        ui.ProcessPointerUp(model.Layout.X + 2, model.Layout.Y + 2, button: 1);
-        ui.Update();
-        ui.Prepare();
-        ui.Update();
-        ui.Prepare();
-
-        var menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu"));
-        Assert.NotNull(menu);
-        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Reimport"));
-        // The declared danger flag renders the destructive styling.
-        var danger = FindText(ui.Content!, "context-menu-item", t => t == "Delete Source");
-        Assert.NotNull(danger);
-        Assert.True(danger!.Classes.Contains("context-menu-danger"));
-
-        // Choosing Reimport queues the type-declared action for the host: the
-        // request carries the action id, not a hard-coded kind.
-        ClickAt(ui, FindText(ui.Content!, "context-menu-item", t => t == "Reimport")!);
-        Assert.True(EditorContentState.TryConsumeAction(out var action));
-        Assert.Equal(EditorContentState.ActionKind.Command, action.Kind);
-        Assert.Equal("reimport", action.Value);
-        Assert.Equal("Content/Crate.gltf", action.Path);
-        Assert.Null(TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu")));
-
-        // A plain file gets the generic actions only: no declared actions.
-        ui.Update();
-        ui.Prepare();
-        content = ui.Content!;
-        var file = FindText(content, "asset-name", t => t == "Demo.level");
-        Assert.NotNull(file);
-        ui.ProcessPointerDown(file!.Layout.X + 2, file.Layout.Y + 2, button: 1);
-        ui.ProcessPointerUp(file.Layout.X + 2, file.Layout.Y + 2, button: 1);
-        ui.Update();
-        ui.Prepare();
-        ui.Update();
-        ui.Prepare();
-
-        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Open"));
-        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Rename"));
-        Assert.Null(FindText(ui.Content!, "context-menu-item", t => t == "Reimport"));
     }
 
     [Fact]
