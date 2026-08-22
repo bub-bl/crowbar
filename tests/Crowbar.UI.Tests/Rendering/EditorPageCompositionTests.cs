@@ -624,12 +624,17 @@ public class EditorPageCompositionTests
     {
         using var ui = CreateEditorUi();
         // Deterministic root content: a model and a plain file, so the grid's
-        // top-right stays empty for the first (empty-area) menu.
+        // top-right stays empty for the first (empty-area) menu. The model's
+        // entry carries its declared action, like the host publishes it.
         EditorContentState.Publish(
         [
             new EditorContentState.Entry("Content/Crate.gltf", "Crate.gltf", "model"),
             new EditorContentState.Entry("Content/Demo.level", "Demo.level", "file")
-        ]);
+        ],
+        new Dictionary<string, IReadOnlyList<EditorContentState.ContextAction>>
+        {
+            ["Content/Crate.gltf"] = [new EditorContentState.ContextAction("reimport", "Reimport")]
+        });
         ui.Update();
         ui.Prepare();
         var content = ui.Content!;
@@ -795,13 +800,22 @@ public class EditorPageCompositionTests
     {
         using var ui = CreateEditorUi();
         // Publish a model and a plain file at the content root so both tiles
-        // are visible: the model menu must offer a type-specific action
-        // (Reimport) that the plain file menu does not.
+        // are visible: the model's entry carries its declared actions (as the
+        // host publishes them from the [AssetAction] declarations — Reimport,
+        // plus a destructive game action), the plain file has none.
         EditorContentState.Publish(
         [
             new EditorContentState.Entry("Content/Crate.gltf", "Crate.gltf", "model"),
             new EditorContentState.Entry("Content/Demo.level", "Demo.level", "file")
-        ]);
+        ],
+        new Dictionary<string, IReadOnlyList<EditorContentState.ContextAction>>
+        {
+            ["Content/Crate.gltf"] =
+            [
+                new EditorContentState.ContextAction("reimport", "Reimport"),
+                new EditorContentState.ContextAction("mygame.delete-source", "Delete Source", IsDanger: true)
+            ]
+        });
         ui.Update();
         ui.Prepare();
         var content = ui.Content!;
@@ -818,15 +832,21 @@ public class EditorPageCompositionTests
         var menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu"));
         Assert.NotNull(menu);
         Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Reimport"));
+        // The declared danger flag renders the destructive styling.
+        var danger = FindText(ui.Content!, "context-menu-item", t => t == "Delete Source");
+        Assert.NotNull(danger);
+        Assert.True(danger!.Classes.Contains("context-menu-danger"));
 
-        // Choosing Reimport queues the type-specific action for the host.
+        // Choosing Reimport queues the type-declared action for the host: the
+        // request carries the action id, not a hard-coded kind.
         ClickAt(ui, FindText(ui.Content!, "context-menu-item", t => t == "Reimport")!);
         Assert.True(EditorContentState.TryConsumeAction(out var action));
-        Assert.Equal(EditorContentState.ActionKind.Reimport, action.Kind);
+        Assert.Equal(EditorContentState.ActionKind.Command, action.Kind);
+        Assert.Equal("reimport", action.Value);
         Assert.Equal("Content/Crate.gltf", action.Path);
         Assert.Null(TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu")));
 
-        // A plain file gets the generic actions only: no Reimport.
+        // A plain file gets the generic actions only: no declared actions.
         ui.Update();
         ui.Prepare();
         content = ui.Content!;

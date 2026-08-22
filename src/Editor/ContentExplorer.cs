@@ -4,6 +4,9 @@ using Crowbar.Engine;
 using Crowbar.Engine.Audio;
 using Crowbar.FileSystems;
 using Crowbar.UI;
+// Engine-internal (see Editor.cs): reached through InternalsVisibleTo, aliased
+// so the bare name does not collide with the GlobalNamespaces shorthand.
+using AssetActions = Crowbar.Engine.Global.AssetActions;
 
 namespace Crowbar.Editor;
 
@@ -94,15 +97,20 @@ public sealed class ContentExplorer : IDisposable
 
     public void Dispose() => _watcher?.Dispose();
 
+    /// <summary>Republishes the panel snapshot (used when the game project reloaded its declared actions).</summary>
+    public void Refresh() => Publish();
+
     /// <summary>
     /// Republishes the panel snapshot: every folder under <c>/Content</c>
     /// (including empty ones, so a brand-new folder is visible) and every file
     /// with its logical path and the thumbnail kind of its registered asset
-    /// type.
+    /// type, plus each file's type-declared context actions
+    /// (AssetActions.ForPath).
     /// </summary>
     private static void Publish()
     {
         var entries = new List<EditorContentState.Entry>();
+        var actions = new Dictionary<string, IReadOnlyList<EditorContentState.ContextAction>>(StringComparer.Ordinal);
         try
         {
             var contentRoot = FileSystem.Content.ToFilePath("/Content");
@@ -126,6 +134,14 @@ public sealed class ContentExplorer : IDisposable
                     Path.GetFileName(logical),
                     KindFor(logical),
                     FileSystem.Content.GetLastWriteTimeUtc(file)));
+
+                var fileActions = AssetActions.ForPath(logical);
+                if (fileActions.Count > 0)
+                {
+                    actions[logical] = fileActions
+                        .Select(action => new EditorContentState.ContextAction(action.Id, action.Label, action.IsDanger))
+                        .ToArray();
+                }
             }
         }
         catch (Exception ex)
@@ -135,7 +151,7 @@ public sealed class ContentExplorer : IDisposable
         }
 
         entries.Sort(static (a, b) => string.Compare(a.Path, b.Path, StringComparison.OrdinalIgnoreCase));
-        EditorContentState.Publish(entries);
+        EditorContentState.Publish(entries, actions);
     }
 
     /// <summary>
@@ -168,7 +184,7 @@ public sealed class ContentExplorer : IDisposable
     /// so the fresh geometry is uploaded next frame (the invalidate disposed
     /// the previous instance).
     /// </summary>
-    private static void ReloadSceneModels(HashSet<string> reloaded)
+    internal static void ReloadSceneModels(HashSet<string> reloaded)
     {
         var world = Game.World;
         if (world is null)
@@ -217,8 +233,8 @@ public sealed class ContentExplorer : IDisposable
                 case EditorContentState.ActionKind.Refresh:
                     Publish();
                     break;
-                case EditorContentState.ActionKind.Reimport:
-                    ReimportPath(contentPath);
+                case EditorContentState.ActionKind.Command:
+                    RunContextAction(contentPath, action.Value);
                     break;
                 case EditorContentState.ActionKind.Reveal:
                     RevealPath(contentPath);
@@ -369,24 +385,16 @@ public sealed class ContentExplorer : IDisposable
         Path.GetFileName(name) == name && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
 
     /// <summary>
-    /// Re-imports an asset: discards its cached resource so the next load
-    /// re-reads it, re-resolves every scene mesh renderer bound to a reloaded
-    /// model, and lets the caller republish the snapshot.
+    /// Runs a type-declared context action (an [AssetAction] id) on the file,
+    /// wiring the notifications callback into the handler's context. An id no
+    /// registered action provides (e.g. the declaring game assembly was
+    /// hot-reloaded away) is reported instead of silently dropped.
     /// </summary>
-    private static void ReimportPath(string path)
+    private static void RunContextAction(string path, string id)
     {
-        if (!FileSystem.Project.FileExists(path))
-        {
-            UiNotifications.Show("Content", $"File not found: {path}", "error");
+        if (AssetActions.Execute(id, path, (title, message, kind) => UiNotifications.Show(title, message, kind)))
             return;
-        }
-
-        var reloaded = new HashSet<string>(StringComparer.Ordinal);
-        if (ResourceLibrary.Invalidate(path))
-            reloaded.Add(path);
-        if (reloaded.Count > 0)
-            ReloadSceneModels(reloaded);
-        UiNotifications.Show("Content", $"Reimported {Path.GetFileName(path)}", "success");
+        UiNotifications.Show("Content", $"Unknown action: {id}", "error");
     }
 
     private static void RevealPath(string path)

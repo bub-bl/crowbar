@@ -2,6 +2,9 @@ using Crowbar.Engine.Audio;
 using Crowbar.Engine.Scripting;
 using Crowbar.FileSystems;
 using Crowbar.UI;
+// Engine-internal (see Editor.cs): reached through InternalsVisibleTo, aliased
+// so the bare name does not collide with the GlobalNamespaces shorthand.
+using AssetActions = Crowbar.Engine.Global.AssetActions;
 
 namespace Crowbar.Editor;
 
@@ -21,6 +24,13 @@ public sealed class GameProject
 {
     private readonly NotificationWindow _notificationWindow;
     private ScriptHost? _host;
+
+    /// <summary>
+    /// Raised whenever the game assembly's declared context actions change (a
+    /// project switch or a full hot reload), so the host can republish the
+    /// content snapshot's per-file actions.
+    /// </summary>
+    public event Action? ActionsChanged;
 
     public GameProject(NotificationWindow notificationWindow) => _notificationWindow = notificationWindow;
 
@@ -50,11 +60,14 @@ public sealed class GameProject
             {
                 TypeLibrary.Unregister(previous.Assembly);
                 ResourceLibrary.Unregister(previous.Assembly);
+                AssetActions.Unregister(previous.Assembly);
             }
             if (host.Current is { } current)
             {
                 TypeLibrary.Register(current.Assembly);
                 ResourceLibrary.Register(current.Assembly);
+                AssetActions.Register(current.Assembly);
+                ActionsChanged?.Invoke();
             }
             // The project's own code publishes editor status through
             // Editor.StatusBar; clear a previous project's entries so only the
@@ -125,6 +138,9 @@ public sealed class GameProject
             TypeLibrary.Register(e.Current.Assembly);
             ResourceLibrary.Unregister(e.Previous!.Assembly);
             ResourceLibrary.Register(e.Current.Assembly);
+            AssetActions.Unregister(e.Previous!.Assembly);
+            AssetActions.Register(e.Current.Assembly);
+            ActionsChanged?.Invoke();
         }
     }
 

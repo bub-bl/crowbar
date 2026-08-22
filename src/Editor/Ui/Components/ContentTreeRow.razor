@@ -62,7 +62,7 @@
     private bool OnPointerDown(UiPointerEvent e)
     {
         if (e.Button != 1) return false;
-        EditorContentState.OpenContextMenu(Folder, true, e.X, e.Y, "folder");
+        EditorContentState.OpenContextMenu(Folder, true, e.X, e.Y);
         return true;
     }
 

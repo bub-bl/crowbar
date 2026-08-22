@@ -5,6 +5,10 @@ using Crowbar.Engine.Platform;
 using Crowbar.Engine.Rendering;
 using Crowbar.FileSystems;
 using Crowbar.UI;
+// The action registry is engine-internal (game code only declares [AssetAction]
+// methods): the editor reaches it through InternalsVisibleTo. Aliased so the
+// bare name does not collide with the GlobalNamespaces shorthand members.
+using AssetActions = Crowbar.Engine.Global.AssetActions;
 
 namespace Crowbar.Editor;
 
@@ -67,8 +71,10 @@ public sealed class Editor : Application
     {
         // The editor may ship its own [AssetType] resource types: register its
         // assembly like the engine's. Currently a no-op, kept so future editor
-        // assets load through the same path.
+        // assets load through the same path. The same registration picks up the
+        // editor's own [AssetAction] context actions (ContentActions.Reimport).
         ResourceLibrary.Register(typeof(Editor).Assembly);
+        AssetActions.Register(typeof(Editor).Assembly);
 
         // The editor tools: wired here (the engine session is up), by
         // constructor — a dependency DAG, no locator. The shared Game API was
@@ -78,6 +84,10 @@ public sealed class Editor : Application
         NotificationWindow = new NotificationWindow(this);
         GameProject = new GameProject(NotificationWindow);
         ContentExplorer = new ContentExplorer();
+        // The content snapshot carries each file's declared actions: when the
+        // game project (re)loads and its [AssetAction] set changes, republish
+        // so the menu shows the fresh actions.
+        GameProject.ActionsChanged += ContentExplorer.Refresh;
         Viewport = new Viewport(this);
         InspectorBridge = new InspectorBridge(this);
         Shortcuts = new Shortcuts(this, NotificationWindow);

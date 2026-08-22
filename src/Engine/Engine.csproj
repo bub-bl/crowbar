@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Crowbar.UI.Tests" />
+    <InternalsVisibleTo Include="Crowbar.Editor" />
   </ItemGroup>
 
   <ItemGroup>
