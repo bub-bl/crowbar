@@ -6,7 +6,28 @@
 {
     <div class="content-context-layer" @onclick="CloseFromOutside">
         <div class="content-context-menu" style="@ContextMenuStyle(menu)" @onmousedown="ConsumeContextPointer" @onclick="ConsumeContextClick">
-        @if (_renamePath == menu.Path)
+        @if (menu.IsEmpty)
+        {
+            @if (_createKind is not null)
+            {
+                <div class="context-menu-title">New @CreateLabel</div>
+                <input class="context-rename-input" value="@_createValue" @oninput="OnCreateInput" @onkeydown="OnCreateKeyDown" />
+                <div class="context-menu-actions">
+                    <div class="context-menu-item" @onclick="ConfirmCreate">Save</div>
+                    <div class="context-menu-item" @onclick="CancelInlineAction">Cancel</div>
+                </div>
+            }
+            else
+            {
+                <div class="context-menu-title">@ContextName(menu)</div>
+                <div class="context-menu-item" @onclick="BeginCreateFolder">New Folder</div>
+                <div class="context-menu-item" @onclick="BeginCreateFile">New File</div>
+                <div class="context-menu-separator"></div>
+                <div class="context-menu-item" @onclick="ImportPlaceholder">Import...</div>
+                <div class="context-menu-item" @onclick="RefreshContent">Refresh</div>
+            }
+        }
+        else if (_renamePath == menu.Path)
         {
             <div class="context-menu-title">Rename</div>
             <input class="context-rename-input" value="@_renameValue" @oninput="OnRenameInput" @onkeydown="OnRenameKeyDown" />
@@ -52,9 +73,13 @@
     private string? _renamePath;
     private string _renameValue = string.Empty;
     private string? _deletePath;
+    // The empty-area menu's inline creation: "folder" or "file" while the
+    // name input is shown, null in the plain menu state.
+    private string? _createKind;
+    private string _createValue = string.Empty;
 
     protected override int BuildHash() => HashCode.Combine(
-        EditorContentState.Version, _renamePath, _renameValue, _deletePath);
+        EditorContentState.Version, _renamePath, _renameValue, _deletePath, _createKind, _createValue);
 
     private string ContextMenuStyle(EditorContentState.ContextMenuState menu)
     {
@@ -64,8 +89,11 @@
         return $"left: {x:0}px; top: {y:0}px;";
     }
 
-    private static string ContextName(EditorContentState.ContextMenuState menu) =>
-        menu.Path.Trim('/').Split('/').LastOrDefault() ?? "Content";
+    private static string ContextName(EditorContentState.ContextMenuState menu)
+    {
+        var path = menu.Path.Trim('/');
+        return path.Length == 0 ? "Content" : path.Split('/').Last();
+    }
 
     private bool ConsumeContextPointer(UiPointerEvent e) => true;
 
@@ -141,5 +169,56 @@
     {
         _renamePath = null;
         _deletePath = null;
+        _createKind = null;
+    }
+
+    private string CreateLabel => _createKind == "file" ? "File" : "Folder";
+
+    private void BeginCreateFolder()
+    {
+        if (EditorContentState.ContextMenu is not { } menu || !menu.IsEmpty) return;
+        _createKind = "folder";
+        _createValue = "New Folder";
+        _renamePath = null;
+        _deletePath = null;
+    }
+
+    private void BeginCreateFile()
+    {
+        if (EditorContentState.ContextMenu is not { } menu || !menu.IsEmpty) return;
+        _createKind = "file";
+        _createValue = "New File.txt";
+        _renamePath = null;
+        _deletePath = null;
+    }
+
+    private void OnCreateInput(string value) => _createValue = value;
+
+    private void OnCreateKeyDown(KeyEvent e)
+    {
+        if (!e.IsDown) return;
+        if (e.KeyCode == 13) ConfirmCreate();
+        else if (e.KeyCode == 27) CancelInlineAction();
+    }
+
+    private void ConfirmCreate()
+    {
+        if (EditorContentState.ContextMenu is { } menu && menu.IsEmpty)
+        {
+            var kind = _createKind == "file"
+                ? EditorContentState.ActionKind.CreateFile
+                : EditorContentState.ActionKind.CreateFolder;
+            EditorContentState.RequestAction(kind, menu.Path, _createValue);
+        }
+        _createKind = null;
+    }
+
+    private void ImportPlaceholder() =>
+        UiNotifications.Show("Content", "Import is not available yet.", "info");
+
+    private void RefreshContent()
+    {
+        if (EditorContentState.ContextMenu is { } menu && menu.IsEmpty)
+            EditorContentState.RequestAction(EditorContentState.ActionKind.Refresh, menu.Path);
     }
 }

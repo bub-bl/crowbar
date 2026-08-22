@@ -199,6 +199,12 @@ public sealed class ContentExplorer : IDisposable
                 case EditorContentState.ActionKind.CreateFolder:
                     CreateDirectory(contentPath, action.Value);
                     break;
+                case EditorContentState.ActionKind.CreateFile:
+                    CreateFile(contentPath, action.Value);
+                    break;
+                case EditorContentState.ActionKind.Refresh:
+                    Publish();
+                    break;
                 case EditorContentState.ActionKind.Reveal:
                     RevealPath(contentPath);
                     break;
@@ -277,6 +283,30 @@ public sealed class ContentExplorer : IDisposable
 
         FileSystem.Project.CreateDirectory(destination);
         UiNotifications.Show("Content", $"Created folder {name}", "success");
+    }
+
+    private static void CreateFile(string parentPath, string name)
+    {
+        name = name.Trim();
+        if (!IsValidName(name))
+        {
+            UiNotifications.Show("Content", "Enter a valid file name.", "error");
+            return;
+        }
+
+        // A bare name without an extension becomes a text file.
+        if (Path.GetExtension(name).Length == 0)
+            name += ".txt";
+
+        var destination = parentPath.TrimEnd('/') + "/" + name;
+        if (FileSystem.Project.FileExists(destination) || FileSystem.Project.DirectoryExists(destination))
+        {
+            UiNotifications.Show("Content", $"An item named {name} already exists.", "error");
+            return;
+        }
+
+        FileSystem.Project.WriteAllBytes(destination, []);
+        UiNotifications.Show("Content", $"Created file {name}", "success");
     }
 
     private static void RenameDirectory(string path, string newName)

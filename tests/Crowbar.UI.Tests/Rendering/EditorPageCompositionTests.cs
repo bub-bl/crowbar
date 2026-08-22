@@ -174,6 +174,19 @@ public class EditorPageCompositionTests
         ui.Prepare();
     }
 
+    /// <summary>
+    /// A point inside the content grid that no tile occupies (the grid's
+    /// top-right corner): tiles flow from the top-left, so the right edge
+    /// stays empty whatever folder is browsed. The sidebar is avoided because
+    /// its tree rows can fill the whole strip.
+    /// </summary>
+    private static (float X, float Y) ContentEmptyPoint(Panel content)
+    {
+        var grid = TestUi.Find(content, p => p.Classes.Contains("content-grid"));
+        Assert.NotNull(grid);
+        return (grid!.Layout.Right - 25, grid.Layout.Y + 25);
+    }
+
     [Fact]
     public void EditorPageComposesAllDockablePanels()
     {
@@ -411,6 +424,133 @@ public class EditorPageCompositionTests
         ui.Prepare();
 
         Assert.Null(TestUi.Find(ui.Content, p => p.Classes.Contains("content-context-menu")));
+    }
+
+    [Fact]
+    public void ContentEmptyAreaRightClickOpensNewItemMenu()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // Right-click an empty spot of the content body (the sidebar below
+        // the tree rows): the empty-area menu opens with the new-item actions.
+        var (x, y) = ContentEmptyPoint(content);
+        ui.ProcessPointerDown(x, y, button: 1);
+        ui.ProcessPointerUp(x, y, button: 1);
+        ui.Update();
+        ui.Prepare();
+
+        content = ui.Content!;
+        var menu = TestUi.Find(content, p => p.Classes.Contains("content-context-menu"));
+        Assert.NotNull(menu);
+        // The title is the browsed folder (the content root here), the actions
+        // create items inside it — no item actions (Open/Rename/...).
+        Assert.Contains("Content", TestUi.Texts(menu!));
+        Assert.NotNull(FindText(content, "context-menu-item", t => t == "New Folder"));
+        Assert.NotNull(FindText(content, "context-menu-item", t => t == "New File"));
+        Assert.NotNull(FindText(content, "context-menu-item", t => t == "Import..."));
+        Assert.NotNull(FindText(content, "context-menu-item", t => t == "Refresh"));
+        Assert.Null(FindText(content, "context-menu-item", t => t == "Rename"));
+    }
+
+    [Fact]
+    public void ContentEmptyAreaMenuCreatesFolderWithInlineName()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // Browse into Models so the empty-area menu targets the browsed folder.
+        var models = FindText(content, "ctree-row", t => t == "Models");
+        Assert.NotNull(models);
+        ClickAt(ui, models!);
+        content = ui.Content!;
+
+        // Right-click an empty spot and pick "New Folder": the menu switches
+        // to an inline name input prefilled with the default.
+        var (x, y) = ContentEmptyPoint(content);
+        ui.ProcessPointerDown(x, y, button: 1);
+        ui.ProcessPointerUp(x, y, button: 1);
+        ui.Update();
+        ui.Prepare();
+
+        var newFolder = FindText(ui.Content!, "context-menu-item", t => t == "New Folder");
+        Assert.NotNull(newFolder);
+        ClickAt(ui, newFolder!);
+
+        var input = TestUi.Find(ui.Content!, p => p is TextInput && p.Classes.Contains("context-rename-input"));
+        Assert.NotNull(input);
+        Assert.Equal("New Folder", ((TextInput)input!).Value);
+
+        // Type a name and confirm: the create request is queued for the host
+        // and the menu closes.
+        ((TextInput)input).SetValue("MyFolder");
+        ui.Update();
+        ui.Prepare();
+        var save = FindText(ui.Content!, "context-menu-item", t => t == "Save");
+        Assert.NotNull(save);
+        ClickAt(ui, save!);
+
+        Assert.True(EditorContentState.TryConsumeAction(out var action));
+        Assert.Equal(EditorContentState.ActionKind.CreateFolder, action.Kind);
+        Assert.Equal("Models", action.Path);
+        Assert.Equal("MyFolder", action.Value);
+        Assert.Null(TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu")));
+    }
+
+    [Fact]
+    public void ContentEmptyAreaMenuCreatesFileWithDefaultName()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // Right-click an empty spot and pick "New File": the input is
+        // prefilled with a default name that is created untouched on Save.
+        var (x, y) = ContentEmptyPoint(content);
+        ui.ProcessPointerDown(x, y, button: 1);
+        ui.ProcessPointerUp(x, y, button: 1);
+        ui.Update();
+        ui.Prepare();
+
+        var newFile = FindText(ui.Content!, "context-menu-item", t => t == "New File");
+        Assert.NotNull(newFile);
+        ClickAt(ui, newFile!);
+
+        var input = TestUi.Find(ui.Content!, p => p is TextInput && p.Classes.Contains("context-rename-input"));
+        Assert.NotNull(input);
+        Assert.Equal("New File.txt", ((TextInput)input!).Value);
+
+        var save = FindText(ui.Content!, "context-menu-item", t => t == "Save");
+        Assert.NotNull(save);
+        ClickAt(ui, save!);
+
+        Assert.True(EditorContentState.TryConsumeAction(out var action));
+        Assert.Equal(EditorContentState.ActionKind.CreateFile, action.Kind);
+        Assert.Equal(string.Empty, action.Path);
+        Assert.Equal("New File.txt", action.Value);
+        Assert.Null(TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu")));
+    }
+
+    [Fact]
+    public void RightClickOnContentTileKeepsTheItemMenu()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        var asset = FindText(content, "asset-name", t => t == "Demo.level");
+        Assert.NotNull(asset);
+
+        // Right-clicking a tile opens the item menu (Open/Rename/Delete), not
+        // the empty-area menu, even though the press bubbles through the body.
+        ui.ProcessPointerDown(asset!.Layout.X + 2, asset.Layout.Y + 2, button: 1);
+        ui.ProcessPointerUp(asset.Layout.X + 2, asset.Layout.Y + 2, button: 1);
+        ui.Update();
+        ui.Prepare();
+
+        content = ui.Content!;
+        var menu = TestUi.Find(content, p => p.Classes.Contains("content-context-menu"));
+        Assert.NotNull(menu);
+        Assert.Contains("Demo.level", TestUi.Texts(menu!));
+        Assert.NotNull(FindText(content, "context-menu-item", t => t == "Rename"));
+        Assert.Null(FindText(content, "context-menu-item", t => t == "New Folder"));
     }
 
     [Fact]

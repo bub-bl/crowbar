@@ -74,6 +74,12 @@ root {
     line-height: 14px;
 }
 
+.context-menu-separator {
+    height: 1px;
+    margin: 4px 2px;
+    background-color: $border;
+}
+
 .context-menu-actions {
     flex-direction: row;
     gap: 5px;

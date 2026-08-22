@@ -26,12 +26,20 @@ public static class EditorContentState
         Rename,
         Delete,
         Reveal,
-        CreateFolder
+        CreateFolder,
+        CreateFile,
+        Refresh
     }
 
     public readonly record struct ActionRequest(ActionKind Kind, string Path, string Value = "");
 
-    public readonly record struct ContextMenuState(string Path, bool IsFolder, float X, float Y);
+    /// <summary>
+    /// An open context menu. <see cref="IsEmpty"/> is true for the menu opened
+    /// by a right-click on the content panel's empty area: <see cref="Path"/>
+    /// then carries the folder being browsed (the target of its new-item
+    /// actions), not an item the menu acts on.
+    /// </summary>
+    public readonly record struct ContextMenuState(string Path, bool IsFolder, float X, float Y, bool IsEmpty = false);
 
     private static IReadOnlyList<Entry> _entries = [];
     private static string _currentFolder = string.Empty;
@@ -225,6 +233,17 @@ public static class EditorContentState
     public static void OpenContextMenu(string path, bool isFolder, float x, float y)
     {
         _contextMenu = new ContextMenuState(path, isFolder, x, y);
+        BumpVersion();
+    }
+
+    /// <summary>
+    /// Opens the empty-area context menu for <paramref name="folder"/> (the
+    /// folder being browsed, "" for the content root): its actions create new
+    /// items inside that folder.
+    /// </summary>
+    public static void OpenEmptyContextMenu(string folder, float x, float y)
+    {
+        _contextMenu = new ContextMenuState((folder ?? string.Empty).Trim('/'), true, x, y, IsEmpty: true);
         BumpVersion();
     }
 

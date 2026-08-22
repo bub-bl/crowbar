@@ -49,7 +49,7 @@
    list (EditorContentState) on startup, project switch and content changes.
    Browsing is hierarchical — folders and files of the current folder, with
    the breadcrumb and the sidebar folder tree for navigation. *@
-<div class="content-body" @onmousemove="OnBodyPointerMove" @onmouseup="OnBodyPointerUp">
+<div class="content-body" @onmousemove="OnBodyPointerMove" @onmouseup="OnBodyPointerUp" @onmousedown="OnBodyPointerDown">
     <div class="content-sidebar" style="width: @(EditorContentState.SidebarWidth)px">
         <div class="sidebar-toolbar">
             <div class="sidebar-action" @onclick="ExpandAll">Expand all</div>
@@ -466,6 +466,32 @@
     {
         if (!_resizingSidebar) return false;
         _resizingSidebar = false;
+        return true;
+    }
+
+    /// <summary>
+    /// Right-click on the panel's empty area (the grid below the tiles or the
+    /// sidebar below the tree) opens the empty-area context menu, which offers
+    /// creating a folder or a file inside the folder being browsed. A right
+    /// click on a tile or tree row opened its item menu in this same dispatch
+    /// (pointer-down handlers bubble through every ancestor): its menu sits
+    /// exactly at the press position, so a matching item menu is left alone
+    /// instead of being replaced by the empty-area menu. Returning true when a
+    /// menu opens chains StateHasChanged up to the editor root, so the
+    /// root-mounted ContentContextMenu is rebuilt (the descendant-only render
+    /// path would rebuild just this panel and never mount the menu).
+    /// </summary>
+    private bool OnBodyPointerDown(UiPointerEvent e)
+    {
+        if (e.Button != 1) return false;
+        // A menu opened by a tile or tree-row handler in this same dispatch
+        // binds through the pattern below; an item menu sits exactly at the
+        // press position, so a matching one is left alone instead of being
+        // replaced by the empty-area menu.
+        if (EditorContentState.ContextMenu is { IsEmpty: false } item &&
+            Math.Abs(item.X - e.X) < 1f && Math.Abs(item.Y - e.Y) < 1f)
+            return false;
+        EditorContentState.OpenEmptyContextMenu(EditorContentState.CurrentFolder, e.X, e.Y);
         return true;
     }
 
