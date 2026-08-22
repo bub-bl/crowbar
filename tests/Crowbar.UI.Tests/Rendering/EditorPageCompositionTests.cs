@@ -192,7 +192,6 @@ public class EditorPageCompositionTests
     {
         using var ui = CreateEditorUi();
         var content = ui.Content!;
-
         Assert.NotNull(FindText(content, "logo", t => t == "Crowbar"));
         // Every dockable panel is composed through the DockArea: its tab bar
         // shows the titles the panels used to carry as headers.
@@ -528,6 +527,43 @@ public class EditorPageCompositionTests
         Assert.Equal(string.Empty, action.Path);
         Assert.Equal("New File.txt", action.Value);
         Assert.Null(TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu")));
+    }
+
+    [Fact]
+    public void ContentContextMenuStaysWithinTheWindowOnFirstRightClick()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+
+        // Right-click an empty spot near the bottom of the content grid: the
+        // first open must clamp the menu fully inside the window, exactly like
+        // subsequent opens (the first render used to fall back to a hard-coded
+        // 1920x1080 viewport, letting the menu overflow a smaller window).
+        var grid = TestUi.Find(content, p => p.Classes.Contains("content-grid"));
+        Assert.NotNull(grid);
+        var x = grid!.Layout.Right - 15;
+        var y = grid.Layout.Bottom - 12;
+        ui.ProcessPointerDown(x, y, button: 1);
+        ui.ProcessPointerUp(x, y, button: 1);
+        // The first frame mounts the menu while the root rebuild is still in
+        // progress, before it has a laid-out parent: it renders hidden at the
+        // press position and schedules a follow-up render. The second frame
+        // clamps it into the window — assert on that frame, like a real user
+        // sees the menu.
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+
+        var menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("content-context-menu"));
+        Assert.NotNull(menu);
+        var viewport = ui.Screen.Layout;
+        Assert.True(menu!.Layout.X >= 4, $"menu left {menu.Layout.X} must be >= 4");
+        Assert.True(menu.Layout.Y >= 4, $"menu top {menu.Layout.Y} must be >= 4");
+        Assert.True(menu.Layout.Right <= viewport.Width - 4,
+            $"menu right {menu.Layout.Right} must fit width {viewport.Width}");
+        Assert.True(menu.Layout.Bottom <= viewport.Height - 4,
+            $"menu bottom {menu.Layout.Bottom} must fit height {viewport.Height}");
     }
 
     [Fact]

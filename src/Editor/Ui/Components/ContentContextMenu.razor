@@ -81,12 +81,50 @@
     protected override int BuildHash() => HashCode.Combine(
         EditorContentState.Version, _renamePath, _renameValue, _deletePath, _createKind, _createValue);
 
+    // The first open builds this component while the editor root is still
+    // being rebuilt, before the component is attached to a laid-out parent, so
+    // the position cannot be clamped to the real window in that first build.
+    // _repositionRequested hides that one frame at the press position;
+    // _repositionPending asks for the follow-up render (see OnTreeBuilt) whose
+    // build has the parent geometry and clamps the menu into view.
+    private bool _repositionRequested;
+    private bool _repositionPending;
+
     private string ContextMenuStyle(EditorContentState.ContextMenuState menu)
     {
-        var viewport = Parent?.Layout ?? new UiRect(0, 0, 1920, 1080);
-        var x = Math.Clamp(menu.X - viewport.X - 8, 4, Math.Max(4, viewport.Width - MenuWidth - 4));
-        var y = Math.Clamp(menu.Y - viewport.Y - 34, 4, Math.Max(4, viewport.Height - MenuHeight - 4));
+        var viewport = Parent?.Layout;
+        if (viewport is not { Width: > 0, Height: > 0 })
+        {
+            // No geometry yet (first build): render hidden at the press
+            // position and schedule one more render. If that render still
+            // finds no geometry, fall back to a visible menu at the press
+            // position instead of the old hard-coded 1920x1080 clamp, which
+            // let the menu overflow smaller windows.
+            if (!_repositionRequested)
+            {
+                _repositionRequested = true;
+                _repositionPending = true;
+                return $"left: {menu.X - 8:0}px; top: {menu.Y - 34:0}px; opacity: 0;";
+            }
+            return $"left: {menu.X - 8:0}px; top: {menu.Y - 34:0}px;";
+        }
+        _repositionRequested = false;
+        var x = Math.Clamp(menu.X - viewport.Value.X - 8, 4, Math.Max(4, viewport.Value.Width - MenuWidth - 4));
+        var y = Math.Clamp(menu.Y - viewport.Value.Y - 34, 4, Math.Max(4, viewport.Value.Height - MenuHeight - 4));
         return $"left: {x:0}px; top: {y:0}px;";
+    }
+
+    protected override void OnTreeBuilt()
+    {
+        // StateHasChanged called during the build would be undone by MarkBuilt
+        // (it records the hash and clears StateDirty afterwards), so the
+        // follow-up render that re-clamps the first open is requested here,
+        // after the build completed.
+        if (_repositionPending)
+        {
+            _repositionPending = false;
+            StateHasChanged();
+        }
     }
 
     private static string ContextName(EditorContentState.ContextMenuState menu)
