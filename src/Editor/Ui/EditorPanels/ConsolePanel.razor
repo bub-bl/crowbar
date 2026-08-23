@@ -26,7 +26,7 @@
 <div @ref="_entriesRef" class="console-entries">
     @foreach (var entry in VisibleEntries)
     {
-        <ConsoleLine Message="@entry.Message" Level="@entry.Level.ToString()" Timestamp="@entry.Timestamp.ToString("HH:mm:ss")" StackTrace="@entry.StackTrace" Details="@JoinDetails(entry.Details)" />
+        <ConsoleLine Message="@entry.Message" Level="@entry.Level.ToString()" Timestamp="@entry.Timestamp.ToString("HH:mm:ss")" StackTrace="@EncodeLines(entry.StackTrace)" Details="@JoinDetails(entry.Details)" />
     }
 </div>
 
@@ -91,9 +91,22 @@
         StateHasChanged();
     }
 
-    /// <summary>Serializes a log entry's sub-lines to a newline-separated string for the console line.</summary>
+    /// <summary>
+    /// Separator used to carry multi-line text through Razor parameters.
+    /// Plain newlines cannot be used: parameters travel through HTML
+    /// attributes, and XML attribute value normalization turns them into
+    /// spaces. U+2028 (LINE SEPARATOR) is valid XML, not whitespace, so it
+    /// survives parsing untouched; <see cref="ConsoleLine"/> splits on it.
+    /// </summary>
+    private const char LineSeparator = '\u2028';
+
+    /// <summary>Serializes a log entry's sub-lines to a separated string for the console line.</summary>
     private static string JoinDetails(IReadOnlyList<string>? details) =>
-        details is null || details.Count == 0 ? string.Empty : string.Join("\n", details);
+        details is null || details.Count == 0 ? string.Empty : string.Join(LineSeparator, details);
+
+    /// <summary>Encodes multi-line text (e.g. a stack trace) for a Razor parameter; see <see cref="LineSeparator"/>.</summary>
+    private static string EncodeLines(string? text) =>
+        string.IsNullOrEmpty(text) ? string.Empty : text.Replace("\r\n", "\n").Replace('\r', '\n').Replace('\n', LineSeparator);
 
     private void AppendEntry(G.LogEntry entry)
     {
