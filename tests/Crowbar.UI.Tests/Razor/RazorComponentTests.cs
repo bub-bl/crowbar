@@ -36,6 +36,35 @@ public class RazorComponentTests
     }
 
     [Fact]
+    public void NestedComponentClickRerendersItsDropdownState()
+    {
+        using var ui = TestUi.Create();
+        ui.RegisterRazorComponent("Dropdown", """
+            <div class="dropdown">
+                <div class="trigger" @onclick="Toggle">@(_open ? "Current" : "Closed")</div>
+                @if (_open)
+                {
+                    <div class="options"><span>First</span><span>Second</span></div>
+                }
+            </div>
+            @code { private bool _open; private void Toggle() { _open = !_open; } }
+            """, "Dropdown");
+        ui.LoadRazor("<div><Dropdown /></div>", "DropdownHost");
+        ui.Prepare();
+
+        Assert.DoesNotContain("First", TestUi.Texts(ui.Screen));
+        var trigger = TestUi.Find(ui.Screen, panel => panel.Classes.Contains("trigger"));
+        Assert.NotNull(trigger);
+        ui.ProcessPointerDown(trigger!.Layout.X + 1, trigger.Layout.Y + 1);
+        ui.ProcessPointerUp(trigger.Layout.X + 1, trigger.Layout.Y + 1);
+        ui.Update();
+        ui.Prepare();
+
+        Assert.Contains("First", TestUi.Texts(ui.Screen));
+        Assert.Contains("Second", TestUi.Texts(ui.Screen));
+    }
+
+    [Fact]
     public void ReactiveRenderingEventsAndBindings()
     {
         using var ui = TestUi.Create();

@@ -32,7 +32,10 @@ public sealed class PropertyEditor : RazorPanel
         var propertyType = ResolveType(TypeName);
         var tag = propertyType?.IsEnum == true ? "EnumEditor" : PropertyEditorRegistry.ResolveTag(TypeName);
         var typeAttribute = propertyType?.IsEnum == true ? $" TypeName=\"{Attr(TypeName)}\"" : string.Empty;
-        WriteLiteral($"<{tag} Name=\"{Attr(Name)}\" Value=\"{Attr(Value)}\" Key=\"{Attr(Key)}\" Indent=\"{Indent}\"{typeAttribute} />");
+        var optionsAttribute = propertyType?.IsEnum == true
+            ? $" Options=\"{Attr(string.Join('|', Enum.GetNames(propertyType)))}\""
+            : string.Empty;
+        WriteLiteral($"<{tag} Name=\"{Attr(Name)}\" Value=\"{Attr(Value)}\" Key=\"{Attr(Key)}\" Indent=\"{Indent}\"{typeAttribute}{optionsAttribute} />");
         return Task.CompletedTask;
     }
 
@@ -44,6 +47,6 @@ public sealed class PropertyEditor : RazorPanel
     private static Type? ResolveType(string name) =>
         Type.GetType(name, false, false) ??
         AppDomain.CurrentDomain.GetAssemblies()
-            .Select(assembly => assembly.GetType(name, false, false))
+            .Select(assembly => assembly.GetType(name.Split(',', 2)[0].Trim(), false, false))
             .FirstOrDefault(type => type is not null);
 }

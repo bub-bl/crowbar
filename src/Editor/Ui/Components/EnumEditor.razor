@@ -6,14 +6,14 @@
 <div class="prop-row" style="padding-left: @(Indent * 12)px">
     <div class="field-label">@Name</div>
     <div class="enum-input">
-        <div class="enum-select @(IsOpen ? "enum-select-open" : string.Empty)" @onclick="Toggle">
+        <div class="enum-select @(IsOpen ? "enum-select-open" : string.Empty)" @onmousedown="Toggle">
             <span class="enum-select-value">@(string.IsNullOrEmpty(Value) ? "None" : Value)</span>
             <span class="enum-select-arrow">@(IsOpen ? "▲" : "▼")</span>
         </div>
         @if (IsOpen)
         {
             <div class="enum-options">
-                @foreach (var option in Options)
+                @foreach (var option in OptionNames)
                 {
                     <EnumOption Value="@option" OnSelected="Select"
                                 Active="@string.Equals(Value, option, StringComparison.OrdinalIgnoreCase)" />
@@ -27,20 +27,27 @@
     [Parameter]
     public string TypeName { get; set; } = string.Empty;
 
-    private bool IsOpen { get; set; }
+    [Parameter]
+    public string Options { get; set; } = string.Empty;
 
-    private IReadOnlyList<string> Options => ResolveType(TypeName)?.IsEnum == true
-        ? Enum.GetNames(ResolveType(TypeName)!)
-        : [];
+    private bool IsOpen => EditorInspectorState.IsEnumOpen(Key);
 
-    protected override int BuildHash() => HashCode.Combine(Name, Value, Key, TypeName, Indent, IsOpen);
+    private IReadOnlyList<string> OptionNames => Options.Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-    private void Toggle() => IsOpen = !IsOpen;
+    protected override int BuildHash() => HashCode.Combine(Name, Value, Key, TypeName, Options, Indent, IsOpen,
+        EditorInspectorState.Version);
+
+    private void Toggle(UiPointerEvent _)
+    {
+        EditorInspectorState.ToggleEnum(Key);
+        StateHasChanged();
+    }
 
     private void Select(string value)
     {
-        IsOpen = false;
+        if (IsOpen) EditorInspectorState.ToggleEnum(Key);
         EditorInspectorState.RequestEdit(Key, value);
+        StateHasChanged();
     }
 
     private static Type? ResolveType(string name) =>

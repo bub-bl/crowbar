@@ -1144,6 +1144,34 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void EnumEditorOpensInsideInspectorPropertyEditor()
+    {
+        using var ui = CreateEditorUi();
+        EditorInspectorState.Publish("Environment",
+        [
+            new EditorInspectorState.Section("EnvironmentComponent", "EnvironmentComponent", null,
+            [
+                new EditorInspectorState.Property("Provider", typeof(Crowbar.Engine.SkyProviderKind).AssemblyQualifiedName!, "None",
+                    Key: "EnvironmentComponent.Provider")
+            ])
+        ]);
+        ui.Update();
+        ui.Prepare();
+
+        var select = TestUi.Find(ui.Content!, panel => panel.Classes.Contains("enum-select"));
+        Assert.NotNull(select);
+        Assert.DoesNotContain("Cubemap", TestUi.Texts(ui.Content!));
+        var hit = ui.ProcessPointerDown(select!.Layout.X + 2, select.Layout.Y + 2);
+        Assert.True(hit?.Classes.Contains("enum-select") == true);
+        Assert.True(EditorInspectorState.IsEnumOpen("EnvironmentComponent.Provider"));
+        ui.ProcessPointerUp(select.Layout.X + 2, select.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+        Assert.Contains("Cubemap", TestUi.Texts(ui.Content!));
+        Assert.Contains("ProceduralAtmosphere", TestUi.Texts(ui.Content!));
+    }
+
+    [Fact]
     public void ViewportToolbarIsHorizontallyCentered()
     {
         using var ui = CreateEditorUi();

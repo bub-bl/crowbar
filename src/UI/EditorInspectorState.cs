@@ -41,6 +41,7 @@ public static class EditorInspectorState
     private static int _version;
     private static IReadOnlyList<string> _availableComponentTypes = [];
     private static bool _addMenuOpen;
+    private static string? _openEnumKey;
 
     /// <summary>Name of the selected entity, or empty when nothing is selected.</summary>
     public static string EntityName => _entityName;
@@ -67,6 +68,16 @@ public static class EditorInspectorState
     /// menu items can close it through <see cref="CloseAddMenu"/> after a click.
     /// </summary>
     public static bool AddMenuOpen => _addMenuOpen;
+
+    public static bool IsEnumOpen(string key) =>
+        !string.IsNullOrEmpty(key) && string.Equals(_openEnumKey, key, StringComparison.Ordinal);
+
+    public static void ToggleEnum(string key)
+    {
+        if (string.IsNullOrEmpty(key)) return;
+        _openEnumKey = IsEnumOpen(key) ? null : key;
+        _version++;
+    }
 
     private static readonly HashSet<string> Collapsed = new(StringComparer.Ordinal);
     private static readonly Lock EditLock = new();
@@ -103,6 +114,7 @@ public static class EditorInspectorState
         _signature = string.Empty;
         _availableComponentTypes = [];
         _addMenuOpen = false;
+        _openEnumKey = null;
         _version++;
     }
 
