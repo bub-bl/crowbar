@@ -173,11 +173,15 @@
             return false;
         ClearSuggestions();
         var command = _commandText.Trim();
+        // Clear the input widget directly: typing never rebuilds the panel, so
+        // LastDeclaredValue is stale and ApplyTextInputState would restore the
+        // typed text instead of clearing it on the post-command rebuild.
+        _inputRef?.SetValue(string.Empty);
+        _commandText = string.Empty;
         if (command.Length > 0)
         {
             Log.Info($"> {command}");
             G.ConCmdRegistry.Execute(command);
-            _commandText = string.Empty;
         }
         return true;
     }
