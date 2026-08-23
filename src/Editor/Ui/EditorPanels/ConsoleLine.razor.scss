@@ -1,10 +1,8 @@
 @use '../_editor-theme' as *;
 
 // Each log row never collapses. Column layout: the main row on top,
-// optional stack trace row below. The expand state is toggled via the
-// console-line-expanded class added/removed imperatively (AddClass/
-// RemoveClass), avoiding the StateHasChanged cascade that would cause
-// the scrollable container to reset.
+// optional stack trace row below when expanded (controlled by @if in
+// the template).
 root {
     flex-shrink: 0;
     flex-direction: column;
@@ -20,10 +18,10 @@ root {
     }
 }
 
-// Single row: time, level label, message, expand icons.
+// Single row: time, level label, message, expand icon.
 .console-row {
     flex-direction: row;
-    align-items: baseline;
+    align-items: center;
     gap: 6px;
     flex-shrink: 0;
     min-height: 16px;
@@ -54,7 +52,6 @@ root {
     color: #e0554a;
 }
 
-// Error and warning messages inherit the severity colour.
 .console-error .console-message {
     color: #e0554a;
 }
@@ -65,25 +62,14 @@ root {
 
 .console-expand-icon {
     color: $text-muted;
-    font-size: 8px;
     flex-shrink: 0;
     width: 10px;
-    text-align: center;
-}
+    height: 10px;
 
-// Only one icon is visible: ▶ when collapsed, ▼ when expanded.
-.console-expand-collapsed {
-    display: flex;
-}
-
-.console-expand-expanded {
-    display: none;
-}
-
-.console-line-expanded {
-    .console-expand-collapsed { display: none; }
-    .console-expand-expanded { display: flex; }
-    .console-stack { display: flex; }
+    icon {
+        width: 8px;
+        height: 8px;
+    }
 }
 
 .console-message {
@@ -95,9 +81,7 @@ root {
     word-break: break-all;
 }
 
-// Hidden by default; console-line-expanded overrides to display: flex.
 .console-stack {
-    display: none;
     margin-top: 3px;
     margin-bottom: 2px;
     padding: 3px 7px;

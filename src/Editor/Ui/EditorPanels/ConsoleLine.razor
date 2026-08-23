@@ -3,18 +3,28 @@
 @using Crowbar.UI
 @using Microsoft.AspNetCore.Components
 
-@* One line in the console log. Expand/contract toggles a CSS class on the root
-   via AddClass/RemoveClass instead of relying on template re-evaluation, so the
-   parent StateHasChanged cascade (and scroll reset) is avoided. *@
-<div class="console-line @LevelClass">
+<div class="console-line @LevelClass" @onclick="ToggleExpand">
     <div class="console-row">
         <span class="console-time">@Timestamp</span>
         <span class="console-level">@LevelLabel</span>
         <span class="console-message">@Message</span>
-        <span class="console-expand-icon console-expand-collapsed">▶</span>
-        <span class="console-expand-icon console-expand-expanded">▼</span>
+        @if (_expanded)
+        {
+            <span class="console-expand-icon">
+                <icon name="Solar/arrows/Bold/alt-arrow-down" />
+            </span>
+        }
+        else
+        {
+            <span class="console-expand-icon">
+                <icon name="Solar/arrows/Bold/alt-arrow-right" />
+            </span>
+        }
     </div>
-    <div class="console-stack">@StackTrace</div>
+    @if (_expanded && StackTrace.Length > 0)
+    {
+        <div class="console-stack">@StackTrace</div>
+    }
 </div>
 
 @code {
@@ -32,7 +42,6 @@
     public string StackTrace { get; set; } = string.Empty;
 
     private bool _expanded;
-    private const string ExpandedClass = "console-line-expanded";
 
     private string LevelClass => Level switch
     {
@@ -47,22 +56,12 @@
         _ => Level
     };
 
-    /// <summary>
-    /// Toggles the expanded CSS class directly on the panel root. Returns
-    /// false so the Razor event invoker skips StateHasChanged — the CSS
-    /// class change via MarkStyleDirty is enough; a full parent re-render
-    /// would reset the entries container scroll position.
-    /// </summary>
     private bool ToggleExpand(UiPointerEvent e)
     {
         if (e.Button != 0)
             return false;
         _expanded = !_expanded;
-        if (_expanded)
-            AddClass(ExpandedClass);
-        else
-            RemoveClass(ExpandedClass);
-        return false;
+        return true;
     }
 
     protected override int BuildHash()

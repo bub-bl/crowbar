@@ -23,7 +23,7 @@
     <div class="console-btn" @onclick="ClearConsole" tooltip="Clear console">Clear</div>
 </div>
 
-<div class="console-entries">
+<div data-codex-ref="entriesContainer" class="console-entries">
     @foreach (var entry in VisibleEntries)
     {
         <ConsoleLine Message="@entry.Message" Level="@entry.Level.ToString()" Timestamp="@entry.Timestamp.ToString("HH:mm:ss")" StackTrace="@entry.StackTrace" />
@@ -41,18 +41,50 @@
     private bool _showWarn = true;
     private bool _showError = true;
     private string _commandText = string.Empty;
+    private bool _scrollToBottomPending;
+    private float _savedScrollY = -1;
     private const int MaxEntries = 1000;
+
+    private Panel? _entriesRef;
 
     protected override void OnInitialized()
     {
-        // Catch up on entries logged before the console was mounted.
         foreach (var entry in Log.Entries)
             AppendEntry(entry);
+        _scrollToBottomPending = true;
         Log.EntryAdded += OnEntryAdded;
+    }
+
+    protected override void OnTreeBuilt()
+    {
+        if (_entriesRef is not null)
+        {
+            if (_scrollToBottomPending)
+            {
+                _entriesRef.ScrollTo(0, _entriesRef.MaxScrollY);
+                _scrollToBottomPending = false;
+            }
+            else if (_savedScrollY >= 0)
+            {
+                _entriesRef.ScrollTo(0, _savedScrollY);
+                _savedScrollY = -1;
+            }
+        }
     }
 
     private void OnEntryAdded(G.LogEntry entry)
     {
+        // Save current scroll before the rebuild destroys the container.
+        _savedScrollY = _entriesRef?.ScrollY ?? -1;
+
+        // Auto-follow new entries only when the user is already at the bottom.
+        if (_entriesRef is not null &&
+            _entriesRef.MaxScrollY > 0 &&
+            _entriesRef.ScrollY >= _entriesRef.MaxScrollY - 20f)
+        {
+            _scrollToBottomPending = true;
+        }
+
         AppendEntry(entry);
         StateHasChanged();
     }
@@ -123,7 +155,6 @@
         var command = _commandText.Trim();
         if (command.Length > 0)
         {
-            // Echo the command to the log so the user sees what was typed.
             Log.Info($"> {command}");
             G.ConCmdRegistry.Execute(command);
             _commandText = string.Empty;
@@ -140,6 +171,5 @@
         hash.Add(_showError);
         hash.Add(_commandText);
         return hash.ToHashCode();
-    }
     }
 }
