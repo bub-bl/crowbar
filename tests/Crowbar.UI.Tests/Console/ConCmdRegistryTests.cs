@@ -15,14 +15,16 @@ public class ConCmdRegistryTests
     }
 
     [Fact]
-    public void Help_IsBuiltIn()
+    public void Help_ReturnsCommandListAsDetails()
     {
         var prevCount = LogInstance.Entries.Count;
-        Crowbar.Engine.Global.ConCmdRegistry.Execute("help");
-        var after = LogInstance.Entries;
-        var newEntries = after.Skip(prevCount).ToList();
-        Assert.Contains(newEntries, e => e.Message.Contains("help"));
-        Assert.Contains(newEntries, e => e.Message.Contains("test"));
+        // help does not log on its own: it returns the command list as
+        // sub-lines so the console attaches them to the echoed command line.
+        var details = Crowbar.Engine.Global.ConCmdRegistry.Execute("help");
+        Assert.Empty(LogInstance.Entries.Skip(prevCount));
+        Assert.NotNull(details);
+        Assert.Contains(details!, d => d.Contains("help"));
+        Assert.Contains(details!, d => d.Contains("test_simple"));
     }
 
     [Fact]

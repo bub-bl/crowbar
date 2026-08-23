@@ -26,7 +26,7 @@
 <div @ref="_entriesRef" class="console-entries">
     @foreach (var entry in VisibleEntries)
     {
-        <ConsoleLine Message="@entry.Message" Level="@entry.Level.ToString()" Timestamp="@entry.Timestamp.ToString("HH:mm:ss")" StackTrace="@entry.StackTrace" />
+        <ConsoleLine Message="@entry.Message" Level="@entry.Level.ToString()" Timestamp="@entry.Timestamp.ToString("HH:mm:ss")" StackTrace="@entry.StackTrace" Details="@JoinDetails(entry.Details)" />
     }
 </div>
 
@@ -90,6 +90,10 @@
         AppendEntry(entry);
         StateHasChanged();
     }
+
+    /// <summary>Serializes a log entry's sub-lines to a newline-separated string for the console line.</summary>
+    private static string JoinDetails(IReadOnlyList<string>? details) =>
+        details is null || details.Count == 0 ? string.Empty : string.Join("\n", details);
 
     private void AppendEntry(G.LogEntry entry)
     {
@@ -180,8 +184,14 @@
         _commandText = string.Empty;
         if (command.Length > 0)
         {
-            Log.Info($"> {command}");
-            G.ConCmdRegistry.Execute(command);
+            // The command line is echoed first so it appears above the
+            // command's output. A command that returns sub-lines (e.g. help's
+            // command list) has them attached to the echo entry instead of
+            // logging a separate entry.
+            var echo = Log.Info($"> {command}");
+            var details = G.ConCmdRegistry.Execute(command);
+            if (details is { Count: > 0 })
+                echo.Details = details;
         }
         return true;
     }
@@ -243,8 +253,10 @@
     {
         ClearSuggestions();
         _commandText = string.Empty;
-        Log.Info($"> {name}");
-        G.ConCmdRegistry.Execute(name);
+        var echo = Log.Info($"> {name}");
+        var details = G.ConCmdRegistry.Execute(name);
+        if (details is { Count: > 0 })
+            echo.Details = details;
         _inputRef?.SetValue(string.Empty);
     }
 

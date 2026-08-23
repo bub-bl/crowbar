@@ -21,12 +21,16 @@ public static class ConCmdRegistry
         Commands["help"] = new ConCmd("help", "Lists available console commands.", args =>
         {
             var all = Commands.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToArray();
-            GlobalNamespaces.Log.Info("Console commands:");
+            var lines = new List<string>(all.Length);
             foreach (var name in all)
             {
                 var desc = Commands[name].Description;
-                GlobalNamespaces.Log.Info(desc.Length > 0 ? $"  {name} — {desc}" : $"  {name}");
+                lines.Add(desc.Length > 0 ? $"{name} — {desc}" : name);
             }
+            // No logging here: the command list is returned as sub-lines so the
+            // console can attach them to the echoed command line entry, exactly
+            // like an error's stack trace.
+            return lines;
         });
     }
 
@@ -72,6 +76,7 @@ public static class ConCmdRegistry
                     {
                         GlobalNamespaces.Log.Error($"[ConCmd] '{attr.Name}': {ex.InnerException?.Message ?? ex.Message}");
                     }
+                    return null;
                 });
             }
 
@@ -121,6 +126,7 @@ public static class ConCmdRegistry
                     {
                         GlobalNamespaces.Log.Error($"[ConVar] '{attr.Name}': {ex.Message}");
                     }
+                    return null;
                 });
             }
         }
@@ -130,15 +136,18 @@ public static class ConCmdRegistry
     /// Tokenizes <paramref name="input"/> and dispatches to the first matching
     /// command. Unknown commands are logged as a warning. Input starting with
     /// whitespace, empty, or a comment (<c>//</c>) is silently ignored.
+    /// Returns sub-lines produced by the command (e.g. <c>help</c>'s command
+    /// list) for the caller to attach to its echoed command line, or
+    /// <see langword="null"/> when the command logged its own output.
     /// </summary>
-    public static void Execute(string input)
+    public static IReadOnlyList<string>? Execute(string input)
     {
         var trimmed = input.Trim();
         if (trimmed.Length == 0 || trimmed.StartsWith("//", StringComparison.Ordinal))
-            return;
+            return null;
 
         var parts = Tokenize(trimmed);
-        if (parts.Length == 0) return;
+        if (parts.Length == 0) return null;
 
         var name = parts[0];
         var args = parts.Length > 1 ? parts[1..] : [];
@@ -147,17 +156,17 @@ public static class ConCmdRegistry
         {
             try
             {
-                command.Execute(args);
+                return command.Execute(args);
             }
             catch (Exception ex)
             {
                 GlobalNamespaces.Log.Error($"Command '{name}' failed: {ex.Message}", ex);
+                return null;
             }
         }
-        else
-        {
-            GlobalNamespaces.Log.Warn($"Unknown command: '{name}'. Type 'help' for available commands.");
-        }
+
+        GlobalNamespaces.Log.Warn($"Unknown command: '{name}'. Type 'help' for available commands.");
+        return null;
     }
 
     /// <summary>
@@ -212,15 +221,19 @@ public sealed class ConCmd
     /// <summary>Short description shown by the <c>help</c> command.</summary>
     public string Description { get; }
 
-    private readonly Action<string[]> _execute;
+    private readonly Func<string[], IReadOnlyList<string>?> _execute;
 
-    internal ConCmd(string name, string description, Action<string[]> execute)
+    internal ConCmd(string name, string description, Func<string[], IReadOnlyList<string>?> execute)
     {
         Name = name;
         Description = description;
         _execute = execute;
     }
 
-    /// <summary>Invokes the command with the given arguments.</summary>
-    public void Execute(string[] args) => _execute(args);
+    /// <summary>
+    /// Invokes the command with the given arguments. Returns sub-lines for the
+    /// console to display under the echoed command line, or <see langword="null"/>
+    /// when the command logged its own output.
+    /// </summary>
+    public IReadOnlyList<string>? Execute(string[] args) => _execute(args);
 }

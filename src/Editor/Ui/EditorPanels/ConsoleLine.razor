@@ -8,19 +8,31 @@
         <span class="console-time">@Timestamp</span>
         <span class="console-level">@LevelLabel</span>
         <span class="console-message">@Message</span>
-        @if (_expanded)
+        @if (HasExpandable)
         {
-            <span class="console-expand-icon">
-                <icon name="Solar/arrows/Bold/alt-arrow-down" />
-            </span>
-        }
-        else
-        {
-            <span class="console-expand-icon">
-                <icon name="Solar/arrows/Bold/alt-arrow-right" />
-            </span>
+            @if (_expanded)
+            {
+                <span class="console-expand-icon">
+                    <icon name="Solar/arrows/Bold/alt-arrow-down" />
+                </span>
+            }
+            else
+            {
+                <span class="console-expand-icon">
+                    <icon name="Solar/arrows/Bold/alt-arrow-right" />
+                </span>
+            }
         }
     </div>
+    @if (_expanded && DetailsLines.Length > 0)
+    {
+        <div class="console-details">
+            @foreach (var line in DetailsLines)
+            {
+                <div class="console-detail-line">@line</div>
+            }
+        </div>
+    }
     @if (_expanded && StackTrace.Length > 0)
     {
         <div class="console-stack">@StackTrace</div>
@@ -38,10 +50,19 @@
     [Parameter]
     public string Timestamp { get; set; } = string.Empty;
 
+    /// <summary>Sub-lines (e.g. a command list) shown below the message when expanded, newline-separated.</summary>
+    [Parameter]
+    public string Details { get; set; } = string.Empty;
+
     [Parameter]
     public string StackTrace { get; set; } = string.Empty;
 
     private bool _expanded;
+
+    private bool HasExpandable => Details.Length > 0 || StackTrace.Length > 0;
+
+    /// <summary>Each sub-line rendered on its own row, so a command list stays one command per line.</summary>
+    private string[] DetailsLines => Details.Length == 0 ? [] : Details.Split('\n');
 
     private string LevelClass => Level switch
     {
@@ -60,6 +81,8 @@
     {
         if (e.Button != 0)
             return false;
+        if (!HasExpandable)
+            return false;
         _expanded = !_expanded;
         // Return false: the child ConsoleLine is rebuilt independently next
         // frame (BuildHash changed because _expanded is in it), but the parent
@@ -74,6 +97,7 @@
         hash.Add(Message);
         hash.Add(Level);
         hash.Add(Timestamp);
+        hash.Add(Details);
         hash.Add(StackTrace);
         hash.Add(_expanded);
         return hash.ToHashCode();

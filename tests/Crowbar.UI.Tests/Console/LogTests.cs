@@ -85,6 +85,21 @@ public class LogTests : IDisposable
     }
 
     [Fact]
+    public void Info_WithDetails_StoresSubLines()
+    {
+        LogEntry? captured = null;
+        _handler = entry => captured = entry;
+        _log.EntryAdded += _handler;
+
+        _log.Info("header", ["line one", "line two"]);
+
+        Assert.NotNull(captured);
+        Assert.Equal("header", captured!.Message);
+        Assert.NotNull(captured.Details);
+        Assert.Equal(["line one", "line two"], captured.Details);
+    }
+
+    [Fact]
     public void Entries_BuffersMessagesInOrder()
     {
         _log.Clear();

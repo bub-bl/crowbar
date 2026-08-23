@@ -85,6 +85,30 @@ root {
     word-break: break-all;
 }
 
+// Sub-lines (e.g. a command list) shown below the message when expanded.
+// Column layout: every sub-line is its own row, so a command list stays one
+// command per line regardless of text wrapping.
+.console-details {
+    flex-direction: column;
+    margin-top: 3px;
+    margin-bottom: 2px;
+    padding: 3px 7px;
+    background-color: $input-bg;
+    border-radius: 2px;
+    color: $text-muted;
+    font-size: 10px;
+    font-family: Consolas, "Courier New", monospace;
+    line-height: 14px;
+    flex-shrink: 0;
+}
+
+.console-detail-line {
+    flex-shrink: 0;
+    width: 100%;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
 .console-stack {
     margin-top: 3px;
     margin-bottom: 2px;

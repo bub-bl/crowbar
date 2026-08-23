@@ -11,8 +11,19 @@ public enum LogLevel
     Error
 }
 
-/// <summary>A single log entry captured by the <see cref="Log"/> API.</summary>
-public sealed record LogEntry(string Message, LogLevel Level, DateTime Timestamp, string? StackTrace = null, Exception? Exception = null);
+/// <summary>
+/// A single log entry captured by the <see cref="Log"/> API.
+/// <see cref="Details"/> holds sub-lines displayed below the message in the
+/// console (e.g. a command list), like an error's stack trace but for any
+/// level. It is settable so the console UI can attach a command's output to
+/// the echoed command line after execution.
+/// </summary>
+public sealed record LogEntry(string Message, LogLevel Level, DateTime Timestamp, string? StackTrace = null,
+    Exception? Exception = null)
+{
+    /// <summary>Sub-lines displayed below the message when the entry is expanded.</summary>
+    public IReadOnlyList<string>? Details { get; set; }
+}
 
 /// <summary>
 /// The logging API — the s&amp;box-style <c>Log</c>, equivalent of the console.
@@ -54,20 +65,34 @@ public sealed class Log
 
     private readonly List<LogEntry> _entries = new(MaxBufferedEntries + 16);
 
-    /// <summary>Normal progress messages (project, level, script lifecycle).</summary>
-    public void Info(string message) => Write(message, LogLevel.Info);
+    /// <summary>Normal progress messages (project, level, script lifecycle). Returns the created entry.</summary>
+    public LogEntry Info(string message) => Write(message, LogLevel.Info);
 
-    /// <summary>Recoverable problems that fell back to a working state (unreadable file, failed reload, ...).</summary>
-    public void Warn(string message) => Write(message, LogLevel.Warning);
+    /// <summary>
+    /// Normal progress message with sub-lines (e.g. a list) shown below it in
+    /// the console, expandable like an error's stack trace. Returns the
+    /// created entry.
+    /// </summary>
+    public LogEntry Info(string message, IReadOnlyList<string> details) => Write(message, LogLevel.Info, details: details);
 
-    /// <summary>Failures that break a feature (reserved for the severe paths).</summary>
-    public void Error(string message) => Write(message, LogLevel.Error);
+    /// <summary>Recoverable problems that fell back to a working state (unreadable file, failed reload, ...). Returns the created entry.</summary>
+    public LogEntry Warn(string message) => Write(message, LogLevel.Warning);
+
+    /// <summary>Recoverable problem with sub-lines shown below it in the console. Returns the created entry.</summary>
+    public LogEntry Warn(string message, IReadOnlyList<string> details) => Write(message, LogLevel.Warning, details: details);
+
+    /// <summary>Failures that break a feature (reserved for the severe paths). Returns the created entry.</summary>
+    public LogEntry Error(string message) => Write(message, LogLevel.Error);
+
+    /// <summary>Failure with sub-lines shown below it in the console. Returns the created entry.</summary>
+    public LogEntry Error(string message, IReadOnlyList<string> details) => Write(message, LogLevel.Error, details: details);
 
     /// <summary>
     /// Logs an error with an exception. The exception's <c>ToString()</c>
     /// (message + stack trace) is captured as the entry's stack trace.
+    /// Returns the created entry.
     /// </summary>
-    public void Error(string message, Exception exception) => Write(message, LogLevel.Error, exception.ToString(), exception);
+    public LogEntry Error(string message, Exception exception) => Write(message, LogLevel.Error, exception.ToString(), exception);
 
     /// <summary>
     /// Empties the buffered entries. The event history is not reset;
@@ -79,16 +104,23 @@ public sealed class Log
             _entries.Clear();
     }
 
-    private void Write(string message, LogLevel level, string? stackTrace = null, Exception? exception = null)
+    private LogEntry Write(string message, LogLevel level, string? stackTrace = null, Exception? exception = null,
+        IReadOnlyList<string>? details = null)
     {
         // Always write to the terminal as a fallback, so headless runs
         // (tests, CI) and early startup before the console UI is loaded
         // still produce visible output.
         Console.WriteLine(message);
+        if (details is not null)
+            foreach (var line in details)
+                Console.WriteLine(line);
         if (stackTrace is { Length: > 0 })
             Console.WriteLine(stackTrace);
 
-        var entry = new LogEntry(message, level, DateTime.Now, stackTrace, exception);
+        var entry = new LogEntry(message, level, DateTime.Now, stackTrace, exception)
+        {
+            Details = details
+        };
 
         lock (_lock)
         {
@@ -98,5 +130,6 @@ public sealed class Log
         }
 
         EntryAdded?.Invoke(entry);
+        return entry;
     }
 }
