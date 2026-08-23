@@ -1,0 +1,57 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.EditorPanels
+@using Crowbar.UI
+@using Microsoft.AspNetCore.Components
+@using G = Crowbar.Engine.Global
+@using static Crowbar.Engine.GlobalNamespaces
+
+<div class="console-line @LevelClass" @onclick="ToggleExpand">
+    <div class="console-line-prefix">
+        <span class="console-time">@Entry.Timestamp.ToString("HH:mm:ss")</span>
+        <span class="console-level">@LevelLabel</span>
+        @if (Entry.StackTrace is { Length: > 0 })
+        {
+            <span class="console-expand-icon">@(_expanded ? "▼" : "▶")</span>
+        }
+    </div>
+    <div class="console-message">@Entry.Message</div>
+    @if (_expanded && Entry.StackTrace is { Length: > 0 })
+    {
+        <div class="console-stack">@Entry.StackTrace</div>
+    }
+</div>
+
+@code {
+    [Parameter]
+    public G.LogEntry Entry { get; set; } = new(string.Empty, G.LogLevel.Info, DateTime.Now);
+
+    private bool _expanded;
+
+    private string LevelClass => Entry.Level switch
+    {
+        G.LogLevel.Warning => "console-warn",
+        G.LogLevel.Error => "console-error",
+        _ => "console-info"
+    };
+
+    private string LevelLabel => Entry.Level switch
+    {
+        G.LogLevel.Warning => "Warn",
+        _ => Entry.Level.ToString()
+    };
+
+    private void ToggleExpand()
+    {
+        if (Entry.StackTrace is not { Length: > 0 })
+            return;
+        _expanded = !_expanded;
+    }
+
+    protected override int BuildHash()
+    {
+        var hash = new HashCode();
+        hash.Add(Entry);
+        hash.Add(_expanded);
+        return hash.ToHashCode();
+    }
+}

@@ -3,11 +3,6 @@
 @using Crowbar.UI
 @using System.IO
 
-<div class="content-tabs">
-    <div class="content-tab @ContentTabClass("content")" @onclick="ShowContent">CONTENT</div>
-    <div class="content-tab @ContentTabClass("console")" @onclick="ShowConsole">CONSOLE</div>
-</div>
-
 <div class="content-toolbar">
     <div class="content-navigation">
         <div class="ct-btn ct-icon-btn @DisabledClass(!EditorContentState.CanGoBack)" @onclick="GoBack" tooltip="Back">
@@ -110,7 +105,6 @@
 
     private readonly record struct SearchFilter(string[] Terms, string? Type, string? Extension, string? Path);
 
-    private string _contentTab = "content";
     private bool _resizingSidebar;
     private float _resizeStartX;
     private float _resizeStartWidth;
@@ -118,7 +112,6 @@
     protected override int BuildHash()
     {
         var hash = new HashCode();
-        hash.Add(_contentTab);
         hash.Add(EditorContentState.CurrentFolder);
         hash.Add(EditorContentState.Version);
         hash.Add(EditorContentState.SearchQuery);
@@ -428,9 +421,6 @@
         return slash < 0 ? string.Empty : relative[..slash];
     }
 
-    private void ShowContent() => _contentTab = "content";
-    private void ShowConsole() => _contentTab = "console";
-
     private void GoBack() => EditorContentState.GoBack();
     private void GoForward() => EditorContentState.GoForward();
     private void ToggleView() => EditorContentState.SetViewMode(EditorContentState.ViewMode == "grid" ? "list" : "grid");
@@ -540,6 +530,4 @@
     };
 
     private static string DisabledClass(bool disabled) => disabled ? "ct-btn-disabled" : string.Empty;
-
-    private string ContentTabClass(string tab) => _contentTab == tab ? "content-tab-active" : string.Empty;
 }

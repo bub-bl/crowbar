@@ -88,7 +88,7 @@ internal static class NativeFileDialog
             {
                 var error = CommDlgExtendedError();
                 if (error != 0)
-                    Console.WriteLine($"[Dialog] GetOpenFileName failed (CDERR {error}).");
+                    Log.Warn($"[Dialog] GetOpenFileName failed (CDERR {error}).");
                 return null;
             }
 

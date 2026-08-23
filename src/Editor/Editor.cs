@@ -76,6 +76,10 @@ public sealed class Editor : Application
         ResourceLibrary.Register(typeof(Editor).Assembly);
         AssetActions.Register(typeof(Editor).Assembly);
 
+        // Register console commands from the engine and editor assemblies.
+        Crowbar.Engine.Global.ConCmdRegistry.Discover(typeof(Crowbar.Engine.Global.Log).Assembly);
+        Crowbar.Engine.Global.ConCmdRegistry.Discover(typeof(Editor).Assembly);
+
         // The editor tools: wired here (the engine session is up), by
         // constructor — a dependency DAG, no locator. The shared Game API was
         // already bound to this session by the Application constructor.

@@ -1,0 +1,131 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.EditorPanels
+@using Crowbar.UI
+@using G = Crowbar.Engine.Global
+@using static Crowbar.Engine.GlobalNamespaces
+
+<div class="console-toolbar">
+    <div class="console-filter @FilterClass(G.LogLevel.Info)" @onclick="ToggleInfo">
+        <icon name="Solar/essentional-ui/Bold/info-circle" />
+        <span>Info</span>
+    </div>
+    <div class="console-filter @FilterClass(G.LogLevel.Warning)" @onclick="ToggleWarn">
+        <icon name="Solar/notifications/Bold/bell" />
+        <span>Warn</span>
+    </div>
+    <div class="console-filter @FilterClass(G.LogLevel.Error)" @onclick="ToggleError">
+        <icon name="Solar/essentional-ui/Bold/danger-circle" />
+        <span>Error</span>
+    </div>
+    <div class="console-spacer"></div>
+    <div class="console-count">@VisibleCount / @AllCount</div>
+    <div class="console-btn" @onclick="ClearConsole" tooltip="Clear console">Clear</div>
+</div>
+
+<div class="console-entries">
+    @foreach (var entry in VisibleEntries)
+    {
+        <ConsoleLine Entry="@entry" />
+    }
+</div>
+
+<div class="console-input-line">
+    <span class="console-prompt">&gt;</span>
+    <input class="console-input" placeholder="Command..." @oninput="OnCommandInput" @onkeydown="OnCommandKey" value="@_commandText" />
+</div>
+
+@code {
+    private readonly List<G.LogEntry> _entries = new(128);
+    private bool _showInfo = true;
+    private bool _showWarn = true;
+    private bool _showError = true;
+    private string _commandText = string.Empty;
+    private const int MaxEntries = 1000;
+
+    protected override void OnInitialized()
+    {
+        // Catch up on entries logged before the console was mounted.
+        foreach (var entry in Log.Entries)
+            AppendEntry(entry);
+        Log.EntryAdded += OnEntryAdded;
+    }
+
+    private void OnEntryAdded(G.LogEntry entry)
+    {
+        AppendEntry(entry);
+        StateHasChanged();
+    }
+
+    private void AppendEntry(G.LogEntry entry)
+    {
+        _entries.Add(entry);
+        while (_entries.Count > MaxEntries)
+            _entries.RemoveAt(0);
+    }
+
+    private IReadOnlyList<G.LogEntry> VisibleEntries
+    {
+        get
+        {
+            return _entries.Where(e => e.Level switch
+            {
+                G.LogLevel.Info => _showInfo,
+                G.LogLevel.Warning => _showWarn,
+                G.LogLevel.Error => _showError,
+                _ => true
+            }).ToArray();
+        }
+    }
+
+    private int AllCount => _entries.Count;
+    private int VisibleCount => VisibleEntries.Count;
+
+    private void ToggleInfo() => _showInfo = !_showInfo;
+    private void ToggleWarn() => _showWarn = !_showWarn;
+    private void ToggleError() => _showError = !_showError;
+
+    private string FilterClass(G.LogLevel level) => level switch
+    {
+        G.LogLevel.Info => _showInfo ? "console-filter-active" : string.Empty,
+        G.LogLevel.Warning => _showWarn ? "console-filter-active" : string.Empty,
+        G.LogLevel.Error => _showError ? "console-filter-active" : string.Empty,
+        _ => string.Empty
+    };
+
+    private void ClearConsole()
+    {
+        _entries.Clear();
+        Log.Clear();
+    }
+
+    private void OnCommandInput(string value)
+    {
+        _commandText = value;
+    }
+
+    private bool OnCommandKey(KeyEvent e)
+    {
+        if (e.KeyCode != 0x0D) // Enter
+            return false;
+        var command = _commandText.Trim();
+        if (command.Length > 0)
+        {
+            // Echo the command to the log so the user sees what was typed.
+            Log.Info($"> {command}");
+            G.ConCmdRegistry.Execute(command);
+            _commandText = string.Empty;
+        }
+        return true;
+    }
+
+    protected override int BuildHash()
+    {
+        var hash = new HashCode();
+        hash.Add(_entries.Count);
+        hash.Add(_showInfo);
+        hash.Add(_showWarn);
+        hash.Add(_showError);
+        hash.Add(_commandText);
+        return hash.ToHashCode();
+    }
+}
