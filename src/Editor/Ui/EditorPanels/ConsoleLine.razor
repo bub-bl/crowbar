@@ -3,23 +3,18 @@
 @using Crowbar.UI
 @using Microsoft.AspNetCore.Components
 
-@* One line in the console log. Parameters are plain strings because the Razor
-   engine passes attributes as strings (Convert.ChangeType handles bool and int
-   but not enums in this runtime). *@
-<div class="console-line @LevelClass" @onclick="ToggleExpand">
+@* One line in the console log. Expand/contract toggles a CSS class on the root
+   via AddClass/RemoveClass instead of relying on template re-evaluation, so the
+   parent StateHasChanged cascade (and scroll reset) is avoided. *@
+<div class="console-line @LevelClass">
     <div class="console-row">
         <span class="console-time">@Timestamp</span>
         <span class="console-level">@LevelLabel</span>
         <span class="console-message">@Message</span>
-        @if (_hasDetails)
-        {
-            <span class="console-expand-icon">@(_expanded ? "▼" : "▶")</span>
-        }
+        <span class="console-expand-icon console-expand-collapsed">▶</span>
+        <span class="console-expand-icon console-expand-expanded">▼</span>
     </div>
-    @if (_expanded && _hasDetails)
-    {
-        <div class="console-stack">@StackTrace</div>
-    }
+    <div class="console-stack">@StackTrace</div>
 </div>
 
 @code {
@@ -37,7 +32,7 @@
     public string StackTrace { get; set; } = string.Empty;
 
     private bool _expanded;
-    private bool _hasDetails => StackTrace.Length > 0;
+    private const string ExpandedClass = "console-line-expanded";
 
     private string LevelClass => Level switch
     {
@@ -52,11 +47,22 @@
         _ => Level
     };
 
-    private void ToggleExpand()
+    /// <summary>
+    /// Toggles the expanded CSS class directly on the panel root. Returns
+    /// false so the Razor event invoker skips StateHasChanged — the CSS
+    /// class change via MarkStyleDirty is enough; a full parent re-render
+    /// would reset the entries container scroll position.
+    /// </summary>
+    private bool ToggleExpand(UiPointerEvent e)
     {
-        if (!_hasDetails)
-            return;
+        if (e.Button != 0)
+            return false;
         _expanded = !_expanded;
+        if (_expanded)
+            AddClass(ExpandedClass);
+        else
+            RemoveClass(ExpandedClass);
+        return false;
     }
 
     protected override int BuildHash()

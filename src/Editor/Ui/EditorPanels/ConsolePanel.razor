@@ -19,6 +19,7 @@
     </div>
     <div class="console-spacer"></div>
     <div class="console-count">@VisibleCount / @AllCount</div>
+    <div class="console-btn console-btn-test" @onclick="TriggerTestError" tooltip="Trigger a test error">Test Error</div>
     <div class="console-btn" @onclick="ClearConsole" tooltip="Clear console">Clear</div>
 </div>
 
@@ -92,6 +93,18 @@
         _ => string.Empty
     };
 
+    private void TriggerTestError()
+    {
+        try
+        {
+            throw new InvalidOperationException("This is a test error to verify stack trace rendering in the console.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Test error triggered from console toolbar.", ex);
+        }
+    }
+
     private void ClearConsole()
     {
         _entries.Clear();
@@ -127,5 +140,6 @@
         hash.Add(_showError);
         hash.Add(_commandText);
         return hash.ToHashCode();
+    }
     }
 }
