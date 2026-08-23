@@ -1,10 +1,11 @@
 {
-  "format": 1,
+  "format": 2,
   "id": "53174ce7-6d36-4523-962c-a54049d8396c",
   "metadata": {
     "name": "Demo",
     "version": "0.1"
   },
+  "environment": null,
   "entities": [
     {
       "id": "d1ceb0af-0157-4e8b-92cb-d330a1ae5767",
@@ -31,7 +32,7 @@
       "components": [
         {
           "type": "PointLight",
-          "transform": "-2.5,2,-1.5,0,0,0,1,1,1,1",
+          "transform": "0.5,2,-0.5,0,0,0,1,1,1,1",
           "properties": {
             "Range": 8,
             "Color": [
@@ -41,6 +42,23 @@
             ],
             "Intensity": 4,
             "CastShadows": false
+          }
+        },
+        {
+          "type": "EnvironmentComponent",
+          "transform": null,
+          "properties": {
+            "Provider": "Cubemap",
+            "SourcePath": "Content/Environments/studio.hdr",
+            "Rotation": 0,
+            "Intensity": 1,
+            "Exposure": 0,
+            "Tint": [
+              1,
+              1,
+              1,
+              1
+            ]
           }
         }
       ]
