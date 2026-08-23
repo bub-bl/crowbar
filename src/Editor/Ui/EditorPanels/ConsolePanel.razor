@@ -30,9 +30,14 @@
     }
 </div>
 
+@* Command suggestions, populated imperatively by RefreshSuggestions: typing
+   must not rebuild the panel (it would reset the entries scroll), so the rows
+   are plain panels added to this container instead of template markup. *@
+<div @ref="_suggestionsRef" class="console-suggestions"></div>
+
 <div class="console-input-line">
     <span class="console-prompt">&gt;</span>
-    <input class="console-input" placeholder="Command..." @oninput="OnCommandInput" @onkeydown="OnCommandKey" value="@_commandText" />
+    <input @ref="_inputRef" class="console-input" placeholder="Command..." @oninput="OnCommandInput" @onkeydown="OnCommandKey" value="@_commandText" />
 </div>
 
 @code {
@@ -41,8 +46,10 @@
     private bool _showWarn = true;
     private bool _showError = true;
     private string _commandText = string.Empty;
+    private string[] _suggestionNames = [];
     private bool _scrollToBottomPending;
     private const int MaxEntries = 1000;
+    private const int MaxSuggestions = 8;
 
     /// <summary>Per-entry pixel estimate guaranteed to exceed any content height
     /// (worst-case: expanded error stack trace ~500px). ComputeScrollRange clamps
@@ -50,6 +57,8 @@
     private const float EstLineHeight = 500f;
 
     private Panel? _entriesRef;
+    private Panel? _suggestionsRef;
+    private TextInput? _inputRef;
 
     protected override void OnInitialized()
     {
@@ -139,17 +148,30 @@
     private bool OnCommandInput(string value)
     {
         _commandText = value;
+        RefreshSuggestions();
         // Return false: the TextInput manages its own text/caret, and the
         // console entries do not depend on _commandText, so a rebuild on every
         // keystroke would only recreate the entries container and lose the
-        // scroll position.
+        // scroll position. Suggestions are rendered imperatively instead.
         return false;
     }
 
     private bool OnCommandKey(KeyEvent e)
     {
+        if (e.KeyCode == 0x09) // Tab: complete with the first suggestion
+        {
+            if (_suggestionNames.Length > 0)
+                Complete(_suggestionNames[0]);
+            return false;
+        }
+        if (e.KeyCode == 0x1B) // Escape: dismiss the suggestion list
+        {
+            ClearSuggestions();
+            return false;
+        }
         if (e.KeyCode != 0x0D) // Enter
             return false;
+        ClearSuggestions();
         var command = _commandText.Trim();
         if (command.Length > 0)
         {
@@ -158,6 +180,86 @@
             _commandText = string.Empty;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Rebuilds the suggestion rows under the input from the current command
+    /// prefix. Imperative (no Razor rebuild) so typing keeps the entries scroll
+    /// and input caret intact. Rows are capped at <see cref="MaxSuggestions"/>.
+    /// </summary>
+    private void RefreshSuggestions()
+    {
+        var prefix = _commandText.Trim();
+        _suggestionNames = prefix.Length == 0
+            ? []
+            : G.ConCmdRegistry.GetSuggestions(prefix)
+                .Where(n => !n.Equals(prefix, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .Take(MaxSuggestions)
+                .ToArray();
+
+        if (_suggestionsRef is null) return;
+        _suggestionsRef.ClearChildren();
+
+        if (_suggestionNames.Length == 0)
+        {
+            _suggestionsRef.RemoveClass("console-suggestions-visible");
+            return;
+        }
+
+        foreach (var name in _suggestionNames)
+        {
+            var row = new Panel();
+            if (!string.IsNullOrEmpty(ScopeId)) row.AddScope(ScopeId);
+            row.AddClass("console-suggestion");
+            // Click executes the command directly (the click moves focus off the
+            // input, so filling the text for a later Enter would be awkward).
+            row.Clicked += _ => ExecuteSuggestion(name);
+
+            var nameLabel = new Label(name);
+            if (!string.IsNullOrEmpty(ScopeId)) nameLabel.AddScope(ScopeId);
+            nameLabel.AddClass("console-suggestion-name");
+            row.AddChild(nameLabel);
+
+            if (G.ConCmdRegistry.All.TryGetValue(name, out var command) && command.Description.Length > 0)
+            {
+                var descLabel = new Label(command.Description);
+                if (!string.IsNullOrEmpty(ScopeId)) descLabel.AddScope(ScopeId);
+                descLabel.AddClass("console-suggestion-desc");
+                row.AddChild(descLabel);
+            }
+
+            _suggestionsRef.AddChild(row);
+        }
+        _suggestionsRef.AddClass("console-suggestions-visible");
+    }
+
+    /// <summary>Runs a suggestion command like pressing Enter on it.</summary>
+    private void ExecuteSuggestion(string name)
+    {
+        ClearSuggestions();
+        _commandText = string.Empty;
+        Log.Info($"> {name}");
+        G.ConCmdRegistry.Execute(name);
+        _inputRef?.SetValue(string.Empty);
+    }
+
+    /// <summary>Fills the command input with <paramref name="command"/> and hides the suggestions.</summary>
+    private void Complete(string command)
+    {
+        _commandText = command;
+        _inputRef?.SetValue(command);
+        ClearSuggestions();
+    }
+
+    private void ClearSuggestions()
+    {
+        _suggestionNames = [];
+        if (_suggestionsRef is not null)
+        {
+            _suggestionsRef.ClearChildren();
+            _suggestionsRef.RemoveClass("console-suggestions-visible");
+        }
     }
 
     protected override int BuildHash()
