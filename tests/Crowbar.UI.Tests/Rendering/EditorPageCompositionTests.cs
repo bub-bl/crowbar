@@ -1172,6 +1172,43 @@ public class EditorPageCompositionTests
     }
 
     [Fact]
+    public void EnumEditorSelectionQueuesTheEditAndClosesTheMenu()
+    {
+        using var ui = CreateEditorUi();
+        EditorInspectorState.Publish("Environment",
+        [
+            new EditorInspectorState.Section("EnvironmentComponent", "EnvironmentComponent", null,
+            [
+                new EditorInspectorState.Property("Provider", typeof(Crowbar.Engine.SkyProviderKind).AssemblyQualifiedName!, "None",
+                    Key: "EnvironmentComponent.Provider")
+            ])
+        ]);
+        ui.Update();
+        ui.Prepare();
+
+        // Open the dropdown, then pick an option.
+        var select = TestUi.Find(ui.Content!, panel => panel.Classes.Contains("enum-select"));
+        Assert.NotNull(select);
+        ui.ProcessPointerDown(select!.Layout.X + 2, select.Layout.Y + 2);
+        ui.ProcessPointerUp(select.Layout.X + 2, select.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+        var option = FindText(ui.Content!, "enum-option", t => t == "Cubemap");
+        Assert.NotNull(option);
+
+        ui.ProcessPointerDown(option!.Layout.X + 2, option.Layout.Y + 2);
+        ui.ProcessPointerUp(option.Layout.X + 2, option.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+
+        // The edit is queued under the stable write-back key and the menu closed.
+        var edits = EditorInspectorState.ConsumeEdits();
+        Assert.Contains(edits, edit => edit.Key == "EnvironmentComponent.Provider" && edit.Value == "Cubemap");
+        Assert.False(EditorInspectorState.IsEnumOpen("EnvironmentComponent.Provider"));
+        Assert.Empty(TestUi.FindAll(ui.Content!, p => p.Classes.Contains("enum-options")));
+    }
+
+    [Fact]
     public void ViewportToolbarIsHorizontallyCentered()
     {
         using var ui = CreateEditorUi();

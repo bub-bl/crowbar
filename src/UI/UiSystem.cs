@@ -371,13 +371,16 @@ public sealed partial class UiSystem : IDisposable
         if (!rootNeedsBuild && dirtyComponents.Length > 0)
         {
             // On startup the engine updates before its first render. A nested
-            // component can still have a zero layout at that point; rebuilding
-            // it now would replace the initial DockArea output with a tree whose
+            // component can still have a zero layout at that point (the screen
+            // itself is only sized by the first layout pass); rebuilding it now
+            // would replace the initial DockArea output with a tree whose
             // geometry-dependent groups have not been emitted yet. Let the
             // renderer perform the first layout, then retry on the next update.
-            if (Screen.LayoutDirty ||
-                Screen.Layout.Width > 0 && Screen.Layout.Height > 0 &&
-                dirtyComponents.Any(component => component.Layout.Width <= 0 || component.Layout.Height <= 0))
+            // Only the component's own zero layout marks that startup phase:
+            // the tree-wide LayoutDirty flag is also set by every
+            // StateHasChanged (it invalidates the whole tree), so it must not
+            // gate interactive re-renders like an enum dropdown opening.
+            if (dirtyComponents.Any(component => component.Layout.Width <= 0 || component.Layout.Height <= 0))
                 return;
 
             // A descendant can request a render without invalidating the page
@@ -400,7 +403,6 @@ public sealed partial class UiSystem : IDisposable
             _razorRenderPending = false;
             return;
         }
-
         _razorRenderPending = false;
         SetContent(factory.BuildTree(_razorRoot, force: true));
     }

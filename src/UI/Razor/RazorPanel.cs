@@ -265,6 +265,28 @@ public abstract class RazorPanel : PanelComponent, IComponent
     }
 
     /// <summary>
+    /// Marks a component instance as participating in the current render pass
+    /// without re-creating it. Fragment panels captured in an earlier pass are
+    /// registered under this component's child table; when a fragment is
+    /// reused unchanged (same signature), its panels are not re-captured, so
+    /// this keeps their component instances alive across
+    /// <see cref="EndRenderPass"/>. Without it, a component nested inside an
+    /// unchanged fragment would be pruned and become unreachable — a property
+    /// editor inside an inspector section would never re-render its state.
+    /// </summary>
+    internal void MarkChildComponentActive(RazorPanel child)
+    {
+        foreach (var (key, existing) in _childComponents)
+        {
+            if (ReferenceEquals(existing, child))
+            {
+                _activeChildren.Add(key);
+                return;
+            }
+        }
+    }
+
+    /// <summary>
     /// Walks the live component graph: this component and every nested child
     /// component, depth-first. The render loop uses it to detect that a
     /// descendant (e.g. the time-bucketed status bar) wants a rebuild even

@@ -198,6 +198,8 @@ internal static class HtmlPanelParser
                 if (signature != child.GetFragmentSignature(regionName))
                     child.SetFragment(regionName, BuildFragmentPanels(nodes, key, regionName, runtime, components),
                         signature);
+                else
+                    ReactivateFragmentComponents(runtime, child.GetFragmentPanels(regionName), components);
             }
 
             providedFragments.Add("ChildContent");
@@ -205,6 +207,8 @@ internal static class HtmlPanelParser
             if (contentSignature != child.GetFragmentSignature("ChildContent"))
                 child.SetFragment("ChildContent", BuildFragmentPanels(childContentNodes, key, "ChildContent", runtime,
                     components), contentSignature);
+            else
+                ReactivateFragmentComponents(runtime, child.GetFragmentPanels("ChildContent"), components);
 
             // Fragments the parent no longer provides (e.g. a region removed by
             // an @if) must be cleared so the child re-renders without them.
@@ -470,6 +474,40 @@ internal static class HtmlPanelParser
     /// <summary>Booleans render as "True"/"False" or "true"/"false" from a @bind expression.</summary>
     private static bool IsTruthyAttribute(string value) =>
         !value.Equals("false", StringComparison.OrdinalIgnoreCase) && value != "0";
+
+    /// <summary>
+    /// Re-activates the component instances of a reused fragment under the
+    /// runtime's child-component table so this render pass does not prune them
+    /// (EndRenderPass removes children that were not re-created). Without this,
+    /// a dirty component nested inside an unchanged fragment — e.g. an enum
+    /// editor inside an inspector section whose collapse state did not change —
+    /// would be dropped from the component graph and could never re-render.
+    /// </summary>
+    private static void ReactivateFragmentComponents(RazorPanel runtime, IReadOnlyList<Panel>? panels,
+        IReadOnlyDictionary<string, RazorComponentSource>? components)
+    {
+        if (panels is null)
+            return;
+        var factory = new RazorComponentFactory(components);
+        foreach (var panel in panels)
+            ReactivateComponentTree(runtime, panel, factory);
+    }
+
+    private static void ReactivateComponentTree(RazorPanel owner, Panel panel, RazorComponentFactory factory)
+    {
+        if (panel is RazorPanel component)
+        {
+            owner.MarkChildComponentActive(component);
+            if (component.NeedsBuild() || component.NeedsContentRebuild())
+                factory.BuildTree(component, force: true);
+            foreach (var child in component.ChildrenInternal)
+                ReactivateComponentTree(component, child, factory);
+            return;
+        }
+
+        foreach (var child in panel.ChildrenInternal)
+            ReactivateComponentTree(owner, child, factory);
+    }
 
     /// <summary>Normalizes a @ref expression to a plain member name.</summary>
     private static string CleanRefName(string expression)
