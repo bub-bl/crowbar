@@ -67,6 +67,20 @@ internal sealed class EnvironmentPreprocessor : IDisposable
     {
         if (_disposed || environment is null)
             return;
+
+        if (environment.Sky is ProceduralAtmosphere)
+        {
+            // Procedural skies are evaluated directly by the sky/IBL shader and
+            // have no source texture or compute preprocessing step. Mark the
+            // environment ready so Renderer binds it on the next frame.
+            if (_decodes.Remove(environment, out var staleDecode))
+                ObserveFault(staleDecode.Task);
+            _activeKeys.Remove(environment);
+            environment.State = EnvironmentPreprocessingState.Ready;
+            environment.Diagnostic = null;
+            return;
+        }
+
         if (environment.Sky is not CubemapSky sky || string.IsNullOrWhiteSpace(sky.SourcePath))
         {
             if (_decodes.Remove(environment, out var staleDecode))

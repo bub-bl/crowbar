@@ -33,6 +33,38 @@ public sealed class EnvironmentTests
     }
 
     [Fact]
+    public void InspectorEdit_ActivatesProceduralAtmosphere()
+    {
+        using var world = new World();
+        var level = world.CreateLevel("Procedural");
+        var entity = world.SpawnEntity("Environment", level);
+        var component = entity.AddComponent<EnvironmentComponent>();
+
+        InspectorStateBuilder.ApplyEdit(entity, "EnvironmentComponent.Provider", "ProceduralAtmosphere");
+
+        Assert.Equal(SkyProviderKind.ProceduralAtmosphere, component.Provider);
+        Assert.IsType<ProceduralAtmosphere>(component.Environment.Sky);
+    }
+
+    [Fact]
+    public void ProceduralEnvironment_RoundTripPreservesProvider()
+    {
+        using var sourceWorld = new World();
+        var source = sourceWorld.CreateLevel("Procedural");
+        source.Environment.Sky = new ProceduralAtmosphere();
+        source.Environment.Intensity = 1.5f;
+
+        using var loadedWorld = new World();
+        var loaded = LevelSerializer.CreateLevel(
+            loadedWorld,
+            LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
+
+        Assert.IsType<ProceduralAtmosphere>(loaded.Environment.Sky);
+        Assert.Equal(1.5f, loaded.Environment.Intensity);
+        Assert.False(loaded.IsDirty);
+    }
+
+    [Fact]
     public void EnvironmentEdit_IsDirtyAndUndoable()
     {
         using var world = new World();
@@ -258,6 +290,15 @@ public sealed class EnvironmentTests
         Assert.Throws<ArgumentOutOfRangeException>(() => WebGpuTexture.ValidateViewDescription(
             cube.Dimension, cube.MipLevelCount, cube.ArrayLayerCount,
             new TextureViewDescription { BaseMipLevel = 8 }));
+    }
+
+    [Fact]
+    public void SkyShader_ExposesProceduralProviderUniform()
+    {
+        var shader = Shader.Load("Shaders/Environment/Sky.wgsl");
+        var environment = Assert.Single(shader.Structs, structure => structure.Name == "EnvironmentUniforms");
+
+        Assert.Contains(environment.Fields, field => field.Name == "provider");
     }
 
     [Fact]

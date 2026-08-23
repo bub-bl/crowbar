@@ -266,6 +266,7 @@ public sealed class Renderer : IDisposable
     {
         public Vector4 Parameters;
         public Vector4 Tint;
+        public Vector4 Provider;
     }
 
     // Reused across frames to collect the meshes/textures/nodes still referenced
@@ -822,7 +823,8 @@ public sealed class Renderer : IDisposable
                 source?.Intensity ?? 0f,
                 source?.Exposure ?? 0f,
                 source?.PrefilteredSpecularMap?.MipLevelCount is int m ? Math.Max(0, m - 1) : 0),
-            Tint = source?.Tint ?? Vector4.One
+            Tint = source?.Tint ?? Vector4.One,
+            Provider = new Vector4(source?.Sky is ProceduralAtmosphere ? 1f : 0f, 0f, 0f, 0f)
         };
         _environmentUniformBuffer.Write(in uniforms);
     }
