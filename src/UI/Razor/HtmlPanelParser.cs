@@ -159,7 +159,7 @@ internal static class HtmlPanelParser
                     continue; // Type argument, not a parameter.
                 else if (attribute.Name.LocalName.Equals("tooltip", StringComparison.OrdinalIgnoreCase))
                     child.Tooltip = attribute.Value; // Hover overlay, not a [Parameter].
-                else child.SetParameter(attribute.Name.LocalName, attribute.Value);
+                else child.SetParameter(attribute.Name.LocalName, attribute.Value, runtime);
             }
 
             // Capture the markup between the component's tags. It is parsed with

@@ -75,7 +75,9 @@ public static class LevelSerializer
             Format = LevelFile.CurrentFormat,
             Id = level.Id,
             Metadata = new LevelFileMetadata(level.Name, EditorVersion),
-            Environment = EnvironmentToData(level.Environment),
+            Environment = level.Entities.SelectMany(e => e.GetComponents<EnvironmentComponent>()).FirstOrDefault() is null
+                ? EnvironmentToData(level.Environment)
+                : null,
             Entities = level.Entities.Select(EntityToData).ToList(),
             Attachments = BuildAttachments(level)
         };
@@ -242,6 +244,7 @@ public static class LevelSerializer
         level.Id = data.Id;
         RestoreEnvironment(level, data.Environment, warning);
         PopulateLevel(level, data, warning);
+        MigrateLegacyEnvironment(level, data.Environment);
 
         // Reconstructing the level above mutated it (spawning, components,
         // transforms), so the materialized document starts clean: the dirty
@@ -277,6 +280,7 @@ public static class LevelSerializer
         RestoreEnvironment(level, data.Environment, warning);
 
         PopulateLevel(level, data, warning);
+        MigrateLegacyEnvironment(level, data.Environment);
     }
 
     /// <summary>Convenience overload: parses the JSON form and restores the level from it.</summary>
@@ -371,6 +375,23 @@ public static class LevelSerializer
             data.Intensity,
             data.Exposure,
             data.Tint);
+    }
+
+    private static void MigrateLegacyEnvironment(Level level, LevelEnvironmentData? data)
+    {
+        if (data is null || level.Entities.Any(e => e.GetComponent<EnvironmentComponent>() is not null))
+            return;
+
+        var hasSettings = !string.IsNullOrWhiteSpace(data.SourcePath) ||
+                          !string.Equals(data.Provider, nameof(SkyProviderKind.None), StringComparison.OrdinalIgnoreCase) ||
+                          !data.Rotation.Equals(0f) || !data.Intensity.Equals(1f) ||
+                          !data.Exposure.Equals(0f) || data.Tint != System.Numerics.Vector4.One;
+        if (!hasSettings)
+            return;
+
+        var entity = level.SpawnEntity("Environment");
+        var component = entity.AddComponent<EnvironmentComponent>();
+        component.RestoreFrom(level.Environment);
     }
 
     private static void AddComponent(Entity entity, LevelComponentData componentData, Action<string> warning)

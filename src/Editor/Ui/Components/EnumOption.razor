@@ -1,0 +1,20 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Microsoft.AspNetCore.Components
+
+<div class="enum-option @(Active ? "enum-option-active" : string.Empty)" @onclick="OnClick">@Value</div>
+
+@code {
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    [Parameter]
+    public bool Active { get; set; }
+
+    [Parameter]
+    public Action<string>? OnSelected { get; set; }
+
+    private void OnClick() => OnSelected?.Invoke(Value);
+
+    protected override int BuildHash() => HashCode.Combine(Value, Active, OnSelected);
+}

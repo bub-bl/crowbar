@@ -13,33 +13,7 @@
 <div class="insp-body">
     @if (!EditorInspectorState.HasSelection)
     {
-        <div class="insp-head"><div class="entity-name">Environment</div></div>
-        <InspectorSection Id="environment-sky" Title="Sky" Icon="sun" Open="true">
-            <div class="prop-row">
-                <div class="field-label">Provider</div>
-                <select class="prop-input" value="@Environment.Provider" @onchange="SetProvider">
-                    <option value="None">None</option>
-                    <option value="Cubemap">Cubemap</option>
-                    <option value="ProceduralAtmosphere">Procedural atmosphere</option>
-                </select>
-            </div>
-            <div class="prop-row">
-                <div class="field-label">HDR source</div>
-                <button class="prop-input" @onclick="PickSource">@(Environment.SourcePath.Length > 0 ? Environment.SourcePath : "Select HDR/EXR")</button>
-            </div>
-            <EnvironmentFloat Name="Rotation" Value="@(Environment.Rotation * 180f / MathF.PI)" />
-            <EnvironmentFloat Name="Intensity" Value="@Environment.Intensity" />
-            <EnvironmentFloat Name="Exposure" Value="@Environment.Exposure" />
-            <div class="prop-row">
-                <div class="field-label">Tint</div>
-                <input class="prop-input" value="@Tint" @onchange="SetTint" />
-            </div>
-            <div class="prop-row"><div class="field-label">Status</div><div>@Environment.Status</div></div>
-            @if (Environment.Diagnostic.Length > 0)
-            {
-                <div class="insp-empty">@Environment.Diagnostic</div>
-            }
-        </InspectorSection>
+        <div class="insp-empty">Select an entity to inspect it.</div>
     }
     else
     {
@@ -81,12 +55,7 @@
     // folds a section or toggles the Add Component menu (each bumps
     // EditorInspectorState.Version).
     protected override int BuildHash() => HashCode.Combine(
-        EditorInspectorState.Version, EditorInspectorState.AddMenuOpen, EditorEnvironmentState.Version);
+        EditorInspectorState.Version, EditorInspectorState.AddMenuOpen);
 
     private void ToggleAddMenu() => EditorInspectorState.ToggleAddMenu();
-    private EditorEnvironmentState.Snapshot Environment => EditorEnvironmentState.Current;
-    private string Tint => string.Join(", ", Environment.Tint.X, Environment.Tint.Y, Environment.Tint.Z, Environment.Tint.W);
-    private void PickSource() => EditorEnvironmentState.RequestSourcePicker();
-    private void SetProvider(string value) => EditorEnvironmentState.RequestEdit("Provider", value);
-    private void SetTint(string value) => EditorEnvironmentState.RequestEdit("Tint", value);
 }

@@ -1,0 +1,51 @@
+@inherits Crowbar.UI.PropertyEditorBase
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+@using Microsoft.AspNetCore.Components
+
+<div class="prop-row" style="padding-left: @(Indent * 12)px">
+    <div class="field-label">@Name</div>
+    <div class="enum-input">
+        <div class="enum-select @(IsOpen ? "enum-select-open" : string.Empty)" @onclick="Toggle">
+            <span class="enum-select-value">@(string.IsNullOrEmpty(Value) ? "None" : Value)</span>
+            <span class="enum-select-arrow">@(IsOpen ? "▲" : "▼")</span>
+        </div>
+        @if (IsOpen)
+        {
+            <div class="enum-options">
+                @foreach (var option in Options)
+                {
+                    <EnumOption Value="@option" OnSelected="Select"
+                                Active="@string.Equals(Value, option, StringComparison.OrdinalIgnoreCase)" />
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter]
+    public string TypeName { get; set; } = string.Empty;
+
+    private bool IsOpen { get; set; }
+
+    private IReadOnlyList<string> Options => ResolveType(TypeName)?.IsEnum == true
+        ? Enum.GetNames(ResolveType(TypeName)!)
+        : [];
+
+    protected override int BuildHash() => HashCode.Combine(Name, Value, Key, TypeName, Indent, IsOpen);
+
+    private void Toggle() => IsOpen = !IsOpen;
+
+    private void Select(string value)
+    {
+        IsOpen = false;
+        EditorInspectorState.RequestEdit(Key, value);
+    }
+
+    private static Type? ResolveType(string name) =>
+        Type.GetType(name, false, false) ??
+        AppDomain.CurrentDomain.GetAssemblies()
+            .Select(assembly => assembly.GetType(name, false, false))
+            .FirstOrDefault(type => type is not null);
+}

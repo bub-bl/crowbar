@@ -301,6 +301,7 @@ public static class InspectorStateBuilder
             else if (type == typeof(Vector2)) value = ParseVector2(text);
             else if (type == typeof(Vector3)) value = ParseVector3(text);
             else if (type == typeof(Vector4)) value = ParseVector4(text);
+            else if (type.IsEnum) value = Enum.Parse(type, text, ignoreCase: true);
             else { value = null; return false; }
 
             return true;

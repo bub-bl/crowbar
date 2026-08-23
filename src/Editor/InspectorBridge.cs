@@ -1,8 +1,6 @@
 using Crowbar.Engine;
 using Crowbar.UI;
 using Crowbar.FileSystems;
-using System.Globalization;
-using System.Numerics;
 
 namespace Crowbar.Editor;
 
@@ -54,69 +52,11 @@ public sealed class InspectorBridge
 
     private void UpdateEnvironment(Entity? selected)
     {
-        var level = _editor.Level.Level;
-        if (level is null)
-            return;
-
-        if (selected is null)
-        {
-            var edits = EditorEnvironmentState.ConsumeEdits();
-            if (edits.Count > 0)
-            {
-                using var step = _editor.Level.Step("Edit the environment");
-                foreach (var edit in edits)
-                    ApplyEnvironmentEdit(level.Environment, edit);
-            }
-
-        }
-        else
-        {
-            EditorEnvironmentState.ConsumeEdits();
-        }
-
-        if (EditorEnvironmentState.ConsumeSourcePickerRequest())
-            ImportEnvironment(level);
-
-        var environment = level.Environment;
-        EditorEnvironmentState.Publish(new EditorEnvironmentState.Snapshot(
-            environment.Sky?.Kind.ToString() ?? nameof(SkyProviderKind.None),
-            (environment.Sky as CubemapSky)?.SourcePath ?? string.Empty,
-            environment.Rotation,
-            environment.Intensity,
-            environment.Exposure,
-            environment.Tint,
-            environment.State.ToString(),
-            environment.Diagnostic ?? string.Empty));
+        if (EditorEnvironmentState.ConsumeSourcePickerRequest() && selected?.GetComponent<EnvironmentComponent>() is { } component)
+            ImportEnvironment(component);
     }
 
-    private static void ApplyEnvironmentEdit(SceneEnvironment environment, EditorEnvironmentState.Edit edit)
-    {
-        switch (edit.Property)
-        {
-            case "Provider":
-                environment.Sky = edit.Value switch
-                {
-                    nameof(SkyProviderKind.ProceduralAtmosphere) => new ProceduralAtmosphere(),
-                    nameof(SkyProviderKind.Cubemap) => new CubemapSky((environment.Sky as CubemapSky)?.SourcePath ?? string.Empty),
-                    _ => null
-                };
-                break;
-            case "Rotation" when TryFloat(edit.Value, out var rotation):
-                environment.Rotation = rotation * MathF.PI / 180f;
-                break;
-            case "Intensity" when TryFloat(edit.Value, out var intensity):
-                environment.Intensity = intensity;
-                break;
-            case "Exposure" when TryFloat(edit.Value, out var exposure):
-                environment.Exposure = exposure;
-                break;
-            case "Tint" when TryVector4(edit.Value, out var tint):
-                environment.Tint = tint;
-                break;
-        }
-    }
-
-    private void ImportEnvironment(Level level)
+    private void ImportEnvironment(EnvironmentComponent component)
     {
         var source = NativeFileDialog.PickEnvironment(
             _editor.Window.NativeHandle,
@@ -133,32 +73,14 @@ public sealed class InspectorBridge
             Texture2D.Invalidate(destination);
             _editor.ContentExplorer.Refresh();
             using var step = _editor.Level.Step("Import an HDR environment");
-            level.Environment.SetCubemap(destination);
+            component.Provider = SkyProviderKind.Cubemap;
+            component.SourcePath = destination;
             UiNotifications.Show("Environment", $"Imported {Path.GetFileName(source)}", "success");
         }
         catch (Exception ex)
         {
             UiNotifications.Show("Environment", $"Import failed: {ex.Message}", "error");
         }
-    }
-
-    private static bool TryFloat(string text, out float value) =>
-        float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
-
-    private static bool TryVector4(string text, out Vector4 value)
-    {
-        var parts = text.Split(',', StringSplitOptions.TrimEntries);
-        if (parts.Length == 4 && parts.All(part => TryFloat(part, out _)))
-        {
-            value = new Vector4(
-                float.Parse(parts[0], CultureInfo.InvariantCulture),
-                float.Parse(parts[1], CultureInfo.InvariantCulture),
-                float.Parse(parts[2], CultureInfo.InvariantCulture),
-                float.Parse(parts[3], CultureInfo.InvariantCulture));
-            return true;
-        }
-        value = default;
-        return false;
     }
 
     /// <summary>
@@ -172,6 +94,8 @@ public sealed class InspectorBridge
             return [];
         return TypeLibrary.All
             .Where(type => entity.GetComponent(type) is null)
+            .Where(type => type != typeof(EnvironmentComponent) ||
+                           entity.Level?.Entities.All(e => e.GetComponent<EnvironmentComponent>() is null) != false)
             .OrderBy(type => type.Name, StringComparer.Ordinal)
             .Select(type => type.Name)
             .ToArray();
@@ -188,6 +112,9 @@ public sealed class InspectorBridge
             return;
         var type = TypeLibrary.Resolve(typeName);
         if (type is null || entity.GetComponent(type) is not null)
+            return;
+        if (type == typeof(EnvironmentComponent) &&
+            entity.Level?.Entities.Any(e => e.GetComponent<EnvironmentComponent>() is not null) == true)
             return;
         try
         {

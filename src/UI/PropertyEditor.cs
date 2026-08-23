@@ -29,13 +29,21 @@ public sealed class PropertyEditor : RazorPanel
 
     public override Task ExecuteAsync()
     {
-        var tag = PropertyEditorRegistry.ResolveTag(TypeName);
-        WriteLiteral($"<{tag} Name=\"{Attr(Name)}\" Value=\"{Attr(Value)}\" Key=\"{Attr(Key)}\" Indent=\"{Indent}\" />");
+        var propertyType = ResolveType(TypeName);
+        var tag = propertyType?.IsEnum == true ? "EnumEditor" : PropertyEditorRegistry.ResolveTag(TypeName);
+        var typeAttribute = propertyType?.IsEnum == true ? $" TypeName=\"{Attr(TypeName)}\"" : string.Empty;
+        WriteLiteral($"<{tag} Name=\"{Attr(Name)}\" Value=\"{Attr(Value)}\" Key=\"{Attr(Key)}\" Indent=\"{Indent}\"{typeAttribute} />");
         return Task.CompletedTask;
     }
 
     protected override int BuildHash() =>
-        HashCode.Combine(TypeName, PropertyEditorRegistry.ResolveTag(TypeName), Name, Value, Key, Indent);
+        HashCode.Combine(TypeName, PropertyEditorRegistry.ResolveTag(TypeName), ResolveType(TypeName)?.IsEnum, Name, Value, Key, Indent);
 
     private static string Attr(string value) => WebUtility.HtmlEncode(value ?? string.Empty);
+
+    private static Type? ResolveType(string name) =>
+        Type.GetType(name, false, false) ??
+        AppDomain.CurrentDomain.GetAssemblies()
+            .Select(assembly => assembly.GetType(name, false, false))
+            .FirstOrDefault(type => type is not null);
 }

@@ -16,7 +16,7 @@ public enum EnvironmentPreprocessingState
 
 public sealed class SceneEnvironment : IDisposable
 {
-    private readonly Level? _owner;
+    private Level? _owner;
     private SkyProvider? _sky;
     private float _rotation;
     private float _intensity = 1f;
@@ -24,6 +24,8 @@ public sealed class SceneEnvironment : IDisposable
     private Vector4 _tint = Vector4.One;
 
     internal SceneEnvironment(Level? owner = null) => _owner = owner;
+
+    internal void AttachOwner(Level? owner) => _owner = owner;
 
     public SkyProvider? Sky
     {

@@ -5,6 +5,37 @@ namespace Crowbar.UI.Tests.Razor;
 public class RazorComponentTests
 {
     [Fact]
+    public void ComponentDelegateParameterBindsToParentMethod()
+    {
+        using var ui = TestUi.Create();
+        ui.RegisterRazorComponent("CallbackChild", """
+            <button @onclick="Select">@Value</button>
+            @code {
+                [Microsoft.AspNetCore.Components.Parameter] public string Value { get; set; } = string.Empty;
+                [Microsoft.AspNetCore.Components.Parameter] public Action<string>? OnSelected { get; set; }
+                private void Select() => OnSelected?.Invoke(Value);
+            }
+            """, "CallbackChild");
+        ui.LoadRazor("""
+            <div><CallbackChild Value="Sky" OnSelected="Select" /><label>@selected</label></div>
+            @code {
+                private string selected = string.Empty;
+                private void Select(string value) { selected = value; StateHasChanged(); }
+            }
+            """, "CallbackParent");
+        ui.Prepare();
+
+        var button = TestUi.Find(ui.Screen, panel => panel is Button);
+        Assert.NotNull(button);
+        ui.ProcessPointerDown(button!.Layout.X + 1, button.Layout.Y + 1);
+        ui.ProcessPointerUp(button.Layout.X + 1, button.Layout.Y + 1);
+        ui.Update();
+        ui.Prepare();
+
+        Assert.Equal(2, TestUi.Texts(ui.Screen).Count(text => text == "Sky"));
+    }
+
+    [Fact]
     public void ReactiveRenderingEventsAndBindings()
     {
         using var ui = TestUi.Create();

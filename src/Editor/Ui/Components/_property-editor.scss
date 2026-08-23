@@ -33,6 +33,74 @@
     }
 }
 
+.enum-input {
+    flex-grow: 1;
+    min-width: 0;
+    min-height: 20px;
+    flex-direction: column;
+    position: relative;
+}
+
+.enum-select {
+    width: 100%;
+    min-height: 20px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    background-color: $input-bg;
+    border: 1px solid $border;
+    border-radius: 3px;
+    box-sizing: border-box;
+    cursor: pointer;
+    padding: 0 5px;
+}
+
+.enum-select:hover,
+.enum-select-open {
+    border-color: $accent;
+}
+
+.enum-select-value {
+    color: $text;
+    font-size: 10px;
+    line-height: 18px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.enum-select-arrow {
+    color: $text-muted;
+    font-size: 8px;
+    line-height: 18px;
+    margin-left: 6px;
+}
+
+.enum-options {
+    width: 100%;
+    flex-direction: column;
+    background-color: $input-bg;
+    border: 1px solid $border;
+    border-radius: 0 0 3px 3px;
+    box-sizing: border-box;
+}
+
+.enum-option {
+    min-height: 20px;
+    padding: 2px 5px;
+    box-sizing: border-box;
+    color: $text;
+    font-size: 10px;
+    line-height: 16px;
+    cursor: pointer;
+}
+
+.enum-option:hover,
+.enum-option-active {
+    background-color: $accent;
+    color: $text-bright;
+}
+
 .prop-value {
     flex-grow: 1;
     min-width: 0;

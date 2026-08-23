@@ -279,7 +279,7 @@ public abstract class RazorPanel : PanelComponent, IComponent
                 yield return nested;
     }
 
-    internal void SetParameter(string name, string value)
+    internal void SetParameter(string name, string value, RazorPanel? expressionOwner = null)
     {
         var property = FindParameter(name);
         if (property is not null)
@@ -291,7 +291,7 @@ public abstract class RazorPanel : PanelComponent, IComponent
                 throw new InvalidOperationException($"Razor parameter '{name}' on {GetType().Name} is read-only.");
             try
             {
-                property.SetValue(this, ConvertParameter(value, property.PropertyType));
+                property.SetValue(this, ConvertParameter(value, property.PropertyType, expressionOwner));
             }
             catch (Exception ex)
             {
@@ -305,14 +305,46 @@ public abstract class RazorPanel : PanelComponent, IComponent
         throw new InvalidOperationException($"Razor parameter '{name}' was not found on {GetType().Name}.");
     }
 
-    private static object? ConvertParameter(string value, Type type)
+    private static object? ConvertParameter(string value, Type type, RazorPanel? expressionOwner)
     {
         if (typeof(RenderFragment).IsAssignableFrom(type))
             throw new InvalidOperationException(
                 $"Razor parameter of type {type.Name} cannot be set from a string attribute; " +
                 "pass the content between the component tags instead.");
+        if (typeof(Delegate).IsAssignableFrom(type))
+        {
+            if (expressionOwner is null)
+                throw new InvalidOperationException(
+                    $"Razor parameter of delegate type {type.Name} requires a component expression owner.");
+            return BindDelegate(value, type, expressionOwner);
+        }
         return type == typeof(string) ? value : Convert.ChangeType(value, Nullable.GetUnderlyingType(type) ?? type);
     }
+
+    private static Delegate BindDelegate(string expression, Type delegateType, RazorPanel owner)
+    {
+        var methodName = RazorComponentFactory.CleanRazorExpression(expression);
+        if (methodName.StartsWith("this.", StringComparison.Ordinal)) methodName = methodName[5..];
+        if (!IsIdentifier(methodName))
+            throw new InvalidOperationException(
+                $"Razor delegate expression '{expression}' must name a method on {owner.GetType().Name}.");
+
+        var invoke = delegateType.GetMethod("Invoke")
+            ?? throw new InvalidOperationException($"Razor parameter type {delegateType.Name} is not a delegate.");
+        var parameterTypes = invoke.GetParameters().Select(parameter => parameter.ParameterType).ToArray();
+        var method = owner.GetType().GetMethod(methodName,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null, types: parameterTypes, modifiers: null);
+        if (method is null || method.ReturnType != invoke.ReturnType)
+            throw new InvalidOperationException(
+                $"Razor delegate expression '{expression}' does not match {delegateType.Name} on {owner.GetType().Name}.");
+
+        return Delegate.CreateDelegate(delegateType, owner, method, throwOnBindFailure: true);
+    }
+
+    private static bool IsIdentifier(string value) =>
+        value.Length > 0 && (char.IsLetter(value[0]) || value[0] == '_') &&
+        value.Skip(1).All(character => char.IsLetterOrDigit(character) || character == '_');
 
     private static bool IsRazorParameter(PropertyInfo property) =>
         property.IsDefined(typeof(Microsoft.AspNetCore.Components.ParameterAttribute), true);

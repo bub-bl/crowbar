@@ -39,7 +39,9 @@ public sealed class World : IDisposable
 
     public Level? ActiveLevel { get; private set; }
 
-    public SceneEnvironment? Environment => ActiveLevel?.Environment;
+    public SceneEnvironment? Environment => ActiveLevel?.Entities
+        .SelectMany(entity => entity.GetComponents<EnvironmentComponent>())
+        .FirstOrDefault(component => component.Enabled)?.Environment;
 
     /// <summary>All world systems, keyed by type.</summary>
     public IReadOnlyCollection<WorldSystem> Systems => _systems.Values;
