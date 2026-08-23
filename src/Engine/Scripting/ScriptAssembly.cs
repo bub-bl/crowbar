@@ -69,7 +69,7 @@ public sealed class ScriptAssembly : IDisposable
         {
             // Collectible-context unloading is best effort; state preserved by
             // the hot reload keeps the previous generation alive on purpose.
-            Console.WriteLine($"[Scripting] Assembly unload failed: {ex.Message}");
+            Log.Warn($"[Scripting] Assembly unload failed: {ex.Message}");
         }
     }
 }

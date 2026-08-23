@@ -224,12 +224,12 @@ public sealed class ScriptHost : IDisposable
             {
                 lock (_gate)
                     _codeTargets.Add(next); // the patched methods jump into this assembly
-                Console.WriteLine($"[Scripting] Hot reload OK ({ScriptReloadMode.FastPath}): {patched} method body(ies) patched in {stopwatch.ElapsedMilliseconds} ms");
+                Log.Info($"[Scripting] Hot reload OK ({ScriptReloadMode.FastPath}): {patched} method body(ies) patched in {stopwatch.ElapsedMilliseconds} ms");
                 Reloaded?.Invoke(new ScriptReloadedEventArgs(previous, next, ScriptReloadMode.FastPath, patched, 0, stopwatch.Elapsed));
                 return true;
             }
 
-            Console.WriteLine("[Scripting] Falling back to a full reload.");
+            Log.Info("[Scripting] Falling back to a full reload.");
         }
 
         try
@@ -263,7 +263,7 @@ public sealed class ScriptHost : IDisposable
             DisposeGenerations();
             Current = next;
 
-            Console.WriteLine($"[Scripting] Hot reload OK ({ScriptReloadMode.FullReload}): {upgraded} instance(s) upgraded, {previous.TypesByFullName.Count} type(s) reloaded in {stopwatch.ElapsedMilliseconds} ms");
+            Log.Info($"[Scripting] Hot reload OK ({ScriptReloadMode.FullReload}): {upgraded} instance(s) upgraded, {previous.TypesByFullName.Count} type(s) reloaded in {stopwatch.ElapsedMilliseconds} ms");
             Reloaded?.Invoke(new ScriptReloadedEventArgs(previous, next, ScriptReloadMode.FullReload, 0, upgraded, stopwatch.Elapsed));
             return true;
         }
@@ -300,12 +300,12 @@ public sealed class ScriptHost : IDisposable
                     continue;
                 if (FindMatchingMethod(newType, oldMethod) is not { } newMethod)
                 {
-                    Console.WriteLine($"[Scripting] IL fast path unavailable: no match for {fullName}::{oldMethod.Name}");
+                    Log.Warn($"[Scripting] IL fast path unavailable: no match for {fullName}::{oldMethod.Name}");
                     return null;
                 }
                 if (!MethodBodyPatcher.TryPatch(oldMethod, newMethod, out var error))
                 {
-                    Console.WriteLine($"[Scripting] IL fast path unavailable for {fullName}::{oldMethod.Name}: {error}");
+                    Log.Warn($"[Scripting] IL fast path unavailable for {fullName}::{oldMethod.Name}: {error}");
                     return null;
                 }
 
@@ -351,7 +351,7 @@ public sealed class ScriptHost : IDisposable
         => $"{typeFullName}::{method.Name}::{method.GetParameters().Length}";
 
     private static void LogReloadFailure(Exception error, ScriptAssembly previous)
-        => Console.WriteLine($"[Scripting] Hot reload FAILED ({previous.Files.Count} file(s), previous assembly kept): {error.Message}");
+        => Log.Warn($"[Scripting] Hot reload FAILED ({previous.Files.Count} file(s), previous assembly kept): {error.Message}");
 
     /// <summary>
     /// Picks up pending file changes and applies the reload. Call once per
@@ -422,7 +422,7 @@ public sealed class ScriptHost : IDisposable
         catch (Exception ex)
         {
             // The polling snapshot keeps hot reload working without the watcher.
-            Console.WriteLine($"[Scripting] File watcher unavailable: {ex.Message}");
+            Log.Warn($"[Scripting] File watcher unavailable: {ex.Message}");
             _watcher?.Dispose();
             _watcher = null;
         }

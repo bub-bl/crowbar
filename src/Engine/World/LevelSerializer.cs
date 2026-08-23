@@ -267,7 +267,7 @@ public static class LevelSerializer
         => ApplyTo(level, Deserialize(json, warning), warning);
 
     private static Action<string> DefaultWarning =>
-        message => Console.WriteLine($"[Level] {message}");
+        message => Log.Warn($"[Level] {message}");
 
     /// <summary>
     /// Two-phase reconstruction shared by <see cref="CreateLevel"/> and

@@ -30,7 +30,7 @@ public sealed class WebGpuSharedDevice : IDisposable
             Device = Adapter.CreateDevice();
             Queue = Device.GetQueue();
             Runtime.ConfigureDebugCallback(Device);
-            Console.WriteLine("WebGPU shared device initialized.");
+            Log.Info("WebGPU shared device initialized.");
         }
         catch
         {
