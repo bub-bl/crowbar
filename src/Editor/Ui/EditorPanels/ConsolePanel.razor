@@ -61,12 +61,15 @@
         {
             if (_scrollToBottomPending)
             {
-                _entriesRef.ScrollTo(0, _entriesRef.MaxScrollY);
+                // MaxScrollY is still 0 from the fresh layout pass, so
+                // ScrollTo would clamp to 0. ScrollToUnclamped bypasses
+                // clamping; the next layout pass recalibrates MaxScrollY.
+                _entriesRef.ScrollToUnclamped(0, float.MaxValue);
                 _scrollToBottomPending = false;
             }
             else if (_savedScrollY >= 0)
             {
-                _entriesRef.ScrollTo(0, _savedScrollY);
+                _entriesRef.ScrollToUnclamped(0, _savedScrollY);
                 _savedScrollY = -1;
             }
         }

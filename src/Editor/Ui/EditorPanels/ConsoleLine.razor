@@ -61,7 +61,11 @@
         if (e.Button != 0)
             return false;
         _expanded = !_expanded;
-        return true;
+        // Return false: the child ConsoleLine is rebuilt independently next
+        // frame (BuildHash changed because _expanded is in it), but the parent
+        // ConsolePanel is not invalidated, so the entries container and its
+        // scroll position survive untouched.
+        return false;
     }
 
     protected override int BuildHash()

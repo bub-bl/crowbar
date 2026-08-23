@@ -185,6 +185,23 @@ public class Panel
         Scrolled?.Invoke(this);
     }
 
+    /// <summary>
+    /// Sets the scroll offset directly without clamping to <see cref="MaxScrollY"/>.
+    /// Use this right after a rebuild (<see cref="PanelComponent.OnTreeBuilt"/>),
+    /// when <see cref="MaxScrollY"/> is still zero from the fresh layout pass and
+    /// <see cref="ScrollTo"/> would clamp the restored position to zero. The next
+    /// layout pass recalibrates <see cref="MaxScrollY"/>; the scroll position
+    /// remains valid because the content hasn't changed substantially.
+    /// </summary>
+    public void ScrollToUnclamped(float x, float y)
+    {
+        if (Math.Abs(x - ScrollX) < 0.001f && Math.Abs(y - ScrollY) < 0.001f) return;
+        ScrollX = x;
+        ScrollY = y;
+        InvalidatePaint();
+        Scrolled?.Invoke(this);
+    }
+
     /// <summary>Scrolls by the given delta, clamped to the scrollable range.</summary>
     public void ScrollBy(float dx, float dy) => ScrollTo(ScrollX + dx, ScrollY + dy);
 
