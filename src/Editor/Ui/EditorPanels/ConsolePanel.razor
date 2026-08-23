@@ -25,7 +25,7 @@
 <div class="console-entries">
     @foreach (var entry in VisibleEntries)
     {
-        <ConsoleLine Entry="@entry" />
+        <ConsoleLine Message="@entry.Message" Level="@entry.Level.ToString()" Timestamp="@entry.Timestamp.ToString("HH:mm:ss")" StackTrace="@entry.StackTrace" />
     }
 </div>
 

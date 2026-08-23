@@ -2,47 +2,59 @@
 @namespace Crowbar.Editor.Ui.EditorPanels
 @using Crowbar.UI
 @using Microsoft.AspNetCore.Components
-@using G = Crowbar.Engine.Global
-@using static Crowbar.Engine.GlobalNamespaces
 
+@* One line in the console log. Parameters are plain strings because the Razor
+   engine passes attributes as strings (Convert.ChangeType handles bool and int
+   but not enums in this runtime). *@
 <div class="console-line @LevelClass" @onclick="ToggleExpand">
-    <div class="console-line-prefix">
-        <span class="console-time">@Entry.Timestamp.ToString("HH:mm:ss")</span>
+    <div class="console-row">
+        <span class="console-time">@Timestamp</span>
         <span class="console-level">@LevelLabel</span>
-        @if (Entry.StackTrace is { Length: > 0 })
+        <span class="console-message">@Message</span>
+        @if (_hasDetails)
         {
             <span class="console-expand-icon">@(_expanded ? "▼" : "▶")</span>
         }
     </div>
-    <div class="console-message">@Entry.Message</div>
-    @if (_expanded && Entry.StackTrace is { Length: > 0 })
+    @if (_expanded && _hasDetails)
     {
-        <div class="console-stack">@Entry.StackTrace</div>
+        <div class="console-stack">@StackTrace</div>
     }
 </div>
 
 @code {
     [Parameter]
-    public G.LogEntry Entry { get; set; } = new(string.Empty, G.LogLevel.Info, DateTime.Now);
+    public string Message { get; set; } = string.Empty;
+
+    /// <summary>"Info", "Warning", or "Error".</summary>
+    [Parameter]
+    public string Level { get; set; } = "Info";
+
+    [Parameter]
+    public string Timestamp { get; set; } = string.Empty;
+
+    [Parameter]
+    public string StackTrace { get; set; } = string.Empty;
 
     private bool _expanded;
+    private bool _hasDetails => StackTrace.Length > 0;
 
-    private string LevelClass => Entry.Level switch
+    private string LevelClass => Level switch
     {
-        G.LogLevel.Warning => "console-warn",
-        G.LogLevel.Error => "console-error",
+        "Warning" => "console-warn",
+        "Error" => "console-error",
         _ => "console-info"
     };
 
-    private string LevelLabel => Entry.Level switch
+    private string LevelLabel => Level switch
     {
-        G.LogLevel.Warning => "Warn",
-        _ => Entry.Level.ToString()
+        "Warning" => "Warn",
+        _ => Level
     };
 
     private void ToggleExpand()
     {
-        if (Entry.StackTrace is not { Length: > 0 })
+        if (!_hasDetails)
             return;
         _expanded = !_expanded;
     }
@@ -50,7 +62,10 @@
     protected override int BuildHash()
     {
         var hash = new HashCode();
-        hash.Add(Entry);
+        hash.Add(Message);
+        hash.Add(Level);
+        hash.Add(Timestamp);
+        hash.Add(StackTrace);
         hash.Add(_expanded);
         return hash.ToHashCode();
     }

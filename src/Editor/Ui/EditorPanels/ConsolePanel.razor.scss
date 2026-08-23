@@ -16,7 +16,7 @@ root {
 
 .console-toolbar {
     width: 100%;
-    height: 28px;
+    height: 26px;
     flex-shrink: 0;
     flex-direction: row;
     align-items: center;
@@ -27,21 +27,22 @@ root {
 }
 
 .console-filter {
-    height: 20px;
+    height: 18px;
     flex-direction: row;
     align-items: center;
     gap: 3px;
-    padding: 0 7px;
+    padding: 0 6px;
     border-radius: 3px;
     color: $text-muted;
-    font-size: 10px;
-    line-height: 20px;
+    font-size: 9px;
+    line-height: 18px;
+    font-weight: bold;
     cursor: pointer;
     flex-shrink: 0;
 
     icon {
-        width: 11px;
-        height: 11px;
+        width: 10px;
+        height: 10px;
     }
 
     &:hover {
@@ -65,19 +66,19 @@ root {
 
 .console-count {
     color: $text-muted;
-    font-size: 10px;
+    font-size: 9px;
     flex-shrink: 0;
 }
 
 .console-btn {
-    height: 18px;
-    padding: 0 8px;
+    height: 16px;
+    padding: 0 7px;
     border-radius: 3px;
     background-color: $input-bg;
     border: 1px solid $border;
     color: $text-muted;
-    font-size: 10px;
-    line-height: 16px;
+    font-size: 9px;
+    line-height: 14px;
     cursor: pointer;
     flex-shrink: 0;
 
@@ -87,102 +88,29 @@ root {
     }
 }
 
-// ---- Log entries ----
+// ---- Log entries scrollable area ----
+// flex-grow: 1 fills remaining height; min-height: 0 overrides the default
+// min-height: auto so the container can shrink below its content height,
+// letting overflow: auto activate a scrollbar.
 
 .console-entries {
     width: 100%;
     flex-grow: 1;
+    min-height: 0;
     overflow: auto;
     box-sizing: border-box;
-}
-
-.console-line {
-    width: 100%;
-    flex-shrink: 0;
-    padding: 3px 8px;
-    border-bottom: 1px solid rgba($border, 0.5);
-    box-sizing: border-box;
-    cursor: pointer;
-
-    &:hover {
-        background-color: $panel-hover;
-    }
-}
-
-.console-line-prefix {
-    flex-direction: row;
-    align-items: center;
-    gap: 6px;
-    flex-shrink: 0;
-    height: 18px;
-}
-
-.console-time {
-    color: $text-muted;
-    font-size: 10px;
-    flex-shrink: 0;
-}
-
-.console-level {
-    font-size: 10px;
-    font-weight: bold;
-    flex-shrink: 0;
-    width: 36px;
-}
-
-.console-info .console-level {
-    color: $accent;
-}
-
-.console-warn .console-level {
-    color: #d4a72c;
-}
-
-.console-error .console-level {
-    color: #e0554a;
-}
-
-.console-expand-icon {
-    color: $text-muted;
-    font-size: 8px;
-    flex-shrink: 0;
-    width: 10px;
-    text-align: center;
-}
-
-.console-message {
-    color: $text;
-    font-size: 11px;
-    line-height: 16px;
-    white-space: pre-wrap;
-    word-break: break-all;
-    flex-shrink: 0;
-}
-
-.console-stack {
-    margin-top: 4px;
-    padding: 4px 8px;
-    background-color: $input-bg;
-    border-radius: 3px;
-    color: $text-muted;
-    font-size: 10px;
-    font-family: Consolas, "Courier New", monospace;
-    line-height: 14px;
-    white-space: pre-wrap;
-    word-break: break-all;
-    flex-shrink: 0;
 }
 
 // ---- Command input ----
 
 .console-input-line {
     width: 100%;
-    height: 26px;
+    height: 24px;
     flex-shrink: 0;
     flex-direction: row;
     align-items: center;
     padding: 0 8px;
-    gap: 6px;
+    gap: 5px;
     border-top: 1px solid $border;
     background-color: $input-bg;
     box-sizing: border-box;
@@ -190,19 +118,21 @@ root {
 
 .console-prompt {
     color: $accent;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: bold;
     flex-shrink: 0;
+    font-family: Consolas, "Courier New", monospace;
 }
 
 .console-input {
     flex-grow: 1;
-    height: 20px;
+    height: 18px;
     background-color: transparent;
     border: none;
     color: $text;
-    font-size: 11px;
-    line-height: 20px;
+    font-size: 10px;
+    font-family: Consolas, "Courier New", monospace;
+    line-height: 18px;
     box-sizing: border-box;
     cursor: text;
     padding: 0;
