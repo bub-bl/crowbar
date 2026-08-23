@@ -23,7 +23,7 @@
     <div class="console-btn" @onclick="ClearConsole" tooltip="Clear console">Clear</div>
 </div>
 
-<div data-codex-ref="entriesContainer" class="console-entries">
+<div @ref="_entriesRef" class="console-entries">
     @foreach (var entry in VisibleEntries)
     {
         <ConsoleLine Message="@entry.Message" Level="@entry.Level.ToString()" Timestamp="@entry.Timestamp.ToString("HH:mm:ss")" StackTrace="@entry.StackTrace" />
@@ -42,8 +42,12 @@
     private bool _showError = true;
     private string _commandText = string.Empty;
     private bool _scrollToBottomPending;
-    private float _savedScrollY = -1;
     private const int MaxEntries = 1000;
+
+    /// <summary>Per-entry pixel estimate guaranteed to exceed any content height
+    /// (worst-case: expanded error stack trace ~500px). ComputeScrollRange clamps
+    /// the overestimate to MaxScrollY during the next layout pass.</summary>
+    private const float EstLineHeight = 500f;
 
     private Panel? _entriesRef;
 
@@ -55,39 +59,25 @@
         Log.EntryAdded += OnEntryAdded;
     }
 
+    /// <summary>
+    /// After a rebuild the fresh entries container has MaxScrollY = 0, so
+    /// ScrollTo would clamp to 0. We estimate the content height from the
+    /// entry count and pre-position there. The next layout pass's
+    /// ComputeScrollRange clamps to the exact MaxScrollY via ScrollTo.
+    /// </summary>
     protected override void OnTreeBuilt()
     {
-        if (_entriesRef is not null)
+        if (_scrollToBottomPending && _entriesRef is not null)
         {
-            if (_scrollToBottomPending)
-            {
-                // MaxScrollY is still 0 from the fresh layout pass, so
-                // ScrollTo would clamp to 0. ScrollToUnclamped bypasses
-                // clamping; the next layout pass recalibrates MaxScrollY.
-                _entriesRef.ScrollToUnclamped(0, float.MaxValue);
-                _scrollToBottomPending = false;
-            }
-            else if (_savedScrollY >= 0)
-            {
-                _entriesRef.ScrollToUnclamped(0, _savedScrollY);
-                _savedScrollY = -1;
-            }
+            var estimatedBottom = VisibleCount * EstLineHeight;
+            _entriesRef.ScrollToUnclamped(0, estimatedBottom);
+            _scrollToBottomPending = false;
         }
     }
 
     private void OnEntryAdded(G.LogEntry entry)
     {
-        // Save current scroll before the rebuild destroys the container.
-        _savedScrollY = _entriesRef?.ScrollY ?? -1;
-
-        // Auto-follow new entries only when the user is already at the bottom.
-        if (_entriesRef is not null &&
-            _entriesRef.MaxScrollY > 0 &&
-            _entriesRef.ScrollY >= _entriesRef.MaxScrollY - 20f)
-        {
-            _scrollToBottomPending = true;
-        }
-
+        _scrollToBottomPending = true;
         AppendEntry(entry);
         StateHasChanged();
     }
