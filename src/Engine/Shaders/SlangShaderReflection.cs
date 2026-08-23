@@ -8,7 +8,8 @@ public enum ShaderBindingKind
     UniformBuffer,
     ReadOnlyStorageBuffer,
     Texture,
-    Sampler
+    Sampler,
+    StorageTexture
 }
 
 /// <summary>
@@ -110,6 +111,15 @@ internal static class SlangShaderReflection
                     case "resource":
                     {
                         var baseShape = type.GetProperty("baseShape").GetString();
+                        var access = type.TryGetProperty("access", out var accessElement)
+                            ? accessElement.GetString()
+                            : null;
+                        if (baseShape == "texture2D" && access is "readWrite" or "write")
+                        {
+                            bindings.Add(new ShaderBinding(group, slot, ShaderBindingKind.StorageTexture, name,
+                                $"texture_storage_2d<rgba32float, {MapStorageAccess(access)}>"));
+                            break;
+                        }
                         switch (baseShape)
                         {
                             case "structuredBuffer":
@@ -127,6 +137,18 @@ internal static class SlangShaderReflection
                                 var isDepth = resultType.GetProperty("kind").GetString() == "scalar";
                                 bindings.Add(new ShaderBinding(group, slot, ShaderBindingKind.Texture, name,
                                     isDepth ? "texture_depth_2d" : "texture_2d<f32>"));
+                                break;
+                            }
+                            case "textureCube":
+                            {
+                                bindings.Add(new ShaderBinding(group, slot, ShaderBindingKind.Texture, name,
+                                    "texture_cube<f32>"));
+                                break;
+                            }
+                            case "texture2DArray":
+                            {
+                                bindings.Add(new ShaderBinding(group, slot, ShaderBindingKind.Texture, name,
+                                    "texture_2d_array<f32>"));
                                 break;
                             }
                         }
@@ -230,5 +252,12 @@ internal static class SlangShaderReflection
         "vector" => $"vec{type.GetProperty("elementCount").GetInt32()}<{MapType(type.GetProperty("elementType"))}>",
         "matrix" => $"mat{type.GetProperty("rowCount").GetInt32()}x{type.GetProperty("columnCount").GetInt32()}<{MapType(type.GetProperty("elementType"))}>",
         var kind => kind ?? "unknown"
+    };
+
+    private static string MapStorageAccess(string? access) => access switch
+    {
+        "write" => "write",
+        "read" => "read",
+        _ => "read_write"
     };
 }

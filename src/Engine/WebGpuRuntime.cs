@@ -73,6 +73,21 @@ public sealed class WebGpuRuntime : IDisposable
     internal void DrawInstanced(WebGpuRenderPassEncoder pass, uint vertexCount, uint instanceCount, uint firstInstance) =>
         WebGpuNative.DrawInstanced(Api, pass, vertexCount, instanceCount, firstInstance);
 
+    internal WebGpuComputePassEncoder BeginComputePass(WebGpuNativeCommandEncoder encoder) =>
+        WebGpuNative.BeginComputePass(Api, encoder);
+
+    internal void SetComputePipeline(WebGpuComputePassEncoder pass, WebGpuComputePipeline pipeline) =>
+        WebGpuNative.SetComputePipeline(Api, pass, pipeline.Pipeline);
+
+    internal void SetComputeBindGroup(WebGpuComputePassEncoder pass, WebGpuBindGroup bindGroup, uint groupIndex) =>
+        WebGpuNative.SetComputeBindGroup(Api, pass, bindGroup.BindGroup, groupIndex);
+
+    internal void Dispatch(WebGpuComputePassEncoder pass, uint x, uint y, uint z) =>
+        WebGpuNative.Dispatch(Api, pass, x, y, z);
+
+    internal void EndComputePass(WebGpuComputePassEncoder pass) =>
+        WebGpuNative.EndComputePass(Api, pass);
+
     internal WebGpuRenderPassEncoder BeginRenderPass(
         WebGpuNativeCommandEncoder encoder,
         RenderPassDescription description) =>

@@ -243,10 +243,30 @@ public sealed class Renderer : IDisposable
     private ITexture _defaultNormalTexture = null!;
     private readonly Dictionary<MeshPipelineKey, IPipeline> _meshPipelines = [];
     private readonly Dictionary<IPipeline, IBindGroup> _cameraBindGroups = [];
+    private readonly Dictionary<IPipeline, IBindGroup> _environmentBindGroups = [];
     private readonly Dictionary<Mesh, MeshBuffers> _meshBuffers = [];
     private readonly Dictionary<(MeshRenderer Renderer, Material Material, ModelNode Node), RenderableResources> _renderables = [];
     private readonly Dictionary<Texture2D, ITexture> _materialTextures = [];
     private Material? _defaultMaterial;
+    private ITexture _defaultEnvironmentCube = null!;
+    private ITexture _defaultIrradianceCube = null!;
+    private ITexture _defaultPrefilteredCube = null!;
+    private ITexture _defaultBrdfLut = null!;
+    private ISampler _environmentSampler = null!;
+    private IBuffer _environmentUniformBuffer = null!;
+    private SceneEnvironment? _boundEnvironment;
+    private ITexture? _boundEnvironmentMap;
+    private readonly EnvironmentPreprocessor _environmentPreprocessor;
+    private IPipeline _skyPipeline = null!;
+    private IBindGroup _skyCameraBindGroup = null!;
+    private IBindGroup _skyPlaceholderBindGroup = null!;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct EnvironmentUniforms
+    {
+        public Vector4 Parameters;
+        public Vector4 Tint;
+    }
 
     // Reused across frames to collect the meshes/textures/nodes still referenced
     // by the world, so GPU resources whose CPU owner is gone can be released.
@@ -353,6 +373,7 @@ public sealed class Renderer : IDisposable
         _height = device.Height;
 
         CreateMeshResources();
+        _environmentPreprocessor = new EnvironmentPreprocessor(_device);
         CreateShadowResources();
         CreateGridResources();
         Gizmos = new GizmoRenderer(_device, _cameraBuffer, (ulong)sizeof(CameraUniforms));
@@ -379,6 +400,7 @@ public sealed class Renderer : IDisposable
         // Collect the world's enabled lights once; the shadow pass and the
         // scene pass must agree on each light's index in the shared buffers.
         var lights = CollectLights(world);
+        UpdateEnvironment(world);
 
         ITexture? frame = _device.Swapchain.AcquireTexture();
         if (frame is null)
@@ -387,6 +409,7 @@ public sealed class Renderer : IDisposable
         using (frame)
         {
             using ICommandBuffer commandBuffer = _device.CreateCommandBuffer();
+            _environmentPreprocessor.Update(world?.Environment, commandBuffer);
 
             // Pass 0: render the shadow-casting lights into the depth atlas, so
             // the scene pass can sample it (the atlas is written in one pass and
@@ -416,6 +439,7 @@ public sealed class Renderer : IDisposable
             };
             using (IRenderPass scenePass = commandBuffer.BeginRenderPass(scenePassDescription))
             {
+                DrawSky(scenePass);
                 DrawMeshRenderers(scenePass, world, time, lights);
                 DrawGrid(scenePass);
                 Gizmos.Draw(scenePass, world, camera, _sceneTargetWidth, _sceneTargetHeight);
@@ -562,6 +586,7 @@ public sealed class Renderer : IDisposable
             }
 
             commandBuffer.Submit();
+            _environmentPreprocessor.FinishFrame();
             _device.Swapchain.Present();
         }
     }
@@ -684,8 +709,144 @@ public sealed class Renderer : IDisposable
         _defaultWhiteTexture = CreateSolidTexture(255, 255, 255, 255, srgb: false);
         _defaultBlackTexture = CreateSolidTexture(0, 0, 0, 255, srgb: true);
         _defaultNormalTexture = CreateSolidTexture(128, 128, 255, 255, srgb: false);
+        CreateEnvironmentResources();
 
         _defaultMaterial = Material.CreateDefault(Shader.Load(PathUtil.Combine("Shaders", "Surface/Standard.wgsl")));
+    }
+
+    private void CreateEnvironmentResources()
+    {
+        _environmentSampler = _device.CreateSampler(new SamplerDescription
+        {
+            AddressMode = SamplerAddressMode.ClampToEdge,
+            MipmapFilter = SamplerFilter.Linear
+        });
+        _environmentUniformBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)Marshal.SizeOf<EnvironmentUniforms>(),
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+        _defaultEnvironmentCube = CreateEnvironmentTexture(1, 1, TextureDimension.Cube, 6);
+        _defaultIrradianceCube = CreateEnvironmentTexture(1, 1, TextureDimension.Cube, 6);
+        _defaultPrefilteredCube = CreateEnvironmentTexture(1, 1, TextureDimension.Cube, 6);
+        _defaultBrdfLut = CreateEnvironmentTexture(1, 1, TextureDimension.Dimension2D, 1);
+
+        var skyShader = Shader.Load(PathUtil.Combine("Shaders", "Environment/Sky.wgsl"));
+        _skyPipeline = _device.CreatePipeline(CreateSkyPipelineDescription(
+            skyShader, _device.Swapchain.Format));
+        _skyCameraBindGroup = _skyPipeline.CreateBindGroup(0,
+        [
+            new BindGroupBinding { Slot = 0, Buffer = _cameraBuffer, BufferSize = (ulong)sizeof(CameraUniforms) }
+        ]);
+        // The sky shader uses group 2 for the logical environment bindings,
+        // leaving group 1 empty. WebGPU still requires every intermediate
+        // group slot to be assigned before a later group can be used.
+        _skyPlaceholderBindGroup = _skyPipeline.CreateBindGroup(1, []);
+    }
+
+    internal static PipelineDescription CreateSkyPipelineDescription(
+        Shader shader,
+        TextureFormat colorFormat) => new()
+    {
+        ShaderSource = shader.Source,
+        VertexEntryPoint = "vs_main",
+        FragmentEntryPoint = "fs_main",
+        ColorFormat = colorFormat,
+        DepthFormat = TextureFormat.Depth24Plus,
+        DepthWriteEnabled = false,
+        DepthCompare = CompareFunction.LessEqual,
+        CullMode = CullMode.None,
+        VertexLayout = new VertexBufferLayoutDescription { Stride = 0, Attributes = [] },
+        BindGroups = shader.BuildBindGroupLayouts()
+    };
+
+    private void DrawSky(IRenderPass pass)
+    {
+        var shader = Shader.Load(PathUtil.Combine("Shaders", "Environment/Sky.wgsl"));
+        pass.SetPipeline(_skyPipeline);
+        pass.SetBindGroup(_skyCameraBindGroup, 0);
+        pass.SetBindGroup(_skyPlaceholderBindGroup, 1);
+        pass.SetBindGroup(GetEnvironmentBindGroup(_skyPipeline, shader),
+            (uint)(shader.EnvironmentGroupIndex ?? throw new InvalidOperationException(
+                "The sky shader does not declare the environment binding group.")));
+        pass.Draw(3);
+    }
+
+    private ITexture CreateEnvironmentTexture(int width, int height, TextureDimension dimension, int layers)
+    {
+        var texture = _device.CreateTexture(new TextureDescription
+        {
+            Width = width,
+            Height = height,
+            Dimension = dimension,
+            ArrayLayerCount = layers,
+            Format = TextureFormat.Rgba16Float,
+            Sampled = true,
+            CopyDestination = true
+        });
+        var pixels = new byte[width * height * 8];
+        unsafe
+        {
+            fixed (byte* data = pixels)
+            {
+                for (var layer = 0; layer < layers; layer++)
+                    texture.Write((nint)data, width * 8, 0, 0, width, height, arrayLayer: layer);
+            }
+        }
+        return texture;
+    }
+
+    private void UpdateEnvironment(World? world)
+    {
+        var previous = _boundEnvironment;
+        var environment = world?.Environment;
+        if (environment is not null && environment.State == EnvironmentPreprocessingState.Ready)
+            _boundEnvironment = environment;
+        else
+            _boundEnvironment = null;
+
+        var environmentMap = _boundEnvironment?.EnvironmentMap;
+        if (!ReferenceEquals(previous, _boundEnvironment) || !ReferenceEquals(_boundEnvironmentMap, environmentMap))
+        {
+            foreach (var bindGroup in _environmentBindGroups.Values)
+                bindGroup.Dispose();
+            _environmentBindGroups.Clear();
+        }
+        _boundEnvironmentMap = environmentMap;
+
+        var source = _boundEnvironment;
+        var uniforms = new EnvironmentUniforms
+        {
+            Parameters = new Vector4(
+                source?.Rotation ?? 0f,
+                source?.Intensity ?? 0f,
+                source?.Exposure ?? 0f,
+                source?.PrefilteredSpecularMap?.MipLevelCount is int m ? Math.Max(0, m - 1) : 0),
+            Tint = source?.Tint ?? Vector4.One
+        };
+        _environmentUniformBuffer.Write(in uniforms);
+    }
+
+    private IBindGroup GetEnvironmentBindGroup(IPipeline pipeline, Shader shader)
+    {
+        if (_environmentBindGroups.TryGetValue(pipeline, out var existing))
+            return existing;
+
+        var groupIndex = shader.EnvironmentGroupIndex ?? throw new InvalidOperationException(
+            $"Shader '{shader.Name}' does not declare the environment binding group.");
+
+        var environment = _boundEnvironment;
+        var bindGroup = pipeline.CreateBindGroup(groupIndex,
+        [
+            new BindGroupBinding { Slot = 0, Texture = environment?.EnvironmentMap ?? _defaultEnvironmentCube },
+            new BindGroupBinding { Slot = 1, Texture = environment?.IrradianceMap ?? _defaultIrradianceCube },
+            new BindGroupBinding { Slot = 2, Texture = environment?.PrefilteredSpecularMap ?? _defaultPrefilteredCube },
+            new BindGroupBinding { Slot = 3, Texture = environment?.BrdfLut ?? _defaultBrdfLut },
+            new BindGroupBinding { Slot = 4, Sampler = _environmentSampler },
+            new BindGroupBinding { Slot = 5, Buffer = _environmentUniformBuffer, BufferSize = (ulong)Marshal.SizeOf<EnvironmentUniforms>() }
+        ]);
+        _environmentBindGroups.Add(pipeline, bindGroup);
+        return bindGroup;
     }
 
     /// <summary>
@@ -954,6 +1115,8 @@ public sealed class Renderer : IDisposable
             {
                 pass.SetPipeline(pipeline);
                 pass.SetBindGroup(GetCameraBindGroup(pipeline), 0);
+                if (item.Material.Shader.EnvironmentGroupIndex is int environmentGroup)
+                    pass.SetBindGroup(GetEnvironmentBindGroup(pipeline, item.Material.Shader), (uint)environmentGroup);
                 currentPipeline = pipeline;
             }
             pass.SetBindGroup(renderable.BindGroup, 1);
@@ -1577,7 +1740,7 @@ public sealed class Renderer : IDisposable
             DepthCompare = CompareFunction.Less,
             CullMode = doubleSided ? CullMode.None : CullMode.Back,
             VertexLayout = MeshVertexLayout,
-            BindGroups = [FrameGroupBindings, bindGroups[1]]
+            BindGroups = [FrameGroupBindings, .. bindGroups.Skip(1)]
         });
         _meshPipelines.Add(key, pipeline);
         return pipeline;
@@ -2275,6 +2438,9 @@ public sealed class Renderer : IDisposable
         foreach (var bindGroup in _cameraBindGroups.Values)
             bindGroup.Dispose();
         _cameraBindGroups.Clear();
+        foreach (var bindGroup in _environmentBindGroups.Values)
+            bindGroup.Dispose();
+        _environmentBindGroups.Clear();
         foreach (var pipeline in _meshPipelines.Values)
             pipeline.Dispose();
         _meshPipelines.Clear();
@@ -2310,6 +2476,16 @@ public sealed class Renderer : IDisposable
         _defaultWhiteTexture?.Dispose();
         _defaultBlackTexture?.Dispose();
         _defaultNormalTexture?.Dispose();
+        _defaultEnvironmentCube?.Dispose();
+        _defaultIrradianceCube?.Dispose();
+        _defaultPrefilteredCube?.Dispose();
+        _defaultBrdfLut?.Dispose();
+        _environmentSampler?.Dispose();
+        _environmentUniformBuffer?.Dispose();
+        _environmentPreprocessor.Dispose();
+        _skyCameraBindGroup?.Dispose();
+        _skyPlaceholderBindGroup?.Dispose();
+        _skyPipeline?.Dispose();
         _materialSampler?.Dispose();
         _lightsBuffer?.Dispose();
         _cameraBuffer?.Dispose();

@@ -29,6 +29,7 @@ public sealed class Level : IDisposable, IValid
     {
         World = world;
         Name = string.IsNullOrWhiteSpace(name) ? "Level" : name;
+        Environment = new SceneEnvironment(this);
     }
 
     public Guid Id { get; internal set; } = Guid.NewGuid();
@@ -36,6 +37,8 @@ public sealed class Level : IDisposable, IValid
     public string Name { get; set; }
 
     public World World { get; }
+
+    public SceneEnvironment Environment { get; }
 
     public IReadOnlyList<Entity> Entities => _entities;
 
@@ -165,6 +168,7 @@ public sealed class Level : IDisposable, IValid
         foreach (var entity in _entities.ToArray())
             World.DestroyEntity(entity);
         _entities.Clear();
+        Environment.Dispose();
         World.RemoveLevelInternal(this);
         GC.SuppressFinalize(this);
     }

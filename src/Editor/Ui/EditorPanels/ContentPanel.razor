@@ -17,7 +17,7 @@
             <icon name="Solar/arrows/Bold/round-arrow-right" />
         </div>
     </div>
-    <div class="ct-btn" @onclick="ImportPlaceholder">+ Import</div>
+    <div class="ct-btn" @onclick="ImportEnvironment">+ Import</div>
     <div class="breadcrumb">
         @foreach (var crumb in Crumbs)
         {
@@ -413,7 +413,8 @@
     private static bool TypeMatches(string kind, string filter) => filter switch
     {
         "model" or "models" => kind == "model",
-        "texture" or "textures" or "image" or "images" => kind == "texture",
+        "texture" or "textures" or "image" or "images" => kind is "texture" or "environment",
+        "environment" or "environments" or "hdr" => kind == "environment",
         "sound" or "sounds" or "audio" => kind == "sound",
         "shader" or "shaders" => kind == "shader",
         "file" or "files" => kind == "file",
@@ -437,7 +438,7 @@
     private void CycleSort() => EditorContentState.CycleSortMode();
     private void ZoomOut() => EditorContentState.AdjustTileScale(-1);
     private void ZoomIn() => EditorContentState.AdjustTileScale(1);
-    private void ImportPlaceholder() => UiNotifications.Show("Content", "Import is not available yet.", "info");
+    private void ImportEnvironment() => EditorEnvironmentState.RequestSourcePicker();
     private void OnSearchInput(string value) => EditorContentState.SetSearchQuery(value);
 
     private static string IconNameFor(string kind, bool isFolder) => isFolder
@@ -447,6 +448,7 @@
             "model" => "cube",
             "sound" => "audio",
             "shader" => "Solar/it/Bold/code",
+            "environment" => "sun",
             _ => "Solar/files/Bold/file"
         };
 

@@ -75,11 +75,25 @@ public static class LevelSerializer
             Format = LevelFile.CurrentFormat,
             Id = level.Id,
             Metadata = new LevelFileMetadata(level.Name, EditorVersion),
+            Environment = EnvironmentToData(level.Environment),
             Entities = level.Entities.Select(EntityToData).ToList(),
             Attachments = BuildAttachments(level)
         };
 
         return JsonSerializer.Serialize(data, Options);
+    }
+
+    private static LevelEnvironmentData EnvironmentToData(SceneEnvironment environment)
+    {
+        return new LevelEnvironmentData
+        {
+            Provider = environment.Sky?.Kind.ToString() ?? nameof(SkyProviderKind.None),
+            SourcePath = (environment.Sky as CubemapSky)?.SourcePath,
+            Rotation = environment.Rotation,
+            Intensity = environment.Intensity,
+            Exposure = environment.Exposure,
+            Tint = environment.Tint
+        };
     }
 
     private static LevelEntityData EntityToData(Entity entity)
@@ -226,6 +240,7 @@ public static class LevelSerializer
 
         var level = world.CreateLevel(data.Metadata?.Name);
         level.Id = data.Id;
+        RestoreEnvironment(level, data.Environment, warning);
         PopulateLevel(level, data, warning);
 
         // Reconstructing the level above mutated it (spawning, components,
@@ -258,6 +273,8 @@ public static class LevelSerializer
         level.Id = data.Id;
         if (data.Metadata?.Name is { Length: > 0 } name)
             level.Name = name;
+
+        RestoreEnvironment(level, data.Environment, warning);
 
         PopulateLevel(level, data, warning);
     }
@@ -317,6 +334,43 @@ public static class LevelSerializer
                 warning($"Failed to attach '{child.Name}' to '{parent.Name}': {ex.Message}");
             }
         }
+    }
+
+    private static void RestoreEnvironment(
+        Level level,
+        LevelEnvironmentData? data,
+        Action<string> warning)
+    {
+        if (data is null)
+        {
+            level.Environment.Restore(null, 0f, 1f, 0f, System.Numerics.Vector4.One);
+            return;
+        }
+
+        SkyProvider? provider;
+        if (!Enum.TryParse<SkyProviderKind>(data.Provider, ignoreCase: true, out var kind))
+        {
+            warning($"Unsupported sky provider '{data.Provider}'; using a neutral environment.");
+            provider = null;
+        }
+        else
+        {
+            provider = kind switch
+            {
+                SkyProviderKind.None => null,
+                SkyProviderKind.Cubemap when !string.IsNullOrWhiteSpace(data.SourcePath) => new CubemapSky(data.SourcePath),
+                SkyProviderKind.Cubemap => null,
+                SkyProviderKind.ProceduralAtmosphere => new ProceduralAtmosphere(),
+                _ => null
+            };
+        }
+
+        level.Environment.Restore(
+            provider,
+            data.Rotation,
+            data.Intensity,
+            data.Exposure,
+            data.Tint);
     }
 
     private static void AddComponent(Entity entity, LevelComponentData componentData, Action<string> warning)

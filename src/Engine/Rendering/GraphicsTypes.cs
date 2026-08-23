@@ -17,7 +17,16 @@ public enum TextureFormat
     Rgba8UnormSrgb,
     Bgra8UnormSrgb,
     Depth24Plus,
-    Depth32Float
+    Depth32Float,
+    Rgba16Float,
+    Rgba32Float
+}
+
+public enum TextureDimension
+{
+    Dimension2D,
+    Cube,
+    Dimension2DArray
 }
 
 /// <summary>Backend-neutral usage flags for GPU buffers.</summary>
@@ -37,7 +46,8 @@ public enum BufferUsage
 public enum ShaderStage
 {
     Vertex = 1 << 0,
-    Fragment = 1 << 1
+    Fragment = 1 << 1,
+    Compute = 1 << 2
 }
 
 /// <summary>Backend-neutral depth comparison function.</summary>
@@ -83,7 +93,15 @@ public enum BindingType
     DepthTexture,
     Sampler,
     /// <summary>Depth-comparison sampler used with <see cref="DepthTexture"/>.</summary>
-    ComparisonSampler
+    ComparisonSampler,
+    StorageTexture
+}
+
+public enum StorageTextureAccess
+{
+    WriteOnly,
+    ReadOnly,
+    ReadWrite
 }
 
 /// <summary>Describes a texture the runtime wants to create.</summary>
@@ -91,6 +109,8 @@ public sealed class TextureDescription
 {
     public int Width { get; init; }
     public int Height { get; init; }
+    public TextureDimension Dimension { get; init; } = TextureDimension.Dimension2D;
+    public int ArrayLayerCount { get; init; } = 1;
     public TextureFormat Format { get; init; }
 
     /// <summary>Usable as a render-target color/depth attachment.</summary>
@@ -104,6 +124,7 @@ public sealed class TextureDescription
 
     /// <summary>Usable as the source of GPU→CPU pixel readbacks.</summary>
     public bool CopySource { get; init; }
+    public bool Storage { get; init; }
 
     /// <summary>
     /// Multisample count (1 = single-sample). MSAA textures are render targets
@@ -117,6 +138,15 @@ public sealed class TextureDescription
     /// the full chain for trilinear/anisotropic filtering at distance.
     /// </summary>
     public int MipLevelCount { get; init; } = 1;
+}
+
+public sealed class TextureViewDescription
+{
+    public TextureDimension Dimension { get; init; } = TextureDimension.Dimension2D;
+    public int BaseMipLevel { get; init; }
+    public int MipLevelCount { get; init; } = 1;
+    public int BaseArrayLayer { get; init; }
+    public int ArrayLayerCount { get; init; } = 1;
 }
 
 /// <summary>Describes a GPU buffer the runtime wants to create.</summary>
@@ -187,6 +217,9 @@ public sealed class BindGroupLayoutBinding
     public uint Slot { get; init; }
     public BindingType Type { get; init; }
     public ShaderStage Stages { get; init; }
+    public TextureDimension TextureDimension { get; init; } = TextureDimension.Dimension2D;
+    public TextureFormat StorageTextureFormat { get; init; } = TextureFormat.Rgba32Float;
+    public StorageTextureAccess StorageTextureAccess { get; init; } = StorageTextureAccess.ReadWrite;
 }
 
 /// <summary>
@@ -199,6 +232,7 @@ public sealed class PipelineDescription
     public required string ShaderSource { get; init; }
     public required string VertexEntryPoint { get; init; }
     public required string FragmentEntryPoint { get; init; }
+    public string? ComputeEntryPoint { get; init; }
 
     /// <summary>Single interleaved vertex buffer layout (stride + attributes).</summary>
     public required VertexBufferLayoutDescription VertexLayout { get; init; }
@@ -236,6 +270,13 @@ public sealed class PipelineDescription
     /// fragment stage outputs no color and only depth is written.
     /// </summary>
     public bool DepthOnly { get; init; }
+}
+
+public sealed class ComputePipelineDescription
+{
+    public required string ShaderSource { get; init; }
+    public required string EntryPoint { get; init; }
+    public IReadOnlyList<IReadOnlyList<BindGroupLayoutBinding>> BindGroups { get; init; } = [];
 }
 
 /// <summary>One resource actually bound to a bind-group slot.</summary>

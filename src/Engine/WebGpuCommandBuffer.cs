@@ -14,6 +14,7 @@ public sealed unsafe class WebGpuCommandBuffer : ICommandBuffer
     private readonly WebGpuQueue _queue;
     private WebGpuNativeCommandEncoder _encoder;
     private WebGpuRenderPass? _activePass;
+    private WebGpuComputePass? _activeComputePass;
     private bool _submitted;
     private bool _disposed;
 
@@ -29,7 +30,7 @@ public sealed unsafe class WebGpuCommandBuffer : ICommandBuffer
         ArgumentNullException.ThrowIfNull(description);
         if (_disposed) throw new ObjectDisposedException(nameof(WebGpuCommandBuffer));
         if (_submitted) throw new InvalidOperationException("The command buffer has already been submitted.");
-        if (_activePass != null) throw new InvalidOperationException("A render pass is already active.");
+        if (_activePass != null || _activeComputePass != null) throw new InvalidOperationException("A pass is already active.");
         if (description.Color is null && description.Depth is null)
             throw new ArgumentException("A color or depth attachment is required.", nameof(description));
         if (description.Color is not null && description.Color.Texture is null)
@@ -40,11 +41,21 @@ public sealed unsafe class WebGpuCommandBuffer : ICommandBuffer
         return _activePass;
     }
 
+    public IComputePass BeginComputePass()
+    {
+        if (_disposed) throw new ObjectDisposedException(nameof(WebGpuCommandBuffer));
+        if (_submitted) throw new InvalidOperationException("The command buffer has already been submitted.");
+        if (_activePass != null || _activeComputePass != null) throw new InvalidOperationException("A pass is already active.");
+
+        _activeComputePass = new WebGpuComputePass(this, _runtime, _runtime.BeginComputePass(_encoder));
+        return _activeComputePass;
+    }
+
     public void Submit()
     {
         if (_disposed) throw new ObjectDisposedException(nameof(WebGpuCommandBuffer));
         if (_submitted) throw new InvalidOperationException("The command buffer has already been submitted.");
-        if (_activePass != null) throw new InvalidOperationException("End the active render pass before submitting.");
+        if (_activePass != null || _activeComputePass != null) throw new InvalidOperationException("End the active pass before submitting.");
 
         var commandBuffer = _runtime.FinishCommandEncoder(_encoder);
         _runtime.Submit(_queue, commandBuffer);
@@ -63,6 +74,15 @@ public sealed unsafe class WebGpuCommandBuffer : ICommandBuffer
         _activePass = null;
     }
 
+    internal void EndPass(WebGpuComputePass pass)
+    {
+        if (!ReferenceEquals(_activeComputePass, pass))
+            throw new InvalidOperationException("The compute pass does not belong to this command buffer.");
+
+        _runtime.EndComputePass(pass.Handle);
+        _activeComputePass = null;
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -70,6 +90,7 @@ public sealed unsafe class WebGpuCommandBuffer : ICommandBuffer
         _disposed = true;
 
         _activePass?.Dispose();
+        _activeComputePass?.Dispose();
 
         if (!_submitted && _encoder.NativeHandle != 0)
         {

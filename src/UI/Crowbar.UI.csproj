@@ -14,7 +14,7 @@
     <!-- Text measurement (layout) and image dimension lookup share the same
          libraries as the GPU renderer so measured boxes match painted glyphs. -->
     <PackageReference Include="SixLabors.Fonts" Version="3.1.0" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="4.0.0" />
     <PackageReference Include="Microsoft.AspNetCore.Razor.Language" Version="6.0.36" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>

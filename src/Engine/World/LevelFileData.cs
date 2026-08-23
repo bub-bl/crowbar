@@ -26,11 +26,24 @@ public sealed class LevelFileData
     /// <summary>Display name and editor version that last wrote the level.</summary>
     public LevelFileMetadata? Metadata { get; init; }
 
+    public LevelEnvironmentData? Environment { get; init; }
+
     /// <summary>The level's entities, in spawn order.</summary>
     public List<LevelEntityData> Entities { get; init; } = [];
 
     /// <summary>Parent → child transform relationships, resolved after all entities exist.</summary>
     public List<LevelAttachmentData> Attachments { get; init; } = [];
+}
+
+public sealed class LevelEnvironmentData
+{
+    public int Version { get; init; } = 1;
+    public string Provider { get; init; } = nameof(SkyProviderKind.None);
+    public string? SourcePath { get; init; }
+    public float Rotation { get; init; }
+    public float Intensity { get; init; } = 1f;
+    public float Exposure { get; init; }
+    public System.Numerics.Vector4 Tint { get; init; } = System.Numerics.Vector4.One;
 }
 
 /// <summary>One entity of a saved level: stable id, name and its components.</summary>

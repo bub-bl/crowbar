@@ -25,7 +25,7 @@ public sealed class LevelFile : ResourceFile
     /// Bump it on any breaking layout change and add a migration path in
     /// <see cref="LevelSerializer.Deserialize"/> for older files.
     /// </summary>
-    public const int CurrentFormat = 1;
+    public const int CurrentFormat = 2;
 
     /// <summary>The stable identity of the level, preserved across save/load.</summary>
     public Guid Id { get; private set; } = Guid.NewGuid();

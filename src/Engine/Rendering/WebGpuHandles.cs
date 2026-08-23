@@ -42,6 +42,17 @@ public readonly struct WebGpuRenderPassEncoder
         : handle;
 }
 
+public readonly struct WebGpuComputePassEncoder
+{
+    internal nint NativeHandle { get; }
+
+    internal WebGpuComputePassEncoder(nint nativeHandle) => NativeHandle = Require(nativeHandle);
+
+    private static nint Require(nint handle) => handle != 0
+        ? handle
+        : throw new InvalidOperationException("WebGPU could not create the compute pass encoder.");
+}
+
 internal readonly struct WebGpuNativeCommandEncoder
 {
     internal nint NativeHandle { get; }

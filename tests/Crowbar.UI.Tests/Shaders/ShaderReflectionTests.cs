@@ -32,7 +32,7 @@ public class ShaderReflectionTests
         var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
 
         // Group 0 = per-frame camera + lights + shadows (from the includes);
-        // group 1 = per-renderable model + material.
+        // group 1 = per-renderable model + material; group 2 = environment IBL.
         var expected = new[]
         {
             (0, 0u, ShaderBindingKind.UniformBuffer, "camera", "CameraUniforms"),
@@ -41,7 +41,13 @@ public class ShaderReflectionTests
             (0, 3u, ShaderBindingKind.Texture, "shadowMap", "texture_depth_2d"),
             (0, 4u, ShaderBindingKind.Sampler, "shadowSampler", "sampler"),
             (1, 0u, ShaderBindingKind.UniformBuffer, "model", "mat4x4<f32>"),
-            (1, 1u, ShaderBindingKind.UniformBuffer, "material", "MaterialUniforms")
+            (1, 1u, ShaderBindingKind.UniformBuffer, "material", "MaterialUniforms"),
+            (2, 0u, ShaderBindingKind.Texture, "environmentMap", "texture_cube<f32>"),
+            (2, 1u, ShaderBindingKind.Texture, "irradianceMap", "texture_cube<f32>"),
+            (2, 2u, ShaderBindingKind.Texture, "prefilteredSpecularMap", "texture_cube<f32>"),
+            (2, 3u, ShaderBindingKind.Texture, "brdfLut", "texture_2d<f32>"),
+            (2, 4u, ShaderBindingKind.Sampler, "environmentSampler", "sampler"),
+            (2, 5u, ShaderBindingKind.UniformBuffer, "environment", "EnvironmentUniforms")
         };
         Assert.Equal(
             expected,
@@ -114,7 +120,7 @@ public class ShaderReflectionTests
         var shader = Shader.Load("Shaders/Surface/Standard.wgsl");
         var layouts = shader.BuildBindGroupLayouts();
 
-        Assert.Equal(2, layouts.Count);
+        Assert.Equal(3, layouts.Count);
         Assert.Equal(
             new[]
             {
@@ -128,6 +134,34 @@ public class ShaderReflectionTests
         Assert.Equal(
             new[] { (0u, BindingType.UniformBuffer), (1u, BindingType.UniformBuffer) },
             layouts[1].Select(b => (b.Slot, b.Type)).ToArray());
+        Assert.Equal(TextureDimension.Cube, layouts[2][0].TextureDimension);
+        Assert.Equal(2, shader.EnvironmentGroupIndex);
+        Assert.Equal(
+            new[]
+            {
+                BindingType.Texture, BindingType.Texture, BindingType.Texture,
+                BindingType.Texture, BindingType.Sampler, BindingType.UniformBuffer
+            },
+            layouts[2].Select(binding => binding.Type).ToArray());
+    }
+
+    [Fact]
+    public void EnvironmentComputeShader_ReflectsCubeAndStorageBindings()
+    {
+        var shader = Shader.Load("Shaders/Environment/PrefilterSpecular.wgsl");
+
+        Assert.Contains(shader.EntryPoints, entry =>
+            entry.Name == "cs_main" && entry.Stage == ShaderStageKind.Compute);
+        Assert.Contains(shader.Bindings, binding =>
+            binding.VariableName == "sourceTexture" && binding.TypeName == "texture_cube<f32>");
+        Assert.Contains(shader.Bindings, binding =>
+            binding.VariableName == "outputTexture" && binding.Kind == ShaderBindingKind.StorageTexture);
+
+        var layout = Assert.Single(shader.BuildBindGroupLayouts());
+        Assert.All(layout, binding => Assert.Equal(ShaderStage.Compute, binding.Stages));
+        var storage = Assert.Single(layout.Where(binding => binding.Type == BindingType.StorageTexture));
+        Assert.Equal(TextureFormat.Rgba16Float, storage.StorageTextureFormat);
+        Assert.Equal(StorageTextureAccess.WriteOnly, storage.StorageTextureAccess);
     }
 
     [Fact]

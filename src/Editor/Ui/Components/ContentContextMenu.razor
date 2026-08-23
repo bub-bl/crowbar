@@ -328,8 +328,7 @@
         _createKind = null;
     }
 
-    private void ImportPlaceholder() =>
-        UiNotifications.Show("Content", "Import is not available yet.", "info");
+    private void ImportPlaceholder() => EditorEnvironmentState.RequestSourcePicker();
 
     private void RefreshContent()
     {

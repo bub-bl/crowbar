@@ -122,8 +122,8 @@ public sealed unsafe class WebGpuPipeline : IPipeline
             {
                 Module = ShaderModule,
                 EntryPoint = (byte*)vertexEntry,
-                BufferCount = 1,
-                Buffers = &vertexBufferLayout
+                BufferCount = description.VertexLayout.Attributes.Length == 0 ? 0u : 1u,
+                Buffers = description.VertexLayout.Attributes.Length == 0 ? null : &vertexBufferLayout
             };
 
             var depthStencil = new DepthStencilState
@@ -162,7 +162,10 @@ public sealed unsafe class WebGpuPipeline : IPipeline
         }
     }
 
-    private BindGroupLayout* CreateBindGroupLayout(IReadOnlyList<BindGroupLayoutBinding> bindings)
+    internal static BindGroupLayout* CreateBindGroupLayout(
+        WebGpuRuntime runtime,
+        WebGpuDevice device,
+        IReadOnlyList<BindGroupLayoutBinding> bindings)
     {
         BindGroupLayoutEntry* entries = stackalloc BindGroupLayoutEntry[Math.Max(1, bindings.Count)];
         for (var i = 0; i < bindings.Count; i++)
@@ -185,7 +188,15 @@ public sealed unsafe class WebGpuPipeline : IPipeline
                     entries[i].Texture = new TextureBindingLayout
                     {
                         SampleType = TextureSampleType.Float,
-                        ViewDimension = TextureViewDimension.Dimension2D
+                        ViewDimension = WebGpuNative.ToNativeViewDimension(binding.TextureDimension)
+                    };
+                    break;
+                case BindingType.StorageTexture:
+                    entries[i].StorageTexture = new StorageTextureBindingLayout
+                    {
+                        Access = WebGpuNative.ToNative(binding.StorageTextureAccess),
+                        Format = WebGpuNative.ToNative(binding.StorageTextureFormat),
+                        ViewDimension = WebGpuNative.ToNativeViewDimension(binding.TextureDimension)
                     };
                     break;
                 case BindingType.DepthTexture:
@@ -209,11 +220,14 @@ public sealed unsafe class WebGpuPipeline : IPipeline
             EntryCount = (uint)bindings.Count,
             Entries = entries
         };
-        var layout = _runtime.Api.DeviceCreateBindGroupLayout(_device.UnsafeHandle, in layoutDescriptor);
+        var layout = runtime.Api.DeviceCreateBindGroupLayout(device.UnsafeHandle, in layoutDescriptor);
         if (layout == null)
             throw new InvalidOperationException("WebGPU could not create the bind group layout.");
         return layout;
     }
+
+    private BindGroupLayout* CreateBindGroupLayout(IReadOnlyList<BindGroupLayoutBinding> bindings) =>
+        CreateBindGroupLayout(_runtime, _device, bindings);
 
     public IBindGroup CreateBindGroup(IReadOnlyList<BindGroupBinding> bindings) =>
         CreateBindGroup(0, bindings);

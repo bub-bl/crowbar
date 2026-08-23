@@ -96,6 +96,8 @@ public sealed class Shader : ResourceFile
     /// <summary>The material fields mapped to CLR types, for parameter validation.</summary>
     public IReadOnlyList<ShaderParameterDefinition> Parameters { get; private set; } = [];
 
+    public int? EnvironmentGroupIndex => FindEnvironmentGroupIndex();
+
     /// <summary>Allocated by the library, then populated through <see cref="Load"/>.</summary>
     private Shader()
     {
@@ -121,12 +123,21 @@ public sealed class Shader : ResourceFile
     /// </summary>
     public IReadOnlyList<IReadOnlyList<BindGroupLayoutBinding>> BuildBindGroupLayouts()
     {
-        return
-        [
-            .. Bindings
-                .GroupBy(binding => binding.Group)
-                .OrderBy(group => group.Key)
-                .Select(group => (IReadOnlyList<BindGroupLayoutBinding>)group
+        var computeOnly = EntryPoints.Count > 0 && EntryPoints.All(entry => entry.Stage == ShaderStageKind.Compute);
+        if (Bindings.Count == 0)
+            return [];
+
+        var byGroup = Bindings.GroupBy(binding => binding.Group).ToDictionary(group => group.Key);
+        var result = new List<IReadOnlyList<BindGroupLayoutBinding>>();
+        for (var groupIndex = 0; groupIndex <= Bindings.Max(binding => binding.Group); groupIndex++)
+        {
+            if (!byGroup.TryGetValue(groupIndex, out var group))
+            {
+                result.Add([]);
+                continue;
+            }
+
+            result.Add(group
                     .OrderBy(binding => binding.Slot)
                     .Select(binding => new BindGroupLayoutBinding
                     {
@@ -137,15 +148,27 @@ public sealed class Shader : ResourceFile
                             ShaderBindingKind.ReadOnlyStorageBuffer => BindingType.ReadOnlyStorageBuffer,
                             ShaderBindingKind.Texture =>
                                 binding.TypeName == "texture_depth_2d" ? BindingType.DepthTexture : BindingType.Texture,
+                            ShaderBindingKind.StorageTexture => BindingType.StorageTexture,
                             ShaderBindingKind.Sampler => BindingType.Sampler,
                             _ => throw new ArgumentOutOfRangeException(nameof(binding), binding.Kind, null)
                         },
-                        Stages = binding.Kind is ShaderBindingKind.Texture or ShaderBindingKind.Sampler
-                            ? ShaderStage.Fragment
-                            : ShaderStage.Vertex | ShaderStage.Fragment
+                        TextureDimension = binding.TypeName switch
+                        {
+                            "texture_cube<f32>" => TextureDimension.Cube,
+                            "texture_2d_array<f32>" => TextureDimension.Dimension2DArray,
+                            _ => TextureDimension.Dimension2D
+                        },
+                        StorageTextureFormat = StorageTextureFormat(binding.TypeName),
+                        StorageTextureAccess = StorageTextureAccess(binding.TypeName),
+                        Stages = computeOnly
+                            ? ShaderStage.Compute
+                            : binding.Kind is ShaderBindingKind.Texture or ShaderBindingKind.Sampler or ShaderBindingKind.StorageTexture
+                                ? ShaderStage.Fragment
+                                : ShaderStage.Vertex | ShaderStage.Fragment
                     })
-                    .ToList())
-        ];
+                    .ToList());
+        }
+        return result;
     }
 
     public ShaderTechnique GetTechnique(string name)
@@ -190,7 +213,25 @@ public sealed class Shader : ResourceFile
             Techniques = SlangShaderReflection.DetectTechniques(EntryPoints);
             FilePath = candidate.FullName;
             Name = candidate.GetNameWithoutExtension() ?? string.Empty;
-            Source = source;
+            // Slang currently lowers RWTexture2D<float4> to rgba32float/read_write.
+            // The environment kernels only store, and their targets are RGBA16F,
+            // so normalize those shaders without changing generic storage-texture
+            // reflection for unrelated compute workloads.
+            if (candidate.FullName.Replace('\\', '/').Contains("/Shaders/Environment/", StringComparison.OrdinalIgnoreCase))
+            {
+                Source = source.Replace(
+                    "texture_storage_2d<rgba32float, read_write>",
+                    "texture_storage_2d<rgba16float, write>",
+                    StringComparison.Ordinal);
+                Bindings = Bindings.Select(binding => binding.Kind == ShaderBindingKind.StorageTexture
+                        ? binding with { TypeName = "texture_storage_2d<rgba16float, write>" }
+                        : binding)
+                    .ToArray();
+            }
+            else
+            {
+                Source = source;
+            }
             MaterialFields = FindMaterialFields();
             Parameters =
             [
@@ -229,4 +270,35 @@ public sealed class Shader : ResourceFile
 
         return materialStruct?.Fields ?? [];
     }
+
+    private int? FindEnvironmentGroupIndex()
+    {
+        string[] requiredNames =
+        [
+            "environmentMap", "irradianceMap", "prefilteredSpecularMap",
+            "brdfLut", "environmentSampler", "environment"
+        ];
+        foreach (var group in Bindings.GroupBy(binding => binding.Group))
+        {
+            var names = group.Select(binding => binding.VariableName).ToHashSet(StringComparer.Ordinal);
+            if (requiredNames.All(names.Contains) &&
+                group.Any(binding => binding.VariableName == "environment" &&
+                                     binding.Kind == ShaderBindingKind.UniformBuffer &&
+                                     binding.TypeName == "EnvironmentUniforms"))
+                return group.Key;
+        }
+        return null;
+    }
+
+    private static TextureFormat StorageTextureFormat(string typeName) =>
+        typeName.Contains("rgba16float", StringComparison.Ordinal)
+            ? TextureFormat.Rgba16Float
+            : TextureFormat.Rgba32Float;
+
+    private static StorageTextureAccess StorageTextureAccess(string typeName) =>
+        typeName.Contains(", write>", StringComparison.Ordinal)
+            ? Rendering.StorageTextureAccess.WriteOnly
+            : typeName.Contains(", read>", StringComparison.Ordinal)
+                ? Rendering.StorageTextureAccess.ReadOnly
+                : Rendering.StorageTextureAccess.ReadWrite;
 }

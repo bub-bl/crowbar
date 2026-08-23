@@ -158,7 +158,11 @@ public sealed class ContentExplorer : IDisposable
     /// <summary>Thumbnail class for a logical content path, from its registered asset type.</summary>
     private static string KindFor(string logical)
     {
-        var type = ResourceLibrary.GetTypeForExtension(Path.GetExtension(logical));
+        var extension = Path.GetExtension(logical);
+        if (extension.Equals(".hdr", StringComparison.OrdinalIgnoreCase) ||
+            extension.Equals(".exr", StringComparison.OrdinalIgnoreCase))
+            return "environment";
+        var type = ResourceLibrary.GetTypeForExtension(extension);
         if (type == typeof(Model)) return "model";
         if (type == typeof(Texture2D)) return "texture";
         if (type == typeof(AudioClip)) return "sound";

@@ -56,7 +56,18 @@ internal static class NativeFileDialog
     /// </summary>
     public static string? PickCrproj(nint owner, string? initialDirectory)
     {
-        var filter = "Crowbar project (*.crproj)\0*.crproj\0All files (*.*)\0*.*\0\0";
+        return Pick(owner, initialDirectory,
+            "Crowbar project (*.crproj)\0*.crproj\0All files (*.*)\0*.*\0\0",
+            "Open a game project");
+    }
+
+    public static string? PickEnvironment(nint owner, string? initialDirectory) =>
+        Pick(owner, initialDirectory,
+            "HDR environments (*.hdr;*.exr)\0*.hdr;*.exr\0Radiance HDR (*.hdr)\0*.hdr\0OpenEXR (*.exr)\0*.exr\0\0",
+            "Import an HDR environment");
+
+    private static string? Pick(nint owner, string? initialDirectory, string filter, string title)
+    {
 
         // The returned path is written back into this buffer; 32768 chars covers
         // the longest legal path plus the "long path" tail.
@@ -65,7 +76,7 @@ internal static class NativeFileDialog
             Marshal.WriteInt16(fileBuffer, i * sizeof(short), 0);
 
         var filterPtr = Marshal.StringToHGlobalUni(filter);
-        var titlePtr = Marshal.StringToHGlobalUni("Open a game project");
+        var titlePtr = Marshal.StringToHGlobalUni(title);
         nint initialDirPtr = 0;
         if (!string.IsNullOrEmpty(initialDirectory))
             initialDirPtr = Marshal.StringToHGlobalUni(initialDirectory);

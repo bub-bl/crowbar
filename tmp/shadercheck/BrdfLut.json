@@ -1,0 +1,55 @@
+{
+    "parameters": [
+        {
+            "name": "outputTexture",
+            "binding": {"kind": "descriptorTableSlot", "index": 0},
+            "type": {
+                "kind": "resource",
+                "baseShape": "texture2D",
+                "access": "readWrite",
+                "resultType": {
+                    "kind": "vector",
+                    "elementCount": 4,
+                    "elementType": {
+                        "kind": "scalar",
+                        "scalarType": "float32"
+                    }
+                },
+                "sizes": [
+                    {"kind": "descriptorTableSlot", "value": 1}
+                ]
+            }
+        }
+    ],
+    "entryPoints": [
+        {
+            "name": "cs_main",
+            "stage": "compute",
+            "parameters": [
+                {
+                    "name": "id",
+                    "semanticName": "SV_DISPATCHTHREADID",
+                    "type": {
+                        "kind": "vector",
+                        "elementCount": 3,
+                        "elementType": {
+                            "kind": "scalar",
+                            "scalarType": "uint32"
+                        },
+                        "sizes": [
+
+                        ]
+                    }
+                }
+            ],
+            "threadGroupSize": [8, 8, 1],
+            "bindings": [
+                {
+                    "name": "outputTexture",
+                    "binding": {"kind": "descriptorTableSlot", "index": 0}
+                }
+            ]
+        }
+    ],
+    "bindlessSpaceIndex": 1
+}

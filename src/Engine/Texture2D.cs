@@ -15,11 +15,24 @@ namespace Crowbar.Engine;
 /// <see cref="Height"/> or <see cref="Pixels"/>, so importing a model records
 /// its texture set without decoding every image up front.
 /// </summary>
-[AssetType("png", "jpg", "jpeg", "webp")]
+[AssetType("png", "jpg", "jpeg", "webp", "hdr", "exr")]
 public sealed class Texture2D : ResourceFile
 {
+    public enum SourcePixelFormat
+    {
+        Rgba8,
+        Rgba16Float
+    }
+
     private readonly Lock _decodeLock = new();
-    private (int Width, int Height, byte[] Pixels)? _decoded;
+    private DecodedTexture? _decoded;
+
+    private sealed record DecodedTexture(
+        int Width,
+        int Height,
+        SourcePixelFormat Format,
+        byte[]? Pixels,
+        float[]? HdrPixels);
 
     /// <summary>
     /// Downsampled mip levels, index 0 = level 1 (half resolution). Built
@@ -41,14 +54,22 @@ public sealed class Texture2D : ResourceFile
 
     public int Width => EnsureDecoded().Width;
     public int Height => EnsureDecoded().Height;
-    public byte[] Pixels => EnsureDecoded().Pixels;
+    public SourcePixelFormat PixelFormat => EnsureDecoded().Format;
+    public bool IsHdr => PixelFormat == SourcePixelFormat.Rgba16Float;
+    public byte[] Pixels => EnsureDecoded().Pixels
+        ?? throw new InvalidOperationException("HDR textures expose linear pixels through HdrPixels.");
+    public float[] HdrPixels => EnsureDecoded().HdrPixels
+        ?? throw new InvalidOperationException("This texture does not contain HDR pixels.");
 
     /// <summary>Total mip levels (base + each halving down to 1×1).</summary>
     public int MipLevelCount
     {
         get
         {
-            var (width, height, _) = EnsureDecoded();
+            var decoded = EnsureDecoded();
+            if (decoded.Format == SourcePixelFormat.Rgba16Float)
+                return 1;
+            var (width, height) = (decoded.Width, decoded.Height);
             return 1 + (int)Math.Floor(Math.Log2(Math.Max(width, height)));
         }
     }
@@ -83,7 +104,10 @@ public sealed class Texture2D : ResourceFile
 
         lock (_decodeLock)
         {
-            var (baseWidth, baseHeight, basePixels) = EnsureDecodedLocked();
+            var decoded = EnsureDecodedLocked();
+            if (decoded.Pixels is null)
+                throw new InvalidOperationException("Ordinary texture mip generation is not used for HDR environment maps.");
+            var (baseWidth, baseHeight, basePixels) = (decoded.Width, decoded.Height, decoded.Pixels);
             while (_mips.Count < level)
             {
                 // The level being generated is (_mips.Count + 1); its source is
@@ -118,7 +142,7 @@ public sealed class Texture2D : ResourceFile
     {
     }
 
-    private Texture2D(string name, string? resourcePath, (int Width, int Height, byte[] Pixels)? decoded = null)
+    private Texture2D(string name, string? resourcePath, DecodedTexture? decoded = null)
     {
         Name = name;
         if (resourcePath is not null)
@@ -162,7 +186,7 @@ public sealed class Texture2D : ResourceFile
 
     internal static int GetReferenceCount(string path) => ResourceLibrary.GetReferenceCount<Texture2D>(path);
 
-    private (int Width, int Height, byte[] Pixels) EnsureDecoded()
+    private DecodedTexture EnsureDecoded()
     {
         if (_decoded is { } decoded)
             return decoded;
@@ -172,7 +196,7 @@ public sealed class Texture2D : ResourceFile
     }
 
     /// <summary>Decodes the source image; assumes <see cref="_decodeLock"/> is held.</summary>
-    private (int Width, int Height, byte[] Pixels) EnsureDecodedLocked()
+    private DecodedTexture EnsureDecodedLocked()
     {
         if (_decoded is { } current)
             return current;
@@ -219,15 +243,40 @@ public sealed class Texture2D : ResourceFile
         return dst;
     }
 
-    private static (int Width, int Height, byte[] Pixels) Decode(string path)
+    private static DecodedTexture Decode(string path)
     {
         using var stream = FileSystem.Content.OpenRead(path);
-        using var image = Image.Load<Rgba32>(stream);
-        var width = image.Width;
-        var height = image.Height;
-        var pixels = new byte[checked(width * height * 4)];
-        image.CopyPixelDataTo(pixels);
-        return (width, height, pixels);
+        var extension = System.IO.Path.GetExtension(path);
+        if (extension.Equals(".hdr", StringComparison.OrdinalIgnoreCase))
+        {
+            var hdrImage = RadianceHdrDecoder.Decode(stream);
+            return new DecodedTexture(
+                hdrImage.Width, hdrImage.Height, SourcePixelFormat.Rgba16Float, null, hdrImage.Pixels);
+        }
+        if (extension.Equals(".exr", StringComparison.OrdinalIgnoreCase))
+        {
+            using var exrImage = Image.Load<HalfVector4>(stream);
+            var source = new HalfVector4[checked(exrImage.Width * exrImage.Height)];
+            exrImage.CopyPixelDataTo(source);
+            var hdrPixels = new float[checked(source.Length * 4)];
+            for (var index = 0; index < source.Length; index++)
+            {
+                var pixel = source[index].ToVector4();
+                hdrPixels[index * 4] = pixel.X;
+                hdrPixels[index * 4 + 1] = pixel.Y;
+                hdrPixels[index * 4 + 2] = pixel.Z;
+                hdrPixels[index * 4 + 3] = pixel.W;
+            }
+            return new DecodedTexture(
+                exrImage.Width, exrImage.Height, SourcePixelFormat.Rgba16Float, null, hdrPixels);
+        }
+
+        using var ldrImage = Image.Load<Rgba32>(stream);
+        var width = ldrImage.Width;
+        var height = ldrImage.Height;
+        var ldrPixels = new byte[checked(width * height * 4)];
+        ldrImage.CopyPixelDataTo(ldrPixels);
+        return new DecodedTexture(width, height, SourcePixelFormat.Rgba8, ldrPixels, null);
     }
 
     /// <summary>
@@ -242,6 +291,33 @@ public sealed class Texture2D : ResourceFile
         if (rgba.Length < checked(width * height * 4))
             throw new ArgumentException("Pixel buffer is smaller than width * height * 4 bytes.", nameof(rgba));
 
-        return new Texture2D(name, null, (width, height, rgba[..checked(width * height * 4)].ToArray()));
+        return new Texture2D(name, null, new DecodedTexture(
+            width, height, SourcePixelFormat.Rgba8,
+            rgba[..checked(width * height * 4)].ToArray(), null));
+    }
+
+    public static Texture2D CreateHdr(string name, int width, int height, ReadOnlySpan<float> rgba)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        if (width <= 0 || height <= 0)
+            throw new ArgumentOutOfRangeException(nameof(width), "Texture dimensions must be positive.");
+        if (rgba.Length < checked(width * height * 4))
+            throw new ArgumentException("Pixel buffer is smaller than width * height * 4 floats.", nameof(rgba));
+        return new Texture2D(name, null, new DecodedTexture(
+            width, height, SourcePixelFormat.Rgba16Float, null,
+            rgba[..checked(width * height * 4)].ToArray()));
+    }
+
+    public byte[] GetRgba16FloatBytes()
+    {
+        var source = HdrPixels;
+        var bytes = new byte[checked(source.Length * 2)];
+        for (var index = 0; index < source.Length; index++)
+        {
+            var bits = BitConverter.HalfToUInt16Bits((Half)source[index]);
+            bytes[index * 2] = (byte)bits;
+            bytes[index * 2 + 1] = (byte)(bits >> 8);
+        }
+        return bytes;
     }
 }

@@ -69,6 +69,40 @@ internal static unsafe class WebGpuNative
     internal static void DrawInstanced(WebGPU api, WebGpuRenderPassEncoder pass, uint vertexCount, uint instanceCount, uint firstInstance) =>
         api.RenderPassEncoderDraw((RenderPassEncoder*)pass.NativeHandle, vertexCount, instanceCount, 0, firstInstance);
 
+    internal static WebGpuComputePassEncoder BeginComputePass(
+        WebGPU api,
+        WebGpuNativeCommandEncoder encoder)
+    {
+        var descriptor = new ComputePassDescriptor();
+        return new((nint)api.CommandEncoderBeginComputePass(
+            (CommandEncoder*)encoder.NativeHandle, in descriptor));
+    }
+
+    internal static void SetComputePipeline(
+        WebGPU api,
+        WebGpuComputePassEncoder pass,
+        ComputePipeline* pipeline) =>
+        api.ComputePassEncoderSetPipeline((ComputePassEncoder*)pass.NativeHandle, pipeline);
+
+    internal static void SetComputeBindGroup(
+        WebGPU api,
+        WebGpuComputePassEncoder pass,
+        BindGroup* bindGroup,
+        uint groupIndex) =>
+        api.ComputePassEncoderSetBindGroup(
+            (ComputePassEncoder*)pass.NativeHandle, groupIndex, bindGroup, 0, null);
+
+    internal static void Dispatch(
+        WebGPU api,
+        WebGpuComputePassEncoder pass,
+        uint x,
+        uint y,
+        uint z) =>
+        api.ComputePassEncoderDispatchWorkgroups((ComputePassEncoder*)pass.NativeHandle, x, y, z);
+
+    internal static void EndComputePass(WebGPU api, WebGpuComputePassEncoder pass) =>
+        api.ComputePassEncoderEnd((ComputePassEncoder*)pass.NativeHandle);
+
     internal static WebGpuNativeCommandEncoder CreateCommandEncoder(WebGPU api, WebGpuDevice device) =>
         new((nint)api.DeviceCreateCommandEncoder(device.UnsafeHandle, null));
 
@@ -156,6 +190,8 @@ internal static unsafe class WebGpuNative
         EngineTextureFormat.Bgra8UnormSrgb => SilkTextureFormat.Bgra8UnormSrgb,
         EngineTextureFormat.Depth24Plus => SilkTextureFormat.Depth24Plus,
         EngineTextureFormat.Depth32Float => SilkTextureFormat.Depth32float,
+        EngineTextureFormat.Rgba16Float => SilkTextureFormat.Rgba16float,
+        EngineTextureFormat.Rgba32Float => SilkTextureFormat.Rgba32float,
         _ => throw new ArgumentOutOfRangeException(nameof(format))
     };
 
@@ -173,6 +209,8 @@ internal static unsafe class WebGpuNative
         SilkTextureFormat.Bgra8UnormSrgb => EngineTextureFormat.Bgra8UnormSrgb,
         SilkTextureFormat.Depth24Plus => EngineTextureFormat.Depth24Plus,
         SilkTextureFormat.Depth32float => EngineTextureFormat.Depth32Float,
+        SilkTextureFormat.Rgba16float => EngineTextureFormat.Rgba16Float,
+        SilkTextureFormat.Rgba32float => EngineTextureFormat.Rgba32Float,
         _ => null
     };
 
@@ -192,8 +230,27 @@ internal static unsafe class WebGpuNative
         var result = SilkShaderStage.None;
         if (stage.HasFlag(EngineShaderStage.Vertex)) result |= SilkShaderStage.Vertex;
         if (stage.HasFlag(EngineShaderStage.Fragment)) result |= SilkShaderStage.Fragment;
+        if (stage.HasFlag(EngineShaderStage.Compute)) result |= SilkShaderStage.Compute;
         return result;
     }
+
+    internal static TextureViewDimension ToNativeViewDimension(
+        Crowbar.Engine.Rendering.TextureDimension dimension) => dimension switch
+    {
+        Crowbar.Engine.Rendering.TextureDimension.Dimension2D => TextureViewDimension.Dimension2D,
+        Crowbar.Engine.Rendering.TextureDimension.Cube => TextureViewDimension.DimensionCube,
+        Crowbar.Engine.Rendering.TextureDimension.Dimension2DArray => TextureViewDimension.Dimension2DArray,
+        _ => throw new ArgumentOutOfRangeException(nameof(dimension))
+    };
+
+    internal static Silk.NET.WebGPU.StorageTextureAccess ToNative(
+        Crowbar.Engine.Rendering.StorageTextureAccess access) => access switch
+    {
+        Crowbar.Engine.Rendering.StorageTextureAccess.WriteOnly => Silk.NET.WebGPU.StorageTextureAccess.WriteOnly,
+        Crowbar.Engine.Rendering.StorageTextureAccess.ReadOnly => Silk.NET.WebGPU.StorageTextureAccess.ReadOnly,
+        Crowbar.Engine.Rendering.StorageTextureAccess.ReadWrite => Silk.NET.WebGPU.StorageTextureAccess.ReadWrite,
+        _ => throw new ArgumentOutOfRangeException(nameof(access))
+    };
 
     internal static SilkCompareFunction ToNative(EngineCompareFunction function) => function switch
     {

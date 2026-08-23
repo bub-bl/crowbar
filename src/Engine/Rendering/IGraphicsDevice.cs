@@ -20,6 +20,7 @@ public interface IGraphicsDevice : IDisposable
     IBuffer CreateBuffer(BufferDescription description);
     ISampler CreateSampler(SamplerDescription description);
     IPipeline CreatePipeline(PipelineDescription description);
+    IComputePipeline CreateComputePipeline(ComputePipelineDescription description);
     ICommandBuffer CreateCommandBuffer();
 
     void Resize(int width, int height);

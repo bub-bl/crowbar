@@ -37,6 +37,10 @@ public sealed class World : IDisposable
 
     public IReadOnlyList<Level> Levels => _levels;
 
+    public Level? ActiveLevel { get; private set; }
+
+    public SceneEnvironment? Environment => ActiveLevel?.Environment;
+
     /// <summary>All world systems, keyed by type.</summary>
     public IReadOnlyCollection<WorldSystem> Systems => _systems.Values;
 
@@ -91,7 +95,15 @@ public sealed class World : IDisposable
             throw new ObjectDisposedException(nameof(World));
         var level = new Level(this, name);
         _levels.Add(level);
+        ActiveLevel ??= level;
         return level;
+    }
+
+    public void SetActiveLevel(Level? level)
+    {
+        if (level is not null && (level.World != this || !_levels.Contains(level)))
+            throw new ArgumentException("The active level must belong to this world.", nameof(level));
+        ActiveLevel = level;
     }
 
     public void DestroyLevel(Level level)
@@ -101,7 +113,12 @@ public sealed class World : IDisposable
         level.Dispose();
     }
 
-    internal void RemoveLevelInternal(Level level) => _levels.Remove(level);
+    internal void RemoveLevelInternal(Level level)
+    {
+        _levels.Remove(level);
+        if (ReferenceEquals(ActiveLevel, level))
+            ActiveLevel = _levels.FirstOrDefault();
+    }
 
     // ---- Systems ----
 

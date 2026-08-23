@@ -83,6 +83,9 @@ public sealed unsafe class WebGpuContext : IGraphicsDevice
     public IPipeline CreatePipeline(PipelineDescription description) =>
         new WebGpuPipeline(Runtime, Device, description);
 
+    public IComputePipeline CreateComputePipeline(ComputePipelineDescription description) =>
+        new WebGpuComputePipeline(Runtime, Device, description);
+
     public ICommandBuffer CreateCommandBuffer() =>
         new WebGpuCommandBuffer(Runtime, Device, Queue);
 
