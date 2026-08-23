@@ -136,9 +136,14 @@
         Log.Clear();
     }
 
-    private void OnCommandInput(string value)
+    private bool OnCommandInput(string value)
     {
         _commandText = value;
+        // Return false: the TextInput manages its own text/caret, and the
+        // console entries do not depend on _commandText, so a rebuild on every
+        // keystroke would only recreate the entries container and lose the
+        // scroll position.
+        return false;
     }
 
     private bool OnCommandKey(KeyEvent e)
@@ -162,7 +167,9 @@
         hash.Add(_showInfo);
         hash.Add(_showWarn);
         hash.Add(_showError);
-        hash.Add(_commandText);
+        // _commandText is intentionally excluded: typing must not rebuild the
+        // console (it would reset the entries scroll). The input's text is
+        // managed by the TextInput widget itself.
         return hash.ToHashCode();
     }
 }
