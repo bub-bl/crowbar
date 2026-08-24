@@ -54,8 +54,11 @@ public sealed class Editor : Application
     /// <summary>The persistent notification popup window.</summary>
     public NotificationWindow NotificationWindow { get; private set; } = null!;
 
-    /// <summary>Consumes and applies inspector UI requests (property edits, component additions).</summary>
+    /// <summary>Consumes and applies generic inspector UI requests.</summary>
     public InspectorBridge InspectorBridge { get; private set; } = null!;
+
+    /// <summary>Handles specialized environment asset imports requested by the content UI.</summary>
+    internal EnvironmentAssetImporter EnvironmentAssetImporter { get; private set; } = null!;
 
     // The engine exposes Platform/OpenWindow/Viewport* as protected session
     // members; the editor tools reach them through these public accessors.
@@ -90,6 +93,7 @@ public sealed class Editor : Application
         GameProject.ActionsChanged += ContentExplorer.Refresh;
         Viewport = new Viewport(this);
         InspectorBridge = new InspectorBridge(this);
+        EnvironmentAssetImporter = new EnvironmentAssetImporter(this);
         Shortcuts = new Shortcuts(this, NotificationWindow);
 
         // The translation gizmo snap follows the grid cell size.
@@ -174,7 +178,10 @@ public sealed class Editor : Application
 
         // Viewport interaction: gizmos, picking, selection, explorer.
         Viewport.Update(deltaTime, ViewportWidth, ViewportHeight);
-        // Inspector bridge: consume UI requests (edits, add-component), publish state.
+        // Specialized content workflows run independently from the generic
+        // inspector request bridge.
+        EnvironmentAssetImporter.Update(Game.Renderer?.Gizmos.Selection);
+        // Inspector bridge: consume generic inspector requests and publish state.
         InspectorBridge.Update(Game.Renderer?.Gizmos.Selection);
 
         Level.PublishUndoState();
