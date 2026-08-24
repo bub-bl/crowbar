@@ -8,6 +8,41 @@
   "environment": null,
   "entities": [
     {
+      "id": "1c9f6d2e-4b7a-4f0e-9c3d-2a5b8e7f1a04",
+      "name": "Camera",
+      "components": [
+        {
+          "type": "Camera",
+          "enabled": true,
+          "transform": "4.24,3,-4.24,0.19259183,-0.37427625,0.079774156,0.90358269,1,1,1",
+          "properties": {
+            "Pivot": [
+              -0.08900477,
+              0.26602188,
+              0.089004368
+            ],
+            "Distance": 6.7048635,
+            "EnablePostProcessing": true,
+            "FieldOfView": 60,
+            "NearPlane": 0.1,
+            "FarPlane": 100
+          }
+        },
+        {
+          "type": "Tonemapping",
+          "enabled": true,
+          "transform": null,
+          "properties": {
+            "Operator": "Reinhard",
+            "Exposure": 0,
+            "Saturation": 1,
+            "Order": 0,
+            "Sampler": "Linear"
+          }
+        }
+      ]
+    },
+    {
       "id": "d1ceb0af-0157-4e8b-92cb-d330a1ae5767",
       "name": "Sun",
       "components": [

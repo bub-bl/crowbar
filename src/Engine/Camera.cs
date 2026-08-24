@@ -38,6 +38,21 @@ public sealed class Camera : TransformComponent
     }
 
     /// <summary>
+    /// Resyncs the yaw/pitch edit state from the transform rotation. A camera
+    /// restored from a level carries its orientation in the transform (the
+    /// rotation is what serializes, not the yaw/pitch fields), so without this
+    /// the first orbit drag after a reload would jump back toward the
+    /// constructor defaults.
+    /// </summary>
+    protected override void OnStart()
+    {
+        base.OnStart();
+        var forward = Local.Rotation.Forward;
+        _pitch = MathF.Asin(Math.Clamp(forward.Y, -1f, 1f));
+        _yaw = MathF.Atan2(forward.X, forward.Z);
+    }
+
+    /// <summary>
     /// World-space position. When the camera is attached to an entity this
     /// follows the transform hierarchy, exactly like any other spatial
     /// component.

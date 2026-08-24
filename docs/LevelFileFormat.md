@@ -118,9 +118,14 @@ packed into the shader's uniforms by name) and `BasePostProcess<T>`
 (volume-blended settings through `GetWeighted`). `PostProcessVolume`
 components make effect instances spatial: they apply while the camera is
 inside the box, weighted by position. The `Camera` component has an
-`EnablePostProcessing` toggle (default true; disabled gives an identity
-pass). Without any `PostProcess` component the engine keeps the historical
-Reinhard look. See `docs/PostProcessing.md` for the authoring guide.
+`EnablePostProcessing` toggle (default true). The engine is **neutral**: with
+no `PostProcess` component (or when the toggle is off) the scene is copied to
+the display as-is — no tonemapping is ever applied by the engine itself. The
+default look is level content: a `Camera` entity in the level becomes the
+active viewport camera in the editor, and the demo level ships a
+`Tonemapping` component on its camera. Levels without a `Camera` entity keep
+the engine's world-only fallback camera (never serialized). See
+`docs/PostProcessing.md` for the authoring guide.
 
 The shader convention (shared by every post-process shader, in
 `Shaders/PostProcesses/` for the engine or `Content/Shaders/` for a game
@@ -160,7 +165,7 @@ On the other hand, a `format` **newer** than the build is a hard failure
 
 ## Notes
 
-- Out-of-level entities (world-only, e.g. the editor camera) are never serialized.
+- Out-of-level entities (world-only, e.g. the engine's fallback camera) are never serialized; a level-authored `Camera` entity is regular level content and persists like any other.
 - A duplicate component in an entity is ignored with a warning (an entity allows only one component per type).
 - A material's textures are not persisted in v1 (they come from the model import).
 - Writing is atomic (`.tmp` write → `MoveFile`), so a crash never leaves a truncated file.

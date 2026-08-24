@@ -73,6 +73,41 @@ public sealed class Editor : Application
     /// <summary>Saves the open level to the project's level file (Ctrl+S).</summary>
     public void SaveLevel() => Level.Save(Project.LevelFileName);
 
+    /// <summary>
+    /// Makes the open level's authored camera (if any) the active viewport
+    /// camera, so a level carries its own view and post-process components
+    /// (the demo level ships a <see cref="Tonemapping"/> on its camera)
+    /// instead of the engine's default. Levels without a Camera entity keep
+    /// the engine camera — which stays neutral: the engine never applies a
+    /// tonemapping on its own.
+    /// </summary>
+    private void ResolveViewportCamera()
+    {
+        var levelCamera = Level.Level?.Entities
+            .Select(entity => entity.GetComponent<Camera>())
+            .FirstOrDefault(camera => camera is { IsValid: true, Enabled: true });
+
+        if (levelCamera is not null)
+        {
+            // Drop the engine's default camera entity (world-only, spawned at
+            // startup) when a level-authored camera takes over, so the
+            // hierarchy shows exactly one camera.
+            if (Camera.Entity is { } engineEntity && engineEntity.IsValid && engineEntity.Level is null)
+                Game.World.DestroyEntity(engineEntity);
+            Camera = levelCamera;
+            return;
+        }
+
+        // No authored camera: fall back to the engine default. After a
+        // project switch the previous camera was a level entity destroyed by
+        // the reload — reset so the next access respawns the engine camera.
+        if (Camera is not { IsValid: true })
+        {
+            Camera = null!;
+            _ = Camera;
+        }
+    }
+
     protected override void OnInitialize()
     {
         // The editor may ship its own [AssetType] resource types: register its
@@ -128,6 +163,10 @@ public sealed class Editor : Application
         // scratch. Either way the open level starts clean — the title bar's
         // "●" appears only once a mutation marks the level dirty (Level.IsDirty).
         var level = Level.Load(Project.LevelFileName);
+        // A level-authored Camera entity becomes the active viewport camera
+        // (its components — like the demo's Tonemapping — drive the chain);
+        // levels without one keep the engine's neutral default camera.
+        ResolveViewportCamera();
         World!.Start();
         Log.Info($"[World] {level.Entities.Count} entit(ies) in level '{level.Name}'.");
 
@@ -301,6 +340,9 @@ public sealed class Editor : Application
         // components resolve when ReloadLevel loads the level.
         GameProject.Start();
         Level.Reload(Project.LevelFileName);
+        // The reload destroyed the previous level (and possibly its camera
+        // entity): re-resolve the viewport camera against the new level.
+        ResolveViewportCamera();
         Viewport.ResetSelection();
         Project.Publish();
 

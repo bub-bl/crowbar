@@ -349,12 +349,18 @@ public sealed class Renderer : IDisposable
     private readonly Dictionary<string, IPipeline> _postProcessPipelines = [];
     private ITexture[] _postProcessScratch = [];
     private ISampler _postProcessPointSampler = null!;
+    // Components already announced once in the console (per session).
+    private readonly HashSet<PostProcess> _loggedPostProcessDrivers = [];
+    private bool _loggedIdentityCopy;
 
-    /// <summary>Engine fallback effect when no PostProcess component exists (the historical Reinhard look).</summary>
-    private static readonly Tonemapping ReinhardFallbackInstance = new() { Operator = TonemapOperator.Reinhard };
-
-    /// <summary>Identity pass used when the camera disables post-processing (copies the scene to the display).</summary>
-    private static readonly Tonemapping IdentityFallbackInstance = new() { Operator = TonemapOperator.None };
+    /// <summary>
+    /// The engine-neutral identity pass: copies the scene to the display
+    /// unchanged when no PostProcess component exists (or the camera disabled
+    /// post-processing). The engine never applies a tonemapping on its own —
+    /// the default look is level content (the demo level ships a Tonemapping
+    /// component on its camera).
+    /// </summary>
+    private const string CopyShaderPath = "Shaders/PostProcesses/Copy.wgsl";
 
     // The 3D scene renders into viewport-sized targets (its color, depth and
     // selection mask all share the viewport dimensions). The surface composite
@@ -535,35 +541,53 @@ public sealed class Renderer : IDisposable
             // Pass 1.5: the post-process chain. The scene texture is linear
             // HDR; each enabled PostProcess component runs in Order, writing
             // the next chain target (ping-ponging through HDR intermediates),
-            // and the last pass writes the display texture. Without any
-            // component the engine keeps the historical Reinhard look; a
-            // camera that disabled post-processing gets an identity pass.
+            // and the last pass writes the display texture. With no component
+            // (or when the camera disabled post-processing) the scene is
+            // copied to the display as-is — the engine applies no tonemapping
+            // by default; that look is level content, e.g. the demo level's
+            // Tonemapping component on its camera.
             var postProcessGroups = BuildPostProcessGroups(world, camera.Position);
-            if (!camera.EnablePostProcessing)
-                postProcessGroups = [IdentityFallback()]; // opt out entirely: identity pass
-            else if (postProcessGroups.Count == 0)
-                postProcessGroups = [ReinhardFallback()]; // no components: historical look
-            var postProcessInput = _sceneTexture;
-            for (var index = 0; index < postProcessGroups.Count; index++)
+            if (!camera.EnablePostProcessing || postProcessGroups.Count == 0)
             {
-                var group = postProcessGroups[index];
-                var isLast = index == postProcessGroups.Count - 1;
-                var output = isLast
-                    ? _displayTexture
-                    : (index % 2 == 0 ? _postProcessTextureA : _postProcessTextureB);
-                var driver = group.Driver;
-                var context = new PostProcessContext(this, commandBuffer, postProcessInput, output,
-                    _sceneDepth, driver.Sampler, group.Entries);
-                PostProcessContext.Current = context;
-                try
+                if (!_loggedIdentityCopy)
                 {
-                    driver.Render(context);
+                    _loggedIdentityCopy = true;
+                    Log.Info(camera.EnablePostProcessing
+                        ? "[PostProcess] No components — presenting the scene as-is (no default tonemapping)"
+                        : "[PostProcess] Camera post-processing disabled — presenting the scene as-is");
                 }
-                finally
+                RunPostProcessPass(commandBuffer, _sceneTexture, _displayTexture,
+                    CopyShaderPath, null, PostProcessSampler.Linear);
+            }
+            else
+            {
+                var postProcessInput = _sceneTexture;
+                for (var index = 0; index < postProcessGroups.Count; index++)
                 {
-                    PostProcessContext.Current = null;
+                    var group = postProcessGroups[index];
+                    var isLast = index == postProcessGroups.Count - 1;
+                    var output = isLast
+                        ? _displayTexture
+                        : (index % 2 == 0 ? _postProcessTextureA : _postProcessTextureB);
+                    var driver = group.Driver;
+                    // One diagnostic line per effect instance that actually
+                    // drives a pass: confirms in the console which components
+                    // the chain sees.
+                    if (_loggedPostProcessDrivers.Add(driver))
+                        Log.Info($"[PostProcess] Applying component {driver.GetType().Name} (Order {driver.Order}, {group.Entries.Count} instance(s))");
+                    var context = new PostProcessContext(this, commandBuffer, postProcessInput, output,
+                        _sceneDepth, driver.Sampler, group.Entries);
+                    PostProcessContext.Current = context;
+                    try
+                    {
+                        driver.Render(context);
+                    }
+                    finally
+                    {
+                        PostProcessContext.Current = null;
+                    }
+                    postProcessInput = output;
                 }
-                postProcessInput = output;
             }
 
             // Pass 2: composite the scene, the backdrop-filter regions and the UI
@@ -924,16 +948,6 @@ public sealed class Renderer : IDisposable
             .ThenByDescending(entry => entry.Weight)
             .First().Instance;
     }
-
-    private static PostProcessGroup ReinhardFallback() => new(typeof(Tonemapping))
-    {
-        Entries = { new PostProcessEntry(ReinhardFallbackInstance, 1f, IsGlobal: true) }
-    };
-
-    private static PostProcessGroup IdentityFallback() => new(typeof(Tonemapping))
-    {
-        Entries = { new PostProcessEntry(IdentityFallbackInstance, 1f, IsGlobal: true) }
-    };
 
     private void UpdateEnvironment(World? world)
     {

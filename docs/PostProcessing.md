@@ -6,7 +6,10 @@ fullscreen passes (ping-ponging between HDR intermediates), and the last pass
 writes the display texture the surface blit shows. Everything is a plain
 component, so effects are inspectable, undoable, serialized in the `.level`,
 and attachable from the editor's **+ Add component** list — including effects
-written in a game project.
+written in a game project. The engine is neutral: with no component the scene
+is presented as-is, so the default look is level content — the demo level
+owns its camera (a `Camera` entity) and ships a `Tonemapping` component on
+it.
 
 ## The two ways to write an effect
 
