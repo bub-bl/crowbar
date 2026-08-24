@@ -12,6 +12,7 @@ internal sealed class EnvironmentPreprocessor : IDisposable
     private const int PrefilterSize = 128;
     private const int PrefilterMipCount = 8;
     private const uint SampleCount = 256;
+    private const int ProceduralSkySize = 256;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct DispatchUniforms
@@ -21,6 +22,20 @@ internal sealed class EnvironmentPreprocessor : IDisposable
         public float Roughness;
         public uint Samples;
     }
+
+    // Mirrors SkyUniforms in Shaders/Environment/ProceduralSky.slang.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SkyUniforms
+    {
+        public uint Face;
+        public uint Size;
+        public Vector2 Padding;
+        public Vector4 Sun;
+        public Vector4 Atmosphere;
+    }
+
+    /// <summary>Identifies the baked procedural sky: any change regenerates it.</summary>
+    private readonly record struct ProceduralKey(Vector4 Sun, Vector4 Atmosphere);
 
     private sealed record CacheKey(
         string Path,
@@ -51,6 +66,9 @@ internal sealed class EnvironmentPreprocessor : IDisposable
     private IComputePipeline? _irradiancePipeline;
     private IComputePipeline? _prefilterPipeline;
     private IComputePipeline? _brdfPipeline;
+    private IComputePipeline? _proceduralSkyPipeline;
+    private ProceduralKey? _proceduralActiveKey;
+    private CachedResources? _proceduralResources;
     private bool _disposed;
 
     public EnvironmentPreprocessor(IGraphicsDevice device)
@@ -65,21 +83,29 @@ internal sealed class EnvironmentPreprocessor : IDisposable
 
     public void Update(SceneEnvironment? environment, ICommandBuffer commandBuffer)
     {
-        if (_disposed || environment is null)
+        if (_disposed)
             return;
+        if (environment is null)
+        {
+            ReleaseProceduralResources();
+            return;
+        }
 
         if (environment.Sky is ProceduralAtmosphere)
         {
-            // Procedural skies are evaluated directly by the sky/IBL shader and
-            // have no source texture or compute preprocessing step. Mark the
-            // environment ready so Renderer binds it on the next frame.
+            // Procedural skies are evaluated analytically by the sky shader,
+            // but PBR reflections still need cubemaps: bake the sky into an
+            // environment map (then irradiance + prefiltered specular) on the
+            // GPU so IBL matches the sky. Regenerated whenever the sun or the
+            // atmosphere parameters change.
             if (_decodes.Remove(environment, out var staleDecode))
                 ObserveFault(staleDecode.Task);
             _activeKeys.Remove(environment);
-            environment.State = EnvironmentPreprocessingState.Ready;
-            environment.Diagnostic = null;
+            UpdateProcedural(environment, commandBuffer);
             return;
         }
+
+        ReleaseProceduralResources();
 
         if (environment.Sky is not CubemapSky sky || string.IsNullOrWhiteSpace(sky.SourcePath))
         {
@@ -176,6 +202,168 @@ internal sealed class EnvironmentPreprocessor : IDisposable
             environment.Diagnostic =
                 $"GPU environment preprocessing is unavailable: {ex.Message}";
         }
+    }
+
+    private void UpdateProcedural(SceneEnvironment environment, ICommandBuffer commandBuffer)
+    {
+        var key = new ProceduralKey(
+            new Vector4(
+                environment.SunDirection.X,
+                environment.SunDirection.Y,
+                environment.SunDirection.Z,
+                environment.SunAngularRadius * MathF.PI / 180f),
+            new Vector4(
+                environment.Turbidity,
+                environment.GroundAlbedo,
+                environment.SunIntensity,
+                0f));
+
+        if (_proceduralActiveKey == key && _proceduralResources is not null)
+        {
+            ApplyProcedural(environment);
+            return;
+        }
+
+        // The replaced maps may still be sampled this frame through the cached
+        // environment bind groups, so they are released at FinishFrame with
+        // the other transient resources instead of being disposed here.
+        ReleaseProceduralResources();
+
+        try
+        {
+            _proceduralResources = GenerateProcedural(environment, commandBuffer);
+            _proceduralActiveKey = key;
+            ApplyProcedural(environment);
+        }
+        catch (Exception ex)
+        {
+            environment.State = EnvironmentPreprocessingState.Unavailable;
+            environment.Diagnostic = $"GPU procedural sky generation is unavailable: {ex.Message}";
+            _proceduralActiveKey = null;
+        }
+    }
+
+    private static void ApplyProcedural(SceneEnvironment environment)
+    {
+        environment.State = EnvironmentPreprocessingState.Ready;
+        environment.Diagnostic = null;
+    }
+
+    private CachedResources GenerateProcedural(SceneEnvironment environment, ICommandBuffer commandBuffer)
+    {
+        var skyCube = CreateCube(ProceduralSkySize, 1);
+        DispatchProceduralSky(commandBuffer, skyCube, ProceduralSkySize, environment);
+
+        var irradianceMap = CreateCube(IrradianceSize, 1);
+        DispatchFaces(
+            commandBuffer,
+            GetPipeline(ref _irradiancePipeline, "Irradiance"),
+            skyCube,
+            irradianceMap,
+            IrradianceSize,
+            0f,
+            SampleCount,
+            mipLevel: 0);
+
+        var prefilteredMap = CreateCube(PrefilterSize, PrefilterMipCount);
+        for (var mip = 0; mip < PrefilterMipCount; mip++)
+        {
+            var size = Math.Max(1, PrefilterSize >> mip);
+            var roughness = mip / (float)(PrefilterMipCount - 1);
+            DispatchFaces(
+                commandBuffer,
+                GetPipeline(ref _prefilterPipeline, "PrefilterSpecular"),
+                skyCube,
+                prefilteredMap,
+                size,
+                roughness,
+                SampleCount,
+                mip);
+        }
+
+        environment.EnvironmentMap = skyCube;
+        environment.IrradianceMap = irradianceMap;
+        environment.PrefilteredSpecularMap = prefilteredMap;
+        environment.BrdfLut = EnsureBrdfLut(commandBuffer);
+        return new CachedResources
+        {
+            EnvironmentMap = skyCube,
+            IrradianceMap = irradianceMap,
+            PrefilteredMap = prefilteredMap
+        };
+    }
+
+    private void DispatchProceduralSky(
+        ICommandBuffer commandBuffer,
+        ITexture target,
+        int size,
+        SceneEnvironment environment)
+    {
+        var pipeline = GetPipeline(ref _proceduralSkyPipeline, "ProceduralSky");
+        var sun = new Vector4(
+            environment.SunDirection.X,
+            environment.SunDirection.Y,
+            environment.SunDirection.Z,
+            environment.SunAngularRadius * MathF.PI / 180f);
+        var atmosphere = new Vector4(
+            environment.Turbidity,
+            environment.GroundAlbedo,
+            environment.SunIntensity,
+            0f);
+
+        for (uint face = 0; face < 6; face++)
+        {
+            var targetView = target.CreateView(new TextureViewDescription
+            {
+                Dimension = TextureDimension.Dimension2D,
+                MipLevelCount = 1,
+                BaseArrayLayer = (int)face,
+                ArrayLayerCount = 1
+            });
+            var uniformBuffer = _device.CreateBuffer(new BufferDescription
+            {
+                Size = (ulong)Marshal.SizeOf<SkyUniforms>(),
+                Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+            });
+            var uniforms = new SkyUniforms
+            {
+                Face = face,
+                Size = (uint)size,
+                Sun = sun,
+                Atmosphere = atmosphere
+            };
+            uniformBuffer.Write(in uniforms);
+            var bindGroup = pipeline.CreateBindGroup(
+            [
+                new BindGroupBinding { Slot = 0, Texture = targetView },
+                new BindGroupBinding
+                {
+                    Slot = 1,
+                    Buffer = uniformBuffer,
+                    BufferSize = (ulong)Marshal.SizeOf<SkyUniforms>()
+                }
+            ]);
+            using var pass = commandBuffer.BeginComputePass();
+            pass.SetPipeline(pipeline);
+            pass.SetBindGroup(bindGroup);
+            pass.Dispatch((uint)((size + 7) / 8), (uint)((size + 7) / 8), 1);
+            _frameResources.Add(bindGroup);
+            _frameResources.Add(uniformBuffer);
+            _frameResources.Add(targetView);
+        }
+    }
+
+    private void ReleaseProceduralResources()
+    {
+        if (_proceduralResources is null)
+            return;
+        // Moved to the frame resource list: released at FinishFrame so bind
+        // groups recorded earlier this frame keep valid textures.
+        _frameResources.Add(_proceduralResources.EnvironmentMap);
+        _frameResources.Add(_proceduralResources.IrradianceMap);
+        _frameResources.Add(_proceduralResources.PrefilteredMap);
+        _proceduralResources = null;
+        _proceduralActiveKey = null;
     }
 
     public void FinishFrame()
@@ -383,11 +571,20 @@ internal sealed class EnvironmentPreprocessor : IDisposable
         }
         _cache.Clear();
         _activeKeys.Clear();
+        if (_proceduralResources is not null)
+        {
+            _proceduralResources.EnvironmentMap.Dispose();
+            _proceduralResources.IrradianceMap.Dispose();
+            _proceduralResources.PrefilteredMap.Dispose();
+            _proceduralResources = null;
+        }
+        _proceduralActiveKey = null;
         _brdfLut?.Dispose();
         _convertPipeline?.Dispose();
         _irradiancePipeline?.Dispose();
         _prefilterPipeline?.Dispose();
         _brdfPipeline?.Dispose();
+        _proceduralSkyPipeline?.Dispose();
         _sampler.Dispose();
     }
 }

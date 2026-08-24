@@ -1,11 +1,15 @@
 #language slang 2026;
 module Environment;
 
+import Atmosphere;
+
 public struct EnvironmentUniforms
 {
     float4 parameters; // x = rotation radians, y = intensity, z = exposure, w = maximum specular mip
     float4 tint;
     float4 provider; // x = 1 for procedural atmosphere, 0 for cubemap/neutral
+    float4 sun; // xyz = sun direction (world space), w = sun angular radius (radians)
+    float4 atmosphere; // x = turbidity, y = ground albedo, z = sun intensity, w = unused
 };
 
 [[vk::binding(0, 2)]] public TextureCube environmentMap;
@@ -33,19 +37,18 @@ public struct EnvironmentLighting
         return color * environment.tint.rgb * environment.parameters.y * exp2(environment.parameters.z);
     }
 
-    static float3 SampleSky(float3 direction)
+    static float3 SampleSky(float3 direction, float cameraHeight)
     {
         let rotated = Rotate(direction);
         if (environment.provider.x > 0.5)
         {
-            let horizon = float3(0.52, 0.68, 0.92);
-            let zenith = float3(0.08, 0.22, 0.55);
-            let sunColor = float3(1.0, 0.72, 0.42);
-            let altitude = clamp(rotated.y * 0.5 + 0.5, 0.0, 1.0);
-            let sky = lerp(horizon, zenith, pow(altitude, 0.65));
-            let sunDirection = normalize(float3(-0.35, 0.8, -0.2));
-            let sun = pow(max(dot(rotated, sunDirection), 0.0), 128.0);
-            return ApplySettings(sky + sunColor * sun * 2.0);
+            AtmosphereParams p;
+            p.sunDirection = environment.sun.xyz;
+            p.sunAngularRadius = environment.sun.w;
+            p.turbidity = environment.atmosphere.x;
+            p.groundAlbedo = environment.atmosphere.y;
+            p.sunIntensity = environment.atmosphere.z;
+            return ApplySettings(Atmosphere::EvaluateSky(rotated, p, cameraHeight));
         }
         return ApplySettings(environmentMap.SampleLevel(environmentSampler, rotated, 0.0).rgb);
     }

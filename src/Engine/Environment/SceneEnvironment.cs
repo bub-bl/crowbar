@@ -22,6 +22,11 @@ public sealed class SceneEnvironment : IDisposable
     private float _intensity = 1f;
     private float _exposure;
     private Vector4 _tint = Vector4.One;
+    private float _turbidity = 1f;
+    private float _groundAlbedo = 0.3f;
+    private float _sunAngularRadius = 1.5f; // degrees
+    private float _sunIntensity = 1f;
+    private Vector3 _sunDirection = Vector3.Normalize(new Vector3(-0.35f, 0.8f, -0.2f));
 
     internal SceneEnvironment(Level? owner = null) => _owner = owner;
 
@@ -62,6 +67,46 @@ public sealed class SceneEnvironment : IDisposable
     {
         get => _tint;
         set => Set(ref _tint, value);
+    }
+
+    /// <summary>Haze multiplier for Mie scattering; 1 = clear air.</summary>
+    public float Turbidity
+    {
+        get => _turbidity;
+        set => Set(ref _turbidity, Math.Clamp(value, 0.1f, 10f));
+    }
+
+    /// <summary>Diffuse reflectance of the ground (0..1), feeding the sky's ground bounce.</summary>
+    public float GroundAlbedo
+    {
+        get => _groundAlbedo;
+        set => Set(ref _groundAlbedo, Math.Clamp(value, 0f, 1f));
+    }
+
+    /// <summary>Angular radius of the sun disc, in degrees.</summary>
+    public float SunAngularRadius
+    {
+        get => _sunAngularRadius;
+        set => Set(ref _sunAngularRadius, Math.Clamp(value, 0.1f, 10f));
+    }
+
+    /// <summary>Multiplier on the sun's radiance.</summary>
+    public float SunIntensity
+    {
+        get => _sunIntensity;
+        set => Set(ref _sunIntensity, Math.Max(0f, value));
+    }
+
+    /// <summary>
+    /// World-space sun direction driving the procedural sky. Set by the
+    /// renderer each frame from the scene's first directional light (or a
+    /// fallback); it is derived scene state, not an edited property, so it is
+    /// never persisted and never marks the level dirty.
+    /// </summary>
+    internal Vector3 SunDirection
+    {
+        get => _sunDirection;
+        set => _sunDirection = value;
     }
 
     public EnvironmentPreprocessingState State { get; internal set; }

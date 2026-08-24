@@ -102,6 +102,92 @@ public sealed class EnvironmentTests
     }
 
     [Fact]
+    public void ProceduralSkyComponent_ParametersRoundTrip()
+    {
+        using var sourceWorld = new World();
+        var source = sourceWorld.CreateLevel("Procedural");
+        var environmentEntity = sourceWorld.SpawnEntity("Environment", source);
+        var component = environmentEntity.AddComponent<ProceduralSkyComponent>();
+        component.Turbidity = 2.5f;
+        component.GroundAlbedo = 0.6f;
+        component.SunAngularRadius = 2f;
+        component.SunIntensity = 1.4f;
+
+        using var loadedWorld = new World();
+        var loaded = LevelSerializer.CreateLevel(
+            loadedWorld,
+            LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
+
+        var loadedSky = Assert.IsType<ProceduralSkyComponent>(
+            Assert.Single(loaded.Entities, entity => entity.Name == "Environment")
+                .GetComponent<ProceduralSkyComponent>());
+        Assert.Equal(2.5f, loadedSky.Turbidity);
+        Assert.Equal(0.6f, loadedSky.GroundAlbedo);
+        Assert.Equal(2f, loadedSky.SunAngularRadius);
+        Assert.Equal(1.4f, loadedSky.SunIntensity);
+        Assert.False(loaded.IsDirty);
+    }
+
+    [Fact]
+    public void LegacyProceduralSkyComponent_LoadsWithDefaultParameters()
+    {
+        const string json = """
+            {
+              "format": 2,
+              "id": "11111111-1111-1111-1111-111111111111",
+              "metadata": { "name": "Legacy" },
+              "environment": null,
+              "entities": [
+                {
+                  "id": "22222222-2222-2222-2222-222222222222",
+                  "name": "Environment",
+                  "components": [
+                    {
+                      "type": "ProceduralSkyComponent",
+                      "properties": {
+                        "Intensity": 1.5
+                      }
+                    }
+                  ]
+                }
+              ],
+              "attachments": []
+            }
+            """;
+
+        using var world = new World();
+        var level = LevelSerializer.CreateLevel(world, LevelSerializer.Deserialize(json));
+        var sky = Assert.IsType<ProceduralSkyComponent>(
+            Assert.Single(level.Entities).GetComponent<ProceduralSkyComponent>());
+
+        Assert.Equal(1.5f, sky.Intensity);
+        Assert.Equal(1f, sky.Turbidity);
+        Assert.Equal(0.3f, sky.GroundAlbedo);
+        Assert.Equal(1.5f, sky.SunAngularRadius);
+        Assert.Equal(1f, sky.SunIntensity);
+    }
+
+    [Fact]
+    public void ProceduralSkyComponent_ParametersReachSceneEnvironment()
+    {
+        using var world = new World();
+        var level = world.CreateLevel("Procedural");
+        var entity = world.SpawnEntity("Environment", level);
+        var sky = entity.AddComponent<ProceduralSkyComponent>();
+
+        sky.Turbidity = 3f;
+        sky.GroundAlbedo = 0.5f;
+        sky.SunAngularRadius = 2.5f;
+        sky.SunIntensity = 2f;
+
+        Assert.Equal(3f, sky.Environment.Turbidity);
+        Assert.Equal(0.5f, sky.Environment.GroundAlbedo);
+        Assert.Equal(2.5f, sky.Environment.SunAngularRadius);
+        Assert.Equal(2f, sky.Environment.SunIntensity);
+        Assert.True(level.IsDirty);
+    }
+
+    [Fact]
     public void EnvironmentEdit_IsDirtyAndUndoable()
     {
         using var world = new World();
@@ -358,6 +444,8 @@ public sealed class EnvironmentTests
         var environment = Assert.Single(shader.Structs, structure => structure.Name == "EnvironmentUniforms");
 
         Assert.Contains(environment.Fields, field => field.Name == "provider");
+        Assert.Contains(environment.Fields, field => field.Name == "sun");
+        Assert.Contains(environment.Fields, field => field.Name == "atmosphere");
     }
 
     [Fact]

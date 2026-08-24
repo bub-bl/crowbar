@@ -261,13 +261,22 @@ public sealed class Renderer : IDisposable
     private IBindGroup _skyCameraBindGroup = null!;
     private IBindGroup _skyPlaceholderBindGroup = null!;
 
+    // Mirrors EnvironmentUniforms in Shaders/Common/Environment.slang:
+    // rotation/intensity/exposure/max mip, tint, provider flag, then the sun
+    // (direction + angular radius) and atmosphere (turbidity, albedo, sun
+    // intensity) parameters used by the procedural sky.
     [StructLayout(LayoutKind.Sequential)]
     private struct EnvironmentUniforms
     {
         public Vector4 Parameters;
         public Vector4 Tint;
         public Vector4 Provider;
+        public Vector4 Sun;
+        public Vector4 Atmosphere;
     }
+
+    /// <summary>Fallback sun direction when the scene has no directional light.</summary>
+    private static readonly Vector3 DefaultSunDirection = Vector3.Normalize(new Vector3(-0.35f, 0.8f, -0.2f));
 
     // Reused across frames to collect the meshes/textures/nodes still referenced
     // by the world, so GPU resources whose CPU owner is gone can be released.
@@ -801,6 +810,31 @@ public sealed class Renderer : IDisposable
     {
         var previous = _boundEnvironment;
         var environment = world?.Environment;
+
+        // The procedural sky's sun follows the scene's first enabled
+        // directional light (the sun disc lines up with the light that casts
+        // shadows); a fixed fallback keeps the sky lit when the level has
+        // none. The direction is world space: both the sky pass and the baked
+        // IBL cubemap apply the environment rotation on top of it, so they
+        // stay consistent and rotating the environment only ever re-samples.
+        var sun = Vector4.Zero;
+        var atmosphere = Vector4.Zero;
+        if (environment?.Sky is ProceduralAtmosphere)
+        {
+            var sunDirection = world?.Query<DirectionalLight>()
+                .FirstOrDefault(light => light.Enabled)?.Direction
+                ?? DefaultSunDirection;
+            environment.SunDirection = sunDirection;
+            sun = new Vector4(
+                sunDirection,
+                environment.SunAngularRadius * MathF.PI / 180f);
+            atmosphere = new Vector4(
+                environment.Turbidity,
+                environment.GroundAlbedo,
+                environment.SunIntensity,
+                0f);
+        }
+
         if (environment is not null && environment.State == EnvironmentPreprocessingState.Ready)
             _boundEnvironment = environment;
         else
@@ -824,7 +858,9 @@ public sealed class Renderer : IDisposable
                 source?.Exposure ?? 0f,
                 source?.PrefilteredSpecularMap?.MipLevelCount is int m ? Math.Max(0, m - 1) : 0),
             Tint = source?.Tint ?? Vector4.One,
-            Provider = new Vector4(source?.Sky is ProceduralAtmosphere ? 1f : 0f, 0f, 0f, 0f)
+            Provider = new Vector4(source?.Sky is ProceduralAtmosphere ? 1f : 0f, 0f, 0f, 0f),
+            Sun = sun,
+            Atmosphere = atmosphere
         };
         _environmentUniformBuffer.Write(in uniforms);
     }

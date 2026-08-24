@@ -88,6 +88,24 @@ Values are written in native JSON form, invariant culture:
 | `Model` | object `{ "path": "..." }` for a file model, or `{ "procedural": "cube" \| "plane" }` for a primitive |
 | `enum` | member name |
 
+### Procedural sky parameters
+
+A `ProceduralSkyComponent` (the procedural atmosphere provider) persists the
+atmosphere parameters as regular `[Property]` values, alongside the inherited
+`Rotation` / `Intensity` / `Exposure` / `Tint`:
+
+| Property | Type | Role |
+|---|---|---|
+| `Turbidity` | float | Haze multiplier for Mie scattering (0.1..10, default 1 = clear air). |
+| `GroundAlbedo` | float | Diffuse ground reflectance (0..1, default 0.3), feeding the sky's ground bounce. |
+| `SunAngularRadius` | float | Angular radius of the sun disc in degrees (0.1..10, default 1.5). |
+| `SunIntensity` | float | Multiplier on the sun's radiance (default 1). |
+
+The sun *direction* is not persisted: it follows the scene's first enabled
+`DirectionalLight` each frame (with a fixed fallback when the level has none),
+like the read-only `DirectionalLight.Direction`. Files written before these
+parameters existed load them with their defaults, so old levels are unchanged.
+
 ## Compatibility contract (forward compatibility)
 
 Reading is tolerant — a level never fails to load because of unknown content:

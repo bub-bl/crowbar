@@ -26,5 +26,6 @@ float4 fs_main(VertexOutput input) : SV_Target
         input.clip.y / camera.proj[1][1],
         1.0));
     let worldDirection = normalize(mul(transpose((float3x3)camera.view), viewDirection));
-    return float4(EnvironmentLighting::SampleSky(worldDirection), 1.0);
+    let cameraHeight = clamp(camera.cameraPosition.y, 0.0, 59000.0);
+    return float4(EnvironmentLighting::SampleSky(worldDirection, cameraHeight), 1.0);
 }

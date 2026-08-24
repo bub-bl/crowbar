@@ -32,6 +32,38 @@ public sealed class CubemapComponent : EnvironmentComponent
 [ComponentIcon("sun")]
 public sealed class ProceduralSkyComponent : EnvironmentComponent
 {
+    /// <summary>Haze multiplier for Mie scattering; 1 = clear air.</summary>
+    [Property]
+    public float Turbidity
+    {
+        get => Environment.Turbidity;
+        set => Environment.Turbidity = value;
+    }
+
+    /// <summary>Diffuse reflectance of the ground (0..1), feeding the sky's ground bounce.</summary>
+    [Property]
+    public float GroundAlbedo
+    {
+        get => Environment.GroundAlbedo;
+        set => Environment.GroundAlbedo = value;
+    }
+
+    /// <summary>Angular radius of the sun disc, in degrees.</summary>
+    [Property]
+    public float SunAngularRadius
+    {
+        get => Environment.SunAngularRadius;
+        set => Environment.SunAngularRadius = value;
+    }
+
+    /// <summary>Multiplier on the sun's radiance.</summary>
+    [Property]
+    public float SunIntensity
+    {
+        get => Environment.SunIntensity;
+        set => Environment.SunIntensity = value;
+    }
+
     protected override void OnInitialize()
     {
         base.OnInitialize();
