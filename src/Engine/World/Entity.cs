@@ -90,6 +90,25 @@ public sealed class Entity : IDisposable, IValid
     }
 
     /// <summary>
+    /// Creates and attaches a concrete component type. The type must have a
+    /// public parameterless constructor. Runs <see cref="WorldObject.OnInitialize"/>
+    /// immediately and <see cref="WorldObject.OnStart"/> when the world is already playing.
+    /// </summary>
+    public void AddComponent(Type type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        if (!typeof(Component).IsAssignableFrom(type))
+            throw new ArgumentException($"'{type.Name}' is not a Component type.", nameof(type));
+        if (type.IsAbstract || type.ContainsGenericParameters || type.GetConstructor(Type.EmptyTypes) is null)
+            throw new ArgumentException($"Component type '{type.Name}' is not instantiable.", nameof(type));
+
+        if (Activator.CreateInstance(type) is not Component component)
+            throw new InvalidOperationException($"Component type '{type.Name}' could not be created.");
+
+        AddComponent(component);
+    }
+
+    /// <summary>
     /// Attaches an existing component. The component must be free (not
     /// attached to another entity) and the entity must not already have one of
     /// that type. Runs <see cref="WorldObject.OnInitialize"/> immediately and

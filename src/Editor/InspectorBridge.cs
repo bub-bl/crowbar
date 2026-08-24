@@ -41,6 +41,13 @@ public sealed class InspectorBridge
             InspectorComponentService.AddComponents(selected, addRequests);
         }
 
+        var removeRequests = EditorInspectorState.ConsumeRemoveComponentRequests();
+        if (selected is not null && removeRequests.Count > 0)
+        {
+            using var step = _editor.Level.Step("Remove a component");
+            InspectorComponentService.RemoveComponents(selected, removeRequests);
+        }
+
         EditorInspectorState.PublishAvailableComponents(InspectorComponentService.GetAttachableTypes(selected));
         InspectorStateBuilder.Publish(selected);
     }

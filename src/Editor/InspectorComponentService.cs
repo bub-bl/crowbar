@@ -36,6 +36,29 @@ internal sealed class InspectorComponentService
             AddComponent(entity, typeName);
     }
 
+    /// <summary>Removes the requested component types using the entity's generic runtime API.</summary>
+    public static void RemoveComponents(Entity? entity, IReadOnlyList<string> typeNames)
+    {
+        if (entity is null)
+            return;
+
+        foreach (var typeName in typeNames)
+        {
+            try
+            {
+                var type = TypeLibrary.Resolve(typeName);
+                if (type is null || entity.GetComponent(type) is null)
+                    continue;
+
+                entity.RemoveComponent(type);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn($"[Inspector] Failed to remove component '{typeName}': {ex.Message}");
+            }
+        }
+    }
+
     private static void AddComponent(Entity entity, string typeName)
     {
         if (string.IsNullOrEmpty(typeName))
@@ -48,15 +71,7 @@ internal sealed class InspectorComponentService
 
         try
         {
-            var instance = Activator.CreateInstance(type);
-            if (instance is null)
-                return;
-
-            var addMethod = entity.GetType().GetMethods()
-                .Where(method => method.Name == "AddComponent" && !method.IsGenericMethod)
-                .FirstOrDefault(method => method.GetParameters() is [{ ParameterType: var parameterType }] &&
-                                          parameterType.IsInstanceOfType(instance));
-            addMethod?.Invoke(entity, [instance]);
+            entity.AddComponent(type);
         }
         catch (Exception ex)
         {
