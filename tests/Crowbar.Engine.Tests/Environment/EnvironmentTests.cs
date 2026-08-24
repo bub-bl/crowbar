@@ -39,10 +39,9 @@ public sealed class EnvironmentTests
         var level = world.CreateLevel("Procedural");
         var entity = world.SpawnEntity("Environment", level);
         var component = entity.AddComponent<EnvironmentComponent>();
+        var sky = entity.AddComponent<ProceduralSkyComponent>();
 
-        InspectorStateBuilder.ApplyEdit(entity, "EnvironmentComponent.Provider", "ProceduralAtmosphere");
-
-        Assert.Equal(SkyProviderKind.ProceduralAtmosphere, component.Provider);
+        Assert.Same(component.Environment, sky.Entity?.GetComponent<EnvironmentComponent>()?.Environment);
         Assert.IsType<ProceduralAtmosphere>(component.Environment.Sky);
     }
 
@@ -51,7 +50,10 @@ public sealed class EnvironmentTests
     {
         using var sourceWorld = new World();
         var source = sourceWorld.CreateLevel("Procedural");
-        source.Environment.Sky = new ProceduralAtmosphere();
+        var environmentEntity = sourceWorld.SpawnEntity("Environment", source);
+        var component = environmentEntity.AddComponent<EnvironmentComponent>();
+        component.Intensity = 1.5f;
+        environmentEntity.AddComponent<ProceduralSkyComponent>();
         source.Environment.Intensity = 1.5f;
 
         using var loadedWorld = new World();
@@ -59,8 +61,10 @@ public sealed class EnvironmentTests
             loadedWorld,
             LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
 
-        Assert.IsType<ProceduralAtmosphere>(loaded.Environment.Sky);
-        Assert.Equal(1.5f, loaded.Environment.Intensity);
+        var loadedEnvironment = Assert.Single(loaded.Entities, entity => entity.Name == "Environment");
+        Assert.NotNull(loadedEnvironment.GetComponent<ProceduralSkyComponent>());
+        Assert.IsType<ProceduralAtmosphere>(loadedEnvironment.GetComponent<EnvironmentComponent>()?.Environment.Sky);
+        Assert.Equal(1.5f, loaded.Environment?.Intensity);
         Assert.False(loaded.IsDirty);
     }
 

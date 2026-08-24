@@ -52,11 +52,11 @@ public sealed class InspectorBridge
 
     private void UpdateEnvironment(Entity? selected)
     {
-        if (EditorEnvironmentState.ConsumeSourcePickerRequest() && selected?.GetComponent<EnvironmentComponent>() is { } component)
+        if (EditorEnvironmentState.ConsumeSourcePickerRequest() && selected?.GetComponent<CubemapComponent>() is { } component)
             ImportEnvironment(component);
     }
 
-    private void ImportEnvironment(EnvironmentComponent component)
+    private void ImportEnvironment(CubemapComponent component)
     {
         var source = NativeFileDialog.PickEnvironment(
             _editor.Window.NativeHandle,
@@ -73,7 +73,6 @@ public sealed class InspectorBridge
             Texture2D.Invalidate(destination);
             _editor.ContentExplorer.Refresh();
             using var step = _editor.Level.Step("Import an HDR environment");
-            component.Provider = SkyProviderKind.Cubemap;
             component.SourcePath = destination;
             UiNotifications.Show("Environment", $"Imported {Path.GetFileName(source)}", "success");
         }
@@ -113,9 +112,13 @@ public sealed class InspectorBridge
         var type = TypeLibrary.Resolve(typeName);
         if (type is null || entity.GetComponent(type) is not null)
             return;
-        if (type == typeof(EnvironmentComponent) &&
-            entity.Level?.Entities.Any(e => e.GetComponent<EnvironmentComponent>() is not null) == true)
-            return;
+        if (type == typeof(EnvironmentComponent) || type == typeof(CubemapComponent) || type == typeof(ProceduralSkyComponent))
+        {
+            if (entity.Level?.Entities.Any(e => e.GetComponent<EnvironmentComponent>() is not null) == true)
+                return;
+            if (entity.GetComponent<EnvironmentComponent>() is null)
+                entity.AddComponent<EnvironmentComponent>();
+        }
         try
         {
             if (Activator.CreateInstance(type) is Component component)

@@ -1,34 +1,19 @@
 using System.Numerics;
+using Crowbar.Engine.Rendering;
 
 namespace Crowbar.Engine;
 
-/// <summary>Provides the scene sky and image-based lighting for an entity.</summary>
+/// <summary>Owns the shared scene environment settings.</summary>
 [ComponentIcon("sun")]
 public sealed class EnvironmentComponent : Component
 {
     private readonly SceneEnvironment _environment = new();
-    private SkyProviderKind _provider;
-    private string _sourcePath = string.Empty;
     private float _rotation;
     private float _intensity = 1f;
     private float _exposure;
     private Vector4 _tint = Vector4.One;
 
     public SceneEnvironment Environment => _environment;
-
-    [Property]
-    public SkyProviderKind Provider
-    {
-        get => _provider;
-        set { if (_provider != value) { _provider = value; Sync(); } }
-    }
-
-    [Property]
-    public string SourcePath
-    {
-        get => _sourcePath;
-        set { value ??= string.Empty; if (!string.Equals(_sourcePath, value, StringComparison.Ordinal)) { _sourcePath = value; Sync(); } }
-    }
 
     [Property]
     public float Rotation { get => _rotation; set { if (!_rotation.Equals(value)) { _rotation = value; Sync(); } } }
@@ -52,8 +37,7 @@ public sealed class EnvironmentComponent : Component
 
     internal void RestoreFrom(SceneEnvironment source)
     {
-        _provider = source.Sky?.Kind ?? SkyProviderKind.None;
-        _sourcePath = (source.Sky as CubemapSky)?.SourcePath ?? string.Empty;
+        _environment.Restore(source.Sky, source.Rotation, source.Intensity, source.Exposure, source.Tint);
         _rotation = source.Rotation;
         _intensity = source.Intensity;
         _exposure = source.Exposure;
@@ -61,14 +45,20 @@ public sealed class EnvironmentComponent : Component
         Sync();
     }
 
+    internal void SetSky(SkyProvider? sky) => _environment.Restore(
+        sky,
+        _rotation,
+        _intensity,
+        _exposure,
+        _tint);
+
     private void Sync()
     {
-        SkyProvider? sky = _provider switch
-        {
-            SkyProviderKind.Cubemap when !string.IsNullOrWhiteSpace(_sourcePath) => new CubemapSky(_sourcePath),
-            SkyProviderKind.ProceduralAtmosphere => new ProceduralAtmosphere(),
-            _ => null
-        };
-        _environment.Restore(sky, _rotation, _intensity, _exposure, _tint);
+        _environment.Restore(
+            _environment.Sky,
+            _rotation,
+            _intensity,
+            _exposure,
+            _tint);
     }
 }
