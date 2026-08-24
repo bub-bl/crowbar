@@ -1,4 +1,5 @@
 using Crowbar.FileSystems;
+using TinyEXR;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 
@@ -255,20 +256,15 @@ public sealed class Texture2D : ResourceFile
         }
         if (extension.Equals(".exr", StringComparison.OrdinalIgnoreCase))
         {
-            using var exrImage = Image.Load<HalfVector4>(stream);
-            var source = new HalfVector4[checked(exrImage.Width * exrImage.Height)];
-            exrImage.CopyPixelDataTo(source);
-            var hdrPixels = new float[checked(source.Length * 4)];
-            for (var index = 0; index < source.Length; index++)
-            {
-                var pixel = source[index].ToVector4();
-                hdrPixels[index * 4] = pixel.X;
-                hdrPixels[index * 4 + 1] = pixel.Y;
-                hdrPixels[index * 4 + 2] = pixel.Z;
-                hdrPixels[index * 4 + 3] = pixel.W;
-            }
+            // ImageSharp does not decode all OpenEXR compression codecs (for
+            // example, PIZ). TinyEXR handles the production EXR variants while
+            // returning the channels in the linear RGBA float format required
+            // by the environment compute passes.
+            var result = Exr.LoadEXRFromStream(stream, out var hdrPixels, out var exrWidth, out var exrHeight);
+            if (result != ResultCode.Success)
+                throw new InvalidDataException($"Could not decode EXR '{path}': {result}.");
             return new DecodedTexture(
-                exrImage.Width, exrImage.Height, SourcePixelFormat.Rgba16Float, null, hdrPixels);
+                exrWidth, exrHeight, SourcePixelFormat.Rgba16Float, null, hdrPixels);
         }
 
         using var ldrImage = Image.Load<Rgba32>(stream);

@@ -245,6 +245,28 @@ public sealed class EnvironmentTests
     }
 
     [Fact]
+    public void ExrEnvironmentAsset_IsAvailableInProjectContent()
+    {
+        Assert.True(FileSystem.Content.FileExists("Content/Environments/studio_b.exr"));
+
+        var texture = Texture2D.Load("Content/Environments/studio_b.exr");
+        try
+        {
+            Assert.True(texture.IsHdr);
+            Assert.Equal(Texture2D.SourcePixelFormat.Rgba16Float, texture.PixelFormat);
+            Assert.True(texture.Width > 0);
+            Assert.True(texture.Height > 0);
+            var pixels = texture.HdrPixels;
+            Assert.Equal(texture.Width * texture.Height * 4, pixels.Length);
+            Assert.Contains(pixels, pixel => float.IsFinite(pixel) && pixel > 0f);
+        }
+        finally
+        {
+            Texture2D.Invalidate("Content/Environments/studio_b.exr");
+        }
+    }
+
+    [Fact]
     public void CubeTextureDescriptionAndFaceMipViews_AreValidated()
     {
         var cube = new TextureDescription

@@ -127,9 +127,13 @@ internal sealed class EnvironmentPreprocessor : IDisposable
         {
             environment.State = EnvironmentPreprocessingState.Decoding;
             environment.Diagnostic = null;
+            var sourcePath = sky.SourcePath;
             var startedDecode = Task.Run(() =>
             {
-                var texture = Texture2D.Load(sky.SourcePath);
+                var texture = Texture2D.Load(sourcePath);
+                if (!texture.IsHdr)
+                    throw new InvalidDataException(
+                        $"Environment map '{sourcePath}' must be an HDR or EXR image.");
                 _ = texture.HdrPixels;
                 return texture;
             });
