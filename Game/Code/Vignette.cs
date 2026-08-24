@@ -20,7 +20,7 @@ public sealed class Vignette : BasePostProcess<Vignette>
     [Property]
     public float Intensity { get; set; } = 0.4f;
 
-    /// <summary>Normalized distance from the center where the fade starts (0..1).</summary>
+    /// <summary>Vignette strength: how much of the half-diagonal the darkening covers, from the corners inward (0 = none, 1 = strongest, fading in from the center).</summary>
     [Property]
     public float Radius { get; set; } = 0.65f;
 

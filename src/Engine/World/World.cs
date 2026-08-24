@@ -229,14 +229,21 @@ public sealed class World : IDisposable
         Timers.Update(deltaTime);
     }
 
-    /// <summary>Yields every component of type <typeparamref name="T"/> across the world's living entities.</summary>
+    /// <summary>
+    /// Enumerates every <typeparamref name="T"/> component in the world — all
+    /// matches on each entity, unlike <see cref="Entity.GetComponent{T}"/>'s
+    /// first-match semantics. An entity can carry several components deriving
+    /// from a base type (e.g. Tonemapping and Vignette, both
+    /// <see cref="PostProcess"/>, on the camera), and each of them must be
+    /// found by base-type queries.
+    /// </summary>
     public IEnumerable<T> Query<T>() where T : Component
     {
         foreach (var entity in _entities)
         {
             if (!entity.IsValid)
                 continue;
-            if (entity.GetComponent<T>() is { } component)
+            foreach (var component in entity.GetComponents<T>())
                 yield return component;
         }
     }

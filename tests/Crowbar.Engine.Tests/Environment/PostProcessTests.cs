@@ -45,6 +45,23 @@ public sealed class PostProcessTests
     }
 
     [Fact]
+    public void WorldQuery_ReturnsEveryPostProcessInstanceOnAnEntity()
+    {
+        // The camera carries Tonemapping + Vignette on one entity; the chain
+        // is built from world.Query<PostProcess>(), which must yield every
+        // instance, not just the first like Entity.GetComponent<T>.
+        using var world = new World();
+        var entity = world.SpawnEntity("Camera");
+        entity.AddComponent<Tonemapping>();
+        entity.AddComponent<TestBlendable>();
+
+        var found = world.Query<PostProcess>().ToList();
+        Assert.Equal(2, found.Count);
+        Assert.Single(found.OfType<Tonemapping>());
+        Assert.Single(found.OfType<TestBlendable>());
+    }
+
+    [Fact]
     public void PostProcess_HierarchyIsPublicAndExtensible()
     {
         // The whole API is public: game-project code derives from it (the

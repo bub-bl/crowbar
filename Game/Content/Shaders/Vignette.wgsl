@@ -38,7 +38,7 @@ struct pixelInput_0
 @fragment
 fn fs_main( _S2 : pixelInput_0, @builtin(position) position_1 : vec4<f32>) -> pixelOutput_0
 {
-    var _S3 : pixelOutput_0 = pixelOutput_0( vec4<f32>((textureSample((sceneTexture_0), (sceneSampler_0), (_S2.uv_1))).xyz * vec3<f32>((1.0f - smoothstep(postProcess_0.radius_0, postProcess_0.radius_0 + 0.40000000596046448f, length(_S2.uv_1 - vec2<f32>(0.5f))) * postProcess_0.intensity_0)), 1.0f) );
+    var _S3 : pixelOutput_0 = pixelOutput_0( vec4<f32>((textureSample((sceneTexture_0), (sceneSampler_0), (_S2.uv_1))).xyz * vec3<f32>((1.0f - smoothstep(clamp(1.0f - postProcess_0.radius_0, 0.0f, 0.99900001287460327f), 1.0f, length(_S2.uv_1 - vec2<f32>(0.5f)) / 0.70710676908493042f) * postProcess_0.intensity_0)), 1.0f) );
     return _S3;
 }
 

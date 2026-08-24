@@ -35,9 +35,16 @@ VertexOutput vs_main(uint vertexId : SV_VertexID)
 [shader("fragment")]
 float4 fs_main(VertexOutput input) : SV_Target
 {
+    // Distance from the center normalized by the half-diagonal, so the frame
+    // corners sit at 1.0. The radius is inverted: the darkening covers radius
+    // of the half-diagonal from the corners inward, so a higher value means a
+    // stronger vignette (0 = none, 1 = fades in from the center). The fade
+    // edge is clamped below 1 so smoothstep never degenerates (radius 0 or 1
+    // used to produce no effect at all).
     let centered = input.uv - float2(0.5);
-    let dist = length(centered);
-    let falloff = smoothstep(postProcess.radius, postProcess.radius + 0.4, dist);
+    let dist = length(centered) / 0.70710678;
+    let edge = clamp(1.0 - postProcess.radius, 0.0, 0.999);
+    let falloff = smoothstep(edge, 1.0, dist);
     let shade = 1.0 - falloff * postProcess.intensity;
     var color = sceneTexture.Sample(sceneSampler, input.uv).rgb * shade;
     return float4(color, 1.0);
