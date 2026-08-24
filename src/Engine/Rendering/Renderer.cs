@@ -261,6 +261,13 @@ public sealed class Renderer : IDisposable
     private IBindGroup _skyCameraBindGroup = null!;
     private IBindGroup _skyPlaceholderBindGroup = null!;
 
+    // Mirrors PostProcessUniforms in Shaders/Environment/PostProcess.slang.
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PostProcessUniforms
+    {
+        public Vector4 Settings;
+    }
+
     // Mirrors EnvironmentUniforms in Shaders/Common/Environment.slang:
     // rotation/intensity/exposure/max mip, tint, provider flag, then the sun
     // (direction + angular radius) and atmosphere (turbidity, albedo, sun
@@ -335,6 +342,11 @@ public sealed class Renderer : IDisposable
     private ITexture _sceneTexture = null!;
     private IBindGroup _sceneBindGroup = null!;
 
+    // Post-process: the linear HDR scene is tonemapped into this display-
+    // referred texture by the fullscreen PostProcess pass, then blitted to
+    // the surface (the blit, backdrop and outline bind groups sample it).
+    private ITexture _displayTexture = null!;
+
     // The 3D scene renders into viewport-sized targets (its color, depth and
     // selection mask all share the viewport dimensions). The surface composite
     // pass still needs a full-window depth attachment because its color target
@@ -348,6 +360,9 @@ public sealed class Renderer : IDisposable
     private ISampler _uiSampler = null!;
     private IPipeline _uiPipeline = null!;
     private IBuffer _uiVertexBuffer = null!;
+    private IPipeline _postProcessPipeline = null!;
+    private IBuffer _postProcessUniformBuffer = null!;
+    private IBindGroup _postProcessBindGroup = null!;
 
     // Fullscreen quad transformed to the viewport rectangle in NDC, used by the
     // scene blit and the selection-outline composite. The backdrop compositor
@@ -389,6 +404,7 @@ public sealed class Renderer : IDisposable
         Gizmos = new GizmoRenderer(_device, _cameraBuffer, (ulong)sizeof(CameraUniforms));
         CreateBackdropResources();
         CreateUiResources();
+        CreatePostProcessResources();
         CreateSurfaceDepth(_width, _height);
         EnsureSceneTargets(SceneViewport);
         CreateUi2DResources();
@@ -512,11 +528,43 @@ public sealed class Renderer : IDisposable
                 }
             }
 
+            // Pass 1.5: post-process. The scene texture is linear HDR; the
+            // display transform (tonemapping) runs here, once, for the whole
+            // frame — sky included — instead of inside each shader. The first
+            // enabled PostProcessComponent selects the operator; without one
+            // the engine keeps the historical Reinhard look.
+            var postProcessSettings = GetPostProcessSettings(world);
+            var postProcessUniforms = new PostProcessUniforms { Settings = postProcessSettings };
+            _postProcessUniformBuffer.Write(in postProcessUniforms);
+            using (IRenderPass postProcessPass = commandBuffer.BeginRenderPass(new RenderPassDescription
+            {
+                Color = new ColorAttachment
+                {
+                    Texture = _displayTexture,
+                    LoadOp = RenderAttachmentLoadOp.Clear,
+                    StoreOp = RenderAttachmentStoreOp.Store,
+                    ClearColor = Vector4.Zero
+                },
+                // The pipeline declares a depth format; the scene depth is
+                // attached but untouched (compare always, no writes).
+                Depth = new DepthAttachment
+                {
+                    Texture = _sceneDepth,
+                    LoadOp = RenderAttachmentLoadOp.Load,
+                    StoreOp = RenderAttachmentStoreOp.Store
+                }
+            }))
+            {
+                postProcessPass.SetPipeline(_postProcessPipeline);
+                postProcessPass.SetBindGroup(_postProcessBindGroup, 0);
+                postProcessPass.Draw(3);
+            }
+
             // Pass 2: composite the scene, the backdrop-filter regions and the UI
             // onto the surface. The scene blit reuses the UI pipeline (opaque
             // texture, so the alpha blend is a plain overwrite); the backdrop
-            // compositor samples the scene texture on the GPU between the blit and
-            // the UI overlay.
+            // compositor samples the display texture on the GPU between the blit
+            // and the UI overlay.
             var surfacePassDescription = new RenderPassDescription
             {
                 Color = new ColorAttachment
@@ -742,8 +790,10 @@ public sealed class Renderer : IDisposable
         _defaultBrdfLut = CreateEnvironmentTexture(1, 1, TextureDimension.Dimension2D, 1);
 
         var skyShader = Shader.Load(PathUtil.Combine("Shaders", "Environment/Sky.wgsl"));
+        // The sky renders into the linear HDR scene target (the tonemapper
+        // runs later in the post-process pass).
         _skyPipeline = _device.CreatePipeline(CreateSkyPipelineDescription(
-            skyShader, _device.Swapchain.Format));
+            skyShader, TextureFormat.Rgba16Float));
         _skyCameraBindGroup = _skyPipeline.CreateBindGroup(0,
         [
             new BindGroupBinding { Slot = 0, Buffer = _cameraBuffer, BufferSize = (ulong)sizeof(CameraUniforms) }
@@ -804,6 +854,19 @@ public sealed class Renderer : IDisposable
             }
         }
         return texture;
+    }
+
+    /// <summary>
+    /// The post-process settings for this frame: the first enabled
+    /// <see cref="PostProcessComponent"/> in the world, or the engine default
+    /// (Reinhard, the historical look) when none exists.
+    /// </summary>
+    private static Vector4 GetPostProcessSettings(World? world)
+    {
+        var component = world?.Query<PostProcessComponent>().FirstOrDefault(c => c.Enabled);
+        if (component is null)
+            return new Vector4((float)TonemapOperator.Reinhard, 0f, 1f, 0f);
+        return new Vector4((float)component.Operator, component.Exposure, component.Saturation, 0f);
     }
 
     private void UpdateEnvironment(World? world)
@@ -1014,7 +1077,8 @@ public sealed class Renderer : IDisposable
             ShaderSource = shader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
-            ColorFormat = _device.Swapchain.Format,
+            // Matches the linear HDR scene target (tonemapped in post).
+            ColorFormat = TextureFormat.Rgba16Float,
             DepthFormat = TextureFormat.Depth24Plus,
             // Drawn after the meshes: it tests their depth but must not write
             // depth, and the lines blend over the scene.
@@ -1771,7 +1835,9 @@ public sealed class Renderer : IDisposable
             ShaderSource = shader.Source,
             VertexEntryPoint = technique.VertexEntryPoint,
             FragmentEntryPoint = technique.FragmentEntryPoint,
-            ColorFormat = _device.Swapchain.Format,
+            // The scene pass renders linear HDR into the float scene target;
+            // the post-process pass applies the display transform.
+            ColorFormat = TextureFormat.Rgba16Float,
             DepthFormat = TextureFormat.Depth24Plus,
             AlphaBlend = blendMode == MaterialBlendMode.Blend,
             DepthWriteEnabled = blendMode == MaterialBlendMode.Opaque,
@@ -2155,20 +2221,65 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>
-    /// Creates the offscreen scene texture and the two bind groups that sample
-    /// it: the blit (scene onto the surface, reusing the UI pipeline layout)
-    /// and the backdrop compositor (scene + sampler + per-region params).
+    /// Creates the post-process pipeline and uniform buffer (once). The
+    /// viewport-sized bind group is rebuilt in <see cref="CreateSceneResources"/>
+    /// because it binds the scene/display textures.
+    /// </summary>
+    private void CreatePostProcessResources()
+    {
+        var shader = Shader.Load(PathUtil.Combine("Shaders", "Environment/PostProcess.wgsl"));
+        _postProcessPipeline = _device.CreatePipeline(new PipelineDescription
+        {
+            ShaderSource = shader.Source,
+            VertexEntryPoint = "vs_main",
+            FragmentEntryPoint = "fs_main",
+            ColorFormat = _device.Swapchain.Format,
+            DepthFormat = TextureFormat.Depth24Plus,
+            DepthCompare = CompareFunction.Always,
+            DepthWriteEnabled = false,
+            VertexLayout = new VertexBufferLayoutDescription { Stride = 0, Attributes = [] },
+            BindGroups = shader.BuildBindGroupLayouts()
+        });
+        _postProcessUniformBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)sizeof(PostProcessUniforms),
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+    }
+
+    /// <summary>
+    /// Creates the viewport-sized scene targets (linear HDR scene + display
+    /// texture) and the bind groups that sample them: the post-process input
+    /// (scene), and the surface-side blit/backdrop/outline (display).
     /// </summary>
     private void CreateSceneResources(int width, int height)
     {
         _sceneBindGroup?.Dispose();
         _backdropBindGroup?.Dispose();
+        _postProcessBindGroup?.Dispose();
         _sceneTexture?.Dispose();
+        _displayTexture?.Dispose();
 
         width = Math.Max(1, width);
         height = Math.Max(1, height);
 
+        // Linear HDR: the scene (materials + sky) renders un-tonemapped so
+        // the post-process pass can apply one display transform to the whole
+        // frame without clipping highlights.
         _sceneTexture = _device.CreateTexture(new TextureDescription
+        {
+            Width = width,
+            Height = height,
+            Format = TextureFormat.Rgba16Float,
+            RenderTarget = true,
+            Sampled = true
+        });
+
+        // Display-referred texture the post-process writes. Same format as
+        // the swapchain, so the surface blit, the backdrop compositor and the
+        // selection outline sample it exactly like they sampled the scene
+        // texture before.
+        _displayTexture = _device.CreateTexture(new TextureDescription
         {
             Width = width,
             Height = height,
@@ -2179,15 +2290,22 @@ public sealed class Renderer : IDisposable
 
         _sceneBindGroup = _uiPipeline.CreateBindGroup(
         [
-            new BindGroupBinding { Slot = 0, Texture = _sceneTexture },
+            new BindGroupBinding { Slot = 0, Texture = _displayTexture },
             new BindGroupBinding { Slot = 1, Sampler = _uiSampler }
         ]);
 
         _backdropBindGroup = _backdropPipeline.CreateBindGroup(
         [
-            new BindGroupBinding { Slot = 0, Texture = _sceneTexture },
+            new BindGroupBinding { Slot = 0, Texture = _displayTexture },
             new BindGroupBinding { Slot = 1, Sampler = _uiSampler },
             new BindGroupBinding { Slot = 2, Buffer = _backdropParamsBuffer, BufferSize = (ulong)(MaxBackdropRegions * sizeof(BackdropGpuParams)) }
+        ]);
+
+        _postProcessBindGroup = _postProcessPipeline.CreateBindGroup(
+        [
+            new BindGroupBinding { Slot = 0, Texture = _sceneTexture },
+            new BindGroupBinding { Slot = 1, Sampler = _uiSampler },
+            new BindGroupBinding { Slot = 2, Buffer = _postProcessUniformBuffer, BufferSize = (ulong)sizeof(PostProcessUniforms) }
         ]);
     }
 
@@ -2276,7 +2394,10 @@ public sealed class Renderer : IDisposable
         ]);
         _outlineBindGroup = _outlinePipeline.CreateBindGroup(
         [
-            new BindGroupBinding { Slot = 0, Texture = _sceneTexture },
+            // The outline replaces the scene blit on the surface, so it
+            // samples the post-processed display texture (the "keep the scene
+            // as-is" branch shows the tonemapped frame).
+            new BindGroupBinding { Slot = 0, Texture = _displayTexture },
             new BindGroupBinding { Slot = 1, Texture = _selectionTexture },
             new BindGroupBinding { Slot = 2, Sampler = _uiSampler },
             new BindGroupBinding { Slot = 3, Buffer = _outlineParamsBuffer, BufferSize = (ulong)sizeof(SelectionOutlineParams) }
@@ -2450,6 +2571,10 @@ public sealed class Renderer : IDisposable
 
         _sceneBindGroup?.Dispose();
         _sceneTexture?.Dispose();
+        _displayTexture?.Dispose();
+        _postProcessBindGroup?.Dispose();
+        _postProcessPipeline?.Dispose();
+        _postProcessUniformBuffer?.Dispose();
         _backdropBindGroup?.Dispose();
         _backdropParamsBuffer?.Dispose();
         _backdropPipeline?.Dispose();

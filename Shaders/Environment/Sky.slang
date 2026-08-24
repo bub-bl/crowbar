@@ -27,5 +27,7 @@ float4 fs_main(VertexOutput input) : SV_Target
         1.0));
     let worldDirection = normalize(mul(transpose((float3x3)camera.view), viewDirection));
     let cameraHeight = clamp(camera.cameraPosition.y, 0.0, 59000.0);
+    // Linear HDR radiance: the tonemapper runs once in the post-process pass
+    // for the whole frame, so the sky and the scene share the same curve.
     return float4(EnvironmentLighting::SampleSky(worldDirection, cameraHeight), 1.0);
 }

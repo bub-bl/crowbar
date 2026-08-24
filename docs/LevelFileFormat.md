@@ -106,6 +106,19 @@ The sun *direction* is not persisted: it follows the scene's first enabled
 like the read-only `DirectionalLight.Direction`. Files written before these
 parameters existed load them with their defaults, so old levels are unchanged.
 
+### Post-process component
+
+A `PostProcessComponent` (attachable to any entity) configures the frame's
+post-process — currently the tonemapper applied to the whole rendered scene
+(sky included). The first enabled instance in the world wins; without one the
+engine keeps the historical Reinhard look.
+
+| Property | Type | Role |
+|---|---|---|
+| `Operator` | enum | Tone curve: `None`, `Reinhard`, `Aces` (default), `Agx`. |
+| `Exposure` | float | Exposure in stops (2^exposure), applied before the curve (default 0). |
+| `Saturation` | float | Post-tonemap saturation multiplier (default 1). |
+
 ## Compatibility contract (forward compatibility)
 
 Reading is tolerant — a level never fails to load because of unknown content:

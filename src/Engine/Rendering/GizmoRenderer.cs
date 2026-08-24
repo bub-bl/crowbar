@@ -795,7 +795,9 @@ public sealed class GizmoRenderer : IDisposable
             ShaderSource = widgetShader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
-            ColorFormat = _device.Swapchain.Format,
+            // The gizmos draw into the linear HDR scene target (tonemapped by
+            // the post-process pass like the rest of the frame).
+            ColorFormat = TextureFormat.Rgba16Float,
             DepthFormat = TextureFormat.Depth24Plus,
             DepthCompare = CompareFunction.Always,
             DepthWriteEnabled = false,
@@ -835,7 +837,8 @@ public sealed class GizmoRenderer : IDisposable
             ShaderSource = spriteShader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
-            ColorFormat = _device.Swapchain.Format,
+            // Matches the linear HDR scene target (tonemapped in post).
+            ColorFormat = TextureFormat.Rgba16Float,
             DepthFormat = TextureFormat.Depth24Plus,
             AlphaBlend = true,
             DepthCompare = CompareFunction.Always,
