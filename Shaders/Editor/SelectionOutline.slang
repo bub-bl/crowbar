@@ -38,25 +38,22 @@ VertexOutput vs_main([[vk::location(0)]] float2 position : POSITION, [[vk::locat
 [shader("fragment")]
 float4 fs_main(VertexOutput input) : SV_Target
 {
-    // The scene texture is sRGB: sampling it with a float texture yields linear
-    // values, and the plain blit (Blit.slang) decodes them once more before the
-    // sRGB target re-encodes on store — the gamma-correct round trip of the
-    // whole pipeline. This pass must reproduce that exact handling, or the
-    // scene comes out brighter while an entity is selected.
+    // The scene texture is linear HDR: the post-process chain writes linear
+    // display-referred values (alpha 1) into the display texture. The plain
+    // scene blit (BlitScene.slang) encodes linear -> sRGB on store. This pass
+    // must sample the same linear values and apply the same single sRGB encode
+    // at the end, or the scene comes out wrong while an entity is selected.
     let tex = scene_tex.Sample(samp, input.uv);
     let alpha = tex.a;
-    var rgb = float3(0.0);
-    if (alpha > 0.0)
-    {
-        rgb = Color::SrgbToLinear(clamp(tex.rgb / alpha, float3(0.0), float3(1.0)));
-    }
+    let rgb = clamp(tex.rgb, float3(0.0), float3(1.0));
 
     let center = mask_tex.Sample(samp, input.uv).r;
 
-    // Inside the selected object's silhouette: keep the scene exactly as-is.
+    // Inside the selected object's silhouette: keep the scene exactly as-is,
+    // applying the same single sRGB display encode as the scene blit.
     if (center > 0.5)
     {
-        return float4(rgb, alpha);
+        return float4(Color::LinearToSrgb(rgb), alpha);
     }
 
     // Outside: weight the mask over a disk of radius `thickness`. Right at
@@ -84,8 +81,10 @@ float4 fs_main(VertexOutput input) : SV_Target
 
     let edge = clamp(outside * (2.0 / total), 0.0, 1.0);
     let blend = smoothstep(0.2, 0.8, edge) * params.color.a;
-    // Mix in linear space; the sRGB target re-encodes on store. The alpha is
-    // the scene's own, so translucent pixels (grid lines) composite over the
-    // cleared surface exactly like the blit.
-    return float4(lerp(rgb, params.color.rgb, blend), alpha);
+    // Mix in linear space, then apply the same single sRGB display encode as
+    // the plain scene blit (BlitScene.slang). The alpha is the scene's own, so
+    // translucent pixels (grid lines) composite over the cleared surface
+    // exactly like the blit.
+    let mixed = lerp(rgb, clamp(params.color.rgb, float3(0.0), float3(1.0)), blend);
+    return float4(Color::LinearToSrgb(mixed), alpha);
 }

@@ -2,8 +2,9 @@
 // Fullscreen tonemapping post-process. The linear HDR scene is tonemapped
 // into the next chain texture; the operator is selected per frame by the
 // Tonemapping component (0 = none, 1 = Reinhard, 2 = ACES, 3 = AgX). Output
-// is linear display-referred; the sRGB store/sample chain of the surface
-// blit applies the display encoding, so no gamma step is needed here.
+// is linear display-referred; the scene blit (Ui/BlitScene.slang) applies the
+// linear -> sRGB display encode when it presents the display texture, so no
+// gamma step is needed here.
 //
 // Convention shared by every post-process shader (Shaders/PostProcesses/ in
 // the engine, Content/Shaders/ in a game project): the pass samples the

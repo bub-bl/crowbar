@@ -9,7 +9,7 @@ public abstract class EnvironmentComponent : Component
 {
     private readonly SceneEnvironment _environment = new();
     private float _rotation;
-    private float _intensity = 10f;
+    private float _intensity = 1f;
     private float _exposure;
     private Vector4 _tint = Vector4.One;
 

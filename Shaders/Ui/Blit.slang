@@ -1,12 +1,17 @@
 #language slang 2026;
 import Color;
 
-// Scene-raster blit: presents the offscreen UI raster to the surface. The
+// UI-raster blit: presents the offscreen UI raster to the surface. The
 // texture stores the rasterizer's premultiplied sRGB-encoded RGBA (uploaded
 // raw from the bitmap, no CPU conversion). Linear filtering on premultiplied
 // values is correct (no fringe on soft edges); un-premultiply and decode sRGB
 // here so the SrcAlpha blend below reproduces browser-style straight-alpha
 // compositing, while opaque pixels round-trip exactly.
+//
+// This is distinct from the 3D scene blit: the post-process chain writes
+// linear display-referred values (alpha 1) into the display texture, which
+// BlitScene.slang encodes to sRGB before the surface. Do not route the linear
+// scene through this shader.
 
 struct VertexOutput
 {

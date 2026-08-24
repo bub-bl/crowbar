@@ -14,6 +14,15 @@ public struct Color
         return select(c <= float3(0.04045), lo, hi);
     }
 
+    // Rec. 709 linear -> sRGB (piecewise), the display encode written when a
+    // linear scene is presented to a plain 8-bit (non-sRGB) surface.
+    static float3 LinearToSrgb(float3 c)
+    {
+        let lo = c * 12.92;
+        let hi = 1.055 * pow(max(c, float3(0.0)), float3(1.0 / 2.4)) - 0.055;
+        return select(c <= float3(0.0031308), lo, hi);
+    }
+
     // Reinhard tonemap + gamma encode, the display transform of the 3D path.
     static float3 Tonemap(float3 c)
     {

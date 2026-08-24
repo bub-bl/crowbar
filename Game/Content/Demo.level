@@ -14,12 +14,12 @@
         {
           "type": "Camera",
           "enabled": true,
-          "transform": "4.24,3,-4.24,0.19259183,-0.37427625,0.079774156,0.90358269,1,1,1",
+          "transform": "3.1484904,1.300285,-2.027957,0.020405522,-0.42103148,0.009474724,0.906767,1,1,1",
           "properties": {
             "Pivot": [
-              -0.08900477,
-              0.26602188,
-              0.089004368
+              -1.9684482,
+              0.9986707,
+              2.2942147
             ],
             "Distance": 6.7048635,
             "EnablePostProcessing": true,
@@ -33,7 +33,7 @@
           "enabled": true,
           "transform": null,
           "properties": {
-            "Operator": "Reinhard",
+            "Operator": "Agx",
             "Exposure": 0,
             "Saturation": 1,
             "Order": 0,
@@ -88,7 +88,27 @@
           "properties": {
             "SourcePath": "Content/Environments/studio.hdr",
             "Rotation": 0,
-            "Intensity": 15,
+            "Intensity": 1,
+            "Exposure": 0,
+            "Tint": [
+              1,
+              1,
+              1,
+              1
+            ]
+          }
+        },
+        {
+          "type": "ProceduralSkyComponent",
+          "enabled": false,
+          "transform": null,
+          "properties": {
+            "Turbidity": 1,
+            "GroundAlbedo": 0.3,
+            "SunAngularRadius": 1.5,
+            "SunIntensity": 1,
+            "Rotation": 0,
+            "Intensity": 1,
             "Exposure": 0,
             "Tint": [
               1,

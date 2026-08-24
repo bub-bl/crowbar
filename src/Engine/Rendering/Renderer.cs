@@ -373,7 +373,9 @@ public sealed class Renderer : IDisposable
     // texture onto the surface, so it is kept even though the Skia UI texture
     // upload path is gone.
     private ISampler _uiSampler = null!;
-    private IPipeline _uiPipeline = null!;
+    // Scene blit pipeline: presents the linear post-processed display texture
+    // to the (non-sRGB) surface, applying the single linear->sRGB encode.
+    private IPipeline _scenePipeline = null!;
     private IBuffer _uiVertexBuffer = null!;
     // Fullscreen quad transformed to the viewport rectangle in NDC, used by the
     // scene blit and the selection-outline composite. The backdrop compositor
@@ -614,12 +616,13 @@ public sealed class Renderer : IDisposable
             };
             using (IRenderPass surfacePass = commandBuffer.BeginRenderPass(surfacePassDescription))
             {
-                // The scene blit and the UI overlay share the UI pipeline.
+                // The scene blit, the backdrop compositor and the UI overlay
+                // each bind their own pipeline.
                 // wgpu-native's SetPipeline is comparatively expensive (global lock
                 // + validation), so binding the same pipeline twice per frame is
                 // avoided: the command stream keeps the last bound pipeline until
                 // it changes.
-                IPipeline currentPipeline = _uiPipeline;
+                IPipeline currentPipeline = _scenePipeline;
                 if (outlineActive)
                 {
                     // The selection outline pass replaces the plain scene blit.
@@ -633,7 +636,7 @@ public sealed class Renderer : IDisposable
                 }
                 else
                 {
-                    surfacePass.SetPipeline(_uiPipeline);
+                    surfacePass.SetPipeline(_scenePipeline);
                     surfacePass.SetBindGroup(_sceneBindGroup, 0);
                     surfacePass.SetVertexBuffer(_sceneQuadVertexBuffer, 6 * 4 * sizeof(float));
                     surfacePass.Draw(6);
@@ -2177,10 +2180,10 @@ public sealed class Renderer : IDisposable
         _uiSampler ??= _device.CreateSampler(new SamplerDescription());
         _postProcessPointSampler ??= _device.CreateSampler(new SamplerDescription { Filter = SamplerFilter.Nearest });
 
-        var shader = Shader.Load(PathUtil.Combine("Shaders", "Ui/Blit.wgsl"));
-        _uiPipeline ??= _device.CreatePipeline(new PipelineDescription
+        var sceneShader = Shader.Load(PathUtil.Combine("Shaders", "Ui/BlitScene.wgsl"));
+        _scenePipeline = _device.CreatePipeline(new PipelineDescription
         {
-            ShaderSource = shader.Source,
+            ShaderSource = sceneShader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             ColorFormat = _device.Swapchain.Format,
@@ -2195,7 +2198,7 @@ public sealed class Renderer : IDisposable
                     new VertexAttributeDescription { Format = VertexFormat.Float32x2, Offset = 2 * sizeof(float), ShaderLocation = 1 }
                 ]
             },
-            BindGroups = shader.BuildBindGroupLayouts()
+            BindGroups = sceneShader.BuildBindGroupLayouts()
         });
 
         if (_uiVertexBuffer == null)
@@ -2504,8 +2507,9 @@ public sealed class Renderer : IDisposable
 
         // Display-referred texture the last post-process pass writes. Linear
         // Rgba16Float like the scene and the intermediates, so one pipeline
-        // serves every pass; the surface blit's sRGB store applies the
-        // display encoding, exactly as when this texture was sRGB-format.
+        // serves every pass; the scene blit (Ui/BlitScene.slang) applies the
+        // single linear -> sRGB display encode when presenting it to the
+        // (non-sRGB) surface.
         _displayTexture = _device.CreateTexture(new TextureDescription
         {
             Width = width,
@@ -2550,7 +2554,7 @@ public sealed class Renderer : IDisposable
             });
         }
 
-        _sceneBindGroup = _uiPipeline.CreateBindGroup(
+        _sceneBindGroup = _scenePipeline.CreateBindGroup(
         [
             new BindGroupBinding { Slot = 0, Texture = _displayTexture },
             new BindGroupBinding { Slot = 1, Sampler = _uiSampler }
@@ -2840,7 +2844,7 @@ public sealed class Renderer : IDisposable
         _backdropParamsBuffer?.Dispose();
         _backdropPipeline?.Dispose();
         _uiVertexBuffer?.Dispose();
-        _uiPipeline?.Dispose();
+        _scenePipeline?.Dispose();
         _uiSampler?.Dispose();
         _ui2dBindGroup?.Dispose();
         _ui2dPipeline?.Dispose();
