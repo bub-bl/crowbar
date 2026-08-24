@@ -5,8 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <AssemblyName>Crowbar.UI.Tests</AssemblyName>
-    <TieredCompilation>false</TieredCompilation>
+    <AssemblyName>Crowbar.FileSystem.Tests</AssemblyName>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,7 +21,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Crowbar.TestSupport\Crowbar.TestSupport.csproj" />
-    <ProjectReference Include="..\..\src\UI\Crowbar.UI.csproj" />
-    <ProjectReference Include="..\..\src\Engine\Engine.csproj" />
+    <ProjectReference Include="..\..\src\FileSystem\Crowbar.FileSystem.csproj" />
   </ItemGroup>
 </Project>

@@ -99,7 +99,7 @@ public class PointerSuppressionTests
         using var ui = TestUi.Create();
         var button = CreateButton();
         button.SetInlineStyle("cursor", "pointer");
-        button.Tooltip = "Bonjour";
+        button.Tooltip = "Hello";
         ui.Screen.AddChild(button);
         ui.Prepare();
 
@@ -107,7 +107,7 @@ public class PointerSuppressionTests
         Assert.True(button.IsHovered);
         Assert.True(button.IsPressed);
         Assert.Equal("pointer", ui.HoveredCursor);
-        Assert.Equal("Bonjour", ui.Renderer.TooltipText);
+        Assert.Equal("Hello", ui.Renderer.TooltipText);
 
         ui.ResetPointerState();
 

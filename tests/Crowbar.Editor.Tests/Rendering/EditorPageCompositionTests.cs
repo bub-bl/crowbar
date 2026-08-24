@@ -802,6 +802,10 @@ public class EditorPageCompositionTests
     public void ContentPanelSidebarIsAFolderTree()
     {
         using var ui = CreateEditorUi();
+        EditorContentState.Reset();
+        PublishDemoContentState();
+        ui.Update();
+        ui.Prepare();
         var content = ui.Content!;
 
         // Expanding Models reveals its folders, indented under it.

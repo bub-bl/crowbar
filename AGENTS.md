@@ -32,10 +32,10 @@ dotnet run --project src\Editor\Editor.csproj
 
 ## Tests
 
-The test project is `tests/Crowbar.UI.Tests` (xUnit). Run all tests:
+Tests are split into subsystem-specific xUnit projects. Run all tests:
 
 ```powershell
-dotnet test tests\Crowbar.UI.Tests\Crowbar.UI.Tests.csproj
+dotnet test Crowbar.slnx
 ```
 
 All tests must pass before a change is considered complete. Tests run headless and do not require a GPU.
@@ -46,7 +46,12 @@ All tests must pass before a change is considered complete. Tests run headless a
 - `src/Editor` — application bootstrap and editor UI (Razor components).
 - `src/UI` — UI framework (layout, styling, Razor pipeline).
 - `src/FileSystem` — file system abstraction over Zio.
-- `tests/Crowbar.UI.Tests` — unit tests.
+- `tests/Crowbar.TestSupport` — shared test fixtures and helpers.
+- `tests/Crowbar.Audio.Tests` — audio tests.
+- `tests/Crowbar.Engine.Tests` — engine tests.
+- `tests/Crowbar.FileSystem.Tests` — file system tests.
+- `tests/Crowbar.UI.Tests` — UI framework tests.
+- `tests/Crowbar.Editor.Tests` — editor integration tests.
 - `Game/` — demo game project.
 - `Assets/` — game assets (icons, models).
 - `Shaders/`, `src/Engine/Shaders` — GPU shaders (Slang/WGSL).

@@ -57,18 +57,18 @@ public class InputTests
         var edit = new TextInput();
         edit.SetInlineStyle("width", "160px");
         edit.SetInlineStyle("height", "32px");
-        edit.SetValue("Je t'aime");
+        edit.SetValue("I care");
         ui.Screen.AddChild(edit);
         ui.Prepare();
 
         ui.ProcessPointerDown(edit.Layout.Right - 1, edit.Layout.Y + 1);
         ui.ProcessKey(0x43, true); // C
-        Assert.Equal("Je t'aimec", edit.Value);
+        Assert.Equal("I carec", edit.Value);
 
         ui.ProcessKey(0x10, true); // Shift
         ui.ProcessKey(0x31, true); // 1
         ui.ProcessKey(0x10, false);
-        Assert.Equal("Je t'aimec!", edit.Value);
+        Assert.Equal("I carec!", edit.Value);
 
         ui.ProcessKey(0x11, true); // Ctrl
         ui.ProcessKey(0x41, true); // A

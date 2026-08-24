@@ -5,7 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
-    <AssemblyName>Crowbar.UI.Tests</AssemblyName>
+    <AssemblyName>Crowbar.Editor.Tests</AssemblyName>
     <TieredCompilation>false</TieredCompilation>
   </PropertyGroup>
 
@@ -18,11 +18,18 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <Using Include="Crowbar.UI.Tests" />
+    <Using Include="Crowbar.UI.Tests.Rendering" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Crowbar.TestSupport\Crowbar.TestSupport.csproj" />
-    <ProjectReference Include="..\..\src\UI\Crowbar.UI.csproj" />
+    <ProjectReference Include="..\..\src\Editor\Editor.csproj" />
     <ProjectReference Include="..\..\src\Engine\Engine.csproj" />
+    <ProjectReference Include="..\..\src\UI\Crowbar.UI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="..\..\Game\Content\**\*" Link="Content\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\src\Editor\Ui\**\*.razor" Link="EditorUi\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

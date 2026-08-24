@@ -5,6 +5,7 @@ namespace Crowbar.UI.Tests;
 /// published name/path drive the panels, and the open-project request is
 /// queued by the UI and consumed exactly once by the host per frame.
 /// </summary>
+[Collection("EditorGlobals")]
 public class EditorProjectStateTests
 {
     [Fact]

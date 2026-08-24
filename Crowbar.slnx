@@ -4,7 +4,12 @@
   <Project Path="src/Engine/Engine.csproj" />
   <Project Path="src/UI/Crowbar.UI.csproj" />
   <Folder Name="/Tests/">
+    <Project Path="tests/Crowbar.TestSupport/Crowbar.TestSupport.csproj" />
+    <Project Path="tests/Crowbar.Audio.Tests/Crowbar.Audio.Tests.csproj" />
+    <Project Path="tests/Crowbar.Engine.Tests/Crowbar.Engine.Tests.csproj" />
+    <Project Path="tests/Crowbar.FileSystem.Tests/Crowbar.FileSystem.Tests.csproj" />
     <Project Path="tests/Crowbar.UI.Tests/Crowbar.UI.Tests.csproj" />
+    <Project Path="tests/Crowbar.Editor.Tests/Crowbar.Editor.Tests.csproj" />
   </Folder>
   <Project Path="Game/Code/Game.csproj" />
 </Solution>

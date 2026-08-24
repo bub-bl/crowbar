@@ -1,4 +1,3 @@
-using System.Runtime.CompilerServices;
 using Crowbar.Engine;
 using Crowbar.Engine.Global;
 using Crowbar.FileSystems;
@@ -13,10 +12,9 @@ namespace Crowbar.UI.Tests;
 /// and <see cref="Crowbar.FileSystems.FileSystem.Project"/>; the test output directory is
 /// the content/project root, while OS temp paths resolve through the backend.
 /// </summary>
-internal static class FileSystemSetup
+public static class FileSystemSetup
 {
-    [ModuleInitializer]
-    internal static void Initialize()
+    public static void Initialize()
     {
         var backend = ZioFileSystem.Physical();
         FileSystem.Configure(

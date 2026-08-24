@@ -10,6 +10,7 @@ namespace Crowbar.UI.Tests.Scripting;
 /// whatever exists. These tests pin that contract and the component registry
 /// that lets the editor attach game components by name.
 /// </summary>
+[Collection("EditorGlobals")]
 public sealed class StatusBarTests
 {
     public StatusBarTests()
@@ -126,5 +127,6 @@ public sealed class StatusBarTests
         // Removing the component runs OnDestroy, which removes its entry.
         entity.RemoveComponent(component);
         Assert.Empty(StatusBar.Snapshot());
+        GlobalNamespaces.TypeLibrary.Registry.UnregisterAssembly(assembly.Assembly);
     }
 }

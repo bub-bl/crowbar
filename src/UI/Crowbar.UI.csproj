@@ -27,6 +27,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Crowbar.UI.Tests" />
+    <InternalsVisibleTo Include="Crowbar.Editor.Tests" />
+    <InternalsVisibleTo Include="Crowbar.TestSupport" />
   </ItemGroup>
 
   <ItemGroup>
