@@ -12,6 +12,10 @@
     {
         <ContentContextMenu />
     }
+    @if (EditorInspectorState.ComponentContextMenu is not null)
+    {
+        <InspectorComponentContextMenu />
+    }
 </div>
 
 @* The panels (hierarchy, viewport, inspector, content) are now dockable

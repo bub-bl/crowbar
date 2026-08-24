@@ -9,7 +9,8 @@ namespace Crowbar.UI;
 /// <see cref="EditorExplorerState"/>. It also carries the UI → host collapse
 /// choices, so the sections the user folded survive republishing, the Add
 /// Component menu (<see cref="AvailableComponentTypes"/> +
-/// <see cref="RequestAddComponent"/>) and the queued property edits.
+/// <see cref="RequestAddComponent"/>), queued property edits and component
+/// removal requests.
 /// </summary>
 public static class EditorInspectorState
 {
@@ -35,6 +36,15 @@ public static class EditorInspectorState
     public readonly record struct Section(string Id, string Title, string? Icon, IReadOnlyList<Property> Properties,
         bool IsComponent = false, bool Enabled = true);
 
+    /// <summary>
+    /// An open component context menu (right-click on a component section
+    /// header). <see cref="ComponentId"/> is the section id (the component type
+    /// name, e.g. <c>MeshRenderer</c>); <see cref="X"/>/<see cref="Y"/> are the
+    /// pointer coordinates (framebuffer pixels) where the menu opens, clamped
+    /// into the window by the menu component.
+    /// </summary>
+    public readonly record struct ComponentContextMenuState(string ComponentId, float X, float Y);
+
     private static string _entityName = string.Empty;
     private static bool _hasSelection;
     private static IReadOnlyList<Section> _sections = [];
@@ -43,6 +53,7 @@ public static class EditorInspectorState
     private static IReadOnlyList<string> _availableComponentTypes = [];
     private static bool _addMenuOpen;
     private static string? _openEnumKey;
+    private static ComponentContextMenuState? _componentContextMenu;
 
     /// <summary>Name of the selected entity, or empty when nothing is selected.</summary>
     public static string EntityName => _entityName;
@@ -70,6 +81,9 @@ public static class EditorInspectorState
     /// </summary>
     public static bool AddMenuOpen => _addMenuOpen;
 
+    /// <summary>The currently open component context menu, if any.</summary>
+    public static ComponentContextMenuState? ComponentContextMenu => _componentContextMenu;
+
     public static bool IsEnumOpen(string key) =>
         !string.IsNullOrEmpty(key) && string.Equals(_openEnumKey, key, StringComparison.Ordinal);
 
@@ -84,6 +98,7 @@ public static class EditorInspectorState
     private static readonly Lock EditLock = new();
     private static readonly List<(string Key, string Value)> PendingEdits = [];
     private static readonly List<string> PendingAddComponents = [];
+    private static readonly List<string> PendingRemoveComponents = [];
 
     public static bool IsCollapsed(string id) => Collapsed.Contains(id);
 
@@ -97,7 +112,7 @@ public static class EditorInspectorState
     }
 
     /// <summary>
-    /// Clears the snapshot, the collapsed sections and the pending edits. Used
+    /// Clears the snapshot, the collapsed sections and all pending requests. Used
     /// by tests so each editor-page fixture starts from a clean slate (section
     /// ids are stable strings, unlike the explorer's per-publish guids).
     /// </summary>
@@ -108,6 +123,7 @@ public static class EditorInspectorState
         {
             PendingEdits.Clear();
             PendingAddComponents.Clear();
+            PendingRemoveComponents.Clear();
         }
         _entityName = string.Empty;
         _hasSelection = false;
@@ -116,6 +132,7 @@ public static class EditorInspectorState
         _availableComponentTypes = [];
         _addMenuOpen = false;
         _openEnumKey = null;
+        _componentContextMenu = null;
         _version++;
     }
 
@@ -132,6 +149,28 @@ public static class EditorInspectorState
         if (!_addMenuOpen)
             return;
         _addMenuOpen = false;
+        _version++;
+    }
+
+    /// <summary>
+    /// Opens the component context menu at the pointer position (a right-click
+    /// on a component section header). The menu itself is mounted at the editor
+    /// root, so the caller's render cascade rebuilds the root and mounts it.
+    /// </summary>
+    public static void OpenComponentContextMenu(string componentId, float x, float y)
+    {
+        if (string.IsNullOrEmpty(componentId))
+            return;
+        _componentContextMenu = new ComponentContextMenuState(componentId, x, y);
+        _version++;
+    }
+
+    /// <summary>Closes the component context menu; a click outside or on an item closes it.</summary>
+    public static void CloseComponentContextMenu()
+    {
+        if (_componentContextMenu is null)
+            return;
+        _componentContextMenu = null;
         _version++;
     }
 
@@ -194,6 +233,28 @@ public static class EditorInspectorState
                 return [];
             var requests = PendingAddComponents.ToArray();
             PendingAddComponents.Clear();
+            return requests;
+        }
+    }
+
+    /// <summary>Queues a component removal request for the host to apply to the selected entity.</summary>
+    public static void RequestRemoveComponent(string typeName)
+    {
+        if (string.IsNullOrEmpty(typeName))
+            return;
+        lock (EditLock)
+            PendingRemoveComponents.Add(typeName);
+    }
+
+    /// <summary>Returns and clears component removal requests queued since the previous call.</summary>
+    public static IReadOnlyList<string> ConsumeRemoveComponentRequests()
+    {
+        lock (EditLock)
+        {
+            if (PendingRemoveComponents.Count == 0)
+                return [];
+            var requests = PendingRemoveComponents.ToArray();
+            PendingRemoveComponents.Clear();
             return requests;
         }
     }

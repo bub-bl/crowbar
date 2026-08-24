@@ -1135,6 +1135,155 @@ public class EditorPageCompositionTests
         Assert.False(EditorInspectorState.IsCollapsed("MeshRenderer"));
     }
 
+    /// <summary>Finds a component section head by its title text.</summary>
+    private static Panel ComponentHead(Panel root, string title) =>
+        TestUi.FindAll(root, p => p.Classes.Contains("insp-section-head"))
+            .Single(panel => TestUi.Texts(panel).Any(t => t == title));
+
+    /// <summary>Right-clicks the empty right side of a section head.</summary>
+    private static void RightClick(UiSystem ui, Panel head)
+    {
+        ui.ProcessPointerDown(head.Layout.Right - 8, head.Layout.Y + 10, button: 1);
+        ui.ProcessPointerUp(head.Layout.Right - 8, head.Layout.Y + 10, button: 1);
+        ui.Update();
+        ui.Prepare();
+    }
+
+    [Fact]
+    public void InspectorComponentRightClickOpensContextMenuWithoutCollapsingSection()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        var head = ComponentHead(content, "MeshRenderer");
+
+        // Right-click the header: the component context menu replaces the old
+        // × button. It must not collapse the section (the header's click
+        // handler fires for every button, so it filters left clicks).
+        RightClick(ui, head);
+
+        var menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("inspector-context-menu"));
+        Assert.NotNull(menu);
+        Assert.Contains("MeshRenderer", TestUi.Texts(menu!));
+        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Collapse Section"));
+        Assert.NotNull(FindText(ui.Content!, "context-menu-item", t => t == "Remove Component"));
+        Assert.False(EditorInspectorState.IsCollapsed("MeshRenderer"));
+        Assert.NotNull(TestUi.Find(ui.Content!, p => TestUi.Texts(p).Any(t => t == "house.glb")));
+    }
+
+    [Fact]
+    public void InspectorComponentContextMenuRemoveQueuesRemovalAndCloses()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        var head = ComponentHead(content, "MeshRenderer");
+        RightClick(ui, head);
+
+        var remove = FindText(ui.Content!, "context-menu-item", t => t == "Remove Component");
+        Assert.NotNull(remove);
+        ClickAt(ui, remove!);
+
+        Assert.Equal(["MeshRenderer"], EditorInspectorState.ConsumeRemoveComponentRequests());
+        Assert.False(EditorInspectorState.IsCollapsed("MeshRenderer"));
+        Assert.Null(TestUi.Find(ui.Content!, p => p.Classes.Contains("inspector-context-menu")));
+    }
+
+    [Fact]
+    public void InspectorComponentContextMenuCollapseToggleCollapsesTheSection()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        var head = ComponentHead(content, "MeshRenderer");
+        RightClick(ui, head);
+
+        var collapse = FindText(ui.Content!, "context-menu-item", t => t == "Collapse Section");
+        Assert.NotNull(collapse);
+        ClickAt(ui, collapse!);
+        // The menu close rebuilds the editor root (it prunes the root-mounted
+        // menu) but keeps the dock pane subtrees; the inspector's own rebuild
+        // lands on the next frame's descendant pass, exactly like the content
+        // panel refresh after a menu action.
+        ui.Update();
+        ui.Prepare();
+
+        Assert.True(EditorInspectorState.IsCollapsed("MeshRenderer"));
+        Assert.Null(TestUi.Find(ui.Content!, p => p.Classes.Contains("inspector-context-menu")));
+        Assert.Null(TestUi.Find(ui.Content!, p => TestUi.Texts(p).Any(t => t == "house.glb")));
+    }
+
+    [Fact]
+    public void InspectorComponentContextMenuClosesWhenClickingOutside()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        var head = ComponentHead(content, "MeshRenderer");
+        RightClick(ui, head);
+        Assert.NotNull(TestUi.Find(ui.Content, p => p.Classes.Contains("inspector-context-menu")));
+
+        // The transparent full-editor layer receives left clicks outside the
+        // menu and closes it.
+        ui.ProcessPointerDown(5, 5, button: 0);
+        ui.ProcessPointerUp(5, 5, button: 0);
+        ui.Update();
+        ui.Prepare();
+
+        Assert.Null(TestUi.Find(ui.Content, p => p.Classes.Contains("inspector-context-menu")));
+    }
+
+    [Fact]
+    public void InspectorTransformSectionRightClickDoesNotOpenContextMenu()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        var head = ComponentHead(content, "Transform");
+
+        // The transform is not a component: right-clicking its header must not
+        // open a context menu (and must keep the toggle behavior).
+        RightClick(ui, head);
+
+        Assert.Null(TestUi.Find(ui.Content, p => p.Classes.Contains("inspector-context-menu")));
+        Assert.False(EditorInspectorState.IsCollapsed("transform"));
+    }
+
+    [Fact]
+    public void InspectorComponentContextMenuReopensOverAnotherComponentOnRightClick()
+    {
+        using var ui = CreateEditorUi();
+        EditorInspectorState.Publish("House",
+        [
+            new EditorInspectorState.Section("transform", "Transform", null, []),
+            new EditorInspectorState.Section("MeshRenderer", "MeshRenderer", "Solar/ui/Bold/box-minimalistic", [],
+                IsComponent: true),
+            new EditorInspectorState.Section("PointLight", "PointLight", "Solar/devices/Bold/lightbulb", [],
+                IsComponent: true)
+        ]);
+        ui.Update();
+        ui.Prepare();
+        var content = ui.Content!;
+
+        // Open the menu on MeshRenderer.
+        RightClick(ui, ComponentHead(content, "MeshRenderer"));
+        var menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("inspector-context-menu"));
+        Assert.NotNull(menu);
+        Assert.Contains("MeshRenderer", TestUi.Texts(menu!));
+
+        // Right-click the PointLight header while the menu is open: the overlay
+        // intercepts the press but must reopen the menu over that component
+        // instead of keeping the old one. The press lands on the header's left
+        // side, well outside the open menu box (which floats right of the
+        // press that opened it).
+        content = ui.Content!;
+        var lightHead = ComponentHead(content, "PointLight");
+        ui.ProcessPointerDown(lightHead.Layout.X + 40, lightHead.Layout.Y + 10, button: 1);
+        ui.ProcessPointerUp(lightHead.Layout.X + 40, lightHead.Layout.Y + 10, button: 1);
+        ui.Update();
+        ui.Prepare();
+
+        menu = TestUi.Find(ui.Content!, p => p.Classes.Contains("inspector-context-menu"));
+        Assert.NotNull(menu);
+        Assert.Contains("PointLight", TestUi.Texts(menu!));
+        Assert.DoesNotContain("MeshRenderer", TestUi.Texts(menu!));
+    }
+
     [Fact]
     public void InspectorInputsAreEditableAndKeepFocusAcrossRebuild()
     {

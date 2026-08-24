@@ -5,9 +5,13 @@
 
 @* A collapsible section of the inspector (the transform or a component). The
    collapse state is kept host-side via EditorInspectorState, so it survives
-   the republishes on every frame. *@
+   the republishes on every frame. A right-click on a component header opens
+   the component context menu (actions such as Remove Component); the header
+   carries the component id as a data attribute so the root-mounted menu can
+   reopen itself over another component. *@
 <div class="insp-section">
-    <div class="insp-section-head @(Open ? "" : "collapsed")" @onclick="OnToggle">
+    <div class="insp-section-head @(Open ? "" : "collapsed")" data-component="@(ShowEnabled ? Id : "")"
+         @onclick="OnToggle" @onmousedown="OnPointerDown">
         <icon name="@(Open ? "Solar/arrows/Bold/alt-arrow-down" : "Solar/arrows/Bold/alt-arrow-right")" />
         @if (!string.IsNullOrEmpty(Icon))
         {
@@ -58,8 +62,25 @@
         EditorInspectorState.RequestEdit($"{Id}.Enabled", value ? "true" : "false");
     }
 
-    private void OnToggle()
+    /// <summary>
+    /// Left-click toggles the section (right-click opens the context menu, so
+    /// it must not toggle: the click handler fires for every button).
+    /// </summary>
+    private void OnToggle(UiPointerEvent e)
     {
+        if (e.Button != 0) return;
         EditorInspectorState.Toggle(Id);
+    }
+
+    /// <summary>
+    /// Right-click on a component header opens the component context menu at
+    /// the pointer position. Returning true consumes the press and triggers the
+    /// render cascade that mounts the root-level menu.
+    /// </summary>
+    private bool OnPointerDown(UiPointerEvent e)
+    {
+        if (e.Button != 1 || !ShowEnabled) return false;
+        EditorInspectorState.OpenComponentContextMenu(Id, e.X, e.Y);
+        return true;
     }
 }
