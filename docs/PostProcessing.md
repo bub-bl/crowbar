@@ -136,9 +136,11 @@ Compile errors appear as notifications. `Content/Shaders/` shaders are also
 compiled on editor start and on project switch (they are not part of the
 engine build).
 
-## The demo
+## The vignette
 
-`Game/Code/Vignette.cs` + `Game/Content/Shaders/Vignette.slang` ship a
-complete game-authored effect (corner darkening). Attach **Vignette** to any
-entity from the inspector, then edit the `.slang` while the editor runs to see
-the hot reload in action.
+The engine ships a `Vignette` post-process (corner darkening) as a
+first-class component: `src/Engine/World/Vignette.cs` drives
+`Shaders/PostProcesses/Vignette.slang`, and the shader hot-reloads like any
+other (edit the `.slang` while the editor runs to see it in action). Attach
+**Vignette** to any entity from the inspector; it blends across
+`PostProcessVolume` instances through `BasePostProcess<T>.GetWeighted`.
