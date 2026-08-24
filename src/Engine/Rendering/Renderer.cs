@@ -261,7 +261,8 @@ public sealed class Renderer : IDisposable
     private IBindGroup _skyCameraBindGroup = null!;
     private IBindGroup _skyPlaceholderBindGroup = null!;
 
-    // Mirrors PostProcessUniforms in Shaders/Environment/PostProcess.slang.
+    // Mirrors the PostProcessUniforms convention shared by every shader in
+    // Shaders/PostProcesses/ (a float4 "settings" uniform at binding slot 2).
     [StructLayout(LayoutKind.Sequential)]
     private struct PostProcessUniforms
     {
@@ -342,10 +343,14 @@ public sealed class Renderer : IDisposable
     private ITexture _sceneTexture = null!;
     private IBindGroup _sceneBindGroup = null!;
 
-    // Post-process: the linear HDR scene is tonemapped into this display-
-    // referred texture by the fullscreen PostProcess pass, then blitted to
-    // the surface (the blit, backdrop and outline bind groups sample it).
+    // Post-process chain: the enabled PostProcess components run in order,
+    // ping-ponging the linear HDR scene through HDR intermediates, and the
+    // last pass writes this display-referred texture, which the surface
+    // blit, backdrop and outline bind groups sample.
     private ITexture _displayTexture = null!;
+    private ITexture _postProcessTextureA = null!;
+    private ITexture _postProcessTextureB = null!;
+    private readonly List<IDisposable> _postProcessFrameResources = [];
 
     // The 3D scene renders into viewport-sized targets (its color, depth and
     // selection mask all share the viewport dimensions). The surface composite
@@ -360,9 +365,8 @@ public sealed class Renderer : IDisposable
     private ISampler _uiSampler = null!;
     private IPipeline _uiPipeline = null!;
     private IBuffer _uiVertexBuffer = null!;
-    private IPipeline _postProcessPipeline = null!;
-    private IBuffer _postProcessUniformBuffer = null!;
-    private IBindGroup _postProcessBindGroup = null!;
+    // One pipeline per post-process shader path, created on first use.
+    private readonly Dictionary<string, IPipeline> _postProcessPipelines = [];
 
     // Fullscreen quad transformed to the viewport rectangle in NDC, used by the
     // scene blit and the selection-outline composite. The backdrop compositor
@@ -404,7 +408,6 @@ public sealed class Renderer : IDisposable
         Gizmos = new GizmoRenderer(_device, _cameraBuffer, (ulong)sizeof(CameraUniforms));
         CreateBackdropResources();
         CreateUiResources();
-        CreatePostProcessResources();
         CreateSurfaceDepth(_width, _height);
         EnsureSceneTargets(SceneViewport);
         CreateUi2DResources();
@@ -528,36 +531,60 @@ public sealed class Renderer : IDisposable
                 }
             }
 
-            // Pass 1.5: post-process. The scene texture is linear HDR; the
-            // display transform (tonemapping) runs here, once, for the whole
-            // frame — sky included — instead of inside each shader. The first
-            // enabled PostProcessComponent selects the operator; without one
-            // the engine keeps the historical Reinhard look.
-            var postProcessSettings = GetPostProcessSettings(world);
-            var postProcessUniforms = new PostProcessUniforms { Settings = postProcessSettings };
-            _postProcessUniformBuffer.Write(in postProcessUniforms);
-            using (IRenderPass postProcessPass = commandBuffer.BeginRenderPass(new RenderPassDescription
+            // Pass 1.5: the post-process chain. The scene texture is linear
+            // HDR; each enabled PostProcess component runs its fullscreen
+            // shader in Order, ping-ponging through HDR intermediates, and the
+            // last pass writes the display texture. Without any component the
+            // engine keeps the historical Reinhard look.
+            var postProcessPasses = GetPostProcessPasses(world);
+            var postProcessInput = _sceneTexture;
+            for (var index = 0; index < postProcessPasses.Count; index++)
             {
-                Color = new ColorAttachment
+                var descriptor = postProcessPasses[index];
+                var isLast = index == postProcessPasses.Count - 1;
+                var output = isLast
+                    ? _displayTexture
+                    : (index % 2 == 0 ? _postProcessTextureA : _postProcessTextureB);
+                var pipeline = GetOrCreatePostProcessPipeline(descriptor.ShaderPath);
+                var uniforms = new PostProcessUniforms { Settings = descriptor.Settings };
+                var uniformBuffer = _device.CreateBuffer(new BufferDescription
                 {
-                    Texture = _displayTexture,
-                    LoadOp = RenderAttachmentLoadOp.Clear,
-                    StoreOp = RenderAttachmentStoreOp.Store,
-                    ClearColor = Vector4.Zero
-                },
-                // The pipeline declares a depth format; the scene depth is
-                // attached but untouched (compare always, no writes).
-                Depth = new DepthAttachment
+                    Size = (ulong)sizeof(PostProcessUniforms),
+                    Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+                });
+                uniformBuffer.Write(in uniforms);
+                var bindGroup = pipeline.CreateBindGroup(
+                [
+                    new BindGroupBinding { Slot = 0, Texture = postProcessInput },
+                    new BindGroupBinding { Slot = 1, Sampler = _uiSampler },
+                    new BindGroupBinding { Slot = 2, Buffer = uniformBuffer, BufferSize = (ulong)sizeof(PostProcessUniforms) }
+                ]);
+                _postProcessFrameResources.Add(uniformBuffer);
+                _postProcessFrameResources.Add(bindGroup);
+                using (IRenderPass postProcessPass = commandBuffer.BeginRenderPass(new RenderPassDescription
                 {
-                    Texture = _sceneDepth,
-                    LoadOp = RenderAttachmentLoadOp.Load,
-                    StoreOp = RenderAttachmentStoreOp.Store
+                    Color = new ColorAttachment
+                    {
+                        Texture = output,
+                        LoadOp = RenderAttachmentLoadOp.Clear,
+                        StoreOp = RenderAttachmentStoreOp.Store,
+                        ClearColor = Vector4.Zero
+                    },
+                    // The pipeline declares a depth format; the scene depth is
+                    // attached but untouched (compare always, no writes).
+                    Depth = new DepthAttachment
+                    {
+                        Texture = _sceneDepth,
+                        LoadOp = RenderAttachmentLoadOp.Load,
+                        StoreOp = RenderAttachmentStoreOp.Store
+                    }
+                }))
+                {
+                    postProcessPass.SetPipeline(pipeline);
+                    postProcessPass.SetBindGroup(bindGroup, 0);
+                    postProcessPass.Draw(3);
                 }
-            }))
-            {
-                postProcessPass.SetPipeline(_postProcessPipeline);
-                postProcessPass.SetBindGroup(_postProcessBindGroup, 0);
-                postProcessPass.Draw(3);
+                postProcessInput = output;
             }
 
             // Pass 2: composite the scene, the backdrop-filter regions and the UI
@@ -645,6 +672,7 @@ public sealed class Renderer : IDisposable
 
             commandBuffer.Submit();
             _environmentPreprocessor.FinishFrame();
+            DisposePostProcessFrameResources();
             _device.Swapchain.Present();
         }
     }
@@ -857,17 +885,29 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>
-    /// The post-process settings for this frame: the first enabled
-    /// <see cref="PostProcessComponent"/> in the world, or the engine default
-    /// (Reinhard, the historical look) when none exists.
+    /// The post-process chain for this frame: every enabled
+    /// <see cref="PostProcess"/> component in the world, ordered by
+    /// <see cref="PostProcess.Order"/>. Without any the engine falls back to
+    /// Reinhard tonemapping (the historical look).
     /// </summary>
-    private static Vector4 GetPostProcessSettings(World? world)
+    private static List<PostProcessPass> GetPostProcessPasses(World? world)
     {
-        var component = world?.Query<PostProcessComponent>().FirstOrDefault(c => c.Enabled);
-        if (component is null)
-            return new Vector4((float)TonemapOperator.Reinhard, 0f, 1f, 0f);
-        return new Vector4((float)component.Operator, component.Exposure, component.Saturation, 0f);
+        var components = world?.Query<PostProcess>()
+            .Where(component => component.Enabled)
+            .OrderBy(component => component.Order);
+        if (components is null || !components.Any())
+            return
+            [
+                new PostProcessPass("Shaders/PostProcesses/Tonemapping.wgsl",
+                    new Vector4((float)TonemapOperator.Reinhard, 0f, 1f, 0f))
+            ];
+        return components
+            .Select(component => new PostProcessPass(component.ShaderPath, component.Settings))
+            .ToList();
     }
+
+    /// <summary>A post-process pass: its shader path and the settings uniform for this frame.</summary>
+    private sealed record PostProcessPass(string ShaderPath, Vector4 Settings);
 
     private void UpdateEnvironment(World? world)
     {
@@ -2220,31 +2260,36 @@ public sealed class Renderer : IDisposable
         });
     }
 
-    /// <summary>
-    /// Creates the post-process pipeline and uniform buffer (once). The
-    /// viewport-sized bind group is rebuilt in <see cref="CreateSceneResources"/>
-    /// because it binds the scene/display textures.
-    /// </summary>
-    private void CreatePostProcessResources()
+    /// <summary>Returns (creating on first use) the pipeline for a post-process shader.</summary>
+    private IPipeline GetOrCreatePostProcessPipeline(string shaderPath)
     {
-        var shader = Shader.Load(PathUtil.Combine("Shaders", "Environment/PostProcess.wgsl"));
-        _postProcessPipeline = _device.CreatePipeline(new PipelineDescription
+        if (_postProcessPipelines.TryGetValue(shaderPath, out var pipeline))
+            return pipeline;
+        var shader = Shader.Load(PathUtil.Combine(shaderPath));
+        pipeline = _device.CreatePipeline(new PipelineDescription
         {
             ShaderSource = shader.Source,
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
-            ColorFormat = _device.Swapchain.Format,
+            // Every chain texture (scene, intermediates, display) is linear
+            // Rgba16Float, so one pipeline serves all passes.
+            ColorFormat = TextureFormat.Rgba16Float,
             DepthFormat = TextureFormat.Depth24Plus,
             DepthCompare = CompareFunction.Always,
             DepthWriteEnabled = false,
             VertexLayout = new VertexBufferLayoutDescription { Stride = 0, Attributes = [] },
             BindGroups = shader.BuildBindGroupLayouts()
         });
-        _postProcessUniformBuffer = _device.CreateBuffer(new BufferDescription
-        {
-            Size = (ulong)sizeof(PostProcessUniforms),
-            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
-        });
+        _postProcessPipelines.Add(shaderPath, pipeline);
+        return pipeline;
+    }
+
+    /// <summary>Releases the per-frame uniform buffers and bind groups of the post-process chain.</summary>
+    private void DisposePostProcessFrameResources()
+    {
+        foreach (var resource in _postProcessFrameResources)
+            resource.Dispose();
+        _postProcessFrameResources.Clear();
     }
 
     /// <summary>
@@ -2256,7 +2301,8 @@ public sealed class Renderer : IDisposable
     {
         _sceneBindGroup?.Dispose();
         _backdropBindGroup?.Dispose();
-        _postProcessBindGroup?.Dispose();
+        _postProcessTextureA?.Dispose();
+        _postProcessTextureB?.Dispose();
         _sceneTexture?.Dispose();
         _displayTexture?.Dispose();
 
@@ -2275,15 +2321,35 @@ public sealed class Renderer : IDisposable
             Sampled = true
         });
 
-        // Display-referred texture the post-process writes. Same format as
-        // the swapchain, so the surface blit, the backdrop compositor and the
-        // selection outline sample it exactly like they sampled the scene
-        // texture before.
+        // Display-referred texture the last post-process pass writes. Linear
+        // Rgba16Float like the scene and the intermediates, so one pipeline
+        // serves every pass; the surface blit's sRGB store applies the
+        // display encoding, exactly as when this texture was sRGB-format.
         _displayTexture = _device.CreateTexture(new TextureDescription
         {
             Width = width,
             Height = height,
-            Format = _device.Swapchain.Format,
+            Format = TextureFormat.Rgba16Float,
+            RenderTarget = true,
+            Sampled = true
+        });
+
+        // HDR intermediates for chains of two or more post-processes: the
+        // passes ping-pong through them before the final pass writes the
+        // display texture.
+        _postProcessTextureA = _device.CreateTexture(new TextureDescription
+        {
+            Width = width,
+            Height = height,
+            Format = TextureFormat.Rgba16Float,
+            RenderTarget = true,
+            Sampled = true
+        });
+        _postProcessTextureB = _device.CreateTexture(new TextureDescription
+        {
+            Width = width,
+            Height = height,
+            Format = TextureFormat.Rgba16Float,
             RenderTarget = true,
             Sampled = true
         });
@@ -2299,13 +2365,6 @@ public sealed class Renderer : IDisposable
             new BindGroupBinding { Slot = 0, Texture = _displayTexture },
             new BindGroupBinding { Slot = 1, Sampler = _uiSampler },
             new BindGroupBinding { Slot = 2, Buffer = _backdropParamsBuffer, BufferSize = (ulong)(MaxBackdropRegions * sizeof(BackdropGpuParams)) }
-        ]);
-
-        _postProcessBindGroup = _postProcessPipeline.CreateBindGroup(
-        [
-            new BindGroupBinding { Slot = 0, Texture = _sceneTexture },
-            new BindGroupBinding { Slot = 1, Sampler = _uiSampler },
-            new BindGroupBinding { Slot = 2, Buffer = _postProcessUniformBuffer, BufferSize = (ulong)sizeof(PostProcessUniforms) }
         ]);
     }
 
@@ -2572,9 +2631,11 @@ public sealed class Renderer : IDisposable
         _sceneBindGroup?.Dispose();
         _sceneTexture?.Dispose();
         _displayTexture?.Dispose();
-        _postProcessBindGroup?.Dispose();
-        _postProcessPipeline?.Dispose();
-        _postProcessUniformBuffer?.Dispose();
+        DisposePostProcessFrameResources();
+        _postProcessTextureA?.Dispose();
+        _postProcessTextureB?.Dispose();
+        foreach (var pipeline in _postProcessPipelines.Values)
+            pipeline.Dispose();
         _backdropBindGroup?.Dispose();
         _backdropParamsBuffer?.Dispose();
         _backdropPipeline?.Dispose();

@@ -1,9 +1,14 @@
 #language slang 2026;
-// Fullscreen post-process: the linear HDR scene is tonemapped into the
-// display texture. The operator is selected per frame by the
-// PostProcessComponent (0 = none, 1 = Reinhard, 2 = ACES, 3 = AgX). Output is
-// linear display-referred; the sRGB store/sample chain applies the display
-// encoding, so no gamma step is needed here.
+// Fullscreen tonemapping post-process. The linear HDR scene is tonemapped
+// into the next chain texture; the operator is selected per frame by the
+// Tonemapping component (0 = none, 1 = Reinhard, 2 = ACES, 3 = AgX). Output
+// is linear display-referred; the sRGB store/sample chain of the surface
+// blit applies the display encoding, so no gamma step is needed here.
+//
+// Convention shared by every shader in Shaders/PostProcesses/: the pass
+// samples the previous chain texture at slot 0, declares a float4 "settings"
+// uniform in PostProcessUniforms at slot 2, and outputs to the render
+// target of the current pass.
 
 struct PostProcessUniforms
 {
@@ -14,7 +19,7 @@ struct PostProcessUniforms
 [[vk::binding(1, 0)]] SamplerState sceneSampler;
 [[vk::binding(2, 0)]] ConstantBuffer<PostProcessUniforms> postProcess;
 
-public struct PostProcess
+public struct Tonemapping
 {
     // ACES filmic approximation (Narkowicz 2015).
     static float3 Aces(float3 x)
@@ -96,7 +101,7 @@ VertexOutput vs_main(uint vertexId : SV_VertexID)
 float4 fs_main(VertexOutput input) : SV_Target
 {
     var color = sceneTexture.Sample(sceneSampler, input.uv).rgb * exp2(postProcess.settings.y);
-    color = PostProcess::Apply(color, postProcess.settings.x);
+    color = Tonemapping::Apply(color, postProcess.settings.x);
     let luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
     color = lerp(float3(luminance), color, postProcess.settings.z);
     return float4(color, 1.0);

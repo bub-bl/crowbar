@@ -106,18 +106,30 @@ The sun *direction* is not persisted: it follows the scene's first enabled
 like the read-only `DirectionalLight.Direction`. Files written before these
 parameters existed load them with their defaults, so old levels are unchanged.
 
-### Post-process component
+### Post-process components
 
-A `PostProcessComponent` (attachable to any entity) configures the frame's
-post-process — currently the tonemapper applied to the whole rendered scene
-(sky included). The first enabled instance in the world wins; without one the
-engine keeps the historical Reinhard look.
+Post-process effects are `PostProcess` components (abstract base class,
+attachable to any entity): each derived component names one fullscreen shader
+in `Shaders/PostProcesses/` and the renderer chains every enabled instance in
+`Order` between the linear HDR scene and the display texture. The chain's
+shaders share a convention: they sample the previous texture at binding slot 0
+and declare a `float4 settings` uniform in `PostProcessUniforms` at slot 2.
+The only built-in effect today is `Tonemapping`; without any `PostProcess`
+component the engine keeps the historical Reinhard look.
+
+`Tonemapping` properties:
 
 | Property | Type | Role |
 |---|---|---|
 | `Operator` | enum | Tone curve: `None`, `Reinhard`, `Aces` (default), `Agx`. |
 | `Exposure` | float | Exposure in stops (2^exposure), applied before the curve (default 0). |
 | `Saturation` | float | Post-tonemap saturation multiplier (default 1). |
+
+`PostProcess` (base) properties:
+
+| Property | Type | Role |
+|---|---|---|
+| `Order` | int | Execution order in the chain; lower values run first (default 0). |
 
 ## Compatibility contract (forward compatibility)
 
