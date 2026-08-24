@@ -18,7 +18,6 @@ struct TonemappingUniforms
 {
     float operator_; // x = operator index (0..3), matching the TonemapOperator enum
     float exposure;  // exposure in stops (2^exposure), applied before the curve
-    float saturation; // post-tonemap saturation multiplier (1 = unchanged)
 };
 
 [[vk::binding(0, 0)]] Texture2D sceneTexture;
@@ -108,7 +107,5 @@ float4 fs_main(VertexOutput input) : SV_Target
 {
     var color = sceneTexture.Sample(sceneSampler, input.uv).rgb * exp2(postProcess.exposure);
     color = Tonemapping::Apply(color, postProcess.operator_);
-    let luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
-    color = lerp(float3(luminance), color, postProcess.saturation);
     return float4(color, 1.0);
 }

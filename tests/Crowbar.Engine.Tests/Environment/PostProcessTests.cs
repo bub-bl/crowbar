@@ -14,7 +14,6 @@ public sealed class PostProcessTests
         var component = entity.AddComponent<Tonemapping>();
         component.Operator = TonemapOperator.Agx;
         component.Exposure = 1.5f;
-        component.Saturation = 0.8f;
         component.Order = 2;
 
         using var loadedWorld = new World();
@@ -26,13 +25,12 @@ public sealed class PostProcessTests
         Assert.NotNull(loadedComponent);
         Assert.Equal(TonemapOperator.Agx, loadedComponent!.Operator);
         Assert.Equal(1.5f, loadedComponent.Exposure);
-        Assert.Equal(0.8f, loadedComponent.Saturation);
         Assert.Equal(2, loadedComponent.Order);
         Assert.False(loaded.IsDirty);
     }
 
     [Fact]
-    public void Tonemapping_DefaultsAreAcesWithNeutralExposureAndSaturation()
+    public void Tonemapping_DefaultsAreAcesWithNeutralExposure()
     {
         using var world = new World();
         var level = world.CreateLevel("PostProcess");
@@ -40,7 +38,6 @@ public sealed class PostProcessTests
 
         Assert.Equal(TonemapOperator.Aces, component.Operator);
         Assert.Equal(0f, component.Exposure);
-        Assert.Equal(1f, component.Saturation);
         Assert.Equal(0, component.Order);
     }
 
@@ -90,7 +87,6 @@ public sealed class PostProcessTests
         var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "TonemappingUniforms");
         Assert.Contains(uniforms.Fields, field => field.Name == "operator_");
         Assert.Contains(uniforms.Fields, field => field.Name == "exposure");
-        Assert.Contains(uniforms.Fields, field => field.Name == "saturation");
         Assert.Contains(shader.Bindings, binding => binding.VariableName == "sceneTexture" && binding.Slot == 0u);
         Assert.Contains(shader.Bindings, binding => binding.VariableName == "sceneSampler" && binding.Slot == 1u);
         Assert.Contains(shader.Bindings, binding =>
@@ -101,7 +97,7 @@ public sealed class PostProcessTests
     [Fact]
     public void TonemappingUniformStruct_IsPackedToTheWgslUniformSize()
     {
-        // Three floats (12 bytes) must bind as a 16-byte uniform buffer:
+        // Two floats (8 bytes) must bind as a 16-byte uniform buffer:
         // WGSL uniform structs are 16-byte aligned, and wgpu validates the
         // bound size against the shader's expectation. Regression: the buffer
         // used to be created at 12 bytes, failing with "Buffer is bound with
@@ -132,8 +128,7 @@ public sealed class PostProcessTests
         // Mirrors Tonemapping.Render + the renderer's PackAttributes.
         var attributes = new RenderAttributes()
             .Set("operator_", 3f) // Agx
-            .Set("exposure", 1f)
-            .Set("saturation", 0.5f);
+            .Set("exposure", 1f);
         var values = new Dictionary<string, ShaderParameter>();
         foreach (var field in fields)
         {
@@ -149,7 +144,6 @@ public sealed class PostProcessTests
         var packed = UniformPacker.Pack(fields, values);
         Assert.Equal(3f, BitConverter.ToSingle(packed, 0)); // operator_ at offset 0
         Assert.Equal(1f, BitConverter.ToSingle(packed, 4)); // exposure
-        Assert.Equal(0.5f, BitConverter.ToSingle(packed, 8)); // saturation
     }
 
     [Fact]

@@ -27,20 +27,14 @@ public sealed class Tonemapping : BasePostProcess<Tonemapping>
     [Property]
     public float Exposure { get; set; }
 
-    /// <summary>Post-tonemap saturation multiplier; 1 = unchanged.</summary>
-    [Property]
-    public float Saturation { get; set; } = 1f;
-
     public override void Render(PostProcessContext context)
     {
         var @operator = GetWeighted(effect => effect.Operator);
         var exposure = GetWeighted(effect => effect.Exposure);
-        var saturation = GetWeighted(effect => effect.Saturation);
 
         context.Blit(context.Input, context.Output, "Shaders/PostProcesses/Tonemapping.wgsl",
             new RenderAttributes()
                 .Set("operator_", (float)@operator)
-                .Set("exposure", exposure)
-                .Set("saturation", saturation));
+                .Set("exposure", exposure));
     }
 }
