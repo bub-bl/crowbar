@@ -13,7 +13,14 @@ namespace Crowbar.Engine;
 /// </summary>
 public static class UniformPacker
 {
-    /// <summary>Total size of the struct: the furthest field extent, rounded up to the struct's max alignment.</summary>
+    /// <summary>
+    /// Total size of the struct: the furthest field extent, rounded up to the
+    /// WGSL uniform-address-space alignment. Uniform-buffer structs are always
+    /// 16-byte aligned (and sized) in WGSL — slangc emits a 16-byte struct for
+    /// e.g. three floats (12 bytes, a post-process settings block) — so the
+    /// bound buffer size matches what the shader expects and what the
+    /// reflection sidecar reports.
+    /// </summary>
     public static int ComputeStructSize(IReadOnlyList<ShaderStructField> fields)
     {
         var size = 0;
@@ -24,7 +31,7 @@ public static class UniformPacker
             maxAlignment = Math.Max(maxAlignment, field.Alignment);
         }
 
-        return AlignUp(size, maxAlignment);
+        return AlignUp(size, Math.Max(maxAlignment, 16));
     }
 
     /// <summary>

@@ -1,5 +1,3 @@
-using System.Numerics;
-
 namespace Crowbar.Engine;
 
 /// <summary>Tone curve applied by the <see cref="Tonemapping"/> post-process.</summary>
@@ -15,10 +13,12 @@ public enum TonemapOperator
 /// Fullscreen tonemapper: applies the selected tone curve to the whole frame
 /// (sky included) after the scene renders in linear HDR. One of several
 /// <see cref="PostProcess"/> components; the renderer chains them by
-/// <see cref="PostProcess.Order"/>.
+/// <see cref="PostProcess.Order"/>. Settings blend across
+/// <see cref="PostProcessVolume"/> instances through
+/// <see cref="BasePostProcess{T}.GetWeighted{T}"/>.
 /// </summary>
 [ComponentIcon("Solar/video/Bold/gallery")]
-public sealed class Tonemapping : PostProcess
+public sealed class Tonemapping : BasePostProcess<Tonemapping>
 {
     [Property]
     public TonemapOperator Operator { get; set; } = TonemapOperator.Aces;
@@ -31,7 +31,16 @@ public sealed class Tonemapping : PostProcess
     [Property]
     public float Saturation { get; set; } = 1f;
 
-    internal override string ShaderPath => "Shaders/PostProcesses/Tonemapping.wgsl";
+    public override void Render(PostProcessContext context)
+    {
+        var @operator = GetWeighted(effect => effect.Operator);
+        var exposure = GetWeighted(effect => effect.Exposure);
+        var saturation = GetWeighted(effect => effect.Saturation);
 
-    internal override Vector4 Settings => new((float)Operator, Exposure, Saturation, 0f);
+        context.Blit(context.Input, context.Output, "Shaders/PostProcesses/Tonemapping.wgsl",
+            new RenderAttributes()
+                .Set("operator_", (float)@operator)
+                .Set("exposure", exposure)
+                .Set("saturation", saturation));
+    }
 }

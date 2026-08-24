@@ -54,6 +54,9 @@ public sealed class Editor : Application
     /// <summary>The persistent notification popup window.</summary>
     public NotificationWindow NotificationWindow { get; private set; } = null!;
 
+    /// <summary>Hot reload for post-process shaders (engine + game project).</summary>
+    public ShaderHotReload ShaderHotReload { get; private set; } = null!;
+
     /// <summary>Consumes and applies generic inspector UI requests.</summary>
     public InspectorBridge InspectorBridge { get; private set; } = null!;
 
@@ -115,6 +118,11 @@ public sealed class Editor : Application
         // materialized below.
         GameProject.Start();
 
+        // Post-process shader hot reload: compiles the project's
+        // Content/Shaders on start and watches both shader roots for edits.
+        ShaderHotReload = new ShaderHotReload(this, NotificationWindow);
+        ShaderHotReload.Start();
+
         // Persistence: the project's saved level is loaded when it exists (so
         // edits survive a restart), otherwise the demo scene is built from
         // scratch. Either way the open level starts clean — the title bar's
@@ -172,6 +180,9 @@ public sealed class Editor : Application
 
         // Script host: applies detected hot reloads and prunes the toasts.
         GameProject.Update();
+
+        // Shader hot reload: applies the recompiles the watchers detected.
+        ShaderHotReload.Update();
 
         // Content hot reload: applies the changes the content watcher detected.
         ContentExplorer.Update();
@@ -280,6 +291,9 @@ public sealed class Editor : Application
         // Re-point the content panel and its watcher at the new project's assets.
         ContentExplorer.Start();
 
+        // Re-root the post-process shader watcher (project Content/Shaders).
+        ShaderHotReload.Start();
+
         Project.Commit(project, projectFilePath);
 
         // Reload the game project from the new root first: its component types
@@ -341,6 +355,7 @@ public sealed class Editor : Application
     {
         ContentExplorer.Dispose();
         GameProject.Dispose();
+        ShaderHotReload.Dispose();
         base.Dispose();
     }
 

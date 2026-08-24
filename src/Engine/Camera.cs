@@ -61,6 +61,14 @@ public sealed class Camera : TransformComponent
     [Property]
     public float Distance { get; set; }
 
+    /// <summary>
+    /// Whether this camera runs the world's post-process chain. Disabled, the
+    /// scene is copied to the display unchanged (an identity pass), so a game
+    /// camera can opt out of tonemapping/effects entirely.
+    /// </summary>
+    [Property]
+    public bool EnablePostProcessing { get; set; } = true;
+
     /// <summary>Look yaw in radians (free-camera convention).</summary>
     public float Yaw
     {

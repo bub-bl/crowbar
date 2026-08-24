@@ -1,3 +1,4 @@
+using System.Numerics;
 using Crowbar.Engine.Rendering;
 
 namespace Crowbar.Engine.Tests;
@@ -44,25 +45,217 @@ public sealed class PostProcessTests
     }
 
     [Fact]
-    public void PostProcess_IsAbstractAndTonemappingDerivesFromIt()
+    public void PostProcess_HierarchyIsPublicAndExtensible()
     {
+        // The whole API is public: game-project code derives from it (the
+        // demo project ships a Vignette effect).
+        Assert.True(typeof(PostProcess).IsPublic);
         Assert.True(typeof(PostProcess).IsAbstract);
         Assert.True(typeof(PostProcess).IsSubclassOf(typeof(Component)));
-        Assert.Equal(typeof(PostProcess), typeof(Tonemapping).BaseType);
+        Assert.True(typeof(BasePostProcess<>).IsPublic);
+        Assert.True(typeof(BasePostProcess<>).IsAbstract);
+        Assert.True(typeof(SinglePassPostProcess).IsPublic);
+        Assert.True(typeof(SinglePassPostProcess).IsAbstract);
+
+        // Tonemapping is the CRTP volume-blended flavor; the public API
+        // surface (Render + context) is what a game effect overrides.
+        Assert.Equal(typeof(BasePostProcess<Tonemapping>), typeof(Tonemapping).BaseType);
         Assert.False(typeof(Tonemapping).IsAbstract);
+        Assert.NotNull(typeof(Tonemapping).GetMethod("Render"));
+        Assert.Equal(typeof(PostProcessContext), typeof(Tonemapping).GetMethod("Render")!.GetParameters()[0].ParameterType);
     }
 
     [Fact]
-    public void TonemappingShader_ExposesSettingsUniform()
+    public void TonemappingShader_ExposesTypedUniformFields()
     {
         var shader = Shader.Load("Shaders/PostProcesses/Tonemapping.wgsl");
 
-        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "PostProcessUniforms");
-        Assert.Contains(uniforms.Fields, field => field.Name == "settings");
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "TonemappingUniforms");
+        Assert.Contains(uniforms.Fields, field => field.Name == "operator_");
+        Assert.Contains(uniforms.Fields, field => field.Name == "exposure");
+        Assert.Contains(uniforms.Fields, field => field.Name == "saturation");
         Assert.Contains(shader.Bindings, binding => binding.VariableName == "sceneTexture" && binding.Slot == 0u);
         Assert.Contains(shader.Bindings, binding => binding.VariableName == "sceneSampler" && binding.Slot == 1u);
         Assert.Contains(shader.Bindings, binding =>
             binding.VariableName == "postProcess" && binding.Slot == 2u &&
             binding.Kind == ShaderBindingKind.UniformBuffer);
+    }
+
+    [Fact]
+    public void TonemappingUniformStruct_IsPackedToTheWgslUniformSize()
+    {
+        // Three floats (12 bytes) must bind as a 16-byte uniform buffer:
+        // WGSL uniform structs are 16-byte aligned, and wgpu validates the
+        // bound size against the shader's expectation. Regression: the buffer
+        // used to be created at 12 bytes, failing with "Buffer is bound with
+        // size 12 where the shader expects 16".
+        var shader = Shader.Load("Shaders/PostProcesses/Tonemapping.wgsl");
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "TonemappingUniforms");
+
+        Assert.Equal(16, UniformPacker.ComputeStructSize(uniforms.Fields));
+    }
+
+    [Fact]
+    public void RenderAttributes_PackByNameMatchesBothSides()
+    {
+        // The matching must normalize the attribute key as well as the shader
+        // field name: Tonemapping sets an explicit "operator_" attribute while
+        // SinglePassPostProcess collects "Operator" — both must reach the
+        // operator_ field. Regression: the attribute side was compared raw, so
+        // operator_ never packed and the pass ran as identity ("nothing
+        // happens").
+        Assert.True(RenderAttributes.MatchesField("operator_", "Operator"));
+        Assert.True(RenderAttributes.MatchesField("operator_", "operator_"));
+        Assert.True(RenderAttributes.MatchesField("exposure", "Exposure"));
+        Assert.False(RenderAttributes.MatchesField("radius", "intensity"));
+
+        var shader = Shader.Load("Shaders/PostProcesses/Tonemapping.wgsl");
+        var fields = Assert.Single(shader.Structs, structure => structure.Name == "TonemappingUniforms").Fields;
+
+        // Mirrors Tonemapping.Render + the renderer's PackAttributes.
+        var attributes = new RenderAttributes()
+            .Set("operator_", 3f) // Agx
+            .Set("exposure", 1f)
+            .Set("saturation", 0.5f);
+        var values = new Dictionary<string, ShaderParameter>();
+        foreach (var field in fields)
+        {
+            foreach (var (name, parameter) in attributes.Values)
+            {
+                if (!RenderAttributes.MatchesField(field.Name, name))
+                    continue;
+                values[field.Name] = parameter;
+                break;
+            }
+        }
+
+        var packed = UniformPacker.Pack(fields, values);
+        Assert.Equal(3f, BitConverter.ToSingle(packed, 0)); // operator_ at offset 0
+        Assert.Equal(1f, BitConverter.ToSingle(packed, 4)); // exposure
+        Assert.Equal(0.5f, BitConverter.ToSingle(packed, 8)); // saturation
+    }
+
+    [Fact]
+    public void SinglePassPostProcess_CollectsPropertiesByName()
+    {
+        var component = new TestSinglePass { Brightness = 0.5f, Count = 3, Mode = TonemapOperator.Agx };
+        var attributes = PostProcessAttributes.Collect(component);
+
+        Assert.Equal(0.5f, AsFloat(attributes.Values["Brightness"]));
+        Assert.Equal(3, AsInt(attributes.Values["Count"]));
+        // Enums pack as their numeric value.
+        Assert.Equal(3f, AsFloat(attributes.Values["Mode"]));
+        // Non-[Property] members and base infrastructure (Order, Sampler) are excluded.
+        Assert.DoesNotContain("NotAProperty", attributes.Values.Keys);
+        Assert.DoesNotContain("Order", attributes.Values.Keys);
+        Assert.DoesNotContain("Sampler", attributes.Values.Keys);
+    }
+
+    [Fact]
+    public void PostProcessBlender_BlendsVolumeWeights()
+    {
+        var global = new Tonemapping { Exposure = 0f };
+        var volumeA = new Tonemapping { Exposure = 1f };
+        var volumeB = new Tonemapping { Exposure = 2f };
+        PostProcessEntry[] entries =
+        [
+            new(global, 1f, IsGlobal: true),
+            new(volumeA, 0.5f, IsGlobal: false),
+            new(volumeB, 0.25f, IsGlobal: false)
+        ];
+
+        // (0·1 + 1·0.5 + 2·0.25) / (1 + 0.5 + 0.25) = 1 / 1.75
+        var blended = PostProcessBlender.Blend(entries, global, effect => ((Tonemapping)effect).Exposure, 0f, false);
+        Assert.Equal(1f / 1.75f, blended, precision: 5);
+
+        // Without any volume the driver's own value is returned unchanged.
+        var noVolumes = PostProcessBlender.Blend([new PostProcessEntry(global, 1f, IsGlobal: true)],
+            global, effect => ((Tonemapping)effect).Exposure, 0f, false);
+        Assert.Equal(0f, noVolumes, precision: 5);
+
+        // onlyLerpBetweenVolumes ignores the global instance.
+        var volumesOnly = PostProcessBlender.Blend(entries, global,
+            effect => ((Tonemapping)effect).Exposure, 0f, onlyLerpBetweenVolumes: true);
+        Assert.Equal(1f / 0.75f, volumesOnly, precision: 5);
+    }
+
+    [Fact]
+    public void GetWeighted_BlendsThroughTheActiveContext()
+    {
+        var global = new TestBlendable { Brightness = 0f };
+        var volume = new TestBlendable { Brightness = 1f };
+        var context = new PostProcessContext(null!, null!, null!,
+        [
+            new PostProcessEntry(global, 1f, IsGlobal: true),
+            new PostProcessEntry(volume, 1f, IsGlobal: false)
+        ]);
+
+        PostProcessContext.Current = context;
+        try
+        {
+            Assert.Equal(0.5f, global.GetBrightness(), precision: 5);
+        }
+        finally
+        {
+            PostProcessContext.Current = null;
+        }
+    }
+
+    [Fact]
+    public void PostProcessVolume_WeightsTheCameraPosition()
+    {
+        using var world = new World();
+        var level = world.CreateLevel("Volume");
+        var entity = world.SpawnEntity("Volume", level);
+        var volume = entity.AddComponent<PostProcessVolume>();
+        volume.World = new Transform(Vector3.Zero, Rotation.Identity, new Vector3(2f, 2f, 2f));
+
+        Assert.True(volume.TryGetWeight(Vector3.Zero, out var center));
+        Assert.Equal(1f, center, precision: 5);
+
+        // Deep inside (t = 0.5 <= 1 - softness): full weight.
+        Assert.True(volume.TryGetWeight(new Vector3(0.5f, 0f, 0f), out var inner));
+        Assert.Equal(1f, inner, precision: 5);
+
+        // Near the boundary (t = 0.9): ramped by softness → (1 - 0.9) / 0.2.
+        Assert.True(volume.TryGetWeight(new Vector3(0.9f, 0f, 0f), out var edge));
+        Assert.Equal(0.5f, edge, precision: 5);
+
+        // Outside: no weight.
+        Assert.False(volume.TryGetWeight(new Vector3(1.1f, 0f, 0f), out _));
+    }
+
+    private static float AsFloat(ShaderParameter parameter) =>
+        parameter is float value ? value : throw new InvalidOperationException($"Expected a float uniform, got {parameter.TypeName}.");
+
+    private static int AsInt(ShaderParameter parameter) =>
+        parameter is int value ? value : throw new InvalidOperationException($"Expected an int uniform, got {parameter.TypeName}.");
+
+    private sealed class TestSinglePass : SinglePassPostProcess
+    {
+        [Property]
+        public float Brightness { get; set; }
+
+        [Property]
+        public int Count { get; set; }
+
+        [Property]
+        public TonemapOperator Mode { get; set; }
+
+        public string NotAProperty { get; set; } = "ignored";
+
+        public override string ShaderPath => "Shaders/PostProcesses/Tonemapping.wgsl";
+    }
+
+    private sealed class TestBlendable : BasePostProcess<TestBlendable>
+    {
+        [Property]
+        public float Brightness { get; set; }
+
+        public float GetBrightness() => GetWeighted(effect => effect.Brightness);
+
+        public override void Render(PostProcessContext context)
+        {
+        }
     }
 }

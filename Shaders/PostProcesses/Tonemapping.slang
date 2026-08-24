@@ -5,19 +5,24 @@
 // is linear display-referred; the sRGB store/sample chain of the surface
 // blit applies the display encoding, so no gamma step is needed here.
 //
-// Convention shared by every shader in Shaders/PostProcesses/: the pass
-// samples the previous chain texture at slot 0, declares a float4 "settings"
-// uniform in PostProcessUniforms at slot 2, and outputs to the render
-// target of the current pass.
+// Convention shared by every post-process shader (Shaders/PostProcesses/ in
+// the engine, Content/Shaders/ in a game project): the pass samples the
+// previous chain texture at slot 0, declares a sampler at slot 1, and exactly
+// one uniform buffer in group 0. The uniform buffer's fields are packed by
+// name from the component's [Property] values (a trailing underscore in a
+// field name is ignored, so "operator_" matches the "Operator" property), and
+// the pass outputs to the render target of the current chain pass.
 
-struct PostProcessUniforms
+struct TonemappingUniforms
 {
-    float4 settings; // x = operator index, y = exposure (stops), z = saturation, w = unused
+    float operator_; // x = operator index (0..3), matching the TonemapOperator enum
+    float exposure;  // exposure in stops (2^exposure), applied before the curve
+    float saturation; // post-tonemap saturation multiplier (1 = unchanged)
 };
 
 [[vk::binding(0, 0)]] Texture2D sceneTexture;
 [[vk::binding(1, 0)]] SamplerState sceneSampler;
-[[vk::binding(2, 0)]] ConstantBuffer<PostProcessUniforms> postProcess;
+[[vk::binding(2, 0)]] ConstantBuffer<TonemappingUniforms> postProcess;
 
 public struct Tonemapping
 {
@@ -100,9 +105,9 @@ VertexOutput vs_main(uint vertexId : SV_VertexID)
 [shader("fragment")]
 float4 fs_main(VertexOutput input) : SV_Target
 {
-    var color = sceneTexture.Sample(sceneSampler, input.uv).rgb * exp2(postProcess.settings.y);
-    color = Tonemapping::Apply(color, postProcess.settings.x);
+    var color = sceneTexture.Sample(sceneSampler, input.uv).rgb * exp2(postProcess.exposure);
+    color = Tonemapping::Apply(color, postProcess.operator_);
     let luminance = dot(color, float3(0.2126, 0.7152, 0.0722));
-    color = lerp(float3(luminance), color, postProcess.settings.z);
+    color = lerp(float3(luminance), color, postProcess.saturation);
     return float4(color, 1.0);
 }

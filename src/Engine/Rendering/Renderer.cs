@@ -261,14 +261,6 @@ public sealed class Renderer : IDisposable
     private IBindGroup _skyCameraBindGroup = null!;
     private IBindGroup _skyPlaceholderBindGroup = null!;
 
-    // Mirrors the PostProcessUniforms convention shared by every shader in
-    // Shaders/PostProcesses/ (a float4 "settings" uniform at binding slot 2).
-    [StructLayout(LayoutKind.Sequential)]
-    private struct PostProcessUniforms
-    {
-        public Vector4 Settings;
-    }
-
     // Mirrors EnvironmentUniforms in Shaders/Common/Environment.slang:
     // rotation/intensity/exposure/max mip, tint, provider flag, then the sun
     // (direction + angular radius) and atmosphere (turbidity, albedo, sun
@@ -346,11 +338,23 @@ public sealed class Renderer : IDisposable
     // Post-process chain: the enabled PostProcess components run in order,
     // ping-ponging the linear HDR scene through HDR intermediates, and the
     // last pass writes this display-referred texture, which the surface
-    // blit, backdrop and outline bind groups sample.
+    // blit, backdrop and outline bind groups sample. Pipelines are cached per
+    // shader path (recreated on hot reload); per-frame uniform buffers and
+    // bind groups are tracked for disposal after submit; the scratch pool
+    // serves multi-pass effects with internal ping-pong.
     private ITexture _displayTexture = null!;
     private ITexture _postProcessTextureA = null!;
     private ITexture _postProcessTextureB = null!;
     private readonly List<IDisposable> _postProcessFrameResources = [];
+    private readonly Dictionary<string, IPipeline> _postProcessPipelines = [];
+    private ITexture[] _postProcessScratch = [];
+    private ISampler _postProcessPointSampler = null!;
+
+    /// <summary>Engine fallback effect when no PostProcess component exists (the historical Reinhard look).</summary>
+    private static readonly Tonemapping ReinhardFallbackInstance = new() { Operator = TonemapOperator.Reinhard };
+
+    /// <summary>Identity pass used when the camera disables post-processing (copies the scene to the display).</summary>
+    private static readonly Tonemapping IdentityFallbackInstance = new() { Operator = TonemapOperator.None };
 
     // The 3D scene renders into viewport-sized targets (its color, depth and
     // selection mask all share the viewport dimensions). The surface composite
@@ -365,9 +369,6 @@ public sealed class Renderer : IDisposable
     private ISampler _uiSampler = null!;
     private IPipeline _uiPipeline = null!;
     private IBuffer _uiVertexBuffer = null!;
-    // One pipeline per post-process shader path, created on first use.
-    private readonly Dictionary<string, IPipeline> _postProcessPipelines = [];
-
     // Fullscreen quad transformed to the viewport rectangle in NDC, used by the
     // scene blit and the selection-outline composite. The backdrop compositor
     // and the UI overlay keep the plain fullscreen quad.
@@ -532,57 +533,35 @@ public sealed class Renderer : IDisposable
             }
 
             // Pass 1.5: the post-process chain. The scene texture is linear
-            // HDR; each enabled PostProcess component runs its fullscreen
-            // shader in Order, ping-ponging through HDR intermediates, and the
-            // last pass writes the display texture. Without any component the
-            // engine keeps the historical Reinhard look.
-            var postProcessPasses = GetPostProcessPasses(world);
+            // HDR; each enabled PostProcess component runs in Order, writing
+            // the next chain target (ping-ponging through HDR intermediates),
+            // and the last pass writes the display texture. Without any
+            // component the engine keeps the historical Reinhard look; a
+            // camera that disabled post-processing gets an identity pass.
+            var postProcessGroups = BuildPostProcessGroups(world, camera.Position);
+            if (!camera.EnablePostProcessing)
+                postProcessGroups = [IdentityFallback()]; // opt out entirely: identity pass
+            else if (postProcessGroups.Count == 0)
+                postProcessGroups = [ReinhardFallback()]; // no components: historical look
             var postProcessInput = _sceneTexture;
-            for (var index = 0; index < postProcessPasses.Count; index++)
+            for (var index = 0; index < postProcessGroups.Count; index++)
             {
-                var descriptor = postProcessPasses[index];
-                var isLast = index == postProcessPasses.Count - 1;
+                var group = postProcessGroups[index];
+                var isLast = index == postProcessGroups.Count - 1;
                 var output = isLast
                     ? _displayTexture
                     : (index % 2 == 0 ? _postProcessTextureA : _postProcessTextureB);
-                var pipeline = GetOrCreatePostProcessPipeline(descriptor.ShaderPath);
-                var uniforms = new PostProcessUniforms { Settings = descriptor.Settings };
-                var uniformBuffer = _device.CreateBuffer(new BufferDescription
+                var driver = group.Driver;
+                var context = new PostProcessContext(this, commandBuffer, postProcessInput, output,
+                    _sceneDepth, driver.Sampler, group.Entries);
+                PostProcessContext.Current = context;
+                try
                 {
-                    Size = (ulong)sizeof(PostProcessUniforms),
-                    Usage = BufferUsage.Uniform | BufferUsage.CopyDst
-                });
-                uniformBuffer.Write(in uniforms);
-                var bindGroup = pipeline.CreateBindGroup(
-                [
-                    new BindGroupBinding { Slot = 0, Texture = postProcessInput },
-                    new BindGroupBinding { Slot = 1, Sampler = _uiSampler },
-                    new BindGroupBinding { Slot = 2, Buffer = uniformBuffer, BufferSize = (ulong)sizeof(PostProcessUniforms) }
-                ]);
-                _postProcessFrameResources.Add(uniformBuffer);
-                _postProcessFrameResources.Add(bindGroup);
-                using (IRenderPass postProcessPass = commandBuffer.BeginRenderPass(new RenderPassDescription
+                    driver.Render(context);
+                }
+                finally
                 {
-                    Color = new ColorAttachment
-                    {
-                        Texture = output,
-                        LoadOp = RenderAttachmentLoadOp.Clear,
-                        StoreOp = RenderAttachmentStoreOp.Store,
-                        ClearColor = Vector4.Zero
-                    },
-                    // The pipeline declares a depth format; the scene depth is
-                    // attached but untouched (compare always, no writes).
-                    Depth = new DepthAttachment
-                    {
-                        Texture = _sceneDepth,
-                        LoadOp = RenderAttachmentLoadOp.Load,
-                        StoreOp = RenderAttachmentStoreOp.Store
-                    }
-                }))
-                {
-                    postProcessPass.SetPipeline(pipeline);
-                    postProcessPass.SetBindGroup(bindGroup, 0);
-                    postProcessPass.Draw(3);
+                    PostProcessContext.Current = null;
                 }
                 postProcessInput = output;
             }
@@ -885,29 +864,76 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>
-    /// The post-process chain for this frame: every enabled
-    /// <see cref="PostProcess"/> component in the world, ordered by
-    /// <see cref="PostProcess.Order"/>. Without any the engine falls back to
-    /// Reinhard tonemapping (the historical look).
+    /// The post-process groups for this frame: the world's enabled
+    /// <see cref="PostProcess"/> components grouped by effect type, so each
+    /// effect runs once with its settings blended through GetWeighted.
+    /// Components attached to a <see cref="PostProcessVolume"/> entity
+    /// participate only while the camera is inside their volume (weighted by
+    /// position); the others are global. Groups run ordered by their driver's
+    /// <see cref="PostProcess.Order"/>.
     /// </summary>
-    private static List<PostProcessPass> GetPostProcessPasses(World? world)
+    private static List<PostProcessGroup> BuildPostProcessGroups(World? world, Vector3 cameraPosition)
     {
-        var components = world?.Query<PostProcess>()
-            .Where(component => component.Enabled)
-            .OrderBy(component => component.Order);
-        if (components is null || !components.Any())
-            return
-            [
-                new PostProcessPass("Shaders/PostProcesses/Tonemapping.wgsl",
-                    new Vector4((float)TonemapOperator.Reinhard, 0f, 1f, 0f))
-            ];
-        return components
-            .Select(component => new PostProcessPass(component.ShaderPath, component.Settings))
-            .ToList();
+        var groups = new Dictionary<Type, PostProcessGroup>();
+        if (world is null)
+            return [];
+
+        foreach (var component in world.Query<PostProcess>())
+        {
+            if (!component.Enabled)
+                continue;
+
+            var volume = component.Entity?.GetComponent<PostProcessVolume>();
+            if (volume is { Enabled: false })
+                continue; // a disabled volume hides its effects
+            if (volume is not null)
+            {
+                if (!volume.TryGetWeight(cameraPosition, out var weight))
+                    continue; // camera outside the volume: the effect does not apply
+                Add(component, weight, isGlobal: false);
+            }
+            else
+            {
+                Add(component, 1f, isGlobal: true);
+            }
+        }
+
+        return groups.Values.OrderBy(group => group.Driver.Order).ToList();
+
+        void Add(PostProcess component, float weight, bool isGlobal)
+        {
+            var type = component.GetType();
+            if (!groups.TryGetValue(type, out var group))
+                groups.Add(type, group = new PostProcessGroup(type));
+            group.Entries.Add(new PostProcessEntry(component, weight, isGlobal));
+        }
     }
 
-    /// <summary>A post-process pass: its shader path and the settings uniform for this frame.</summary>
-    private sealed record PostProcessPass(string ShaderPath, Vector4 Settings);
+    /// <summary>One effect type's instances for this frame; the driver renders, entries feed GetWeighted.</summary>
+    private sealed class PostProcessGroup
+    {
+        public PostProcessGroup(Type type) => Type = type;
+
+        public Type Type { get; }
+
+        public List<PostProcessEntry> Entries { get; } = [];
+
+        /// <summary>The global instance if any, else the strongest-volume one.</summary>
+        public PostProcess Driver => Entries
+            .OrderByDescending(entry => entry.IsGlobal)
+            .ThenByDescending(entry => entry.Weight)
+            .First().Instance;
+    }
+
+    private static PostProcessGroup ReinhardFallback() => new(typeof(Tonemapping))
+    {
+        Entries = { new PostProcessEntry(ReinhardFallbackInstance, 1f, IsGlobal: true) }
+    };
+
+    private static PostProcessGroup IdentityFallback() => new(typeof(Tonemapping))
+    {
+        Entries = { new PostProcessEntry(IdentityFallbackInstance, 1f, IsGlobal: true) }
+    };
 
     private void UpdateEnvironment(World? world)
     {
@@ -2135,6 +2161,7 @@ public sealed class Renderer : IDisposable
     private void CreateUiResources()
     {
         _uiSampler ??= _device.CreateSampler(new SamplerDescription());
+        _postProcessPointSampler ??= _device.CreateSampler(new SamplerDescription { Filter = SamplerFilter.Nearest });
 
         var shader = Shader.Load(PathUtil.Combine("Shaders", "Ui/Blit.wgsl"));
         _uiPipeline ??= _device.CreatePipeline(new PipelineDescription
@@ -2266,6 +2293,10 @@ public sealed class Renderer : IDisposable
         if (_postProcessPipelines.TryGetValue(shaderPath, out var pipeline))
             return pipeline;
         var shader = Shader.Load(PathUtil.Combine(shaderPath));
+        if (!shader.EntryPoints.Any(entry => entry.Name == "vs_main" && entry.Stage == ShaderStageKind.Vertex) ||
+            !shader.EntryPoints.Any(entry => entry.Name == "fs_main" && entry.Stage == ShaderStageKind.Fragment))
+            throw new InvalidOperationException(
+                $"Post-process shader '{shaderPath}' must declare vs_main and fs_main entry points.");
         pipeline = _device.CreatePipeline(new PipelineDescription
         {
             ShaderSource = shader.Source,
@@ -2282,6 +2313,140 @@ public sealed class Renderer : IDisposable
         });
         _postProcessPipelines.Add(shaderPath, pipeline);
         return pipeline;
+    }
+
+    /// <summary>
+    /// Runs one fullscreen post-process pass: loads (and caches) the pipeline
+    /// for <paramref name="shaderPath"/>, packs <paramref name="attributes"/>
+    /// into the shader's group-0 uniform buffer by field name, binds the input
+    /// texture, scene depth and sampler by reflection, and draws a fullscreen
+    /// triangle into <paramref name="to"/>.
+    /// </summary>
+    internal void RunPostProcessPass(
+        ICommandBuffer commandBuffer,
+        ITexture from,
+        ITexture to,
+        string shaderPath,
+        RenderAttributes? attributes,
+        PostProcessSampler sampler)
+    {
+        var shader = Shader.Load(PathUtil.Combine(shaderPath));
+        var pipeline = GetOrCreatePostProcessPipeline(shaderPath);
+        var samplerState = sampler == PostProcessSampler.Point ? _postProcessPointSampler : _uiSampler;
+
+        // Pack the settings uniform: the shader's group-0 uniform buffer
+        // struct, field by field, from the attribute bag. Field names match
+        // attribute names with trailing underscores ignored ("operator_" ↔
+        // "Operator") and case ignored, so the C# and shader sides only need
+        // to agree on names.
+        var uniformBinding = shader.Bindings.FirstOrDefault(binding =>
+            binding.Group == 0 && binding.Kind == ShaderBindingKind.UniformBuffer);
+        IBuffer? uniformBuffer = null;
+        var uniformSize = 0ul;
+        if (uniformBinding is not null)
+        {
+            var fields = shader.Structs
+                .FirstOrDefault(structure => structure.Name == uniformBinding.TypeName)?.Fields;
+            if (fields is { Count: > 0 })
+            {
+                uniformSize = (ulong)UniformPacker.ComputeStructSize(fields);
+                uniformBuffer = _device.CreateBuffer(new BufferDescription
+                {
+                    Size = uniformSize,
+                    Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+                });
+                uniformBuffer.Write(UniformPacker.Pack(fields, PackAttributes(fields, attributes)));
+                _postProcessFrameResources.Add(uniformBuffer);
+            }
+        }
+
+        var bindings = new List<BindGroupBinding>();
+        foreach (var binding in shader.Bindings.Where(binding => binding.Group == 0))
+        {
+            switch (binding.Kind)
+            {
+                case ShaderBindingKind.Texture when binding.TypeName == "texture_depth_2d":
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Texture = _sceneDepth });
+                    break;
+                case ShaderBindingKind.Texture:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Texture = from });
+                    break;
+                case ShaderBindingKind.Sampler:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Sampler = samplerState });
+                    break;
+                case ShaderBindingKind.UniformBuffer when uniformBuffer is not null:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Buffer = uniformBuffer, BufferSize = uniformSize });
+                    break;
+            }
+        }
+        var bindGroup = pipeline.CreateBindGroup(bindings);
+        _postProcessFrameResources.Add(bindGroup);
+
+        using (IRenderPass pass = commandBuffer.BeginRenderPass(new RenderPassDescription
+        {
+            Color = new ColorAttachment
+            {
+                Texture = to,
+                LoadOp = RenderAttachmentLoadOp.Clear,
+                StoreOp = RenderAttachmentStoreOp.Store,
+                ClearColor = Vector4.Zero
+            },
+            // The pipeline declares a depth format; the scene depth is attached
+            // but untouched (compare always, no writes).
+            Depth = new DepthAttachment
+            {
+                Texture = _sceneDepth,
+                LoadOp = RenderAttachmentLoadOp.Load,
+                StoreOp = RenderAttachmentStoreOp.Store
+            }
+        }))
+        {
+            pass.SetPipeline(pipeline);
+            pass.SetBindGroup(bindGroup, 0);
+            pass.Draw(3);
+        }
+    }
+
+    /// <summary>Maps the attribute bag onto the uniform struct's fields by name.</summary>
+    private static Dictionary<string, ShaderParameter> PackAttributes(
+        IReadOnlyList<ShaderStructField> fields,
+        RenderAttributes? attributes)
+    {
+        var values = new Dictionary<string, ShaderParameter>(StringComparer.Ordinal);
+        if (attributes is null)
+            return values;
+        foreach (var field in fields)
+        {
+            foreach (var (name, parameter) in attributes.Values)
+            {
+                if (!RenderAttributes.MatchesField(field.Name, name))
+                    continue;
+                values[field.Name] = parameter;
+                break;
+            }
+        }
+
+        return values;
+    }
+
+    /// <summary>Returns the scratch texture at <paramref name="index"/> (0..3) for multi-pass effects.</summary>
+    internal ITexture GetPostProcessScratchTexture(int index)
+    {
+        if ((uint)index >= (uint)_postProcessScratch.Length)
+            throw new ArgumentOutOfRangeException(nameof(index), index, "The post-process scratch pool has 4 textures.");
+        return _postProcessScratch[index];
+    }
+
+    /// <summary>
+    /// Drops the cached pipeline and shader for a post-process shader path
+    /// (called by the editor's shader hot reload after recompiling); the next
+    /// frame reloads the shader and recreates the pipeline.
+    /// </summary>
+    public void InvalidatePostProcessShader(string shaderPath)
+    {
+        if (_postProcessPipelines.Remove(shaderPath, out var pipeline))
+            pipeline.Dispose();
+        Shader.Invalidate(PathUtil.Combine(shaderPath));
     }
 
     /// <summary>Releases the per-frame uniform buffers and bind groups of the post-process chain.</summary>
@@ -2305,6 +2470,8 @@ public sealed class Renderer : IDisposable
         _postProcessTextureB?.Dispose();
         _sceneTexture?.Dispose();
         _displayTexture?.Dispose();
+        foreach (var scratch in _postProcessScratch)
+            scratch.Dispose();
 
         width = Math.Max(1, width);
         height = Math.Max(1, height);
@@ -2353,6 +2520,21 @@ public sealed class Renderer : IDisposable
             RenderTarget = true,
             Sampled = true
         });
+
+        // Scratch pool for multi-pass effects (blur, bloom, ...): 4 extra
+        // Rgba16Float targets, addressed by PostProcessContext.GetScratchTexture.
+        _postProcessScratch = new ITexture[4];
+        for (var index = 0; index < _postProcessScratch.Length; index++)
+        {
+            _postProcessScratch[index] = _device.CreateTexture(new TextureDescription
+            {
+                Width = width,
+                Height = height,
+                Format = TextureFormat.Rgba16Float,
+                RenderTarget = true,
+                Sampled = true
+            });
+        }
 
         _sceneBindGroup = _uiPipeline.CreateBindGroup(
         [
@@ -2634,8 +2816,12 @@ public sealed class Renderer : IDisposable
         DisposePostProcessFrameResources();
         _postProcessTextureA?.Dispose();
         _postProcessTextureB?.Dispose();
+        foreach (var scratch in _postProcessScratch)
+            scratch.Dispose();
+        _postProcessPointSampler?.Dispose();
         foreach (var pipeline in _postProcessPipelines.Values)
             pipeline.Dispose();
+        _postProcessPipelines.Clear();
         _backdropBindGroup?.Dispose();
         _backdropParamsBuffer?.Dispose();
         _backdropPipeline?.Dispose();

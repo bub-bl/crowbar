@@ -108,14 +108,28 @@ parameters existed load them with their defaults, so old levels are unchanged.
 
 ### Post-process components
 
-Post-process effects are `PostProcess` components (abstract base class,
-attachable to any entity): each derived component names one fullscreen shader
-in `Shaders/PostProcesses/` and the renderer chains every enabled instance in
-`Order` between the linear HDR scene and the display texture. The chain's
-shaders share a convention: they sample the previous texture at binding slot 0
-and declare a `float4 settings` uniform in `PostProcessUniforms` at slot 2.
-The only built-in effect today is `Tonemapping`; without any `PostProcess`
-component the engine keeps the historical Reinhard look.
+Post-process effects are `PostProcess` components (a **public** abstract base,
+attachable to any entity, including from a game project): each derived
+component issues fullscreen passes through `Render(PostProcessContext)` and
+the renderer chains every enabled instance in `Order` between the linear HDR
+scene and the display texture. Two convenience bases exist:
+`SinglePassPostProcess` (declarative: `ShaderPath` + `[Property]` values
+packed into the shader's uniforms by name) and `BasePostProcess<T>`
+(volume-blended settings through `GetWeighted`). `PostProcessVolume`
+components make effect instances spatial: they apply while the camera is
+inside the box, weighted by position. The `Camera` component has an
+`EnablePostProcessing` toggle (default true; disabled gives an identity
+pass). Without any `PostProcess` component the engine keeps the historical
+Reinhard look. See `docs/PostProcessing.md` for the authoring guide.
+
+The shader convention (shared by every post-process shader, in
+`Shaders/PostProcesses/` for the engine or `Content/Shaders/` for a game
+project): sample the previous chain texture at slot 0, declare a sampler at
+slot 1, and exactly one uniform buffer in group 0. The uniform buffer's
+fields are packed by name from the component's `[Property]` values (or the
+`RenderAttributes` bag), with trailing underscores and case ignored —
+`operator_` matches the `Operator` property. The editor hot-reloads edited
+`.slang` files.
 
 `Tonemapping` properties:
 
@@ -130,6 +144,7 @@ component the engine keeps the historical Reinhard look.
 | Property | Type | Role |
 |---|---|---|
 | `Order` | int | Execution order in the chain; lower values run first (default 0). |
+| `Sampler` | enum | Texture filter of the pass: `Linear` (default) or `Point`. |
 
 ## Compatibility contract (forward compatibility)
 
