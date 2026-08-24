@@ -14,12 +14,12 @@
         {
           "type": "Camera",
           "enabled": true,
-          "transform": "3.1484904,1.300285,-2.027957,0.020405522,-0.42103148,0.009474724,0.906767,1,1,1",
+          "transform": "-0.34822226,1.3945122,-4.3436985,0.088288635,0.046604052,-0.004135303,0.99499553,1,1,1",
           "properties": {
             "Pivot": [
-              -1.9684482,
-              0.9986707,
-              2.2942147
+              0.26870197,
+              0.21392632,
+              2.2275133
             ],
             "Distance": 6.7048635,
             "EnablePostProcessing": true,
@@ -33,9 +33,19 @@
           "enabled": true,
           "transform": null,
           "properties": {
-            "Operator": "Agx",
+            "Operator": "Aces",
             "Exposure": 0,
-            "Saturation": 1,
+            "Order": 0,
+            "Sampler": "Linear"
+          }
+        },
+        {
+          "type": "Vignette",
+          "enabled": true,
+          "transform": null,
+          "properties": {
+            "Intensity": 1,
+            "Radius": 1,
             "Order": 0,
             "Sampler": "Linear"
           }
