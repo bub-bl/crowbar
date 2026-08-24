@@ -124,7 +124,7 @@ public class EditorPageCompositionTests
                 new EditorInspectorState.Property("Metallic", "System.Single", "0.15", Indent: 1, Key: "MeshRenderer.Material.metallic"),
                 new EditorInspectorState.Property("Model", "System.Object", "house.glb"),
                 new EditorInspectorState.Property("Roughness", "System.Single", "0.45", Indent: 1, Key: "MeshRenderer.Material.roughness")
-            ])
+            ], IsComponent: true)
         ]);
     }
 
@@ -1115,6 +1115,24 @@ public class EditorPageCompositionTests
         Assert.NotNull(FindText(content, "insp-section-head", t => t == "DirectionalLight"));
         Assert.Null(FindText(content, "insp-section-head", t => t == "MeshRenderer"));
         Assert.NotNull(FindInput(content, "1.6"));
+    }
+
+    [Fact]
+    public void InspectorComponentEnabledCheckboxQueuesAnEditWithoutCollapsingSection()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        var head = TestUi.FindAll(content, p => p.Classes.Contains("insp-section-head"))
+            .Single(panel => TestUi.Texts(panel).Any(t => t == "MeshRenderer"));
+        var checkbox = head.Children.OfType<ToggleInput>().Single();
+
+        Assert.True(checkbox.IsChecked);
+        ui.ProcessPointerDown(checkbox.Layout.X + 1, checkbox.Layout.Y + 1);
+        ui.ProcessPointerUp(checkbox.Layout.X + 1, checkbox.Layout.Y + 1);
+
+        var edits = EditorInspectorState.ConsumeEdits();
+        Assert.Contains(edits, edit => edit.Key == "MeshRenderer.Enabled" && edit.Value == "false");
+        Assert.False(EditorInspectorState.IsCollapsed("MeshRenderer"));
     }
 
     [Fact]

@@ -52,11 +52,15 @@ public sealed class InspectorBridge
 
     private void UpdateEnvironment(Entity? selected)
     {
-        if (EditorEnvironmentState.ConsumeSourcePickerRequest() && selected?.GetComponent<CubemapComponent>() is { } component)
+        if (!EditorEnvironmentState.ConsumeSourcePickerRequest() || selected is null)
+            return;
+
+        var component = selected.Components.FirstOrDefault(IsCubemapComponent);
+        if (component is not null)
             ImportEnvironment(component);
     }
 
-    private void ImportEnvironment(CubemapComponent component)
+    private void ImportEnvironment(Component component)
     {
         var source = NativeFileDialog.PickEnvironment(
             _editor.Window.NativeHandle,
@@ -73,7 +77,10 @@ public sealed class InspectorBridge
             Texture2D.Invalidate(destination);
             _editor.ContentExplorer.Refresh();
             using var step = _editor.Level.Step("Import an HDR environment");
-            component.SourcePath = destination;
+            var sourceProperty = component.GetType().GetProperty("SourcePath");
+            if (sourceProperty?.CanWrite != true)
+                return;
+            sourceProperty.SetValue(component, destination);
             UiNotifications.Show("Environment", $"Imported {Path.GetFileName(source)}", "success");
         }
         catch (Exception ex)
@@ -92,9 +99,10 @@ public sealed class InspectorBridge
         if (entity is null)
             return [];
         return TypeLibrary.All
+            .Where(type => !type.IsAbstract && !type.ContainsGenericParameters)
             .Where(type => entity.GetComponent(type) is null)
-            .Where(type => type != typeof(EnvironmentComponent) ||
-                           entity.Level?.Entities.All(e => e.GetComponent<EnvironmentComponent>() is null) != false)
+            .Where(type => !IsEnvironmentType(type) ||
+                           entity.Level?.Entities.All(e => !HasEnvironmentComponent(e)) != false)
             .OrderBy(type => type.Name, StringComparer.Ordinal)
             .Select(type => type.Name)
             .ToArray();
@@ -112,13 +120,9 @@ public sealed class InspectorBridge
         var type = TypeLibrary.Resolve(typeName);
         if (type is null || entity.GetComponent(type) is not null)
             return;
-        if (type == typeof(EnvironmentComponent) || type == typeof(CubemapComponent) || type == typeof(ProceduralSkyComponent))
-        {
-            if (entity.Level?.Entities.Any(e => e.GetComponent<EnvironmentComponent>() is not null) == true)
-                return;
-            if (entity.GetComponent<EnvironmentComponent>() is null)
-                entity.AddComponent<EnvironmentComponent>();
-        }
+        if (IsEnvironmentType(type) &&
+            entity.Level?.Entities.Any(HasEnvironmentComponent) == true)
+            return;
         try
         {
             if (Activator.CreateInstance(type) is Component component)
@@ -128,5 +132,29 @@ public sealed class InspectorBridge
         {
             Log.Warn($"[Inspector] Failed to add component '{typeName}': {ex.Message}");
         }
+    }
+
+    private static bool IsEnvironmentType(Type type) =>
+        FindBaseType(type, "EnvironmentComponent") is not null;
+
+    private static bool IsCubemapComponent(Component component)
+    {
+        var sourceProperty = component.GetType().GetProperty("SourcePath");
+        return IsEnvironmentType(component.GetType()) && sourceProperty?.PropertyType == typeof(string) &&
+               sourceProperty.CanWrite;
+    }
+
+    private static bool HasEnvironmentComponent(Entity entity) =>
+        entity.Components.Any(component => IsEnvironmentType(component.GetType()));
+
+    private static Type? FindBaseType(Type type, string baseTypeName)
+    {
+        for (var current = type.BaseType; current is not null; current = current.BaseType)
+        {
+            if (current.Name == baseTypeName)
+                return current;
+        }
+
+        return null;
     }
 }

@@ -24,7 +24,9 @@
         @foreach (var section in EditorInspectorState.Sections)
         {
             <InspectorSection Id="@section.Id" Title="@section.Title" Icon="@section.Icon"
-                              Open="@(!EditorInspectorState.IsCollapsed(section.Id))">
+                              Open="@(!EditorInspectorState.IsCollapsed(section.Id))"
+                              ShowEnabled="@section.IsComponent"
+                              Enabled="@section.Enabled">
                 @foreach (var property in section.Properties)
                 {
                     <PropertyEditor TypeName="@property.TypeName" Name="@property.Name" Value="@property.Value"

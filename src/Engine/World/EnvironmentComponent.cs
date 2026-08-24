@@ -5,7 +5,7 @@ namespace Crowbar.Engine;
 
 /// <summary>Owns the shared scene environment settings.</summary>
 [ComponentIcon("sun")]
-public sealed class EnvironmentComponent : Component
+public abstract class EnvironmentComponent : Component
 {
     private readonly SceneEnvironment _environment = new();
     private float _rotation;

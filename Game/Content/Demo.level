@@ -45,10 +45,9 @@
           }
         },
         {
-          "type": "EnvironmentComponent",
+          "type": "CubemapComponent",
           "transform": null,
           "properties": {
-            "Provider": "Cubemap",
             "SourcePath": "Content/Environments/studio.hdr",
             "Rotation": 0,
             "Intensity": 1,

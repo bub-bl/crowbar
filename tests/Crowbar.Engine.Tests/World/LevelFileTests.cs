@@ -22,6 +22,7 @@ public class LevelFileTests
 
         var fill = level.SpawnEntity("Fill");
         var fillLight = fill.AddComponent<PointLight>();
+        fillLight.Enabled = false;
         fillLight.Color = new Vector3(0.4f, 0.6f, 1f);
         fillLight.Intensity = 4f;
         fillLight.Range = 8f;
@@ -88,7 +89,8 @@ public class LevelFileTests
 
         var fillLight = world.FindEntity(source.Entities[1].Id)!.GetComponent<PointLight>();
         Assert.NotNull(fillLight);
-        Assert.Equal(8f, fillLight!.Range, 3);
+        Assert.False(fillLight!.Enabled);
+        Assert.Equal(8f, fillLight.Range, 3);
         Assert.Equal(4f, fillLight.Intensity, 3);
 
         var mesh = world.FindEntity(source.Entities[2].Id)!.GetComponent<MeshRenderer>();
@@ -174,6 +176,8 @@ public class LevelFileTests
         Assert.Equal(3, light.GetProperty("properties").GetProperty("Color").GetArrayLength());
         Assert.Equal(JsonValueKind.Number, light.GetProperty("properties").GetProperty("Intensity").ValueKind);
         Assert.Equal(JsonValueKind.True, light.GetProperty("properties").GetProperty("CastShadows").ValueKind);
+        Assert.Equal(JsonValueKind.False, root.GetProperty("entities")[1].GetProperty("components")[0]
+            .GetProperty("enabled").ValueKind);
 
         var cube = root.GetProperty("entities")[2];
         var mesh = cube.GetProperty("components")[0];

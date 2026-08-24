@@ -53,11 +53,9 @@ public static class InspectorStateBuilder
                 continue;
 
             var properties = DescribeComponent(component);
-            if (properties.Count == 0)
-                continue;
-
             sections.Add(new EditorInspectorState.Section(
-                component.GetType().Name, component.GetType().Name, IconFor(component), properties));
+                component.GetType().Name, component.GetType().Name, IconFor(component), properties,
+                IsComponent: true, Enabled: component.Enabled));
         }
 
         return sections;
@@ -86,15 +84,24 @@ public static class InspectorStateBuilder
             var parts = key.Split('.');
             if (parts.Length == 2)
             {
-                var component = entity.Components.FirstOrDefault(c =>
+                var propertyComponent = entity.Components.FirstOrDefault(c =>
                     c.GetType().Name.Equals(parts[0], StringComparison.Ordinal));
-                if (component is not null)
+                if (propertyComponent is not null)
                 {
-                    var property = component.GetType().GetProperty(parts[1], InstancePublic);
-                    if (property?.CanWrite == true && TryParseValue(value, property.PropertyType, out var parsed))
+                    if (parts[1].Equals(nameof(WorldObject.Enabled), StringComparison.Ordinal) &&
+                        TryParseValue(value, typeof(bool), out var enabled))
                     {
-                        property.SetValue(component, parsed);
+                        propertyComponent.Enabled = (bool)enabled!;
                         applied = true;
+                    }
+                    else
+                    {
+                        var property = propertyComponent.GetType().GetProperty(parts[1], InstancePublic);
+                        if (property?.CanWrite == true && TryParseValue(value, property.PropertyType, out var parsed))
+                        {
+                            property.SetValue(propertyComponent, parsed);
+                            applied = true;
+                        }
                     }
                 }
             }

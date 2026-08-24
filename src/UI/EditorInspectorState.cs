@@ -32,7 +32,8 @@ public static class EditorInspectorState
         string Key = "");
 
     /// <summary>A collapsible inspector block: the transform or a single component.</summary>
-    public readonly record struct Section(string Id, string Title, string? Icon, IReadOnlyList<Property> Properties);
+    public readonly record struct Section(string Id, string Title, string? Icon, IReadOnlyList<Property> Properties,
+        bool IsComponent = false, bool Enabled = true);
 
     private static string _entityName = string.Empty;
     private static bool _hasSelection;
@@ -231,7 +232,8 @@ public static class EditorInspectorState
         foreach (var section in sections)
         {
             builder.Append('\n').Append(section.Id).Append('\u0001').Append(section.Title).Append('\u0001')
-                .Append(section.Icon ?? string.Empty);
+                .Append(section.Icon ?? string.Empty).Append('\u0004').Append(section.IsComponent ? '1' : '0')
+                .Append('\u0005').Append(section.Enabled ? '1' : '0');
             foreach (var property in section.Properties)
                 builder.Append('\u0002').Append(property.Name).Append('\u0003').Append(property.TypeName).Append('\u0003')
                     .Append(property.Value).Append('\u0003').Append(property.Indent).Append('\u0003').Append(property.Key);

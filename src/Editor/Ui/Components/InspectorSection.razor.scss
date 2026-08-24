@@ -35,6 +35,13 @@ root {
         width: 12px;
         height: 12px;
     }
+
+    input.insp-component-enabled {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+        cursor: pointer;
+    }
 }
 
 .insp-section-title {

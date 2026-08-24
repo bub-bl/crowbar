@@ -71,6 +71,9 @@ public sealed class LevelComponentData
 {
     public string Type { get; init; } = string.Empty;
 
+    /// <summary>Whether this component participates in runtime processing and rendering.</summary>
+    public bool Enabled { get; init; } = true;
+
     /// <summary>The local transform of a spatial component, or null for purely logical components.</summary>
     public string? Transform { get; set; }
 

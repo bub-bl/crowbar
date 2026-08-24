@@ -13,6 +13,10 @@
         {
             <icon name="@Icon" />
         }
+        @if (ShowEnabled)
+        {
+            <input class="insp-component-enabled" type="checkbox" checked="@Enabled" @onclick="OnEnabledClick" @onchange="OnEnabledChanged" />
+        }
         <span class="insp-section-title">@Title</span>
     </div>
     @if (Open)
@@ -37,9 +41,22 @@
     public bool Open { get; set; } = true;
 
     [Parameter]
+    public bool ShowEnabled { get; set; }
+
+    [Parameter]
+    public bool Enabled { get; set; } = true;
+
+    [Parameter]
     public RenderFragment? ChildContent { get; set; }
 
-    protected override int BuildHash() => HashCode.Combine(Id, Title, Icon, Open);
+    protected override int BuildHash() => HashCode.Combine(Id, Title, Icon, Open, ShowEnabled, Enabled);
+
+    private void OnEnabledClick() { }
+
+    private void OnEnabledChanged(bool value)
+    {
+        EditorInspectorState.RequestEdit($"{Id}.Enabled", value ? "true" : "false");
+    }
 
     private void OnToggle()
     {

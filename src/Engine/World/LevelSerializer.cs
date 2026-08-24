@@ -75,7 +75,9 @@ public static class LevelSerializer
             Format = LevelFile.CurrentFormat,
             Id = level.Id,
             Metadata = new LevelFileMetadata(level.Name, EditorVersion),
-            Environment = EnvironmentToData(level.Environment),
+            Environment = level.Entities.SelectMany(e => e.GetComponents<EnvironmentComponent>()).FirstOrDefault() is null
+                ? EnvironmentToData(level.Environment)
+                : null,
             Entities = level.Entities.Select(EntityToData).ToList(),
             Attachments = BuildAttachments(level)
         };
@@ -104,7 +106,11 @@ public static class LevelSerializer
             if (!component.IsValid)
                 continue;
 
-            var componentData = new LevelComponentData { Type = component.GetType().Name };
+            var componentData = new LevelComponentData
+            {
+                Type = component.GetType().Name,
+                Enabled = component.Enabled
+            };
 
             // Spatial components carry their local transform (the transform
             // section of the inspector) in the canonical string format; the
@@ -312,8 +318,6 @@ public static class LevelSerializer
 
             foreach (var componentData in entityData.Components)
                 AddComponent(entity, componentData, warning);
-
-            MigrateLegacyEnvironmentComponents(entity, entityData.Components);
         }
 
         // Phase 2: transform attachments (parents already exist by now).
@@ -389,50 +393,30 @@ public static class LevelSerializer
         if (!hasSettings)
             return;
 
+        if (level.Environment.Sky is not (CubemapSky or ProceduralAtmosphere))
+            return;
+
         var entity = level.SpawnEntity("Environment");
-        var component = entity.AddComponent<EnvironmentComponent>();
-        component.RestoreFrom(level.Environment);
-        switch (level.Environment.Sky)
+        Component component = level.Environment.Sky switch
         {
-            case CubemapSky cubemap:
-                var cubemapComponent = entity.AddComponent<CubemapComponent>();
-                cubemapComponent.SourcePath = cubemap.SourcePath;
-                break;
-            case ProceduralAtmosphere:
-                entity.AddComponent<ProceduralSkyComponent>();
-                break;
-        }
-    }
-
-    private static void MigrateLegacyEnvironmentComponents(
-        Entity entity,
-        IReadOnlyList<LevelComponentData> componentData)
-    {
-        var environment = entity.GetComponent<EnvironmentComponent>();
-        if (environment is null || entity.GetComponent<CubemapComponent>() is not null ||
-            entity.GetComponent<ProceduralSkyComponent>() is not null)
-            return;
-
-        var legacy = componentData.FirstOrDefault(data => data.Type == nameof(EnvironmentComponent));
-        if (legacy?.Properties?.TryGetValue("Provider", out var provider) != true ||
-            provider.ValueKind != JsonValueKind.String ||
-            !Enum.TryParse<SkyProviderKind>(provider.GetString(), true, out var kind))
-            return;
-
-        if (kind == SkyProviderKind.Cubemap &&
-            legacy.Properties!.TryGetValue("SourcePath", out var source) &&
-            source.ValueKind == JsonValueKind.String)
-        {
-            entity.AddComponent<CubemapComponent>().SourcePath = source.GetString() ?? string.Empty;
-        }
-        else if (kind == SkyProviderKind.ProceduralAtmosphere)
-        {
-            entity.AddComponent<ProceduralSkyComponent>();
-        }
+            CubemapSky => entity.AddComponent<CubemapComponent>(),
+            ProceduralAtmosphere => entity.AddComponent<ProceduralSkyComponent>(),
+            _ => throw new InvalidOperationException("Unsupported environment provider.")
+        };
+        if (component is EnvironmentComponent environmentComponent)
+            environmentComponent.RestoreFrom(level.Environment);
+        if (component is CubemapComponent cubemapComponent && level.Environment.Sky is CubemapSky environmentCubemap)
+            cubemapComponent.SourcePath = environmentCubemap.SourcePath;
     }
 
     private static void AddComponent(Entity entity, LevelComponentData componentData, Action<string> warning)
     {
+        if (componentData.Type == nameof(EnvironmentComponent))
+        {
+            AddLegacyEnvironmentComponent(entity, componentData, warning);
+            return;
+        }
+
         var type = TypeLibrary.Registry.Resolve(componentData.Type);
         if (type is null)
         {
@@ -448,16 +432,8 @@ public static class LevelSerializer
         }
         catch (Exception ex)
         {
-            warning($"Failed to create component '{componentData.Type}' on '{entity.Name}': {ex.Message}");
+            warning($"Failed to create component '{componentData.Type}' on '{entity.Name}'; skipped: {ex.Message}");
             return;
-        }
-
-        if (component is EnvironmentComponent environmentComponent &&
-            componentData.Properties is not null)
-        {
-            // Legacy EnvironmentComponent provider fields are migrated into
-            // dedicated sky components after all component properties load.
-            // The legacy component remains accepted for backward compatibility.
         }
 
         if (component is TransformComponent transform && componentData.Transform is { Length: > 0 } transformText)
@@ -472,10 +448,52 @@ public static class LevelSerializer
             }
         }
 
-        if (componentData.Properties is null)
+        component.Enabled = componentData.Enabled;
+        RestoreComponentProperties(component, componentData.Properties, entity.Name, type, warning);
+    }
+
+    private static void AddLegacyEnvironmentComponent(
+        Entity entity,
+        LevelComponentData componentData,
+        Action<string> warning)
+    {
+        if (componentData.Properties?.TryGetValue("Provider", out var provider) != true ||
+            provider.ValueKind != JsonValueKind.String ||
+            !Enum.TryParse<SkyProviderKind>(provider.GetString(), true, out var kind))
             return;
 
-        foreach (var (name, element) in componentData.Properties)
+        Component? component = kind switch
+        {
+            SkyProviderKind.Cubemap when componentData.Properties.TryGetValue("SourcePath", out var source) &&
+                                        source.ValueKind == JsonValueKind.String &&
+                                        !string.IsNullOrWhiteSpace(source.GetString())
+                => entity.AddComponent<CubemapComponent>(),
+            SkyProviderKind.ProceduralAtmosphere => entity.AddComponent<ProceduralSkyComponent>(),
+            _ => null
+        };
+        if (component is null)
+            return;
+
+        component.Enabled = componentData.Enabled;
+        RestoreComponentProperties(
+            component,
+            componentData.Properties,
+            entity.Name,
+            component.GetType(),
+            warning);
+    }
+
+    private static void RestoreComponentProperties(
+        Component component,
+        IReadOnlyDictionary<string, JsonElement>? properties,
+        string entityName,
+        Type type,
+        Action<string> warning)
+    {
+        if (properties is null)
+            return;
+
+        foreach (var (name, element) in properties)
         {
             var property = type.GetProperty(name, InstancePublic);
             if (property?.CanWrite != true || property.GetSetMethod() is null)
@@ -488,7 +506,7 @@ public static class LevelSerializer
             }
             catch (Exception ex) when (ex is JsonException or NotSupportedException)
             {
-                warning($"Property '{name}' on '{entity.Name}.{type.Name}' could not be restored.");
+                warning($"Property '{name}' on '{entityName}.{type.Name}' could not be restored.");
             }
         }
     }

@@ -2,7 +2,7 @@ namespace Crowbar.Engine;
 
 /// <summary>Provides an equirectangular HDR or EXR image as the scene sky.</summary>
 [ComponentIcon("sun")]
-public sealed class CubemapComponent : Component
+public sealed class CubemapComponent : EnvironmentComponent
 {
     private string _sourcePath = string.Empty;
 
@@ -16,28 +16,25 @@ public sealed class CubemapComponent : Component
             if (!string.Equals(_sourcePath, value, StringComparison.Ordinal))
             {
                 _sourcePath = value;
-                SyncEnvironment();
+                SetSky(string.IsNullOrWhiteSpace(_sourcePath) ? null : new CubemapSky(_sourcePath));
             }
         }
     }
 
-    protected override void OnInitialize() => SyncEnvironment();
-
-    private void SyncEnvironment()
+    protected override void OnInitialize()
     {
-        if (Entity?.GetComponent<EnvironmentComponent>() is { } environment)
-            environment.SetSky(string.IsNullOrWhiteSpace(_sourcePath) ? null : new CubemapSky(_sourcePath));
+        base.OnInitialize();
+        SetSky(string.IsNullOrWhiteSpace(_sourcePath) ? null : new CubemapSky(_sourcePath));
     }
 }
 
 /// <summary>Provides the procedural atmospheric sky for the scene.</summary>
 [ComponentIcon("sun")]
-public sealed class ProceduralSkyComponent : Component
+public sealed class ProceduralSkyComponent : EnvironmentComponent
 {
-    protected override void OnInitialize() => SyncEnvironment();
-
-    private void SyncEnvironment()
+    protected override void OnInitialize()
     {
-        Entity?.GetComponent<EnvironmentComponent>()?.SetSky(new ProceduralAtmosphere());
+        base.OnInitialize();
+        SetSky(new ProceduralAtmosphere());
     }
 }

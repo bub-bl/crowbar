@@ -41,6 +41,23 @@ public class InspectorStateBuilderTests
     }
 
     [Fact]
+    public void ComponentEnabledStateIsPublishedAndEditable()
+    {
+        using var world = new World();
+        var entity = world.SpawnEntity("Light");
+        var light = entity.AddComponent<PointLight>();
+        light.Enabled = false;
+
+        var section = InspectorStateBuilder.Build(entity).Single(s => s.Id == "PointLight");
+
+        Assert.True(section.IsComponent);
+        Assert.False(section.Enabled);
+
+        InspectorStateBuilder.ApplyEdit(entity, "PointLight.Enabled", "true");
+        Assert.True(light.Enabled);
+    }
+
+    [Fact]
     public void MaterialExpandsItsShaderParametersDynamically()
     {
         using var world = new World();
