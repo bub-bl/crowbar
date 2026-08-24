@@ -1,13 +1,13 @@
 #language slang 2026;
-// The standard PBR shading model: direct lights + shadows + AO + emission,
-// then tonemapping, in one s&box-style entry point.
+// The standard PBR shading model: direct lights + shadows + AO + emission.
+// Outputs linear HDR radiance; the display transform (tonemapping) runs once
+// in the post-process pass, for the whole frame.
 module ShadingModelStandard;
 
 import Camera;
 import Material;
 import ShadingModel;
 import Lighting;
-import Color;
 import Environment;
 
 public struct ShadingModelStandard : IShadingModel
@@ -20,6 +20,6 @@ public struct ShadingModelStandard : IShadingModel
             + EnvironmentLighting::EvaluateIbl(
                 m.Normal, view_dir, m.BaseColor, m.Metallic, m.Roughness, m.Occlusion)
             + m.Emissive;
-        return float4(Color::Tonemap(color), m.Opacity);
+        return float4(color, m.Opacity);
     }
 };
