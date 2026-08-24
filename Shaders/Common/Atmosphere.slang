@@ -41,8 +41,9 @@ public struct Atmosphere
     static const float3 Up = float3(0.0, 1.0, 0.0);
 
     // Display-space sun radiance: chosen so clear-sky radiance sits around
-    // 0.2-0.9 and the sun disc is a bright white spot.
-    static const float SunRadiance = 60.0;
+    // 0.15-0.5 before the sky pass's tonemap, and the sun disc is a bright
+    // (not blown out) white spot after it.
+    static const float SunRadiance = 40.0;
 
     struct SphereHit
     {
