@@ -1,0 +1,306 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.EditorPanels
+@using Crowbar.UI
+@using G = Crowbar.Engine.Global
+@using static Crowbar.Engine.GlobalNamespaces
+
+<div class="console-toolbar">
+    <div class="console-filter @FilterClass(G.LogLevel.Info)" @onclick="ToggleInfo">
+        <icon name="Solar/ui/Bold/info-circle" />
+        <span>Info</span>
+    </div>
+    <div class="console-filter @FilterClass(G.LogLevel.Warning)" @onclick="ToggleWarn">
+        <icon name="Solar/notifications/Bold/bell" />
+        <span>Warn</span>
+    </div>
+    <div class="console-filter @FilterClass(G.LogLevel.Error)" @onclick="ToggleError">
+        <icon name="Solar/ui/Bold/danger-circle" />
+        <span>Error</span>
+    </div>
+    <div class="console-spacer"></div>
+    <div class="console-count">@VisibleCount / @AllCount</div>
+    <div class="console-btn console-btn-test" @onclick="TriggerTestError" tooltip="Trigger a test error">Test Error</div>
+    <div class="console-btn" @onclick="ClearConsole" tooltip="Clear console">Clear</div>
+</div>
+
+<div @ref="_entriesRef" class="console-entries">
+    @foreach (var entry in VisibleEntries)
+    {
+        <ConsoleLine Message="@entry.Message" Level="@entry.Level.ToString()" Timestamp="@entry.Timestamp.ToString("HH:mm:ss")" StackTrace="@EncodeLines(entry.StackTrace)" Details="@JoinDetails(entry.Details)" />
+    }
+</div>
+
+@* Command suggestions, populated imperatively by RefreshSuggestions: typing
+   must not rebuild the panel (it would reset the entries scroll), so the rows
+   are plain panels added to this container instead of template markup. *@
+<div @ref="_suggestionsRef" class="console-suggestions"></div>
+
+<div class="console-input-line">
+    <span class="console-prompt">&gt;</span>
+    <input @ref="_inputRef" class="console-input" placeholder="Command..." @oninput="OnCommandInput" @onkeydown="OnCommandKey" value="@_commandText" />
+</div>
+
+@code {
+    private readonly List<G.LogEntry> _entries = new(128);
+    private bool _showInfo = true;
+    private bool _showWarn = true;
+    private bool _showError = true;
+    private string _commandText = string.Empty;
+    private string[] _suggestionNames = [];
+    private bool _scrollToBottomPending;
+    private const int MaxEntries = 1000;
+    private const int MaxSuggestions = 8;
+
+    /// <summary>Per-entry pixel estimate guaranteed to exceed any content height
+    /// (worst-case: expanded error stack trace ~500px). ComputeScrollRange clamps
+    /// the overestimate to MaxScrollY during the next layout pass.</summary>
+    private const float EstLineHeight = 500f;
+
+    private Panel? _entriesRef;
+    private Panel? _suggestionsRef;
+    private TextInput? _inputRef;
+
+    protected override void OnInitialized()
+    {
+        foreach (var entry in Log.Entries)
+            AppendEntry(entry);
+        _scrollToBottomPending = true;
+        Log.EntryAdded += OnEntryAdded;
+    }
+
+    /// <summary>
+    /// After a rebuild the fresh entries container has MaxScrollY = 0, so
+    /// ScrollTo would clamp to 0. We estimate the content height from the
+    /// entry count and pre-position there. The next layout pass's
+    /// ComputeScrollRange clamps to the exact MaxScrollY via ScrollTo.
+    /// </summary>
+    protected override void OnTreeBuilt()
+    {
+        if (_scrollToBottomPending && _entriesRef is not null)
+        {
+            var estimatedBottom = VisibleCount * EstLineHeight;
+            _entriesRef.ScrollToUnclamped(0, estimatedBottom);
+            _scrollToBottomPending = false;
+        }
+    }
+
+    private void OnEntryAdded(G.LogEntry entry)
+    {
+        _scrollToBottomPending = true;
+        AppendEntry(entry);
+        StateHasChanged();
+    }
+
+    /// <summary>
+    /// Separator used to carry multi-line text through Razor parameters.
+    /// Plain newlines cannot be used: parameters travel through HTML
+    /// attributes, and XML attribute value normalization turns them into
+    /// spaces. U+2028 (LINE SEPARATOR) is valid XML, not whitespace, so it
+    /// survives parsing untouched; <see cref="ConsoleLine"/> splits on it.
+    /// </summary>
+    private const char LineSeparator = '\u2028';
+
+    /// <summary>Serializes a log entry's sub-lines to a separated string for the console line.</summary>
+    private static string JoinDetails(IReadOnlyList<string>? details) =>
+        details is null || details.Count == 0 ? string.Empty : string.Join(LineSeparator, details);
+
+    /// <summary>Encodes multi-line text (e.g. a stack trace) for a Razor parameter; see <see cref="LineSeparator"/>.</summary>
+    private static string EncodeLines(string? text) =>
+        string.IsNullOrEmpty(text) ? string.Empty : text.Replace("\r\n", "\n").Replace('\r', '\n').Replace('\n', LineSeparator);
+
+    private void AppendEntry(G.LogEntry entry)
+    {
+        _entries.Add(entry);
+        while (_entries.Count > MaxEntries)
+            _entries.RemoveAt(0);
+    }
+
+    private IReadOnlyList<G.LogEntry> VisibleEntries
+    {
+        get
+        {
+            return _entries.Where(e => e.Level switch
+            {
+                G.LogLevel.Info => _showInfo,
+                G.LogLevel.Warning => _showWarn,
+                G.LogLevel.Error => _showError,
+                _ => true
+            }).ToArray();
+        }
+    }
+
+    private int AllCount => _entries.Count;
+    private int VisibleCount => VisibleEntries.Count;
+
+    private void ToggleInfo() => _showInfo = !_showInfo;
+    private void ToggleWarn() => _showWarn = !_showWarn;
+    private void ToggleError() => _showError = !_showError;
+
+    private string FilterClass(G.LogLevel level) => level switch
+    {
+        G.LogLevel.Info => _showInfo ? "console-filter-active" : string.Empty,
+        G.LogLevel.Warning => _showWarn ? "console-filter-active" : string.Empty,
+        G.LogLevel.Error => _showError ? "console-filter-active" : string.Empty,
+        _ => string.Empty
+    };
+
+    private void TriggerTestError()
+    {
+        try
+        {
+            throw new InvalidOperationException("This is a test error to verify stack trace rendering in the console.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Test error triggered from console toolbar.", ex);
+        }
+    }
+
+    private void ClearConsole()
+    {
+        _entries.Clear();
+        Log.Clear();
+    }
+
+    private bool OnCommandInput(string value)
+    {
+        _commandText = value;
+        RefreshSuggestions();
+        // Return false: the TextInput manages its own text/caret, and the
+        // console entries do not depend on _commandText, so a rebuild on every
+        // keystroke would only recreate the entries container and lose the
+        // scroll position. Suggestions are rendered imperatively instead.
+        return false;
+    }
+
+    private bool OnCommandKey(KeyEvent e)
+    {
+        if (e.KeyCode == 0x09) // Tab: complete with the first suggestion
+        {
+            if (_suggestionNames.Length > 0)
+                Complete(_suggestionNames[0]);
+            return false;
+        }
+        if (e.KeyCode == 0x1B) // Escape: dismiss the suggestion list
+        {
+            ClearSuggestions();
+            return false;
+        }
+        if (e.KeyCode != 0x0D) // Enter
+            return false;
+        ClearSuggestions();
+        var command = _commandText.Trim();
+        // Clear the input widget directly: typing never rebuilds the panel, so
+        // LastDeclaredValue is stale and ApplyTextInputState would restore the
+        // typed text instead of clearing it on the post-command rebuild.
+        _inputRef?.SetValue(string.Empty);
+        _commandText = string.Empty;
+        if (command.Length > 0)
+        {
+            // The command line is echoed first so it appears above the
+            // command's output. A command that returns sub-lines (e.g. help's
+            // command list) has them attached to the echo entry instead of
+            // logging a separate entry.
+            var echo = Log.Info($"> {command}");
+            var details = G.ConCmdRegistry.Execute(command);
+            if (details is { Count: > 0 })
+                echo.Details = details;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Rebuilds the suggestion rows under the input from the current command
+    /// prefix. Imperative (no Razor rebuild) so typing keeps the entries scroll
+    /// and input caret intact. Rows are capped at <see cref="MaxSuggestions"/>.
+    /// </summary>
+    private void RefreshSuggestions()
+    {
+        var prefix = _commandText.Trim();
+        _suggestionNames = prefix.Length == 0
+            ? []
+            : G.ConCmdRegistry.GetSuggestions(prefix)
+                .Where(n => !n.Equals(prefix, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .Take(MaxSuggestions)
+                .ToArray();
+
+        if (_suggestionsRef is null) return;
+        _suggestionsRef.ClearChildren();
+
+        if (_suggestionNames.Length == 0)
+        {
+            _suggestionsRef.RemoveClass("console-suggestions-visible");
+            return;
+        }
+
+        foreach (var name in _suggestionNames)
+        {
+            var row = new Panel();
+            if (!string.IsNullOrEmpty(ScopeId)) row.AddScope(ScopeId);
+            row.AddClass("console-suggestion");
+            // Click executes the command directly (the click moves focus off the
+            // input, so filling the text for a later Enter would be awkward).
+            row.Clicked += _ => ExecuteSuggestion(name);
+
+            var nameLabel = new Label(name);
+            if (!string.IsNullOrEmpty(ScopeId)) nameLabel.AddScope(ScopeId);
+            nameLabel.AddClass("console-suggestion-name");
+            row.AddChild(nameLabel);
+
+            if (G.ConCmdRegistry.All.TryGetValue(name, out var command) && command.Description.Length > 0)
+            {
+                var descLabel = new Label(command.Description);
+                if (!string.IsNullOrEmpty(ScopeId)) descLabel.AddScope(ScopeId);
+                descLabel.AddClass("console-suggestion-desc");
+                row.AddChild(descLabel);
+            }
+
+            _suggestionsRef.AddChild(row);
+        }
+        _suggestionsRef.AddClass("console-suggestions-visible");
+    }
+
+    /// <summary>Runs a suggestion command like pressing Enter on it.</summary>
+    private void ExecuteSuggestion(string name)
+    {
+        ClearSuggestions();
+        _commandText = string.Empty;
+        var echo = Log.Info($"> {name}");
+        var details = G.ConCmdRegistry.Execute(name);
+        if (details is { Count: > 0 })
+            echo.Details = details;
+        _inputRef?.SetValue(string.Empty);
+    }
+
+    /// <summary>Fills the command input with <paramref name="command"/> and hides the suggestions.</summary>
+    private void Complete(string command)
+    {
+        _commandText = command;
+        _inputRef?.SetValue(command);
+        ClearSuggestions();
+    }
+
+    private void ClearSuggestions()
+    {
+        _suggestionNames = [];
+        if (_suggestionsRef is not null)
+        {
+            _suggestionsRef.ClearChildren();
+            _suggestionsRef.RemoveClass("console-suggestions-visible");
+        }
+    }
+
+    protected override int BuildHash()
+    {
+        var hash = new HashCode();
+        hash.Add(_entries.Count);
+        hash.Add(_showInfo);
+        hash.Add(_showWarn);
+        hash.Add(_showError);
+        // _commandText is intentionally excluded: typing must not rebuild the
+        // console (it would reset the entries scroll). The input's text is
+        // managed by the TextInput widget itself.
+        return hash.ToHashCode();
+    }
+}

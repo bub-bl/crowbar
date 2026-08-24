@@ -4,6 +4,20 @@ internal static class Program
 {
     public static void Main(string[] args)
     {
+        // Capture unhandled exceptions from any thread and route them to the
+        // Log so the console UI can display them with full stack traces.
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+        {
+            var ex = e.ExceptionObject as Exception;
+            Log.Error("Unhandled exception", ex ?? new Exception(e.ExceptionObject?.ToString()));
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, e) =>
+        {
+            Log.Error("Unobserved task exception", e.Exception);
+            e.SetObserved();
+        };
+
         var projectFile = ResolveProjectArg(args);
         Editor.ConfigureFileSystem(projectFile);
         new Editor(projectFile).Run();

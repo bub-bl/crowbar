@@ -57,11 +57,11 @@ public sealed unsafe class WebGpuContext : IGraphicsDevice
 
             var preferredFormat = Runtime.Api.SurfaceGetPreferredFormat(surface, Adapter.UnsafeHandle);
             var format = WebGpuNative.ToEngine(preferredFormat) ?? EngineTextureFormat.Bgra8Unorm;
-            Console.WriteLine($"WebGPU surface format: {preferredFormat} (engine: {format}).");
+            Log.Info($"WebGPU surface format: {preferredFormat} (engine: {format}).");
 
             _swapchain = new WebGpuSwapchain(
                 Runtime, Device, Queue, surface, _width, _height, format);
-            Console.WriteLine("WebGPU window surface initialized.");
+            Log.Info("WebGPU window surface initialized.");
         }
         catch
         {

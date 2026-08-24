@@ -24,12 +24,12 @@ public sealed class WebGpuAdapter : IDisposable
             if (status is RequestAdapterStatus.Success)
             {
                 _nativeHandle = (nint)adapter;
-                Console.WriteLine("WebGPU adapter selected.");
+                Log.Info("WebGPU adapter selected.");
                 return;
             }
 
             string message = Marshal.PtrToStringUTF8((IntPtr)msgPtr) ?? "Unknown adapter error.";
-            Console.WriteLine($"WebGPU adapter selection failed: {message}");
+            Log.Warn($"WebGPU adapter selection failed: {message}");
         });
 
         unsafe
@@ -61,19 +61,19 @@ public sealed class WebGpuAdapter : IDisposable
             if (status is RequestAdapterStatus.Success)
             {
                 _nativeHandle = (nint)adapter;
-                Console.WriteLine("Retrieved WebGPU adapter.");
+                Log.Info("Retrieved WebGPU adapter.");
                 return;
             }
 
             var message = Marshal.PtrToStringUTF8((IntPtr)msgPtr);
-            Console.WriteLine($"Failed to create WebGPU adapter: {message}");
+            Log.Warn($"Failed to create WebGPU adapter: {message}");
         });
 
         unsafe
         {
             _runtime.Api.InstanceRequestAdapter(_runtime.Instance.UnsafeHandle, in adapterOptions, callback, null);
         }
-        Console.WriteLine("Created WebGPU adapter.");
+        Log.Info("Created WebGPU adapter.");
     }
 
     public WebGpuDevice CreateDevice()

@@ -17,7 +17,7 @@ public sealed class WebGpuInstance : IDisposable
             _nativeHandle = (nint)runtime.Api.CreateInstance(in instanceDescriptor);
         }
 
-        Console.WriteLine("Created WebGPU instance.");
+        Log.Info("Created WebGPU instance.");
     }
 
     internal nint NativeHandle => _nativeHandle;

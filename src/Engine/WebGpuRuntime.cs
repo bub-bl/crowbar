@@ -17,7 +17,7 @@ public sealed class WebGpuRuntime : IDisposable
     {
         Api = WebGPU.GetApi();
         Instance = new WebGpuInstance(this);
-        Console.WriteLine("Created WebGPU runtime.");
+        Log.Info("Created WebGPU runtime.");
     }
 
     public void ConfigureDebugCallback(WebGpuDevice device)
@@ -27,7 +27,7 @@ public sealed class WebGpuRuntime : IDisposable
         var callback = PfnErrorCallback.From((type, msgPtr, _) =>
         {
             var message = Marshal.PtrToStringUTF8((IntPtr)msgPtr);
-            Console.WriteLine($"WGPU Unhandled Error: {type} -> {message}");
+            Log.Error($"WGPU Unhandled Error: {type} -> {message}");
         });
 
         Api.DeviceSetUncapturedErrorCallback(device.UnsafeHandle, callback, null);
@@ -37,7 +37,7 @@ public sealed class WebGpuRuntime : IDisposable
     {
         Instance.Dispose();
         Api.Dispose();
-        Console.WriteLine("Disposed WebGPU runtime.");
+        Log.Info("Disposed WebGPU runtime.");
     }
 
     internal void SetPipeline(WebGpuRenderPassEncoder pass, WebGpuPipeline pipeline) =>

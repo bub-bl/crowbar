@@ -56,6 +56,10 @@
                             {
                                 <ContentPanel @key="content" />
                             }
+                            else if (tab == "console")
+                            {
+                                <ConsolePanel @key="console" />
+                            }
                         </div>
                     }
                 </div>
@@ -183,6 +187,7 @@
         viewport.Tabs.Add("viewport");
         var bottom = new DockGroupNode("bottom");
         bottom.Tabs.Add("content");
+        bottom.Tabs.Add("console");
         var inspector = new DockGroupNode("inspector");
         inspector.Tabs.Add("inspector");
 
@@ -210,6 +215,7 @@
         "viewport" => "VIEWPORT",
         "inspector" => "INSPECTOR",
         "content" => "CONTENT",
+        "console" => "CONSOLE",
         _ => itemId
     };
 

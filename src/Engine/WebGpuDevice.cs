@@ -20,12 +20,12 @@ public sealed class WebGpuDevice : IDisposable
             if (status is RequestDeviceStatus.Success)
             {
                 _nativeHandle = (nint)device;
-                Console.WriteLine("Retrieved WebGPU device.");
+                Log.Info("Retrieved WebGPU device.");
             }
             else
             {
                 var message = Marshal.PtrToStringUTF8((IntPtr)msgPtr);
-                Console.WriteLine($"Failed to create WebGPU device: {message}");
+                Log.Warn($"Failed to create WebGPU device: {message}");
             }
         });
 

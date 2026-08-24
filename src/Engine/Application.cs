@@ -281,7 +281,7 @@ public abstract class Application : WindowSession
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"[Audio] Backend unavailable ({exception.Message}): silent engine.");
+            Log.Warn($"[Audio] Backend unavailable ({exception.Message}): silent engine.");
             _audio = new AudioSystem();
             AudioFacade.Bind(_audio);
         }
