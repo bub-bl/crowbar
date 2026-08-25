@@ -153,6 +153,15 @@ first-class component: `src/Engine/World/Vignette.cs` drives
 other (edit the `.slang` while the editor runs to see it in action). Attach
 **Vignette** to any entity from the inspector; it blends across
 `PostProcessVolume` instances through `BasePostProcess<T>.GetWeighted`.
+The effect is aspect-ratio corrected and defaults to order `100`, so it runs
+after HDR bloom and tonemapping.
+
+Tonemapping is applied in linear HDR before the display blit. `Reinhard` uses
+the standard per-channel curve, `Aces` uses the fitted ACES RRT/ODT transform
+with its input/output color matrices, and `Agx` uses the analytic AgX view
+transform (including its log encoding and default contrast). Exposure is in
+stops and is applied before the selected curve. Tonemapping defaults to order
+`0`; Bloom defaults to `-100` so bright extraction sees the original HDR scene.
 
 ## The bloom
 

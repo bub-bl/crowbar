@@ -10,6 +10,7 @@ struct VignetteUniforms
 {
     float intensity; // corner darkening strength (0 = none)
     float radius;    // normalized distance from the center where the fade starts
+    float2 viewportSize;
 };
 
 [[vk::binding(0, 0)]] Texture2D sceneTexture;
@@ -41,11 +42,13 @@ float4 fs_main(VertexOutput input) : SV_Target
     // stronger vignette (0 = none, 1 = fades in from the center). The fade
     // edge is clamped below 1 so smoothstep never degenerates (radius 0 or 1
     // used to produce no effect at all).
-    let centered = input.uv - float2(0.5);
-    let dist = length(centered) / 0.70710678;
+    let aspect = postProcess.viewportSize.x / max(postProcess.viewportSize.y, 1.0);
+    let centered = (input.uv - float2(0.5)) * float2(aspect, 1.0);
+    let cornerDistance = length(float2(0.5 * aspect, 0.5));
+    let dist = length(centered) / max(cornerDistance, 1e-4);
     let edge = clamp(1.0 - postProcess.radius, 0.0, 0.999);
     let falloff = smoothstep(edge, 1.0, dist);
-    let shade = 1.0 - falloff * postProcess.intensity;
+    let shade = max(0.0, 1.0 - falloff * postProcess.intensity);
     var color = sceneTexture.Sample(sceneSampler, input.uv).rgb * shade;
     return float4(color, 1.0);
 }

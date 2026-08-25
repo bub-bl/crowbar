@@ -16,6 +16,8 @@ public sealed class Bloom : BasePostProcess<Bloom>
     private const string ShaderPath = "Shaders/PostProcesses/";
     private const int MaxPyramidLevels = 4;
 
+    public Bloom() => Order = -100;
+
     /// <summary>Overall glow amount (0 = no bloom).</summary>
     [Property]
     public float Intensity { get; set; } = 1f;

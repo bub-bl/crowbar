@@ -30,7 +30,7 @@ public sealed class Tonemapping : BasePostProcess<Tonemapping>
     public override void Render(PostProcessContext context)
     {
         var @operator = GetWeighted(effect => effect.Operator);
-        var exposure = GetWeighted(effect => effect.Exposure);
+        var exposure = Math.Clamp(GetWeighted(effect => effect.Exposure), -24f, 24f);
 
         context.Blit(context.Input, context.Output, "Shaders/PostProcesses/Tonemapping.wgsl",
             new RenderAttributes()

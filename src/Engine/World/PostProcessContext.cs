@@ -1,3 +1,4 @@
+using System.Numerics;
 using Crowbar.Engine.Rendering;
 
 namespace Crowbar.Engine;
@@ -67,6 +68,9 @@ public sealed class PostProcessContext
 
     /// <summary>Height of the bloom pyramid level at <paramref name="index"/>.</summary>
     public int GetBloomLevelHeight(int index) => _renderer.GetBloomLevelHeight(index);
+
+    /// <summary>Viewport dimensions in pixels for resolution-aware effects.</summary>
+    public Vector2 ViewportSize => new(_renderer.SceneTargetWidth, _renderer.SceneTargetHeight);
 
     /// <summary>
     /// Runs one fullscreen pass reading <paramref name="from"/> and writing

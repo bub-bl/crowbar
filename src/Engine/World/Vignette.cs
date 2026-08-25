@@ -9,6 +9,8 @@ namespace Crowbar.Engine;
 [ComponentIcon("Solar/video/Bold/camera")]
 public sealed class Vignette : BasePostProcess<Vignette>
 {
+    public Vignette() => Order = 100;
+
     /// <summary>Corner darkening strength (0 = none).</summary>
     [Property]
     public float Intensity { get; set; } = 0.4f;
@@ -19,12 +21,13 @@ public sealed class Vignette : BasePostProcess<Vignette>
 
     public override void Render(PostProcessContext context)
     {
-        var intensity = GetWeighted(effect => effect.Intensity);
-        var radius = GetWeighted(effect => effect.Radius);
+        var intensity = Math.Clamp(GetWeighted(effect => effect.Intensity), 0f, 1f);
+        var radius = Math.Clamp(GetWeighted(effect => effect.Radius), 0f, 1f);
 
         context.Blit(context.Input, context.Output, "Shaders/PostProcesses/Vignette.wgsl",
             new RenderAttributes()
                 .Set("intensity", intensity)
-                .Set("radius", radius));
+                .Set("radius", radius)
+                .Set("viewportSize", context.ViewportSize));
     }
 }

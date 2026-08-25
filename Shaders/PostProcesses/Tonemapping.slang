@@ -26,21 +26,33 @@ struct TonemappingUniforms
 
 public struct Tonemapping
 {
-    // ACES filmic approximation (Narkowicz 2015).
-    static float3 Aces(float3 x)
+    // ACES fitted RRT+ODT approximation used widely in real-time engines.
+    static const float3x3 AcesInputMat = float3x3(
+        0.59719, 0.35458, 0.04823,
+        0.07600, 0.90834, 0.01566,
+        0.02840, 0.13383, 0.83777);
+    static const float3x3 AcesOutputMat = float3x3(
+        1.60475, -0.53108, -0.07367,
+        -0.10208, 1.10813, -0.00605,
+        -0.00327, -0.07276, 1.07602);
+
+    static float3 AcesFit(float3 v)
     {
-        let a = 2.51;
-        let b = 0.03;
-        let c = 2.43;
-        let d = 0.59;
-        let e = 0.14;
-        return clamp((x * (a * x + b)) / (x * (c * x + d) + e), float3(0.0), float3(1.0));
+        return (v * (v + 0.0245786) - 0.000090537) /
+            (v * (0.983729 * v + 0.4329510) + 0.238081);
     }
 
-    // AgX (Troy Sobotka), the Blender 4.0 default view transform, as
-    // implemented in Filament and three.js: linear sRGB -> rec. 2020 -> the
-    // AgX log-encoded working space -> the default contrast curve -> back to
-    // linear sRGB. Analytic curve — no LUT.
+    static float3 Aces(float3 x)
+    {
+        x = mul(AcesInputMat, max(x, float3(0.0)));
+        x = AcesFit(x);
+        x = mul(AcesOutputMat, x);
+        return clamp(x, float3(0.0), float3(1.0));
+    }
+
+    // AgX analytic view transform (same reference constants as Blender,
+    // Filament and three.js). Its working primaries are Rec.2020 while this
+    // renderer's scene and display intermediates are linear sRGB.
     static const float3x3 AgxSrgbToRec2020 = float3x3(
         0.6274, 0.3293, 0.0433,
         0.0691, 0.9195, 0.0113,
@@ -60,7 +72,7 @@ public struct Tonemapping
 
     static float3 Agx(float3 x)
     {
-        x = mul(AgxSrgbToRec2020, x);
+        x = mul(AgxSrgbToRec2020, max(x, float3(0.0)));
         x = mul(AgxInset, x);
         x = max(x, 1e-10);
         x = log2(x);

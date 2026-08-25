@@ -2512,6 +2512,9 @@ public sealed class Renderer : IDisposable
     /// <summary>Height of a bloom pyramid level at <paramref name="index"/> (1/2^(index+1) of the viewport).</summary>
     internal int GetBloomLevelHeight(int index) => Math.Max(1, _sceneTargetHeight >> (index + 1));
 
+    internal int SceneTargetWidth => _sceneTargetWidth;
+    internal int SceneTargetHeight => _sceneTargetHeight;
+
     /// <summary>
     /// Drops the cached pipeline and shader for a post-process shader path
     /// (called by the editor's shader hot reload after recompiling); the next

@@ -42,6 +42,30 @@ public sealed class PostProcessTests
     }
 
     [Fact]
+    public void Vignette_DefaultsAreIndustrySane()
+    {
+        using var world = new World();
+        var level = world.CreateLevel("PostProcess");
+        var component = world.SpawnEntity("PostProcess", level).AddComponent<Vignette>();
+
+        Assert.Equal(0.4f, component.Intensity);
+        Assert.Equal(0.65f, component.Radius);
+        Assert.Equal(100, component.Order);
+    }
+
+    [Fact]
+    public void VignetteShader_UsesViewportAwareUniforms()
+    {
+        var shader = Shader.Load("Shaders/PostProcesses/Vignette.wgsl");
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "VignetteUniforms");
+
+        Assert.Contains(uniforms.Fields, field => field.Name == "intensity");
+        Assert.Contains(uniforms.Fields, field => field.Name == "radius");
+        Assert.Contains(uniforms.Fields, field => field.Name == "viewportSize");
+        Assert.Equal(16, UniformPacker.ComputeStructSize(uniforms.Fields));
+    }
+
+    [Fact]
     public void WorldQuery_ReturnsEveryPostProcessInstanceOnAnEntity()
     {
         // The camera carries Tonemapping + Vignette on one entity; the chain
@@ -281,7 +305,7 @@ public sealed class PostProcessTests
         Assert.Equal(0.7f, component.Scatter);
         Assert.Equal(4, component.DownsampleCount);
         Assert.Equal(3.5f, component.Clamp);
-        Assert.Equal(0, component.Order);
+        Assert.Equal(-100, component.Order);
     }
 
     [Fact]
