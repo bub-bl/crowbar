@@ -1,5 +1,6 @@
 #language slang 2026;
 import Camera;
+import Color;
 
 // One instanced billboard: world center, tint, shape/scale and an atlas region.
 struct GizmoSpriteParams
@@ -61,7 +62,7 @@ float4 fs_main(SpriteOutput input) : SV_Target
         {
             discard;
         }
-        return float4(input.color.rgb, input.color.a * alpha);
+        return float4(Color::SrgbToLinear(clamp(input.color.rgb, float3(0.0), float3(1.0))), input.color.a * alpha);
     }
 
     // Icon sprites use the supplied SVG atlas. The source SVGs are rasterized
@@ -79,7 +80,7 @@ float4 fs_main(SpriteOutput input) : SV_Target
         {
             discard;
         }
-        return float4(sampled.rgb * input.color.rgb, sampled.a * input.color.a);
+        return float4(Color::SrgbToLinear(clamp(sampled.rgb * input.color.rgb, float3(0.0), float3(1.0))), sampled.a * input.color.a);
     }
 
     let distance = length(input.uv);

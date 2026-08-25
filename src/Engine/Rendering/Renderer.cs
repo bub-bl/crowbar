@@ -182,6 +182,12 @@ public sealed class Renderer : IDisposable
         public float Padding;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SurfaceColorSpaceUniforms
+    {
+        public Vector4 ColorSpace; // x = 1 when the swapchain performs hardware sRGB encoding
+    }
+
     private readonly IGraphicsDevice _device;
     private int _width;
     private int _height;
@@ -358,13 +364,11 @@ public sealed class Renderer : IDisposable
     private bool _loggedIdentityCopy;
 
     /// <summary>
-    /// The engine-neutral identity pass: copies the scene to the display
-    /// unchanged when no PostProcess component exists (or the camera disabled
-    /// post-processing). The engine never applies a tonemapping on its own —
-    /// the default look is level content (the demo level ships a Tonemapping
-    /// component on its camera).
+    /// Default display transform for linear HDR scene data. Optional post-process
+    /// components may provide their own Tonemapping component, but a display
+    /// transform is always required before presenting HDR values to the surface.
     /// </summary>
-    private const string CopyShaderPath = "Shaders/PostProcesses/Copy.wgsl";
+    private const string DefaultTonemappingShaderPath = "Shaders/PostProcesses/Tonemapping.wgsl";
 
     // The 3D scene renders into viewport-sized targets (its color, depth and
     // selection mask all share the viewport dimensions). The surface composite
@@ -377,8 +381,10 @@ public sealed class Renderer : IDisposable
     // texture onto the surface, so it is kept even though the Skia UI texture
     // upload path is gone.
     private ISampler _uiSampler = null!;
-    // Scene blit pipeline: presents the linear post-processed display texture
-    // to the (non-sRGB) surface, applying the single linear->sRGB encode.
+    private IBuffer _surfaceColorSpaceBuffer = null!;
+    // Scene blit pipeline: presents the linear post-processed display texture.
+    // The shader is selected to match the surface: sRGB surfaces encode in the
+    // attachment, while plain unorm surfaces use the manual encode shader.
     private IPipeline _scenePipeline = null!;
     private IBuffer _uiVertexBuffer = null!;
     // Fullscreen quad transformed to the viewport rectangle in NDC, used by the
@@ -542,56 +548,56 @@ public sealed class Renderer : IDisposable
                 }
             }
 
-            // Pass 1.5: the post-process chain. The scene texture is linear
-            // HDR; each enabled PostProcess component runs in Order, writing
-            // the next chain target (ping-ponging through HDR intermediates),
-            // and the last pass writes the display texture. With no component
-            // (or when the camera disabled post-processing) the scene is
-            // copied to the display as-is — the engine applies no tonemapping
-            // by default; that look is level content, e.g. the demo level's
-            // Tonemapping component on its camera.
-            var postProcessGroups = BuildPostProcessGroups(world, camera.Position);
-            if (!camera.EnablePostProcessing || postProcessGroups.Count == 0)
+            // Pass 1.5: the post-process chain. The scene texture is linear HDR;
+            // optional effects run in Order, then the chain must end with a
+            // display transform. ACES is implicit when no Tonemapping component
+            // is enabled, so disabling optional post-processing cannot present
+            // unclamped HDR values directly to the swapchain.
+            var postProcessGroups = camera.EnablePostProcessing
+                ? BuildPostProcessGroups(world, camera.Position)
+                : [];
+            var needsDefaultTonemapping = !postProcessGroups.Any(group => group.Type == typeof(Tonemapping));
+            var postProcessInput = _sceneTexture;
+
+            for (var index = 0; index < postProcessGroups.Count; index++)
+            {
+                var group = postProcessGroups[index];
+                var isLast = index == postProcessGroups.Count - 1 && !needsDefaultTonemapping;
+                var output = isLast
+                    ? _displayTexture
+                    : (index % 2 == 0 ? _postProcessTextureA : _postProcessTextureB);
+                var driver = group.Driver;
+                // One diagnostic line per effect instance that actually drives a
+                // pass: confirms in the console which components the chain sees.
+                if (_loggedPostProcessDrivers.Add(driver))
+                    Log.Info($"[PostProcess] Applying component {driver.GetType().Name} (Order {driver.Order}, {group.Entries.Count} instance(s))");
+                var context = new PostProcessContext(this, commandBuffer, postProcessInput, output,
+                    _sceneDepth, driver.Sampler, group.Entries, time);
+                PostProcessContext.Current = context;
+                try
+                {
+                    driver.Render(context);
+                }
+                finally
+                {
+                    PostProcessContext.Current = null;
+                }
+                postProcessInput = output;
+            }
+
+            if (needsDefaultTonemapping)
             {
                 if (!_loggedIdentityCopy)
                 {
                     _loggedIdentityCopy = true;
-                    Log.Info(camera.EnablePostProcessing
-                        ? "[PostProcess] No components — presenting the scene as-is (no default tonemapping)"
-                        : "[PostProcess] Camera post-processing disabled — presenting the scene as-is");
+                    Log.Info("[PostProcess] Applying default ACES tonemapping");
                 }
-                RunPostProcessPass(commandBuffer, _sceneTexture, _displayTexture,
-                    CopyShaderPath, null, PostProcessSampler.Linear);
-            }
-            else
-            {
-                var postProcessInput = _sceneTexture;
-                for (var index = 0; index < postProcessGroups.Count; index++)
-                {
-                    var group = postProcessGroups[index];
-                    var isLast = index == postProcessGroups.Count - 1;
-                    var output = isLast
-                        ? _displayTexture
-                        : (index % 2 == 0 ? _postProcessTextureA : _postProcessTextureB);
-                    var driver = group.Driver;
-                    // One diagnostic line per effect instance that actually
-                    // drives a pass: confirms in the console which components
-                    // the chain sees.
-                    if (_loggedPostProcessDrivers.Add(driver))
-                        Log.Info($"[PostProcess] Applying component {driver.GetType().Name} (Order {driver.Order}, {group.Entries.Count} instance(s))");
-                    var context = new PostProcessContext(this, commandBuffer, postProcessInput, output,
-                        _sceneDepth, driver.Sampler, group.Entries, time);
-                    PostProcessContext.Current = context;
-                    try
-                    {
-                        driver.Render(context);
-                    }
-                    finally
-                    {
-                        PostProcessContext.Current = null;
-                    }
-                    postProcessInput = output;
-                }
+                RunPostProcessPass(commandBuffer, postProcessInput, _displayTexture,
+                    DefaultTonemappingShaderPath,
+                    new RenderAttributes()
+                        .Set("operator_", (float)TonemapOperator.Aces)
+                        .Set("exposure", 0f),
+                    PostProcessSampler.Linear);
             }
 
             // Pass 1.75: editor overlay (grid + gizmos). These are drawn AFTER the
@@ -2203,12 +2209,25 @@ public sealed class Renderer : IDisposable
         * Matrix4x4.CreateFromQuaternion(transform.Rotation.Quaternion)
         * Matrix4x4.CreateTranslation(transform.Position);
 
+    private static bool IsSrgbFormat(TextureFormat format) =>
+        format is TextureFormat.Rgba8UnormSrgb or TextureFormat.Bgra8UnormSrgb;
+
     private void CreateUiResources()
     {
         _uiSampler ??= _device.CreateSampler(new SamplerDescription());
         _postProcessPointSampler ??= _device.CreateSampler(new SamplerDescription { Filter = SamplerFilter.Nearest });
 
         var sceneShader = Shader.Load(PathUtil.Combine("Shaders", "Ui/BlitScene.wgsl"));
+        _surfaceColorSpaceBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)Marshal.SizeOf<SurfaceColorSpaceUniforms>(),
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+        var surfaceColorSpace = new SurfaceColorSpaceUniforms
+        {
+            ColorSpace = new Vector4(IsSrgbFormat(_device.Swapchain.Format) ? 1f : 0f, 0f, 0f, 0f)
+        };
+        _surfaceColorSpaceBuffer.Write(in surfaceColorSpace);
         _scenePipeline = _device.CreatePipeline(new PipelineDescription
         {
             ShaderSource = sceneShader.Source,
@@ -2639,7 +2658,13 @@ public sealed class Renderer : IDisposable
         _sceneBindGroup = _scenePipeline.CreateBindGroup(
         [
             new BindGroupBinding { Slot = 0, Texture = _displayTexture },
-            new BindGroupBinding { Slot = 1, Sampler = _uiSampler }
+            new BindGroupBinding { Slot = 1, Sampler = _uiSampler },
+            new BindGroupBinding
+            {
+                Slot = 2,
+                Buffer = _surfaceColorSpaceBuffer,
+                BufferSize = (ulong)Marshal.SizeOf<SurfaceColorSpaceUniforms>()
+            }
         ]);
 
         _backdropBindGroup = _backdropPipeline.CreateBindGroup(
@@ -2741,7 +2766,13 @@ public sealed class Renderer : IDisposable
             new BindGroupBinding { Slot = 0, Texture = _displayTexture },
             new BindGroupBinding { Slot = 1, Texture = _selectionTexture },
             new BindGroupBinding { Slot = 2, Sampler = _uiSampler },
-            new BindGroupBinding { Slot = 3, Buffer = _outlineParamsBuffer, BufferSize = (ulong)sizeof(SelectionOutlineParams) }
+            new BindGroupBinding { Slot = 3, Buffer = _outlineParamsBuffer, BufferSize = (ulong)sizeof(SelectionOutlineParams) },
+            new BindGroupBinding
+            {
+                Slot = 4,
+                Buffer = _surfaceColorSpaceBuffer,
+                BufferSize = (ulong)Marshal.SizeOf<SurfaceColorSpaceUniforms>()
+            }
         ]);
     }
 
@@ -2930,6 +2961,7 @@ public sealed class Renderer : IDisposable
         _uiVertexBuffer?.Dispose();
         _scenePipeline?.Dispose();
         _uiSampler?.Dispose();
+        _surfaceColorSpaceBuffer?.Dispose();
         _ui2dBindGroup?.Dispose();
         _ui2dPipeline?.Dispose();
         _ui2dSampler?.Dispose();

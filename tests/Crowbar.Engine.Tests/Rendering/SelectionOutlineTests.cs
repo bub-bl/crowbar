@@ -33,7 +33,7 @@ public class SelectionOutlineTests
         Assert.Equal("Main", technique.Name);
 
         var bindings = shader.Bindings;
-        Assert.Equal(4, bindings.Count);
+        Assert.Equal(5, bindings.Count);
         Assert.Equal((0, 0u, ShaderBindingKind.Texture, "scene_tex", "texture_2d<f32>"),
             (bindings[0].Group, bindings[0].Slot, bindings[0].Kind, bindings[0].VariableName, bindings[0].TypeName));
         Assert.Equal((0, 1u, ShaderBindingKind.Texture, "mask_tex", "texture_2d<f32>"),
@@ -42,7 +42,13 @@ public class SelectionOutlineTests
             (bindings[2].Group, bindings[2].Slot, bindings[2].Kind, bindings[2].VariableName, bindings[2].TypeName));
         Assert.Equal((0, 3u, ShaderBindingKind.UniformBuffer, "params", "OutlineParams"),
             (bindings[3].Group, bindings[3].Slot, bindings[3].Kind, bindings[3].VariableName, bindings[3].TypeName));
+        Assert.Equal((0, 4u, ShaderBindingKind.UniformBuffer, "surface", "SurfaceColorSpace"),
+            (bindings[4].Group, bindings[4].Slot, bindings[4].Kind, bindings[4].VariableName, bindings[4].TypeName));
 
+        Assert.Equal(32, UniformPacker.ComputeStructSize(
+            Assert.Single(shader.Structs, structure => structure.Name == "OutlineParams").Fields));
+        Assert.Equal(16, UniformPacker.ComputeStructSize(
+            Assert.Single(shader.Structs, structure => structure.Name == "SurfaceColorSpace").Fields));
         Assert.Empty(shader.MaterialFields);
     }
 

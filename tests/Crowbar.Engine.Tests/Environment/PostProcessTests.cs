@@ -6,6 +6,28 @@ namespace Crowbar.Engine.Tests;
 public sealed class PostProcessTests
 {
     [Fact]
+    public void SceneBlitShader_ExposesSurfaceColorSpaceUniform()
+    {
+        var shader = Shader.Load("Shaders/Ui/BlitScene.wgsl");
+        Assert.Contains(shader.Bindings, binding =>
+            binding.VariableName == "surface" && binding.Slot == 2u &&
+            binding.Kind == ShaderBindingKind.UniformBuffer);
+        Assert.Equal(16, UniformPacker.ComputeStructSize(
+            Assert.Single(shader.Structs, structure => structure.Name == "SurfaceColorSpace").Fields));
+    }
+
+    [Fact]
+    public void DefaultDisplayTonemappingShader_ExposesTheExpectedUniforms()
+    {
+        var shader = Shader.Load("Shaders/PostProcesses/Tonemapping.wgsl");
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "TonemappingUniforms");
+
+        Assert.Contains(uniforms.Fields, field => field.Name == "operator_");
+        Assert.Contains(uniforms.Fields, field => field.Name == "exposure");
+        Assert.Equal(16, UniformPacker.ComputeStructSize(uniforms.Fields));
+    }
+
+    [Fact]
     public void Tonemapping_PropertiesRoundTrip()
     {
         using var sourceWorld = new World();

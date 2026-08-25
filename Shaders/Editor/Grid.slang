@@ -1,4 +1,6 @@
 #language slang 2026;
+import Color;
+
 // Editor ground grid, drawn as a fullscreen pass after the world's meshes.
 // The vertex shader unprojects the near and far planes; the fragment shader
 // intersects the view ray with the y = 0 plane, draws the grid lines with
@@ -108,7 +110,7 @@ FragmentOutput fs_main(VertexOutput input)
     let fading = max(0.0, 1.0 - length(fragPos3D.xz) / grid.settings.z);
 
     FragmentOutput out;
-    out.color = gridColor * fading;
+    out.color = float4(Color::SrgbToLinear(clamp(gridColor.rgb, float3(0.0), float3(1.0))), gridColor.a) * fading;
     out.depth = max(realDepth - depthBias, 0.0);
     return out;
 }

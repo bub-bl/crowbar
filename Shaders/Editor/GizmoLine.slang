@@ -1,5 +1,6 @@
 #language slang 2026;
 import Camera;
+import Color;
 
 // One widget element. Shafts use pixel sizes; cones and rings use world sizes
 // computed for the element depth by GizmoRenderer.
@@ -106,5 +107,5 @@ LineOutput vs_main(LineInput input, uint instance : SV_InstanceID)
 [shader("fragment")]
 float4 fs_main(LineOutput input) : SV_Target
 {
-    return input.color;
+    return float4(Color::SrgbToLinear(clamp(input.color.rgb, float3(0.0), float3(1.0))), input.color.a);
 }
