@@ -14,23 +14,23 @@
         {
           "type": "Camera",
           "enabled": true,
-          "transform": "-0.34822226,1.3945122,-4.3436985,0.088288635,0.046604052,-0.004135303,0.99499553,1,1,1",
+          "transform": "-2.9722183,1.6071835,0.073927045,0.022817247,0.5988007,-0.017070388,0.80039096,1,1,1",
           "properties": {
             "Pivot": [
-              0.26870197,
-              0.21392632,
-              2.2275133
+              3.4495018,
+              1.2252142,
+              1.963587
             ],
             "Distance": 6.7048635,
             "EnablePostProcessing": true,
             "FieldOfView": 60,
-            "NearPlane": 0.1,
+            "NearPlane": 0.01,
             "FarPlane": 100
           }
         },
         {
           "type": "Tonemapping",
-          "enabled": true,
+          "enabled": false,
           "transform": null,
           "properties": {
             "Operator": "Aces",
@@ -44,9 +44,46 @@
           "enabled": true,
           "transform": null,
           "properties": {
-            "Intensity": 1,
+            "Intensity": 0.8,
             "Radius": 1,
             "Order": 0,
+            "Sampler": "Linear"
+          }
+        },
+        {
+          "type": "Bloom",
+          "enabled": true,
+          "transform": null,
+          "properties": {
+            "Intensity": 1,
+            "Threshold": 1,
+            "ThresholdKnee": 0.5,
+            "Scatter": 0.7,
+            "DownsampleCount": 4,
+            "Clamp": 3.5,
+            "Order": -100,
+            "Sampler": "Linear"
+          }
+        },
+        {
+          "type": "FilmGrain",
+          "enabled": false,
+          "transform": null,
+          "properties": {
+            "Intensity": 1,
+            "Response": 0.8,
+            "Order": 150,
+            "Sampler": "Linear"
+          }
+        },
+        {
+          "type": "ChromaticAberration",
+          "enabled": true,
+          "transform": null,
+          "properties": {
+            "Intensity": 1,
+            "Start": 0.5,
+            "Order": 50,
             "Sampler": "Linear"
           }
         }
@@ -96,7 +133,7 @@
           "enabled": true,
           "transform": null,
           "properties": {
-            "SourcePath": "Content/Environments/studio.hdr",
+            "SourcePath": "Content/Environments/sky_8k.exr",
             "Rotation": 0,
             "Intensity": 1,
             "Exposure": 0,
@@ -276,7 +313,7 @@
         {
           "type": "MeshRenderer",
           "enabled": true,
-          "transform": "-1.6,0.5,-1.6,-0,-0.21643962,-0,0.976296,0.012653108,0.012653108,0.012653108",
+          "transform": "-0.6,0.5,1.4,0,0.50700504,0,0.861943,0.012653108,0.012653108,0.012653108",
           "properties": {
             "Model": {
               "path": "Content/Models/industrial_work_light/industrial_work_light.gltf"
