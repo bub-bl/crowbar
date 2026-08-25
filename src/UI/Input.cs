@@ -10,6 +10,10 @@ public sealed partial class UiSystem
     private Panel? _pointerCapture;
     private Panel? _scrollDragPanel;
     private bool _scrollDragVertical;
+    // Grab offset captured at press time: the distance between the pointer and
+    // the thumb's leading edge. It is preserved for the whole drag so grabbing
+    // the thumb never makes it jump to center under the cursor.
+    private float _scrollGrabOffset;
     // Double-click identity: the previous press's panel reconciliation key,
     // not the panel reference — the render tree is rebuilt on every render, so
     // an unchanged element becomes a new instance that ReferenceEquals would
@@ -92,6 +96,7 @@ public sealed partial class UiSystem
         _pointerCapture = null;
         _scrollDragPanel = null;
         _scrollDragVertical = false;
+        _scrollGrabOffset = 0;
         _lastClickKey = null;
         _lastClickTime = 0;
         PointerPressConsumed = false;
@@ -250,6 +255,7 @@ public sealed partial class UiSystem
         _pointerCapture = null;
         _scrollDragPanel = null;
         _scrollDragVertical = false;
+        _scrollGrabOffset = 0;
         return hit;
     }
 
@@ -261,19 +267,29 @@ public sealed partial class UiSystem
         {
             _scrollDragPanel = hit;
             _scrollDragVertical = true;
+            // Grabbing the thumb keeps the current grab offset so it does not
+            // jump to center under the cursor; clicking the track pages toward
+            // the pointer (offset of 0 centers the thumb there).
+            _scrollGrabOffset = ScrollBars.ContainsThumbVertical(hit, x, y)
+                ? ScrollBars.ThumbGrabOffset(hit, y, vertical: true)
+                : 0f;
             ApplyScrollDrag(hit, x, y, vertical: true);
         }
         else if (ScrollBars.HitTestHorizontal(hit, x, y))
         {
             _scrollDragPanel = hit;
             _scrollDragVertical = false;
+            _scrollGrabOffset = ScrollBars.ContainsThumbHorizontal(hit, x, y)
+                ? ScrollBars.ThumbGrabOffset(hit, x, vertical: false)
+                : 0f;
             ApplyScrollDrag(hit, x, y, vertical: false);
         }
     }
 
-    private static void ApplyScrollDrag(Panel panel, float x, float y, bool vertical)
+    private void ApplyScrollDrag(Panel panel, float x, float y, bool vertical)
     {
-        var offset = ScrollBars.OffsetFromPoint(panel, vertical ? y : x, vertical);
+        var point = vertical ? y : x;
+        var offset = ScrollBars.OffsetFromPoint(panel, point, vertical, _scrollGrabOffset);
         if (vertical) panel.ScrollTo(panel.ScrollX, offset);
         else panel.ScrollTo(offset, panel.ScrollY);
     }

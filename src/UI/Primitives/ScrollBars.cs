@@ -88,11 +88,32 @@ public static class ScrollBars
     public static bool HitTestHorizontal(Panel panel, float x, float y) =>
         ShouldShowHorizontal(panel) && Contains(HorizontalTrack(panel), x, y);
 
+    /// <summary>True when the point falls on the panel's vertical scrollbar thumb.</summary>
+    public static bool ContainsThumbVertical(Panel panel, float x, float y) =>
+        ShouldShowVertical(panel) && Contains(VerticalThumb(panel), x, y);
+
+    /// <summary>True when the point falls on the panel's horizontal scrollbar thumb.</summary>
+    public static bool ContainsThumbHorizontal(Panel panel, float x, float y) =>
+        ShouldShowHorizontal(panel) && Contains(HorizontalThumb(panel), x, y);
+
+    /// <summary>
+    /// The distance along the axis between the pointer and the thumb's leading edge,
+    /// captured at press time so a thumb grab does not jump to center under the
+    /// cursor. Positive when the pointer is ahead of (below/right of) the thumb edge.
+    /// </summary>
+    public static float ThumbGrabOffset(Panel panel, float point, bool vertical)
+    {
+        var thumb = vertical ? VerticalThumb(panel) : HorizontalThumb(panel);
+        var edge = vertical ? thumb.Y : thumb.X;
+        return point - edge;
+    }
+
     /// <summary>
     /// Maps a pointer position along the scroll axis to a scroll offset, keeping the
-    /// thumb centered under the pointer. Clamped to the scrollable range.
+    /// thumb centered under the pointer (grab offset of 0) or preserving the caller's
+    /// grab offset. Clamped to the scrollable range.
     /// </summary>
-    public static float OffsetFromPoint(Panel panel, float point, bool vertical)
+    public static float OffsetFromPoint(Panel panel, float point, bool vertical, float grabOffset = 0f)
     {
         var track = vertical ? VerticalTrack(panel) : HorizontalTrack(panel);
         var thumb = vertical ? VerticalThumb(panel) : HorizontalThumb(panel);
@@ -101,7 +122,9 @@ public static class ScrollBars
         if (max <= 0 || range <= 0) return vertical ? panel.ScrollY : panel.ScrollX;
         var origin = vertical ? track.Y : track.X;
         var size = vertical ? thumb.Height : thumb.Width;
-        var ratio = (point - origin - size / 2f) / range;
+        // grabOffset 0 centers the thumb under the pointer (track click); a
+        // captured grab offset anchors the thumb leading edge to the pointer.
+        var ratio = (point - origin - grabOffset - (grabOffset == 0 ? size / 2f : 0f)) / range;
         return Math.Clamp(ratio, 0, 1) * max;
     }
 

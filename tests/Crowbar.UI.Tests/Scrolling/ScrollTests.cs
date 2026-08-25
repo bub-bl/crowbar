@@ -364,6 +364,37 @@ public class ScrollTests
     }
 
     [Fact]
+    public void ScrollbarThumbGrabPreservesPointerOffset()
+    {
+        using var ui = TestUi.Create();
+        var container = NewScrollContainer(overflow: "auto");
+        ui.Screen.AddChild(container);
+        ui.Prepare();
+
+        // Scroll partway so the thumb sits mid-track.
+        container.ScrollTo(0, 70);
+        ui.Prepare();
+
+        var track = ScrollBars.VerticalTrack(container);
+        var thumb = ScrollBars.VerticalThumb(container);
+        var x = track.X + track.Width / 2;
+        // Grab a point 4px inside the thumb's lower edge.
+        var grabY = thumb.Y + thumb.Height - 4;
+        ui.ProcessPointerDown(x, grabY);
+
+        // The grab offset is preserved the moment the thumb is pressed: it must
+        // not recenter under the cursor (which would leave the thumb leading
+        // edge 4px ahead of the grabbed point).
+        Assert.Equal(70, container.ScrollY);
+
+        // Moving 10px down advances the scroll by the exact proportional track
+        // amount while keeping the same 4px grab anchor.
+        ui.ProcessPointerMove(x, grabY + 10);
+        ui.Prepare();
+        Assert.Equal(94, container.ScrollY, 0.5);
+    }
+
+    [Fact]
     public void KeyboardArrowsScrollFocusedContainer()
     {
         using var ui = TestUi.Create();
