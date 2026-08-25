@@ -28,7 +28,6 @@ root {
     cursor: text;
 
     &:focus {
-        border-color: $accent;
         outline: none;
     }
 }

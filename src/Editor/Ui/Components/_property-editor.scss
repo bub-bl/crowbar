@@ -27,10 +27,6 @@
     padding: 0 5px;
     box-sizing: border-box;
     cursor: text;
-
-    &:focus {
-        border-color: $accent;
-    }
 }
 
 .enum-input {
@@ -147,8 +143,4 @@
     padding: 0 5px;
     box-sizing: border-box;
     cursor: text;
-
-    &:focus {
-        border-color: $accent;
-    }
 }
