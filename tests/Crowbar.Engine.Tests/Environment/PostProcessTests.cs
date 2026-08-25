@@ -106,6 +106,47 @@ public sealed class PostProcessTests
     }
 
     [Fact]
+    public void FilmGrain_PropertiesRoundTrip()
+    {
+        using var sourceWorld = new World();
+        var source = sourceWorld.CreateLevel("PostProcess");
+        var component = sourceWorld.SpawnEntity("PostProcess", source).AddComponent<FilmGrain>();
+        component.Intensity = 0.3f;
+        component.Response = 0.65f;
+        component.Order = 175;
+
+        using var loadedWorld = new World();
+        var loaded = LevelSerializer.CreateLevel(loadedWorld, LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
+        var loadedComponent = Assert.Single(loaded.Entities).GetComponent<FilmGrain>();
+        Assert.NotNull(loadedComponent);
+        Assert.Equal(0.3f, loadedComponent!.Intensity);
+        Assert.Equal(0.65f, loadedComponent.Response);
+        Assert.Equal(175, loadedComponent.Order);
+    }
+
+    [Fact]
+    public void FilmGrain_DefaultsAreNeutral()
+    {
+        var component = new FilmGrain();
+        Assert.Equal(0f, component.Intensity);
+        Assert.Equal(0.8f, component.Response);
+        Assert.Equal(150, component.Order);
+        Assert.Equal(typeof(FilmGrain), GlobalNamespaces.TypeLibrary.Registry.Resolve("FilmGrain"));
+    }
+
+    [Fact]
+    public void FilmGrainShader_ExposesTemporalUniforms()
+    {
+        var shader = Shader.Load("Shaders/PostProcesses/FilmGrain.wgsl");
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "FilmGrainUniforms");
+        Assert.Contains(uniforms.Fields, field => field.Name == "intensity");
+        Assert.Contains(uniforms.Fields, field => field.Name == "response");
+        Assert.Contains(uniforms.Fields, field => field.Name == "time");
+        Assert.Contains(uniforms.Fields, field => field.Name == "viewportSize");
+        Assert.Equal(32, UniformPacker.ComputeStructSize(uniforms.Fields));
+    }
+
+    [Fact]
     public void WorldQuery_ReturnsEveryPostProcessInstanceOnAnEntity()
     {
         // The camera carries Tonemapping + Vignette on one entity; the chain

@@ -44,6 +44,19 @@ public class WindowSessionTests
     }
 
     [Fact]
+    public void Session_RenderAccumulatesTimeForTemporalEffects()
+    {
+        var window = new FakeWindow();
+        using var session = new WindowSession(window, null);
+
+        session.Render(1.0 / 30.0);
+        session.Render(1.0 / 30.0);
+
+        Assert.Equal(2.0 / 30.0, session.RenderTime, precision: 8);
+        Assert.True(Math.Floor(session.RenderTime * 24.0) > Math.Floor((1.0 / 30.0) * 24.0));
+    }
+
+    [Fact]
     public void Session_ClosingDisposesTheWindowAndRaisesClosed()
     {
         var window = new FakeWindow();

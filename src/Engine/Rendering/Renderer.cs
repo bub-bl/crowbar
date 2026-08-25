@@ -580,7 +580,7 @@ public sealed class Renderer : IDisposable
                     if (_loggedPostProcessDrivers.Add(driver))
                         Log.Info($"[PostProcess] Applying component {driver.GetType().Name} (Order {driver.Order}, {group.Entries.Count} instance(s))");
                     var context = new PostProcessContext(this, commandBuffer, postProcessInput, output,
-                        _sceneDepth, driver.Sampler, group.Entries);
+                        _sceneDepth, driver.Sampler, group.Entries, time);
                     PostProcessContext.Current = context;
                     try
                     {

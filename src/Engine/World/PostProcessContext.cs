@@ -22,7 +22,8 @@ public sealed class PostProcessContext
         ITexture output,
         ITexture depth,
         PostProcessSampler sampler,
-        IReadOnlyList<PostProcessEntry> entries)
+        IReadOnlyList<PostProcessEntry> entries,
+        double time)
     {
         _renderer = renderer;
         _commandBuffer = commandBuffer;
@@ -31,6 +32,7 @@ public sealed class PostProcessContext
         Output = output;
         Depth = depth;
         Entries = entries;
+        Time = (float)time;
     }
 
     /// <summary>
@@ -38,7 +40,7 @@ public sealed class PostProcessContext
     /// blending (via <see cref="Current"/>); <see cref="Blit"/> is unavailable.
     /// </summary>
     internal PostProcessContext(ITexture input, ITexture output, ITexture depth, IReadOnlyList<PostProcessEntry> entries)
-        : this(null!, null!, input, output, depth, PostProcessSampler.Linear, entries)
+        : this(null!, null!, input, output, depth, PostProcessSampler.Linear, entries, 0.0)
     {
     }
 
@@ -71,6 +73,9 @@ public sealed class PostProcessContext
 
     /// <summary>Viewport dimensions in pixels for resolution-aware effects.</summary>
     public Vector2 ViewportSize => new(_renderer.SceneTargetWidth, _renderer.SceneTargetHeight);
+
+    /// <summary>Render time in seconds, wrapped periodically to preserve float precision.</summary>
+    public float Time { get; }
 
     /// <summary>
     /// Runs one fullscreen pass reading <paramref name="from"/> and writing

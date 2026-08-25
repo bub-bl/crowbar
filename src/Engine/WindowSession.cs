@@ -21,6 +21,7 @@ public class WindowSession : IDisposable
     private readonly UiSystem _ui = new();
     private IGraphicsDevice? _graphics;
     private Renderer? _renderer;
+    private double _renderTime;
     private bool _initialized;
     private bool _disposed;
 
@@ -84,6 +85,8 @@ public class WindowSession : IDisposable
 
     /// <summary>This window's renderer (scene pass + Razor UI composite), or null headless.</summary>
     public Renderer? Renderer => _renderer;
+
+    internal double RenderTime => _renderTime;
 
     /// <summary>The viewport camera of this window.</summary>
     public virtual Camera Camera { get; protected set; } = new();
@@ -174,7 +177,8 @@ public class WindowSession : IDisposable
             return;
 
         OnRender((float)delta);
-        _renderer?.Render(World, Camera, delta, _ui);
+        _renderTime = (_renderTime + Math.Clamp(delta, 0.0, 0.1)) % 512.0;
+        _renderer?.Render(World, Camera, _renderTime, _ui);
 
         // Renderer.Render runs Ui.Prepare(), which is the moment Yoga has
         // resolved the current title-bar rectangles. Push that freshly laid-out

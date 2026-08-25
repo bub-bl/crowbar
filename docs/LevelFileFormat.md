@@ -151,6 +151,13 @@ fields are packed by name from the component's `[Property]` values (or the
 | `Intensity` | float | Spectral separation from 0 (disabled) to 1. |
 | `Start` | float | Normalized radius where separation begins (default 0.5). |
 
+`FilmGrain` properties:
+
+| Property | Type | Role |
+|---|---|---|
+| `Intensity` | float | Grain strength from 0 (disabled) to 1. |
+| `Response` | float | Highlight suppression from 0 to 1 (default 0.8). |
+
 `PostProcess` (base) properties:
 
 | Property | Type | Role |
