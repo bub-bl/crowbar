@@ -7,20 +7,24 @@
 <div class="vec-row" style="padding-left: @(Indent * 12)px">
     <div class="vec-label">@Name</div>
     <span class="vec-axis">X</span>
-    <input class="vec-input" value="@X" @bind-value="X" />
+    <input class="vec-input" value="@DraftValue(XAxis, Axis(0))"
+           @onfocus="OnFocusX" @oninput="OnInputX" @onblur="OnBlurX" @onkeydown="OnKeyX" />
     <span class="vec-axis">Y</span>
-    <input class="vec-input" value="@Y" @bind-value="Y" />
+    <input class="vec-input" value="@DraftValue(YAxis, Axis(1))"
+           @onfocus="OnFocusY" @oninput="OnInputY" @onblur="OnBlurY" @onkeydown="OnKeyY" />
     <span class="vec-axis">Z</span>
-    <input class="vec-input" value="@Z" @bind-value="Z" />
+    <input class="vec-input" value="@DraftValue(ZAxis, Axis(2))"
+           @onfocus="OnFocusZ" @oninput="OnInputZ" @onblur="OnBlurZ" @onkeydown="OnKeyZ" />
     <span class="vec-axis">W</span>
-    <input class="vec-input" value="@W" @bind-value="W" />
+    <input class="vec-input" value="@DraftValue(WAxis, Axis(3))"
+           @onfocus="OnFocusW" @oninput="OnInputW" @onblur="OnBlurW" @onkeydown="OnKeyW" />
 </div>
 
 @code {
-    private string X { get => Axis(0); set => SetAxis(0, value); }
-    private string Y { get => Axis(1); set => SetAxis(1, value); }
-    private string Z { get => Axis(2); set => SetAxis(2, value); }
-    private string W { get => Axis(3); set => SetAxis(3, value); }
+    private const string XAxis = "X";
+    private const string YAxis = "Y";
+    private const string ZAxis = "Z";
+    private const string WAxis = "W";
 
     private string Axis(int index)
     {
@@ -28,14 +32,42 @@
         return index < parts.Length ? parts[index].Trim() : string.Empty;
     }
 
-    private void SetAxis(int index, string text)
+    private void OnFocusX() => BeginEdit(XAxis, Axis(0));
+    private void OnInputX(string t) => UpdateDraft(XAxis, t);
+    private void OnFocusY() => BeginEdit(YAxis, Axis(1));
+    private void OnInputY(string t) => UpdateDraft(YAxis, t);
+    private void OnFocusZ() => BeginEdit(ZAxis, Axis(2));
+    private void OnInputZ(string t) => UpdateDraft(ZAxis, t);
+    private void OnFocusW() => BeginEdit(WAxis, Axis(3));
+    private void OnInputW(string t) => UpdateDraft(WAxis, t);
+
+    private void OnBlurX() => Commit(XAxis);
+    private void OnBlurY() => Commit(YAxis);
+    private void OnBlurZ() => Commit(ZAxis);
+    private void OnBlurW() => Commit(WAxis);
+    private bool OnKeyX(KeyEvent e) => OnKeyDown(e, XAxis);
+    private bool OnKeyY(KeyEvent e) => OnKeyDown(e, YAxis);
+    private bool OnKeyZ(KeyEvent e) => OnKeyDown(e, ZAxis);
+    private bool OnKeyW(KeyEvent e) => OnKeyDown(e, WAxis);
+
+    private void Commit(string axis)
     {
+        if (!IsEditing(axis)) return;
         var parts = Value.Split(',').Select(part => part.Trim()).ToArray();
-        while (parts.Length <= index)
-            Array.Resize(ref parts, index + 1);
-        parts[index] = text.Trim();
-        Value = string.Join(", ", parts);
-        EditorInspectorState.RequestEdit(Key, Value);
+        while (parts.Length < 4) Array.Resize(ref parts, parts.Length + 1);
+        parts[0] = DraftValue(XAxis, Axis(0));
+        parts[1] = DraftValue(YAxis, Axis(1));
+        parts[2] = DraftValue(ZAxis, Axis(2));
+        parts[3] = DraftValue(WAxis, Axis(3));
+        var joined = string.Join(", ", parts);
+        EndEdit(axis);
+        EditorInspectorState.RequestEdit(Key, joined);
+    }
+
+    private bool OnKeyDown(KeyEvent e, string axis)
+    {
+        if (e.IsDown && e.KeyCode == 13) { Commit(axis); return true; }
+        return false;
     }
 
     protected override int BuildHash() => HashCode.Combine(Name, Value, Key, Indent);

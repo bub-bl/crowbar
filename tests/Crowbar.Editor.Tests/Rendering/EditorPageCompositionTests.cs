@@ -1294,24 +1294,30 @@ public class EditorPageCompositionTests
         var metallic = FindInput(content, "0.15");
         Assert.NotNull(metallic);
 
-        // Focus the Metallic field, then replace its value: the @onchange
-        // handler queues the write for the host and re-renders the page.
+        // Focus the Metallic field, then type a new value. Typing must not
+        // commit to the host per keystroke (which would re-canonicalize the
+        // number and stomp the in-progress text); it only updates a local draft.
         ui.ProcessPointerDown(metallic!.Layout.X + 1, metallic.Layout.Y + 1);
         ui.ProcessPointerUp(metallic.Layout.X + 1, metallic.Layout.Y + 1);
         metallic.SetValue("0.25");
         ui.Update();
         ui.Prepare();
 
-        // The edit is queued under the stable write-back key.
-        var edits = EditorInspectorState.ConsumeEdits();
-        Assert.Contains(edits, edit => edit.Key == "MeshRenderer.Material.metallic" && edit.Value == "0.25");
+        // No edit is queued yet: blur/Enter commits, not every keystroke.
+        Assert.Empty(EditorInspectorState.ConsumeEdits());
 
         // The rebuild keeps the edited input's value and focus (it must not
-        // jump to the first input on the page).
+        // snap back to the canonical value nor jump to another input).
         var rerendered = FindInput(ui.Content!, "0.25");
         Assert.NotNull(rerendered);
         Assert.True(rerendered!.IsFocused);
         Assert.Same(rerendered, ui.FocusedPanel);
+
+        // Blurring commits the draft under the stable write-back key.
+        ui.ProcessPointerDown(5, ui.Screen.Layout.Height - 5); // outside, blurs the field
+        ui.ProcessPointerUp(5, ui.Screen.Layout.Height - 5);
+        var edits = EditorInspectorState.ConsumeEdits();
+        Assert.Contains(edits, edit => edit.Key == "MeshRenderer.Material.metallic" && edit.Value == "0.25");
     }
 
     [Fact]

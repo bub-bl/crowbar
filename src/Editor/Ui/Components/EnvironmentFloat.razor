@@ -6,13 +6,42 @@
 
 <div class="prop-row">
     <div class="field-label">@Name</div>
-    <input class="prop-input" value="@Value.ToString(CultureInfo.InvariantCulture)" @onchange="Changed" />
+    <input class="prop-input" value="@(_editing ? _draft : Value.ToString(CultureInfo.InvariantCulture))"
+           @onfocus="BeginEdit"
+           @oninput="OnInput"
+           @onblur="Commit"
+           @onkeydown="OnKeyDown" />
 </div>
 
 @code {
     [Parameter] public string Name { get; set; } = string.Empty;
     [Parameter] public float Value { get; set; }
 
-    private void Changed(string value) => EditorEnvironmentState.RequestEdit(Name, value);
-    protected override int BuildHash() => HashCode.Combine(Name, Value);
+    private bool _editing;
+    private string _draft = string.Empty;
+
+    private void BeginEdit()
+    {
+        if (_editing) return;
+        _editing = true;
+        _draft = Value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private void OnInput(string value) { if (_editing) _draft = value; }
+
+    private void Commit()
+    {
+        if (!_editing) return;
+        _editing = false;
+        EditorEnvironmentState.RequestEdit(Name, _draft);
+        _draft = string.Empty;
+    }
+
+    private bool OnKeyDown(KeyEvent e)
+    {
+        if (e.IsDown && e.KeyCode == 13) { Commit(); return true; }
+        return false;
+    }
+
+    protected override int BuildHash() => HashCode.Combine(Name, Value, _editing ? _draft : string.Empty);
 }
