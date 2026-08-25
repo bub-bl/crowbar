@@ -23,7 +23,8 @@ public sealed class PostProcessContext
         ITexture depth,
         PostProcessSampler sampler,
         IReadOnlyList<PostProcessEntry> entries,
-        double time)
+        double time,
+        Camera camera)
     {
         _renderer = renderer;
         _commandBuffer = commandBuffer;
@@ -33,6 +34,8 @@ public sealed class PostProcessContext
         Depth = depth;
         Entries = entries;
         Time = (float)time;
+        NearPlane = camera.NearPlane;
+        FarPlane = camera.FarPlane;
     }
 
     /// <summary>
@@ -40,7 +43,7 @@ public sealed class PostProcessContext
     /// blending (via <see cref="Current"/>); <see cref="Blit"/> is unavailable.
     /// </summary>
     internal PostProcessContext(ITexture input, ITexture output, ITexture depth, IReadOnlyList<PostProcessEntry> entries)
-        : this(null!, null!, input, output, depth, PostProcessSampler.Linear, entries, 0.0)
+        : this(null!, null!, input, output, depth, PostProcessSampler.Linear, entries, 0.0, new Camera())
     {
     }
 
@@ -76,6 +79,12 @@ public sealed class PostProcessContext
 
     /// <summary>Render time in seconds, wrapped periodically to preserve float precision.</summary>
     public float Time { get; }
+
+    public float NearPlane { get; }
+
+    public float FarPlane { get; }
+
+    public ITexture GetDepthOfFieldTexture(int index) => _renderer.GetDepthOfFieldTexture(index);
 
     /// <summary>
     /// Runs one fullscreen pass reading <paramref name="from"/> and writing
