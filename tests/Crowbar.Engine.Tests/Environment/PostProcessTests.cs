@@ -66,6 +66,46 @@ public sealed class PostProcessTests
     }
 
     [Fact]
+    public void ChromaticAberration_PropertiesRoundTrip()
+    {
+        using var sourceWorld = new World();
+        var source = sourceWorld.CreateLevel("PostProcess");
+        var component = sourceWorld.SpawnEntity("PostProcess", source).AddComponent<ChromaticAberration>();
+        component.Intensity = 0.35f;
+        component.Start = 0.25f;
+        component.Order = 75;
+
+        using var loadedWorld = new World();
+        var loaded = LevelSerializer.CreateLevel(loadedWorld, LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
+        var loadedComponent = Assert.Single(loaded.Entities).GetComponent<ChromaticAberration>();
+        Assert.NotNull(loadedComponent);
+        Assert.Equal(0.35f, loadedComponent!.Intensity);
+        Assert.Equal(0.25f, loadedComponent.Start);
+        Assert.Equal(75, loadedComponent.Order);
+    }
+
+    [Fact]
+    public void ChromaticAberration_DefaultsAreNeutral()
+    {
+        var component = new ChromaticAberration();
+        Assert.Equal(0f, component.Intensity);
+        Assert.Equal(0.5f, component.Start);
+        Assert.Equal(50, component.Order);
+        Assert.Equal(typeof(ChromaticAberration), GlobalNamespaces.TypeLibrary.Registry.Resolve("ChromaticAberration"));
+    }
+
+    [Fact]
+    public void ChromaticAberrationShader_UsesViewportAwareUniforms()
+    {
+        var shader = Shader.Load("Shaders/PostProcesses/ChromaticAberration.wgsl");
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "ChromaticAberrationUniforms");
+        Assert.Contains(uniforms.Fields, field => field.Name == "intensity");
+        Assert.Contains(uniforms.Fields, field => field.Name == "start");
+        Assert.Contains(uniforms.Fields, field => field.Name == "viewportSize");
+        Assert.Equal(16, UniformPacker.ComputeStructSize(uniforms.Fields));
+    }
+
+    [Fact]
     public void WorldQuery_ReturnsEveryPostProcessInstanceOnAnEntity()
     {
         // The camera carries Tonemapping + Vignette on one entity; the chain

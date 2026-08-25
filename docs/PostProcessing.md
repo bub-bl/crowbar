@@ -156,6 +156,14 @@ other (edit the `.slang` while the editor runs to see it in action). Attach
 The effect is aspect-ratio corrected and defaults to order `100`, so it runs
 after HDR bloom and tonemapping.
 
+## Chromatic aberration
+
+`ChromaticAberration` simulates wavelength-dependent lens refraction by
+separating red and blue radially toward the frame edges. The displacement is
+aspect-ratio corrected and measured in pixels. `Intensity` controls the
+separation and `Start` controls the normalized radius where it begins. It
+defaults to order `50`, after tonemapping and before the vignette.
+
 Tonemapping is applied in linear HDR before the display blit. `Reinhard` uses
 the standard per-channel curve, `Aces` uses the fitted ACES RRT/ODT transform
 with its input/output color matrices, and `Agx` uses the analytic AgX view

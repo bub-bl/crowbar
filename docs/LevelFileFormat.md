@@ -144,6 +144,13 @@ fields are packed by name from the component's `[Property]` values (or the
 | `Exposure` | float | Exposure in stops (2^exposure), applied before the curve (default 0). |
 | `Saturation` | float | Post-tonemap saturation multiplier (default 1). |
 
+`ChromaticAberration` properties:
+
+| Property | Type | Role |
+|---|---|---|
+| `Intensity` | float | Spectral separation from 0 (disabled) to 1. |
+| `Start` | float | Normalized radius where separation begins (default 0.5). |
+
 `PostProcess` (base) properties:
 
 | Property | Type | Role |
