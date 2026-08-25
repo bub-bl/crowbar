@@ -1,0 +1,32 @@
+@use '../_editor-theme' as *;
+
+// The reusable editor input owns its scoped styles: parents cannot style a
+// child component's markup, so the field appearance lives here and the editors
+// pick it up through the Class parameter or the default `.vi-input`.
+root {
+    width: 100%;
+    flex-shrink: 0;
+}
+
+.vi-input,
+.prop-input,
+.vec-input {
+    width: 100%;
+    flex-grow: 1;
+    min-width: 0;
+    height: 20px;
+    border-radius: 3px;
+    background-color: $input-bg;
+    border: 1px solid $border;
+    box-sizing: border-box;
+    color: $text;
+    font-size: 10px;
+    line-height: 18px;
+    padding: 0 5px;
+    cursor: text;
+
+    &:focus {
+        border-color: $accent;
+        outline: none;
+    }
+}

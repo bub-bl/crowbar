@@ -1,0 +1,64 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+@using Microsoft.AspNetCore.Components
+
+<input class="@(string.IsNullOrEmpty(Class) ? "vi-input" : Class)" value="@DisplayValue"
+       placeholder="@Placeholder"
+       @onfocus="OnFocus" @oninput="OnInput" @onblur="OnBlur" @onkeydown="OnKeyDown" />
+
+@code {
+    /// <summary>The canonical value shown when the field is not being edited.</summary>
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>Extra CSS class for the field's appearance (empty keeps the default editor look).</summary>
+    [Parameter]
+    public string Class { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Placeholder { get; set; } = string.Empty;
+
+    /// <summary>Called on blur or Enter with the committed draft; never on every keystroke.</summary>
+    [Parameter]
+    public Action<string>? OnCommit { get; set; }
+
+    // In-progress draft: while focused the input shows exactly what the user
+    // typed, so the host's per-frame snapshot (which re-canonicalizes numbers)
+    // cannot stomp the text. Committed to the entity on blur/Enter.
+    private bool _editing;
+    private string _draft = string.Empty;
+
+    private string DisplayValue => _editing ? _draft : Value;
+
+    private void OnFocus()
+    {
+        if (_editing) return;
+        _editing = true;
+        _draft = Value;
+    }
+
+    private void OnInput(string text)
+    {
+        if (_editing) _draft = text;
+    }
+
+    private void OnBlur() => Commit();
+
+    private bool OnKeyDown(KeyEvent e)
+    {
+        if (e.IsDown && e.KeyCode == 13) { Commit(); return true; }
+        return false;
+    }
+
+    private void Commit()
+    {
+        if (!_editing) return;
+        _editing = false;
+        var draft = _draft;
+        _draft = string.Empty;
+        OnCommit?.Invoke(draft);
+    }
+
+    protected override int BuildHash() => HashCode.Combine(Value, Class, Placeholder, _editing ? _draft : string.Empty);
+}

@@ -6,24 +6,11 @@
 
 <div class="prop-row" style="padding-left: @(Indent * 12)px">
     <div class="field-label">@Name</div>
-    <input class="prop-input" value="@DraftValue(SelfInput, Value)"
-           @onfocus="OnFocus" @oninput="OnInput" @onblur="OnBlur" @onkeydown="OnKeyDown" />
+    <ValueInput Value="@Value" Class="prop-input" OnCommit="Commit" />
 </div>
 
 @code {
-    private const string SelfInput = "_";
-
-    private void OnFocus() => BeginEdit(SelfInput, Value);
-    private void OnInput(string text) => UpdateDraft(SelfInput, text);
-    private void OnBlur()
-    {
-        if (IsEditing(SelfInput)) EditorInspectorState.RequestEdit(Key, EndEdit(SelfInput));
-    }
-    private bool OnKeyDown(KeyEvent e)
-    {
-        if (e.IsDown && e.KeyCode == 13) { OnBlur(); return true; }
-        return false;
-    }
+    private void Commit(string text) => EditorInspectorState.RequestEdit(Key, text);
 
     protected override int BuildHash() => HashCode.Combine(Name, Value, Key, Indent);
 }
