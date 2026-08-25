@@ -648,6 +648,105 @@ public sealed class PostProcessTests
         Assert.Equal(-0.05f, BitConverter.ToSingle(packed, 64));// brightness
     }
 
+    [Fact]
+    public void Fxaa_PropertiesRoundTrip()
+    {
+        using var sourceWorld = new World();
+        var source = sourceWorld.CreateLevel("PostProcess");
+        var component = sourceWorld.SpawnEntity("PostProcess", source).AddComponent<Fxaa>();
+        component.EdgeThreshold = 0.2f;
+        component.Subpixel = 0.9f;
+        component.Quality = 8f;
+        component.Order = 1200;
+
+        using var loadedWorld = new World();
+        var loaded = LevelSerializer.CreateLevel(
+            loadedWorld,
+            LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
+
+        var loadedComponent = Assert.Single(loaded.Entities).GetComponent<Fxaa>();
+        Assert.NotNull(loadedComponent);
+        Assert.Equal(0.2f, loadedComponent!.EdgeThreshold);
+        Assert.Equal(0.9f, loadedComponent.Subpixel);
+        Assert.Equal(8f, loadedComponent.Quality);
+        Assert.Equal(1200, loadedComponent.Order);
+        Assert.False(loaded.IsDirty);
+    }
+
+    [Fact]
+    public void Fxaa_DefaultsMatchTheClassicShaders()
+    {
+        using var world = new World();
+        var level = world.CreateLevel("PostProcess");
+        var component = world.SpawnEntity("PostProcess", level).AddComponent<Fxaa>();
+
+        Assert.Equal(0.166f, component.EdgeThreshold);
+        Assert.Equal(1f, component.Subpixel);
+        Assert.Equal(5f, component.Quality);
+        // Runs at the very end of the chain, after tonemapping/grading.
+        Assert.Equal(1000, component.Order);
+    }
+
+    [Fact]
+    public void Fxaa_ResolvesByShortName()
+    {
+        // Exposed to the level format's short-name component index and the
+        // editor's Add Component list, like the other effects.
+        var type = GlobalNamespaces.TypeLibrary.Registry.Resolve("Fxaa");
+        Assert.Equal(typeof(Fxaa), type);
+    }
+
+    [Fact]
+    public void FxaaShader_ExposesExpectedUniformsAndBindings()
+    {
+        var shader = Shader.Load("Shaders/PostProcesses/Fxaa.wgsl");
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "FxaaUniforms");
+
+        Assert.Contains(uniforms.Fields, field => field.Name == "edgeThreshold");
+        Assert.Contains(uniforms.Fields, field => field.Name == "subpixel");
+        Assert.Contains(uniforms.Fields, field => field.Name == "quality");
+        Assert.Contains(uniforms.Fields, field => field.Name == "resolution");
+        // Two vec2 pads (16) + three floats (12) + alignment = 32 bytes.
+        Assert.Equal(32, UniformPacker.ComputeStructSize(uniforms.Fields));
+
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "sceneTexture" && binding.Slot == 0u && binding.Kind == ShaderBindingKind.Texture);
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "sceneSampler" && binding.Slot == 1u && binding.Kind == ShaderBindingKind.Sampler);
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "postProcess" && binding.Slot == 2u && binding.Kind == ShaderBindingKind.UniformBuffer);
+    }
+
+    [Fact]
+    public void Fxaa_NamePackingReachesTheReflectedOffsets()
+    {
+        // The parameters of Fxaa.Render must land on the shader's reflected
+        // std140 offsets. Mirrors the renderer's PackAttributes.
+        var shader = Shader.Load("Shaders/PostProcesses/Fxaa.wgsl");
+        var fields = Assert.Single(shader.Structs, structure => structure.Name == "FxaaUniforms").Fields;
+
+        var attributes = new RenderAttributes()
+            .Set("edgeThreshold", 0.2f)
+            .Set("subpixel", 0.9f)
+            .Set("quality", 8f)
+            .Set("resolution", new Vector2(1f / 1920f, 1f / 1080f));
+        var values = new Dictionary<string, ShaderParameter>();
+        foreach (var field in fields)
+        {
+            foreach (var (name, parameter) in attributes.Values)
+            {
+                if (!RenderAttributes.MatchesField(field.Name, name))
+                    continue;
+                values[field.Name] = parameter;
+                break;
+            }
+        }
+
+        var packed = UniformPacker.Pack(fields, values);
+        Assert.Equal(0.2f, BitConverter.ToSingle(packed, 0)); // edgeThreshold
+        Assert.Equal(0.9f, BitConverter.ToSingle(packed, 4)); // subpixel
+        Assert.Equal(8f, BitConverter.ToSingle(packed, 8));   // quality
+        Assert.Equal(1f / 1920f, BitConverter.ToSingle(packed, 16), precision: 6); // resolution.x
+        Assert.Equal(1f / 1080f, BitConverter.ToSingle(packed, 20), precision: 6); // resolution.y
+    }
+
     private static float AsFloat(ShaderParameter parameter) =>
         parameter is float value ? value : throw new InvalidOperationException($"Expected a float uniform, got {parameter.TypeName}.");
 

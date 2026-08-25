@@ -215,6 +215,37 @@ so the pass is an identity until a value is changed:
 `Gain` scales the highlights (neutral 1). Like every `BasePostProcess<T>`
 effect, it blends across `PostProcessVolume` instances through `GetWeighted`.
 
+## FXAA anti-aliasing
+
+`Fxaa` applies spatial (edge-aware) anti-aliasing at the very end of the chain,
+right before the display blit (order `1000`), so it operates on the final
+display-referred value. It drives
+`Shaders/PostProcesses/Fxaa.slang` — a port of NVIDIA's FXAA 3.11 consumer
+algorithm: it taps the four mid-edge neighbors of every pixel, and where no
+neighbor contrasts enough returns the pixel untouched; where it does, it walks
+across the edge until the local contrast flips and mixes the pixel toward the
+higher-contrast neighbor (up to ~50%) to feather the stair-step aliasing of
+single-sample rendering. A 45-degree fallback blurs diagonal edges with a 3x3
+average.
+
+Unlike temporal anti-aliasing (TAA), FXAA holds nothing across frames, so it
+introduces **no ghosting** during camera motion. The trade-off is that it only
+smooths pixels that sit on a detected edge profile — fine texture can still
+alias. Tunables:
+
+- `EdgeThreshold` — the early-exit contrast gate (0.166 default): a pixel whose
+  largest neighbor contrast is below this is left alone. Lower detects finer
+  edges; too low over-smooths flat noise.
+- `Subpixel` — how strongly the edge-neighbor blend is applied (0 = off, 1 =
+  full ~50% mix, default 1), controlling overall AA strength.
+- `Quality` — how many search samples the edge walk scans per side (2..16,
+  default 5, the classic FXAA 3.11 count). More smooth longer, softer edges at
+  a small cost.
+
+It blends across `PostProcessVolume` instances through `GetWeighted` like every
+other `BasePostProcess<T>`. Being spatial, it is the natural complement to a
+higher internal render resolution or a future multisampled scene target.
+
 ## The bloom
 
 The engine ships a Gaussian-pyramid `Bloom` post-process in the style of
