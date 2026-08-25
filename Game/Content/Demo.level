@@ -14,17 +14,17 @@
         {
           "type": "Camera",
           "enabled": true,
-          "transform": "-0.34822226,1.3945122,-4.3436985,0.088288635,0.046604052,-0.004135303,0.99499553,1,1,1",
+          "transform": "-0.35190982,1.8425536,-4.74946,0.0029887033,0.09018112,-0.00027062854,0.99592084,1,1,1",
           "properties": {
             "Pivot": [
-              0.26870197,
-              0.21392632,
-              2.2275133
+              0.85245067,
+              1.8023121,
+              1.8462267
             ],
             "Distance": 6.7048635,
             "EnablePostProcessing": true,
             "FieldOfView": 60,
-            "NearPlane": 0.1,
+            "NearPlane": 0.01,
             "FarPlane": 100
           }
         },
@@ -47,6 +47,20 @@
             "Intensity": 1,
             "Radius": 1,
             "Order": 0,
+            "Sampler": "Linear"
+          }
+        },
+        {
+          "type": "DepthOfField",
+          "enabled": true,
+          "transform": null,
+          "properties": {
+            "FocusDistance": 4.4,
+            "FocalLength": 50,
+            "Aperture": 2.8,
+            "SensorHeight": 24,
+            "MaxBlurRadius": 16,
+            "Order": -50,
             "Sampler": "Linear"
           }
         }
