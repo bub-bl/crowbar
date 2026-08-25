@@ -25,6 +25,12 @@ public sealed class UiTreePainter
     private string? _tooltipText;
     private Vector2 _tooltipAnchor;
 
+    // Layering overlays discovered while painting (absolute + z-index > 0) are
+    // deferred and painted last, outside every ancestor clip. This lets any
+    // component's popup anchor above its scroll container instead of being cut
+    // off by the container's overflow clip.
+    private readonly List<(Panel Node, Vector2 Origin, float Alpha)> _overlays = [];
+
     private static readonly ColorF TooltipBackground = ColorF.FromRgba(24, 26, 30, 245);
     private static readonly ColorF TooltipBorder = ColorF.FromRgba(70, 76, 88, 255);
     private static readonly ColorF TooltipTextColor = ColorF.FromRgba(232, 235, 242, 255);
@@ -78,6 +84,7 @@ public sealed class UiTreePainter
         // mutate while a frame is being recorded, so resolve them before Begin.
         PreResolveImages(root);
         _backdrops.Clear();
+        _overlays.Clear();
 
         var width = Math.Max(1, (int)MathF.Ceiling(root.Layout.Width * root.Scale));
         var height = Math.Max(1, (int)MathF.Ceiling(root.Layout.Height * root.Scale));
@@ -85,6 +92,18 @@ public sealed class UiTreePainter
         if (root.Scale != 1f)
             _renderer.PushScale(root.Scale);
         PaintPanel(root, Vector2.Zero, root.Opacity);
+        // Layering overlays paint above the whole tree, in ascending z-index
+        // (stable order keeps document order for equal z-index), after every
+        // ancestor clip has been popped so nothing can cut them off. A nested
+        // overlay discovered while painting one of these is flushed by the next
+        // loop iteration, so it still ends up above everything.
+        while (_overlays.Count > 0)
+        {
+            var batch = _overlays.OrderBy(o => o.Node.ComputedStyle.ZIndex).ToList();
+            _overlays.Clear();
+            foreach (var (node, origin, alpha) in batch)
+                PaintPanel(node, origin, alpha);
+        }
         if (root.Scale != 1f)
             _renderer.PopTransform();
         // The tooltip is an overlay in screen space, drawn above the tree.
@@ -241,12 +260,26 @@ public sealed class UiTreePainter
         if (children.Count <= 1 || !children.Any(child => child.ComputedStyle.ZIndex != 0))
         {
             foreach (var child in children)
-                PaintPanel(child, new Vector2(origin.X - panel.ScrollX, origin.Y - panel.ScrollY), alpha);
+                DrawChild(panel, child, origin, alpha);
             return;
         }
 
         foreach (var child in children.OrderBy(child => child.ComputedStyle.ZIndex))
-            PaintPanel(child, new Vector2(origin.X - panel.ScrollX, origin.Y - panel.ScrollY), alpha);
+            DrawChild(panel, child, origin, alpha);
+    }
+
+    // Paints (or defers) one child of a laid-out panel. A layering overlay is
+    // recorded for the final pass instead of being painted here, so it is
+    // emitted after the caller's overflow clip has been popped.
+    private void DrawChild(Panel panel, Panel child, Vector2 origin, float alpha)
+    {
+        var childOrigin = new Vector2(origin.X - panel.ScrollX, origin.Y - panel.ScrollY);
+        if (child.IsLayeredOverlay)
+        {
+            _overlays.Add((child, childOrigin, alpha));
+            return;
+        }
+        PaintPanel(child, childOrigin, alpha);
     }
 
     // ---------------------------------------------------------------------

@@ -284,6 +284,13 @@ public static class PanelExtensions
     /// overlay claiming the hit.
     /// </param>
     public static Panel? HitTest(this Panel panel, float x, float y, Panel? ignore = null)
+        => HitTestCore(panel, x, y, ignore, escaped: false);
+
+    // Hit-testing mirrors the painter's paint order and clipping. A layering
+    // overlay (absolute + z-index > 0) is painted above every ancestor clip;
+    // once the walk descends into one, that whole subtree is escaped from those
+    // clips, so the pointer can reach it even outside its scroll container.
+    private static Panel? HitTestCore(Panel panel, float x, float y, Panel? ignore, bool escaped)
     {
         if (ReferenceEquals(panel, ignore) || !panel.IsVisible ||
             panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
@@ -293,9 +300,14 @@ public static class PanelExtensions
         // system can start a drag instead of leaking through to a child.
         if (inside && ScrollBars.HitTest(panel, x, y)) return panel;
 
-        if (panel.ClipsContent)
+        if (!escaped && panel.ClipsContent)
         {
-            if (!inside) return null;
+            if (!inside)
+            {
+                // The pointer is outside this clipped box: only a layering
+                // overlay deeper in the tree (which escapes the clip) can be hit.
+                return HitTestOverlayDescendants(panel, x, y, ignore);
+            }
             // Outside the padding box (border area): only the container itself.
             var border = panel.LayoutBorder;
             if (x < panel.Layout.X + border.Left || x > panel.Layout.Right - border.Right ||
@@ -313,7 +325,9 @@ public static class PanelExtensions
             var ordered = children.OrderBy(child => child.ComputedStyle.ZIndex).ToList();
             for (var i = ordered.Count - 1; i >= 0; i--)
             {
-                var hit = ordered[i].HitTest(x + panel.ScrollX, y + panel.ScrollY, ignore);
+                var child = ordered[i];
+                var childEscaped = escaped || child.IsLayeredOverlay;
+                var hit = HitTestCore(child, x + panel.ScrollX, y + panel.ScrollY, ignore, childEscaped);
                 if (hit is not null) return hit;
             }
         }
@@ -321,10 +335,46 @@ public static class PanelExtensions
         {
             for (var i = children.Count - 1; i >= 0; i--)
             {
-                var hit = children[i].HitTest(x + panel.ScrollX, y + panel.ScrollY, ignore);
+                var child = children[i];
+                var childEscaped = escaped || child.IsLayeredOverlay;
+                var hit = HitTestCore(child, x + panel.ScrollX, y + panel.ScrollY, ignore, childEscaped);
                 if (hit is not null) return hit;
             }
         }
         return inside ? panel : null;
+    }
+
+    // Descends the tree from a clipped panel whose box does not contain the
+    // pointer, looking only for layering-overlay subtrees (which escape the
+    // clip); ordinary content is never hit here. Once an overlay is reached its
+    // whole subtree is hit-tested freely (escaped).
+    private static Panel? HitTestOverlayDescendants(Panel panel, float x, float y, Panel? ignore)
+    {
+        var children = panel.Children;
+        if (children.Count > 1 && children.Any(child => child.ComputedStyle.ZIndex != 0))
+        {
+            var ordered = children.OrderBy(child => child.ComputedStyle.ZIndex).ToList();
+            for (var i = ordered.Count - 1; i >= 0; i--)
+            {
+                if (HitTestOverlayStep(ordered[i], x + panel.ScrollX, y + panel.ScrollY, ignore) is { } hit) return hit;
+            }
+        }
+        else
+        {
+            for (var i = children.Count - 1; i >= 0; i--)
+            {
+                if (HitTestOverlayStep(children[i], x + panel.ScrollX, y + panel.ScrollY, ignore) is { } hit) return hit;
+            }
+        }
+        return null;
+    }
+
+    private static Panel? HitTestOverlayStep(Panel panel, float x, float y, Panel? ignore)
+    {
+        if (ReferenceEquals(panel, ignore) || !panel.IsVisible ||
+            panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
+        if (panel.IsLayeredOverlay)
+            return HitTestCore(panel, x, y, ignore, escaped: true);
+        return HitTestOverlayDescendants(panel, x, y, ignore);
     }
 }
