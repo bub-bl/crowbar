@@ -41,6 +41,19 @@
     position: relative;
 }
 
+.enum-options {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    z-index: 10;
+    flex-direction: column;
+    background-color: $input-bg;
+    border: 1px solid $border;
+    border-radius: 3px;
+    box-sizing: border-box;
+}
+
 .enum-select {
     width: 100%;
     min-height: 20px;
@@ -76,22 +89,13 @@
     margin-left: 6px;
 }
 
-.enum-options {
-    width: 100%;
-    flex-direction: column;
-    background-color: $input-bg;
-    border: 1px solid $border;
-    border-radius: 0 0 3px 3px;
-    box-sizing: border-box;
-}
-
 .enum-option {
-    min-height: 20px;
+    min-height: 18px;
     padding: 2px 5px;
     box-sizing: border-box;
     color: $text;
-    font-size: 10px;
-    line-height: 16px;
+    font-size: 9px;
+    line-height: 14px;
     cursor: pointer;
 }
 

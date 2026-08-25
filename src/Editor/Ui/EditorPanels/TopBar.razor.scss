@@ -171,42 +171,6 @@ root {
     }
 }
 
-.tb-user {
-    position: absolute;
-    left: 1000px;
-    top: 0px;
-    width: 180px;
-    height: 44px;
-    flex-direction: row;
-    align-items: center;
-    gap: 8px;
-
-    @media (min-width: 1281px) {
-        left: auto;
-        right: 138px;
-    }
-}
-
-.avatar {
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    background-color: $accent;
-    color: $text-bright;
-    font-size: 11px;
-    text-align: center;
-    vertical-align: center;
-    line-height: 22px;
-}
-
-.username {
-    width: 70px;
-    height: 20px;
-    color: $text;
-    font-size: 11px;
-    line-height: 20px;
-}
-
 .tb-window {
     position: absolute;
     left: 1142px;
