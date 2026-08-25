@@ -517,6 +517,137 @@ public sealed class PostProcessTests
         Assert.Equal(16, UniformPacker.ComputeStructSize(uniforms.Fields));
     }
 
+    [Fact]
+    public void ColorGrading_PropertiesRoundTrip()
+    {
+        using var sourceWorld = new World();
+        var source = sourceWorld.CreateLevel("PostProcess");
+        var component = sourceWorld.SpawnEntity("PostProcess", source).AddComponent<ColorGrading>();
+        component.Lift = new Vector4(0.1f, 0.2f, 0.3f, 0f);
+        component.Gamma = new Vector4(1.1f, 0.9f, 1.05f, 0f);
+        component.Gain = new Vector4(1.2f, 0.8f, 1.1f, 0f);
+        component.Temperature = 0.25f;
+        component.Tint = -0.3f;
+        component.Saturation = 1.4f;
+        component.Contrast = 0.2f;
+        component.Brightness = -0.05f;
+        component.Order = 3;
+
+        using var loadedWorld = new World();
+        var loaded = LevelSerializer.CreateLevel(
+            loadedWorld,
+            LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
+
+        var loadedComponent = Assert.Single(loaded.Entities).GetComponent<ColorGrading>();
+        Assert.NotNull(loadedComponent);
+        Assert.Equal(component.Lift, loadedComponent!.Lift);
+        Assert.Equal(component.Gamma, loadedComponent.Gamma);
+        Assert.Equal(component.Gain, loadedComponent.Gain);
+        Assert.Equal(0.25f, loadedComponent.Temperature);
+        Assert.Equal(-0.3f, loadedComponent.Tint);
+        Assert.Equal(1.4f, loadedComponent.Saturation);
+        Assert.Equal(0.2f, loadedComponent.Contrast);
+        Assert.Equal(-0.05f, loadedComponent.Brightness);
+        Assert.Equal(3, loadedComponent.Order);
+        Assert.False(loaded.IsDirty);
+    }
+
+    [Fact]
+    public void ColorGrading_DefaultsAreNeutral()
+    {
+        using var world = new World();
+        var level = world.CreateLevel("PostProcess");
+        var component = world.SpawnEntity("PostProcess", level).AddComponent<ColorGrading>();
+
+        // The default pass must be an identity: l/g/g neutral, no balance.
+        Assert.Equal(Vector4.Zero, component.Lift);
+        Assert.Equal(new Vector4(1f, 1f, 1f, 0f), component.Gamma);
+        Assert.Equal(new Vector4(1f, 1f, 1f, 0f), component.Gain);
+        Assert.Equal(0f, component.Temperature);
+        Assert.Equal(0f, component.Tint);
+        Assert.Equal(1f, component.Saturation);
+        Assert.Equal(0f, component.Contrast);
+        Assert.Equal(0f, component.Brightness);
+        // Runs just before tonemapping (linear HDR domain).
+        Assert.Equal(-1, component.Order);
+    }
+
+    [Fact]
+    public void ColorGrading_ResolvesByShortName()
+    {
+        // Exposed to the level format's short-name component index and the
+        // editor's Add Component list, like the other effects.
+        var type = GlobalNamespaces.TypeLibrary.Registry.Resolve("ColorGrading");
+        Assert.Equal(typeof(ColorGrading), type);
+    }
+
+    [Fact]
+    public void ColorGradingShader_ExposesTypedUniformFieldsAndBindings()
+    {
+        var shader = Shader.Load("Shaders/PostProcesses/ColorGrading.wgsl");
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "ColorGradingUniforms");
+
+        Assert.Contains(uniforms.Fields, field => field.Name == "lift");
+        Assert.Contains(uniforms.Fields, field => field.Name == "gamma");
+        Assert.Contains(uniforms.Fields, field => field.Name == "gain");
+        Assert.Contains(uniforms.Fields, field => field.Name == "temperature");
+        Assert.Contains(uniforms.Fields, field => field.Name == "tint");
+        Assert.Contains(uniforms.Fields, field => field.Name == "saturation");
+        Assert.Contains(uniforms.Fields, field => field.Name == "contrast");
+        Assert.Contains(uniforms.Fields, field => field.Name == "brightness");
+        // Three vec4 (48) + five floats (20) = 68 -> rounded to 80 (16 bytes).
+        Assert.Equal(80, UniformPacker.ComputeStructSize(uniforms.Fields));
+
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "sceneTexture" && binding.Slot == 0u);
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "sceneSampler" && binding.Slot == 1u);
+        Assert.Contains(shader.Bindings, binding =>
+            binding.VariableName == "postProcess" && binding.Slot == 2u &&
+            binding.Kind == ShaderBindingKind.UniformBuffer);
+    }
+
+    [Fact]
+    public void ColorGrading_LiftGammaGain_PackToTheReflectedOffsets()
+    {
+        // Mirrors ColorGrading.Render + the renderer's PackAttributes: the
+        // lift/gamma/gain vec4s and the scalar balance controls must land at the
+        // shader's reflected std140 offsets.
+        var shader = Shader.Load("Shaders/PostProcesses/ColorGrading.wgsl");
+        var fields = Assert.Single(shader.Structs, structure => structure.Name == "ColorGradingUniforms").Fields;
+
+        var attributes = new RenderAttributes()
+            .Set("lift", new Vector4(0.1f, 0.2f, 0.3f, 0f))
+            .Set("gamma", new Vector4(1f, 1f, 1f, 0f))
+            .Set("gain", new Vector4(1f, 1f, 1f, 0f))
+            .Set("temperature", 0.25f)
+            .Set("tint", -0.3f)
+            .Set("saturation", 1.4f)
+            .Set("contrast", 0.2f)
+            .Set("brightness", -0.05f);
+        var values = new Dictionary<string, ShaderParameter>();
+        foreach (var field in fields)
+        {
+            foreach (var (name, parameter) in attributes.Values)
+            {
+                if (!RenderAttributes.MatchesField(field.Name, name))
+                    continue;
+                values[field.Name] = parameter;
+                break;
+            }
+        }
+
+        var packed = UniformPacker.Pack(fields, values);
+        Assert.Equal(0.1f, BitConverter.ToSingle(packed, 0));   // lift.x
+        Assert.Equal(0.2f, BitConverter.ToSingle(packed, 4));   // lift.y
+        Assert.Equal(0.3f, BitConverter.ToSingle(packed, 8));   // lift.z
+        Assert.Equal(1f, BitConverter.ToSingle(packed, 16));    // gamma.x
+        Assert.Equal(1f, BitConverter.ToSingle(packed, 32));    // gain.x
+        Assert.Equal(0.25f, BitConverter.ToSingle(packed, 48)); // temperature
+        Assert.Equal(-0.3f, BitConverter.ToSingle(packed, 52)); // tint
+        Assert.Equal(1.4f, BitConverter.ToSingle(packed, 56));  // saturation
+        Assert.Equal(0.2f, BitConverter.ToSingle(packed, 60));  // contrast
+        Assert.Equal(-0.05f, BitConverter.ToSingle(packed, 64));// brightness
+    }
+
     private static float AsFloat(ShaderParameter parameter) =>
         parameter is float value ? value : throw new InvalidOperationException($"Expected a float uniform, got {parameter.TypeName}.");
 

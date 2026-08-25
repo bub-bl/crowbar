@@ -189,6 +189,32 @@ transform (including its log encoding and default contrast). Exposure is in
 stops and is applied before the selected curve. Tonemapping defaults to order
 `0`; Bloom defaults to `-100` so bright extraction sees the original HDR scene.
 
+## Color grading
+
+`ColorGrading` is an analytical ("per-pixel LUT") grade applied in the linear
+HDR domain, right before tonemapping (order `-1`). It drives
+`Shaders/PostProcesses/ColorGrading.slang`. Every control defaults to neutral,
+so the pass is an identity until a value is changed:
+
+- `Temperature` / `Tint` — white balance: temperature shifts red against blue
+  (negative cools toward blue, positive warms toward amber); tint shifts green
+  against magenta (negative = magenta, positive = green).
+- `Contrast` — pivot contrast about mid grey (0 = neutral, -1 = flat).
+- `Brightness` — additive offset in the linear domain (0 = neutral).
+- `Saturation` — luma-preserving saturation (1 = neutral, 0 = greyscale).
+- `Lift` / `Gamma` / `Gain` — the classic shadows / mids / highlights grading
+  in a Unity-style curve. Each is an RGB `Vector4` (the alpha component is
+  ignored). Following HDRP's `LutBuilder3D.compute`:
+
+  ```
+  color = color * gain.rgb + lift.rgb;
+  color = sign(color) * pow(abs(color), gamma.rgb);
+  ```
+
+`Lift` offsets the blacks (neutral 0), `Gamma` powers the mids (neutral 1),
+`Gain` scales the highlights (neutral 1). Like every `BasePostProcess<T>`
+effect, it blends across `PostProcessVolume` instances through `GetWeighted`.
+
 ## The bloom
 
 The engine ships a Gaussian-pyramid `Bloom` post-process in the style of
