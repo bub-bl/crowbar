@@ -127,6 +127,13 @@
     line-height: 20px;
 }
 
+// Per-axis accent so the X/Y/Z(/W) labels and their input fields read as one
+// pair: red, green, blue and a soft amber for the fourth component.
+.vec-axis.vec-x { color: #e06b6b; }
+.vec-axis.vec-y { color: #6bd69b; }
+.vec-axis.vec-z { color: #6ba7e8; }
+.vec-axis.vec-w { color: #e8cf6b; }
+
 .vec-input {
     flex-grow: 1;
     min-width: 0;
