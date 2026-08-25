@@ -42,11 +42,7 @@
 
 <div class="tb-mode @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_mode" tooltip="Switch mode"><icon name="Solar/it/Bold/code" />Mode&#160;:&#160;Edit&#160;<icon name="Solar/arrows/Bold/alt-arrow-down" /></div>
 
-<div class="tb-user @(ChromeState.IsActive ? "" : "tb-inactive")" @ref="_user">
-    <div class="tb-btn" title="Settings" tooltip="Settings"><icon name="Solar/settings/Bold/settings" /></div>
-    <div class="avatar">J</div>
-    <div class="username">JohnDoe</div>
-</div>
+
 
 @* The window buttons stay mounted even when the chrome is inactive
    (platform without a custom caption, or fullscreen): hidden via the
@@ -73,7 +69,6 @@
     private Panel? _tools;
     private Panel? _play;
     private Panel? _mode;
-    private Panel? _user;
 
     protected override int BuildHash()
     {
@@ -171,7 +166,6 @@
         AddRect(interactive, _tools);
         AddRect(interactive, _play);
         AddRect(interactive, _mode);
-        AddRect(interactive, _user);
 
         PublishWindowChrome(new WindowChromeLayout(
             Layout.Height,

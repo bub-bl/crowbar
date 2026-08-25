@@ -113,6 +113,31 @@ public class UiTreePainterTests
         Assert.NotEqual(Vector4.Zero, boxInstance.Clip0);
     }
 
+    [Fact]
+    public void Paint_LayeredOverlayEscapesAncestorOverflowClip()
+    {
+        using var ui = TestUi.Create(160, 160);
+        var container = new Panel { TagName = "div" };
+        container.AddClass("container");
+        var box = new Panel { TagName = "div" };
+        box.AddClass("box");
+        container.AddChild(box);
+        ui.Screen.AddChild(container);
+        ui.LoadStyles("""
+            .container { position: absolute; left: 10px; top: 10px; width: 120px; height: 60px; overflow: hidden; }
+            .box       { position: absolute; left: 5px; top: 5px; width: 200px; height: 30px; background-color: #00ff00; z-index: 10; }
+            """);
+
+        var (renderer, _) = Paint(ui);
+
+        // Despite living inside an overflow:hidden box, the layering overlay
+        // (absolute + z-index) is deferred and painted above the clip: no clip
+        // is applied to it.
+        var boxInstance = Assert.Single(renderer.Instances, i => i.Color == new Vector4(0, 1, 0, 1));
+        Assert.Equal(0f, boxInstance.Flags.Z);   // no active clip
+        Assert.Equal(Vector4.Zero, boxInstance.Clip0);
+    }
+
     // --- Transform --------------------------------------------------------
 
     [Fact]

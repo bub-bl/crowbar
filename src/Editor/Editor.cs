@@ -260,14 +260,15 @@ public sealed class Editor : Application
     protected override bool HideCursorWhileLooking => true;
 
     /// <summary>
-    /// While typing in a field (TextInput), the ZQSD/space keys go back to
-    /// the field: the camera must not move at the same time. While a
-    /// modifier is held (Ctrl+Z, Ctrl+S, Ctrl+Shift+Z, …) the movement keys
-    /// are shortcut keys: holding Ctrl and pressing Z must undo, not walk
-    /// the camera forward.
+    /// ZQSD/space translate the camera only while the right mouse button is held
+    /// in the viewport (the mouse-look session), so the camera never flies while
+    /// browsing the editor with the keyboard. While typing in a field the keys
+    /// go back to the field, and while a modifier is held (Ctrl+Z, Ctrl+S, …)
+    /// they are shortcut keys, not camera movement.
     /// </summary>
     protected override bool CanMoveCamera() =>
-        !Ui.KeyboardConsumed && Input.HeldModifiers() == KeyModifiers.None;
+        !Ui.KeyboardConsumed && Input.HeldModifiers() == KeyModifiers.None &&
+        Mouse.IsDown(MouseButton.Right) && Viewport.ContainsPointer(ViewportWidth, ViewportHeight);
 
     /// <summary>
     /// The wheel zooms the camera only when the cursor is inside the viewport

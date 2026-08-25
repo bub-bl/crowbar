@@ -6,13 +6,14 @@
 
 <div class="prop-row">
     <div class="field-label">@Name</div>
-    <input class="prop-input" value="@Value.ToString(CultureInfo.InvariantCulture)" @onchange="Changed" />
+    <ValueInput Value="@Value.ToString(CultureInfo.InvariantCulture)" Class="prop-input" OnCommit="Commit" />
 </div>
 
 @code {
     [Parameter] public string Name { get; set; } = string.Empty;
     [Parameter] public float Value { get; set; }
 
-    private void Changed(string value) => EditorEnvironmentState.RequestEdit(Name, value);
+    private void Commit(string text) => EditorEnvironmentState.RequestEdit(Name, text);
+
     protected override int BuildHash() => HashCode.Combine(Name, Value);
 }

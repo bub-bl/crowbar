@@ -315,6 +315,32 @@ public class ScrollTests
     }
 
     [Fact]
+    public void LayeredOverlayChildRemainsHittableOutsideClippedContainer()
+    {
+        using var ui = TestUi.Create();
+        var container = new Panel { TagName = "div" };
+        container.SetInlineStyle("width", "200px");
+        container.SetInlineStyle("height", "100px");
+        container.SetInlineStyle("overflow", "hidden");
+        ui.Screen.AddChild(container);
+        var overlay = new Panel { TagName = "div" };
+        overlay.SetInlineStyle("width", "80px");
+        overlay.SetInlineStyle("height", "60px");
+        overlay.SetInlineStyle("position", "absolute");
+        overlay.SetInlineStyle("top", "120px");
+        overlay.SetInlineStyle("left", "10px");
+        overlay.SetInlineStyle("z-index", "10");
+        container.AddChild(overlay);
+        ui.Prepare();
+
+        // The layering overlay (absolute + z-index) escapes the overflow:hidden
+        // clip: although it is positioned below the container's box, it is still
+        // the panel the pointer lands on and receives clicks.
+        Assert.True(container.Layout.Bottom < overlay.Layout.Y, "the overlay should sit below the clipped container");
+        Assert.Same(overlay, ui.Screen.HitTest(overlay.Layout.X + 30, overlay.Layout.Y + 10));
+    }
+
+    [Fact]
     public void ScrollbarDragScrollsTheContainer()
     {
         using var ui = TestUi.Create();

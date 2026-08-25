@@ -1225,6 +1225,7 @@ public sealed class Renderer : IDisposable
     /// </summary>
     private void DrawGrid(IRenderPass pass)
     {
+        if (!Grid.Visible) return;
         var uniforms = Grid.CreateUniforms(_cameraUniforms.View, _cameraUniforms.Projection);
         _gridUniformBuffer.Write(in uniforms);
 

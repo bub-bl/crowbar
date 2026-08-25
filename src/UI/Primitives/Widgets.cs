@@ -91,6 +91,9 @@ public class TextInput : Panel
         }
         if (!isDown) return;
         if (_controlDown && keyCode == 0x41) SelectAll();
+        else if (_controlDown && keyCode == 0x43) Copy();                 // Ctrl+C
+        else if (_controlDown && keyCode == 0x58) Cut();                  // Ctrl+X
+        else if (_controlDown && keyCode == 0x56) Paste();                // Ctrl+V
         else if (keyCode == 0x25) MoveCaret(_controlDown ? PreviousWord(CaretIndex) : Math.Max(0, CaretIndex - 1));
         else if (keyCode == 0x27) MoveCaret(_controlDown ? NextWord(CaretIndex) : Math.Min(Value.Length, CaretIndex + 1));
         else if (keyCode == 0x24) MoveCaret(_controlDown ? 0 : 0);
@@ -143,6 +146,22 @@ public class TextInput : Panel
     }
 
     private void SelectAll() { SelectionStart = 0; SelectionEnd = CaretIndex = Value.Length; ResetCaret(); }
+
+    private void Copy()
+    {
+        var start = Math.Min(SelectionStart, SelectionEnd);
+        var length = Math.Abs(SelectionEnd - SelectionStart);
+        if (length > 0) Clipboard.Write(Value.Substring(start, length));
+    }
+    private void Cut()
+    {
+        var start = Math.Min(SelectionStart, SelectionEnd);
+        var length = Math.Abs(SelectionEnd - SelectionStart);
+        if (length == 0) return;
+        Copy();
+        Replace(start, length, string.Empty);
+    }
+    private void Paste() => ReplaceSelection(Clipboard.Read());
     private void DeleteBackward()
     {
         if (HasSelection) { ReplaceSelection(string.Empty); return; }
@@ -285,6 +304,42 @@ public static class PanelExtensions
     /// </param>
     public static Panel? HitTest(this Panel panel, float x, float y, Panel? ignore = null)
     {
+        // Layering overlays (absolute + z-index > 0) paint above everything on
+        // the tree, escaping every ancestor overflow clip, so they are hit-tested
+        // first, from the topmost down. Only if none is hit does the ordinary
+        // (clipped) content compete.
+        var overlays = new List<Panel>();
+        CollectOverlays(panel, ignore, overlays);
+        if (overlays.Count > 1)
+            overlays.Sort((a, b) => a.ComputedStyle.ZIndex.CompareTo(b.ComputedStyle.ZIndex)); // ascending, stable
+        for (var i = overlays.Count - 1; i >= 0; i--)
+        {
+            if (HitTestCore(overlays[i], x, y, ignore, escaped: true) is { } overlayHit)
+                return overlayHit;
+        }
+        return HitTestCore(panel, x, y, ignore, escaped: false);
+    }
+
+    // Gathers the topmost layering overlays of the subtree (an overlay's whole
+    // subtree is tested through it, so nested overlays are not collected again).
+    private static void CollectOverlays(Panel panel, Panel? ignore, List<Panel> overlays)
+    {
+        if (ReferenceEquals(panel, ignore) || !panel.IsVisible ||
+            panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase)) return;
+        if (panel.IsLayeredOverlay)
+        {
+            overlays.Add(panel);
+            return;
+        }
+        foreach (var child in panel.Children)
+            CollectOverlays(child, ignore, overlays);
+    }
+
+    // Hit-testing mirrors the painter's paint order and clipping. An escaped
+    // overlay subtree is unaffected by ancestor overflow clips; ordinary content
+    // is clipped to its overflow ancestors' padding boxes.
+    private static Panel? HitTestCore(Panel panel, float x, float y, Panel? ignore, bool escaped)
+    {
         if (ReferenceEquals(panel, ignore) || !panel.IsVisible ||
             panel.ComputedStyle.Display.Equals("none", StringComparison.OrdinalIgnoreCase)) return null;
         var inside = x >= panel.Layout.X && x <= panel.Layout.Right && y >= panel.Layout.Y && y <= panel.Layout.Bottom;
@@ -293,7 +348,7 @@ public static class PanelExtensions
         // system can start a drag instead of leaking through to a child.
         if (inside && ScrollBars.HitTest(panel, x, y)) return panel;
 
-        if (panel.ClipsContent)
+        if (!escaped && panel.ClipsContent)
         {
             if (!inside) return null;
             // Outside the padding box (border area): only the container itself.
@@ -306,23 +361,27 @@ public static class PanelExtensions
         // Children are hit-tested from the topmost painted sibling down, mirroring
         // the renderer: higher z-index paints above, and for equal z-index the
         // last document-order child wins. Children live in content coordinates, so
-        // the pointer is translated by the scroll offset before recursing.
+        // the pointer is translated by the scroll offset before recursing. Layering
+        // overlays have already been hit-tested above, so the ordinary walk skips
+        // them (and, when escaped, re-enters their subtree freely).
         var children = panel.Children;
         if (children.Count > 1 && children.Any(child => child.ComputedStyle.ZIndex != 0))
         {
             var ordered = children.OrderBy(child => child.ComputedStyle.ZIndex).ToList();
             for (var i = ordered.Count - 1; i >= 0; i--)
             {
-                var hit = ordered[i].HitTest(x + panel.ScrollX, y + panel.ScrollY, ignore);
-                if (hit is not null) return hit;
+                var child = ordered[i];
+                if (!escaped && child.IsLayeredOverlay) continue;
+                if (HitTestCore(child, x + panel.ScrollX, y + panel.ScrollY, ignore, escaped) is { } hit) return hit;
             }
         }
         else
         {
             for (var i = children.Count - 1; i >= 0; i--)
             {
-                var hit = children[i].HitTest(x + panel.ScrollX, y + panel.ScrollY, ignore);
-                if (hit is not null) return hit;
+                var child = children[i];
+                if (!escaped && child.IsLayeredOverlay) continue;
+                if (HitTestCore(child, x + panel.ScrollX, y + panel.ScrollY, ignore, escaped) is { } hit) return hit;
             }
         }
         return inside ? panel : null;

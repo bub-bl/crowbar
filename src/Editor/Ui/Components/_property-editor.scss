@@ -27,10 +27,6 @@
     padding: 0 5px;
     box-sizing: border-box;
     cursor: text;
-
-    &:focus {
-        border-color: $accent;
-    }
 }
 
 .enum-input {
@@ -39,6 +35,19 @@
     min-height: 20px;
     flex-direction: column;
     position: relative;
+}
+
+.enum-options {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    z-index: 9999;
+    flex-direction: column;
+    background-color: $input-bg;
+    border: 1px solid $border;
+    border-radius: 3px;
+    box-sizing: border-box;
 }
 
 .enum-select {
@@ -74,31 +83,6 @@
     font-size: 8px;
     line-height: 18px;
     margin-left: 6px;
-}
-
-.enum-options {
-    width: 100%;
-    flex-direction: column;
-    background-color: $input-bg;
-    border: 1px solid $border;
-    border-radius: 0 0 3px 3px;
-    box-sizing: border-box;
-}
-
-.enum-option {
-    min-height: 20px;
-    padding: 2px 5px;
-    box-sizing: border-box;
-    color: $text;
-    font-size: 10px;
-    line-height: 16px;
-    cursor: pointer;
-}
-
-.enum-option:hover,
-.enum-option-active {
-    background-color: $accent;
-    color: $text-bright;
 }
 
 .prop-value {
@@ -139,6 +123,13 @@
     line-height: 20px;
 }
 
+// Per-axis accent so the X/Y/Z(/W) labels and their input fields read as one
+// pair: red, green, blue and a soft amber for the fourth component.
+.vec-axis.vec-x { color: #e06b6b; }
+.vec-axis.vec-y { color: #6bd69b; }
+.vec-axis.vec-z { color: #6ba7e8; }
+.vec-axis.vec-w { color: #e8cf6b; }
+
 .vec-input {
     flex-grow: 1;
     min-width: 0;
@@ -152,8 +143,4 @@
     padding: 0 5px;
     box-sizing: border-box;
     cursor: text;
-
-    &:focus {
-        border-color: $accent;
-    }
 }

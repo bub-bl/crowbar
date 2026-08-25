@@ -6,30 +6,28 @@
 
 <div class="vec-row" style="padding-left: @(Indent * 12)px">
     <div class="vec-label">@Name</div>
-    <span class="vec-axis">X</span>
-    <input class="vec-input" value="@X" @bind-value="X" />
-    <span class="vec-axis">Y</span>
-    <input class="vec-input" value="@Y" @bind-value="Y" />
+    <span class="vec-axis vec-x">X</span>
+    <ValueInput Value="@Axis(0)" Class="vec-input" OnCommit="OnCommitX" />
+    <span class="vec-axis vec-y">Y</span>
+    <ValueInput Value="@Axis(1)" Class="vec-input" OnCommit="OnCommitY" />
 </div>
 
 @code {
-    private string X { get => Axis(0); set => SetAxis(0, value); }
-    private string Y { get => Axis(1); set => SetAxis(1, value); }
-
     private string Axis(int index)
     {
         var parts = Value.Split(',');
         return index < parts.Length ? parts[index].Trim() : string.Empty;
     }
 
-    private void SetAxis(int index, string text)
+    private void OnCommitX(string text) => Commit(0, text);
+    private void OnCommitY(string text) => Commit(1, text);
+
+    private void Commit(int index, string text)
     {
         var parts = Value.Split(',').Select(part => part.Trim()).ToArray();
-        while (parts.Length <= index)
-            Array.Resize(ref parts, index + 1);
+        while (parts.Length < 2) Array.Resize(ref parts, parts.Length + 1);
         parts[index] = text.Trim();
-        Value = string.Join(", ", parts);
-        EditorInspectorState.RequestEdit(Key, Value);
+        EditorInspectorState.RequestEdit(Key, string.Join(", ", parts));
     }
 
     protected override int BuildHash() => HashCode.Combine(Name, Value, Key, Indent);

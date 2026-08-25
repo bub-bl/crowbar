@@ -1,0 +1,65 @@
+@inherits Crowbar.UI.RazorPanel
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+@using Microsoft.AspNetCore.Components
+
+<input class="@(string.IsNullOrEmpty(Class) ? "vi-input" : Class)" value="@DisplayValue"
+       placeholder="@Placeholder"
+       @onfocus="OnFocus" @oninput="OnInput" @onblur="OnBlur" @onkeydown="OnKeyDown" />
+
+@code {
+    /// <summary>The canonical value shown when the field is not being edited.</summary>
+    [Parameter]
+    public string Value { get; set; } = string.Empty;
+
+    /// <summary>Extra CSS class for the field's appearance (empty keeps the default editor look).</summary>
+    [Parameter]
+    public string Class { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Placeholder { get; set; } = string.Empty;
+
+    /// <summary>Called with the committed draft to apply the change to the entity.</summary>
+    [Parameter]
+    public Action<string>? OnCommit { get; set; }
+
+    // In-progress draft: while focused the input shows exactly what the user
+    // typed, so the host's per-frame snapshot (which re-canonicalizes numbers)
+    // cannot stomp the text. Each keystroke applies the draft live so dependent
+    // values (camera position, gizmos) update immediately; blur or Enter ends
+    // the edit session and commits once more.
+    private bool _editing;
+    private string _draft = string.Empty;
+
+    private string DisplayValue => _editing ? _draft : Value;
+
+    private void OnFocus()
+    {
+        if (_editing) return;
+        _editing = true;
+        _draft = Value;
+    }
+
+    private void OnInput(string text)
+    {
+        if (!_editing) return;
+        _draft = text;
+        OnCommit?.Invoke(text);
+    }
+
+    private void OnBlur()
+    {
+        if (!_editing) return;
+        OnCommit?.Invoke(_draft);
+        _editing = false;
+        _draft = string.Empty;
+    }
+
+    private bool OnKeyDown(KeyEvent e)
+    {
+        if (e.IsDown && e.KeyCode == 13) { OnBlur(); return true; }
+        return false;
+    }
+
+    protected override int BuildHash() => HashCode.Combine(Value, Class, Placeholder, _editing ? _draft : string.Empty);
+}

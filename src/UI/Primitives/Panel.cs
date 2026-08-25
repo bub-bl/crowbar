@@ -162,6 +162,16 @@ public class Panel
     public float ScrollbarThickness => ComputedStyle.ScrollbarWidth > 0 ? ComputedStyle.ScrollbarWidth : ScrollBars.Thickness;
     /// <summary>True when children are clipped to the padding box (hidden, scroll, auto, clip).</summary>
     public bool ClipsContent => Overflow is "hidden" or "scroll" or "auto" or "clip";
+    /// <summary>
+    /// True for a layering overlay: an absolutely-positioned element with a
+    /// positive <c>z-index</c> (dropdowns, menus, tooltips). Such a node is
+    /// painted above everything else and escapes the clip of any
+    /// <c>overflow</c> ancestor, so a popup that overflows its scroll container
+    /// is neither cut off nor hidden — regardless of which component produced it.
+    /// </summary>
+    public bool IsLayeredOverlay =>
+        ComputedStyle.PositionType.Equals("absolute", StringComparison.OrdinalIgnoreCase) &&
+        ComputedStyle.ZIndex > 0;
     /// <summary>True when the panel can be scrolled by the user (scroll or auto).</summary>
     public bool IsScrollContainer => Overflow is "scroll" or "auto";
     public bool CanScrollHorizontally => IsScrollContainer && MaxScrollX > 0;

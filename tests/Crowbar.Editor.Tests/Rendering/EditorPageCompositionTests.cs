@@ -1294,20 +1294,22 @@ public class EditorPageCompositionTests
         var metallic = FindInput(content, "0.15");
         Assert.NotNull(metallic);
 
-        // Focus the Metallic field, then replace its value: the @onchange
-        // handler queues the write for the host and re-renders the page.
-        ui.ProcessPointerDown(metallic!.Layout.X + 1, metallic.Layout.Y + 1);
+        // Focus the Metallic field, then type a new value. The change is applied
+// live (so dependent values like the camera update immediately) but the
+// input keeps showing the in-progress draft rather than snapping back to a
+// re-canonicalized number.
+ui.ProcessPointerDown(metallic!.Layout.X + 1, metallic.Layout.Y + 1);
         ui.ProcessPointerUp(metallic.Layout.X + 1, metallic.Layout.Y + 1);
         metallic.SetValue("0.25");
         ui.Update();
         ui.Prepare();
 
-        // The edit is queued under the stable write-back key.
-        var edits = EditorInspectorState.ConsumeEdits();
-        Assert.Contains(edits, edit => edit.Key == "MeshRenderer.Material.metallic" && edit.Value == "0.25");
+        // Typing applied the new value under the stable write-back key.
+        var live = EditorInspectorState.ConsumeEdits();
+        Assert.Contains(live, edit => edit.Key == "MeshRenderer.Material.metallic" && edit.Value == "0.25");
 
         // The rebuild keeps the edited input's value and focus (it must not
-        // jump to the first input on the page).
+        // snap back to the canonical value nor jump to another input).
         var rerendered = FindInput(ui.Content!, "0.25");
         Assert.NotNull(rerendered);
         Assert.True(rerendered!.IsFocused);

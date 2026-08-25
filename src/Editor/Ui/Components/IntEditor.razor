@@ -12,15 +12,11 @@
 
 <div class="prop-row" style="padding-left: @(Indent * 12)px">
     <div class="field-label">@Name</div>
-    <input class="prop-input" value="@Value" @onchange="OnChanged" />
+    <ValueInput Value="@Value" Class="prop-input" OnCommit="Commit" />
 </div>
 
 @code {
-    private void OnChanged(string value)
-    {
-        Value = value;
-        EditorInspectorState.RequestEdit(Key, value);
-    }
+    private void Commit(string text) => EditorInspectorState.RequestEdit(Key, text);
 
     protected override int BuildHash() => HashCode.Combine(Name, Value, Key, Indent);
 }

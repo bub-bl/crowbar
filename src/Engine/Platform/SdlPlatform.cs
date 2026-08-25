@@ -1,5 +1,6 @@
 using Silk.NET.Maths;
 using Silk.NET.SDL;
+using Crowbar.UI;
 
 namespace Crowbar.Engine.Platform;
 
@@ -10,7 +11,7 @@ namespace Crowbar.Engine.Platform;
 /// belongs to (by SDL window ID). All input (keyboard, mouse, text, wheel)
 /// flows through SDL, so the platform is fully cross-platform.
 /// </summary>
-public sealed class SdlPlatform : IPlatform
+public sealed unsafe class SdlPlatform : IPlatform
 {
     private readonly Sdl _sdl;
     private readonly Dictionary<uint, SdlWindow> _windows = [];
@@ -22,6 +23,30 @@ public sealed class SdlPlatform : IPlatform
         _sdl.SetMainReady();
         if (_sdl.Init(Sdl.InitVideo) < 0)
             throw new InvalidOperationException($"SDL initialization failed: {_sdl.GetErrorS()}");
+
+        // Bridge the UI clipboard to SDL's system clipboard so Ctrl+C / Ctrl+V
+        // in editor inputs use the real clipboard instead of an in-process one.
+        Clipboard.SetPlatformBridge(
+            read: () =>
+            {
+                var ptr = _sdl.GetClipboardText();
+                try { return ptr == null ? string.Empty : SdlPtrToUtf8(ptr); }
+                finally { _sdl.Free(ptr); }
+            },
+            write: text =>
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes(text ?? string.Empty);
+                Array.Resize(ref bytes, bytes.Length + 1); // NUL terminator for SDL
+                fixed (byte* p = bytes) _sdl.SetClipboardText(p);
+            });
+    }
+
+    // Reads a NUL-terminated UTF-8 byte* into a managed string (flat, no copy).
+    private static unsafe string SdlPtrToUtf8(byte* p)
+    {
+        var length = 0;
+        while (p[length] != 0) length++;
+        return System.Text.Encoding.UTF8.GetString(p, length);
     }
 
     public IWindow CreateWindow(WindowOptions options)

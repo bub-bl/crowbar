@@ -27,6 +27,9 @@ public sealed class Grid
     /// <summary>Whether the X (red) and Z (blue) axes are highlighted.</summary>
     public bool ShowAxes { get; set; } = true;
 
+    /// <summary>Whether the grid is drawn. Toggled by the editor's Grid toolbar (G).</summary>
+    public bool Visible { get; set; } = true;
+
     /// <summary>
     /// Builds the GPU uniforms for a frame. The matrix inverses are derived
     /// here so callers only need the same view/projection the scene uses.
