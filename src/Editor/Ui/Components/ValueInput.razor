@@ -19,13 +19,15 @@
     [Parameter]
     public string Placeholder { get; set; } = string.Empty;
 
-    /// <summary>Called on blur or Enter with the committed draft; never on every keystroke.</summary>
+    /// <summary>Called with the committed draft to apply the change to the entity.</summary>
     [Parameter]
     public Action<string>? OnCommit { get; set; }
 
     // In-progress draft: while focused the input shows exactly what the user
     // typed, so the host's per-frame snapshot (which re-canonicalizes numbers)
-    // cannot stomp the text. Committed to the entity on blur/Enter.
+    // cannot stomp the text. Each keystroke applies the draft live so dependent
+    // values (camera position, gizmos) update immediately; blur or Enter ends
+    // the edit session and commits once more.
     private bool _editing;
     private string _draft = string.Empty;
 
@@ -40,24 +42,23 @@
 
     private void OnInput(string text)
     {
-        if (_editing) _draft = text;
+        if (!_editing) return;
+        _draft = text;
+        OnCommit?.Invoke(text);
     }
 
-    private void OnBlur() => Commit();
+    private void OnBlur()
+    {
+        if (!_editing) return;
+        OnCommit?.Invoke(_draft);
+        _editing = false;
+        _draft = string.Empty;
+    }
 
     private bool OnKeyDown(KeyEvent e)
     {
-        if (e.IsDown && e.KeyCode == 13) { Commit(); return true; }
+        if (e.IsDown && e.KeyCode == 13) { OnBlur(); return true; }
         return false;
-    }
-
-    private void Commit()
-    {
-        if (!_editing) return;
-        _editing = false;
-        var draft = _draft;
-        _draft = string.Empty;
-        OnCommit?.Invoke(draft);
     }
 
     protected override int BuildHash() => HashCode.Combine(Value, Class, Placeholder, _editing ? _draft : string.Empty);

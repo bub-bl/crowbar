@@ -1294,17 +1294,19 @@ public class EditorPageCompositionTests
         var metallic = FindInput(content, "0.15");
         Assert.NotNull(metallic);
 
-        // Focus the Metallic field, then type a new value. Typing must not
-        // commit to the host per keystroke (which would re-canonicalize the
-        // number and stomp the in-progress text); it only updates a local draft.
-        ui.ProcessPointerDown(metallic!.Layout.X + 1, metallic.Layout.Y + 1);
+        // Focus the Metallic field, then type a new value. The change is applied
+// live (so dependent values like the camera update immediately) but the
+// input keeps showing the in-progress draft rather than snapping back to a
+// re-canonicalized number.
+ui.ProcessPointerDown(metallic!.Layout.X + 1, metallic.Layout.Y + 1);
         ui.ProcessPointerUp(metallic.Layout.X + 1, metallic.Layout.Y + 1);
         metallic.SetValue("0.25");
         ui.Update();
         ui.Prepare();
 
-        // No edit is queued yet: blur/Enter commits, not every keystroke.
-        Assert.Empty(EditorInspectorState.ConsumeEdits());
+        // Typing applied the new value under the stable write-back key.
+        var live = EditorInspectorState.ConsumeEdits();
+        Assert.Contains(live, edit => edit.Key == "MeshRenderer.Material.metallic" && edit.Value == "0.25");
 
         // The rebuild keeps the edited input's value and focus (it must not
         // snap back to the canonical value nor jump to another input).
@@ -1312,12 +1314,6 @@ public class EditorPageCompositionTests
         Assert.NotNull(rerendered);
         Assert.True(rerendered!.IsFocused);
         Assert.Same(rerendered, ui.FocusedPanel);
-
-        // Blurring commits the draft under the stable write-back key.
-        ui.ProcessPointerDown(5, ui.Screen.Layout.Height - 5); // outside, blurs the field
-        ui.ProcessPointerUp(5, ui.Screen.Layout.Height - 5);
-        var edits = EditorInspectorState.ConsumeEdits();
-        Assert.Contains(edits, edit => edit.Key == "MeshRenderer.Material.metallic" && edit.Value == "0.25");
     }
 
     [Fact]

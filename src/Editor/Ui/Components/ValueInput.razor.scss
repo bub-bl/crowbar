@@ -3,17 +3,19 @@
 // The reusable editor input owns its scoped styles: parents cannot style a
 // child component's markup, so the field appearance lives here and the editors
 // pick it up through the Class parameter or the default `.vi-input`.
+// The component root replaces the raw `<input>` in the parent's flex row, so it
+// must grow like the old inlined input did (flex-grow + min-width: 0), never
+// force a full row width which would blow the input up.
 root {
-    width: 100%;
-    flex-shrink: 0;
+    flex-grow: 1;
+    min-width: 0;
+    flex-shrink: 1;
 }
 
 .vi-input,
 .prop-input,
 .vec-input {
     width: 100%;
-    flex-grow: 1;
-    min-width: 0;
     height: 20px;
     border-radius: 3px;
     background-color: $input-bg;
