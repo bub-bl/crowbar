@@ -43,6 +43,22 @@ public sealed class Shortcuts
         ShortcutManager.Instance.Register(new KeyChord(undoKey, KeyModifiers.Control), _editor.Level.Undo);
         ShortcutManager.Instance.Register(new KeyChord(undoKey, KeyModifiers.Control | KeyModifiers.Shift), _editor.Level.Redo);
         ShortcutManager.Instance.Register(new KeyChord(redoKey, KeyModifiers.Control), _editor.Level.Redo);
+
+        // Viewport gizmo tool shortcuts (also reachable through the viewport
+        // toolbar): W moves, E rotates, R scales, G toggles the ground grid.
+        // The physical keys mirror the tooltips; they map to the gizmo modes.
+        ShortcutManager.Instance.Register(new KeyChord(Key.W), SetTool(0));
+        ShortcutManager.Instance.Register(new KeyChord(Key.E), SetTool(1));
+        ShortcutManager.Instance.Register(new KeyChord(Key.R), SetTool(2));
+        ShortcutManager.Instance.Register(new KeyChord(Key.G), ToggleGrid);
+    }
+
+    private static Action SetTool(int mode) => () => GizmoToolState.Mode = mode;
+
+    private static void ToggleGrid()
+    {
+        if (Game.Renderer is { } renderer)
+            renderer.Grid.Visible = !renderer.Grid.Visible;
     }
 
     /// <summary>Fires the shortcuts whose chord was pressed this frame.</summary>
