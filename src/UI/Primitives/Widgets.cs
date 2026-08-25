@@ -91,6 +91,9 @@ public class TextInput : Panel
         }
         if (!isDown) return;
         if (_controlDown && keyCode == 0x41) SelectAll();
+        else if (_controlDown && keyCode == 0x43) Copy();                 // Ctrl+C
+        else if (_controlDown && keyCode == 0x58) Cut();                  // Ctrl+X
+        else if (_controlDown && keyCode == 0x56) Paste();                // Ctrl+V
         else if (keyCode == 0x25) MoveCaret(_controlDown ? PreviousWord(CaretIndex) : Math.Max(0, CaretIndex - 1));
         else if (keyCode == 0x27) MoveCaret(_controlDown ? NextWord(CaretIndex) : Math.Min(Value.Length, CaretIndex + 1));
         else if (keyCode == 0x24) MoveCaret(_controlDown ? 0 : 0);
@@ -143,6 +146,22 @@ public class TextInput : Panel
     }
 
     private void SelectAll() { SelectionStart = 0; SelectionEnd = CaretIndex = Value.Length; ResetCaret(); }
+
+    private void Copy()
+    {
+        var start = Math.Min(SelectionStart, SelectionEnd);
+        var length = Math.Abs(SelectionEnd - SelectionStart);
+        if (length > 0) Clipboard.Write(Value.Substring(start, length));
+    }
+    private void Cut()
+    {
+        var start = Math.Min(SelectionStart, SelectionEnd);
+        var length = Math.Abs(SelectionEnd - SelectionStart);
+        if (length == 0) return;
+        Copy();
+        Replace(start, length, string.Empty);
+    }
+    private void Paste() => ReplaceSelection(Clipboard.Read());
     private void DeleteBackward()
     {
         if (HasSelection) { ReplaceSelection(string.Empty); return; }

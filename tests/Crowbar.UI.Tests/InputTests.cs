@@ -129,4 +129,42 @@ public class InputTests
         Assert.False(first.IsFocused);
         Assert.True(second.IsFocused);
     }
+
+    [Fact]
+    public void TextClipboardCopyCutPaste()
+    {
+        using var ui = TestUi.Create();
+        var edit = new TextInput();
+        edit.SetInlineStyle("width", "200px");
+        edit.SetInlineStyle("height", "32px");
+        ui.Screen.AddChild(edit);
+        ui.Prepare();
+        ui.ProcessPointerDown(edit.Layout.X + 2, edit.Layout.Y + 1);
+        edit.SetValue("crowbar");
+
+        // Select all, then copy the selection.
+        ui.ProcessKey(0x11, true); // Ctrl
+        ui.ProcessKey(0x41, true); // A
+        Assert.True(edit.HasSelection);
+        ui.ProcessKey(0x43, true); // C
+        ui.ProcessKey(0x11, false);
+        Assert.Equal("crowbar", Clipboard.Read());
+
+        // Paste replaces the (still) selected text, then types after it.
+        ui.ProcessKey(0x11, true);
+        ui.ProcessKey(0x56, true); // V
+        ui.ProcessKey(0x11, false);
+        Assert.Equal("crowbar", edit.Value);
+        Assert.Equal("crowbar", Clipboard.Read());
+
+        // Move to the start, select everything, and cut it to the clipboard.
+        edit.SetValue("alpha beta");
+        ui.ProcessKey(0x11, true);
+        ui.ProcessKey(0x41, true); // A (select all)
+        Assert.True(edit.HasSelection);
+        ui.ProcessKey(0x58, true); // X (cut)
+        ui.ProcessKey(0x11, false);
+        Assert.Equal("alpha beta", Clipboard.Read());
+        Assert.Equal(string.Empty, edit.Value);
+    }
 }
