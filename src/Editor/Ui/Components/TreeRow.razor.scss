@@ -27,6 +27,15 @@ root {
     icon {
         width: 12px;
         height: 12px;
+        flex-shrink: 0;
+    }
+
+    // Invisible placeholder for leaf rows: keeps the entity icons of all
+    // rows at the same depth aligned (the caret column is 12px + 5px gap).
+    .tree-caret-slot {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
     }
 
     &:hover {

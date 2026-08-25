@@ -4,9 +4,16 @@
 @using Crowbar.UI
 
 <div class="tree-row @(Folder ? "tree-folder" : "") @(Selected ? "tree-selected" : "")" style="padding-left: @(Indent * 12 + 6)px" @onclick="OnClick">
-    @if (Folder)
+@if (Folder)
     {
         <icon name="@(Open ? "Solar/arrows/Bold/alt-arrow-down" : "Solar/arrows/Bold/alt-arrow-right")" />
+    }
+    else
+    {
+        @* Leaves reserve the caret column so entity icons align across
+           siblings: without it, a leaf's entity glyph sits where its
+           parent's caret row puts its icon and reads shifted left. *@
+        <div class="tree-caret-slot"></div>
     }
     @if (!string.IsNullOrEmpty(Icon))
     {
