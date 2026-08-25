@@ -100,6 +100,21 @@
             "Order": -50,
             "Sampler": "Linear"
           }
+        },
+        {
+          "type": "Fxaa",
+          "enabled": true,
+          "transform": null,
+          "properties": {
+            "QualityLo": 0.15,
+            "QualityHi": 0.75,
+            "EdgeThreshold": 0.063,
+            "EdgeThresholdMin": 0.031,
+            "Subpixel": 0.75,
+            "ColorTolerance": 0.04,
+            "Order": 1000,
+            "Sampler": "Linear"
+          }
         }
       ]
     },
