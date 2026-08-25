@@ -26,18 +26,19 @@ public sealed unsafe class SdlPlatform : IPlatform
 
         // Bridge the UI clipboard to SDL's system clipboard so Ctrl+C / Ctrl+V
         // in editor inputs use the real clipboard instead of an in-process one.
-        Clipboard.ReadProvider = () =>
-        {
-            var ptr = _sdl.GetClipboardText();
-            try { return ptr == null ? string.Empty : SdlPtrToUtf8(ptr); }
-            finally { _sdl.Free(ptr); }
-        };
-        Clipboard.WriteProvider = text =>
-        {
-            var bytes = System.Text.Encoding.UTF8.GetBytes(text ?? string.Empty);
-            Array.Resize(ref bytes, bytes.Length + 1); // NUL terminator for SDL
-            fixed (byte* p = bytes) _sdl.SetClipboardText(p);
-        };
+        Clipboard.SetPlatformBridge(
+            read: () =>
+            {
+                var ptr = _sdl.GetClipboardText();
+                try { return ptr == null ? string.Empty : SdlPtrToUtf8(ptr); }
+                finally { _sdl.Free(ptr); }
+            },
+            write: text =>
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes(text ?? string.Empty);
+                Array.Resize(ref bytes, bytes.Length + 1); // NUL terminator for SDL
+                fixed (byte* p = bytes) _sdl.SetClipboardText(p);
+            });
     }
 
     // Reads a NUL-terminated UTF-8 byte* into a managed string (flat, no copy).
