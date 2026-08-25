@@ -46,11 +46,13 @@ public sealed class Shortcuts
 
         // Viewport gizmo tool shortcuts (also reachable through the viewport
         // toolbar): W moves, E rotates, R scales, G toggles the ground grid.
-        // The physical keys mirror the tooltips; they map to the gizmo modes.
-        ShortcutManager.Instance.Register(new KeyChord(Key.W), SetTool(0));
-        ShortcutManager.Instance.Register(new KeyChord(Key.E), SetTool(1));
-        ShortcutManager.Instance.Register(new KeyChord(Key.R), SetTool(2));
-        ShortcutManager.Instance.Register(new KeyChord(Key.G), ToggleGrid);
+        // They are bound by the character they produce (like the camera's ZQSD
+        // bindings), so W/E/R/G work on any layout: on AZERTY those letters sit
+        // on different physical keys, and a physical-key binding would miss them.
+        ShortcutManager.Instance.Register(new KeyChord(input.KeyForChar('w')), SetTool(0));
+        ShortcutManager.Instance.Register(new KeyChord(input.KeyForChar('e')), SetTool(1));
+        ShortcutManager.Instance.Register(new KeyChord(input.KeyForChar('r')), SetTool(2));
+        ShortcutManager.Instance.Register(new KeyChord(input.KeyForChar('g')), ToggleGrid);
     }
 
     private static Action SetTool(int mode) => () => GizmoToolState.Mode = mode;
