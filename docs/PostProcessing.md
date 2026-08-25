@@ -172,6 +172,16 @@ second, which avoids changing the average image brightness. `Intensity`
 controls the grain strength, while `Response` suppresses grain progressively
 in highlights. The effect defaults to order `150` and is disabled by default.
 
+## Depth of field
+
+`DepthOfField` uses a physical thin-lens model and a signed circle of
+confusion derived from the scene depth buffer. It prefilters at half resolution,
+keeps near and far blur layers separate, then composites them back over the
+sharp HDR scene to avoid foreground/background bleeding. `FocusDistance`,
+`FocalLength`, `Aperture`, `SensorHeight` and `MaxBlurRadius` expose physical
+camera controls. The default order is `-50`, after HDR bloom and before
+tonemapping.
+
 Tonemapping is applied in linear HDR before the display blit. `Reinhard` uses
 the standard per-channel curve, `Aces` uses the fitted ACES RRT/ODT transform
 with its input/output color matrices, and `Agx` uses the analytic AgX view

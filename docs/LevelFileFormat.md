@@ -158,6 +158,16 @@ fields are packed by name from the component's `[Property]` values (or the
 | `Intensity` | float | Grain strength from 0 (disabled) to 1. |
 | `Response` | float | Highlight suppression from 0 to 1 (default 0.8). |
 
+`DepthOfField` properties:
+
+| Property | Type | Role |
+|---|---|---|
+| `FocusDistance` | float | Focal plane distance in world units. |
+| `FocalLength` | float | Lens focal length in millimeters. |
+| `Aperture` | float | Lens f-number. |
+| `SensorHeight` | float | Sensor height in millimeters. |
+| `MaxBlurRadius` | float | Maximum blur radius in full-resolution pixels. |
+
 `PostProcess` (base) properties:
 
 | Property | Type | Role |

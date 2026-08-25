@@ -169,6 +169,66 @@ public sealed class PostProcessTests
     }
 
     [Fact]
+    public void DepthOfField_PropertiesRoundTrip()
+    {
+        using var sourceWorld = new World();
+        var source = sourceWorld.CreateLevel("PostProcess");
+        var component = sourceWorld.SpawnEntity("PostProcess", source).AddComponent<DepthOfField>();
+        component.FocusDistance = 8f;
+        component.FocalLength = 85f;
+        component.Aperture = 2.8f;
+        component.SensorHeight = 24f;
+        component.MaxBlurRadius = 16f;
+        component.Order = -25;
+        using var loadedWorld = new World();
+        var loaded = LevelSerializer.CreateLevel(loadedWorld, LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
+        var loadedComponent = Assert.Single(loaded.Entities).GetComponent<DepthOfField>();
+        Assert.NotNull(loadedComponent);
+        Assert.Equal(8f, loadedComponent!.FocusDistance);
+        Assert.Equal(85f, loadedComponent.FocalLength);
+        Assert.Equal(2.8f, loadedComponent.Aperture);
+        Assert.Equal(24f, loadedComponent.SensorHeight);
+        Assert.Equal(16f, loadedComponent.MaxBlurRadius);
+        Assert.Equal(-25, loadedComponent.Order);
+    }
+
+    [Fact]
+    public void DepthOfFieldShaderUniformsAreAligned()
+    {
+        var prefilter = Shader.Load("Shaders/PostProcesses/DepthOfFieldPrefilter.wgsl");
+        var uniforms = Assert.Single(prefilter.Structs, structure => structure.Name == "DepthOfFieldUniforms");
+        Assert.Equal(64, UniformPacker.ComputeStructSize(uniforms.Fields));
+        Assert.Contains(uniforms.Fields, field => field.Name == "lens");
+        Assert.Contains(uniforms.Fields, field => field.Name == "depthRange");
+        Assert.Contains(prefilter.Bindings, binding => binding.TypeName == "texture_depth_2d");
+    }
+
+    [Fact]
+    public void DepthOfFieldSceneDepth_IsCreatedForAttachmentAndSampling()
+    {
+        var description = Renderer.CreateSceneDepthDescription(0, -1);
+
+        Assert.Equal(1, description.Width);
+        Assert.Equal(1, description.Height);
+        Assert.Equal(TextureFormat.Depth24Plus, description.Format);
+        Assert.True(description.RenderTarget);
+        Assert.True(description.Sampled);
+    }
+
+    [Fact]
+    public void DepthOfField_DefaultsUseAStandardPhysicalLens()
+    {
+        var component = new DepthOfField();
+        Assert.Equal(10f, component.FocusDistance);
+        Assert.Equal(50f, component.FocalLength);
+        Assert.Equal(5.6f, component.Aperture);
+        Assert.Equal(24f, component.SensorHeight);
+        Assert.Equal(12f, component.MaxBlurRadius);
+        Assert.Equal(-50, component.Order);
+        Assert.Equal(typeof(DepthOfField), GlobalNamespaces.TypeLibrary.Registry.Resolve("DepthOfField"));
+    }
+
+    [Fact]
     public void WorldQuery_ReturnsEveryPostProcessInstanceOnAnEntity()
     {
         // The camera carries Tonemapping + Vignette on one entity; the chain

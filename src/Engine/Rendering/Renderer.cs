@@ -358,6 +358,7 @@ public sealed class Renderer : IDisposable
     // effect (Bloom.cs) runs a separable Gaussian pyramid across these before
     // the final combine reads the scene again.
     private ITexture[] _bloomPyramid = [];
+    private ITexture[] _depthOfFieldTargets = [];
     private ISampler _postProcessPointSampler = null!;
     // Components already announced once in the console (per session).
     private readonly HashSet<PostProcess> _loggedPostProcessDrivers = [];
@@ -572,7 +573,7 @@ public sealed class Renderer : IDisposable
                 if (_loggedPostProcessDrivers.Add(driver))
                     Log.Info($"[PostProcess] Applying component {driver.GetType().Name} (Order {driver.Order}, {group.Entries.Count} instance(s))");
                 var context = new PostProcessContext(this, commandBuffer, postProcessInput, output,
-                    _sceneDepth, driver.Sampler, group.Entries, time);
+                    _sceneDepth, driver.Sampler, group.Entries, time, camera);
                 PostProcessContext.Current = context;
                 try
                 {
@@ -2343,14 +2344,18 @@ public sealed class Renderer : IDisposable
     private void CreateSceneDepth(int width, int height)
     {
         _sceneDepth?.Dispose();
-        _sceneDepth = _device.CreateTexture(new TextureDescription
-        {
-            Width = Math.Max(1, width),
-            Height = Math.Max(1, height),
-            Format = TextureFormat.Depth24Plus,
-            RenderTarget = true
-        });
+        _sceneDepth = _device.CreateTexture(CreateSceneDepthDescription(width, height));
     }
+
+    internal static TextureDescription CreateSceneDepthDescription(int width, int height) => new()
+    {
+        Width = Math.Max(1, width),
+        Height = Math.Max(1, height),
+        Format = TextureFormat.Depth24Plus,
+        RenderTarget = true,
+        // Depth of field samples the scene depth after the 3D pass.
+        Sampled = true
+    };
 
     /// <summary>Returns (creating on first use) the pipeline for a post-process shader.</summary>
     private IPipeline GetOrCreatePostProcessPipeline(string shaderPath, bool additive = false)
@@ -2535,6 +2540,14 @@ public sealed class Renderer : IDisposable
     internal int SceneTargetWidth => _sceneTargetWidth;
     internal int SceneTargetHeight => _sceneTargetHeight;
 
+    /// <summary>Returns the depth-of-field ping-pong target at <paramref name="index"/> (half-resolution).</summary>
+    internal ITexture GetDepthOfFieldTexture(int index)
+    {
+        if ((uint)index >= (uint)_depthOfFieldTargets.Length)
+            throw new ArgumentOutOfRangeException(nameof(index), index, "The depth-of-field pool has 3 targets.");
+        return _depthOfFieldTargets[index];
+    }
+
     /// <summary>
     /// Drops the cached pipeline and shader for a post-process shader path
     /// (called by the editor's shader hot reload after recompiling); the next
@@ -2573,6 +2586,8 @@ public sealed class Renderer : IDisposable
         foreach (var scratch in _postProcessScratch)
             scratch.Dispose();
         foreach (var target in _bloomPyramid)
+            target.Dispose();
+        foreach (var target in _depthOfFieldTargets)
             target.Dispose();
 
         width = Math.Max(1, width);
@@ -2650,6 +2665,19 @@ public sealed class Renderer : IDisposable
             {
                 Width = Math.Max(1, width >> shift),
                 Height = Math.Max(1, height >> shift),
+                Format = TextureFormat.Rgba16Float,
+                RenderTarget = true,
+                Sampled = true
+            });
+        }
+
+        _depthOfFieldTargets = new ITexture[3];
+        for (var index = 0; index < _depthOfFieldTargets.Length; index++)
+        {
+            _depthOfFieldTargets[index] = _device.CreateTexture(new TextureDescription
+            {
+                Width = Math.Max(1, width >> 1),
+                Height = Math.Max(1, height >> 1),
                 Format = TextureFormat.Rgba16Float,
                 RenderTarget = true,
                 Sampled = true
@@ -2951,6 +2979,8 @@ public sealed class Renderer : IDisposable
         foreach (var scratch in _postProcessScratch)
             scratch.Dispose();
         foreach (var target in _bloomPyramid)
+            target.Dispose();
+        foreach (var target in _depthOfFieldTargets)
             target.Dispose();
         _postProcessPointSampler?.Dispose();
         foreach (var pipeline in _postProcessPipelines.Values)

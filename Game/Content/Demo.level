@@ -86,6 +86,20 @@
             "Order": 50,
             "Sampler": "Linear"
           }
+        },
+        {
+          "type": "DepthOfField",
+          "enabled": true,
+          "transform": null,
+          "properties": {
+            "FocusDistance": 4.4,
+            "FocalLength": 50,
+            "Aperture": 2.8,
+            "SensorHeight": 24,
+            "MaxBlurRadius": 16,
+            "Order": -50,
+            "Sampler": "Linear"
+          }
         }
       ]
     },
