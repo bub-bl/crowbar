@@ -247,6 +247,9 @@ public sealed class PipelineDescription
     /// <summary>Straight-alpha src-over blending (UI compositor).</summary>
     public bool AlphaBlend { get; init; }
 
+    /// <summary>Additive color blending (source + destination), used by bloom accumulation.</summary>
+    public bool AdditiveBlend { get; init; }
+
     public bool DepthWriteEnabled { get; init; }
     public CompareFunction DepthCompare { get; init; } = CompareFunction.Always;
 
@@ -254,7 +257,7 @@ public sealed class PipelineDescription
     public CullMode CullMode { get; init; } = CullMode.None;
 
     public TextureFormat ColorFormat { get; init; }
-    public TextureFormat DepthFormat { get; init; } = TextureFormat.Depth24Plus;
+    public TextureFormat? DepthFormat { get; init; } = TextureFormat.Depth24Plus;
 
     /// <summary>Primitive topology; defaults to triangles.</summary>
     public PrimitiveTopology Topology { get; init; } = PrimitiveTopology.TriangleList;

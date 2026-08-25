@@ -57,18 +57,53 @@ public sealed class PostProcessContext
     public ITexture GetScratchTexture(int index) => _renderer.GetPostProcessScratchTexture(index);
 
     /// <summary>
+    /// The bloom pyramid target at <paramref name="index"/> (½, ¼, ⅛ or 1/16 of
+    /// the viewport), for the bright-extract / downsample / blur / combine chain.
+    /// </summary>
+    public ITexture GetBloomLevelTexture(int index) => _renderer.GetBloomPyramidTexture(index);
+
+    /// <summary>Width of the bloom pyramid level at <paramref name="index"/>.</summary>
+    public int GetBloomLevelWidth(int index) => _renderer.GetBloomLevelWidth(index);
+
+    /// <summary>Height of the bloom pyramid level at <paramref name="index"/>.</summary>
+    public int GetBloomLevelHeight(int index) => _renderer.GetBloomLevelHeight(index);
+
+    /// <summary>
     /// Runs one fullscreen pass reading <paramref name="from"/> and writing
     /// <paramref name="to"/> with the shader at <paramref name="shaderPath"/>.
     /// <paramref name="attributes"/> are packed into the shader's group-0
     /// uniform buffer by field name.
     /// </summary>
     public void Blit(ITexture from, ITexture to, string shaderPath, RenderAttributes? attributes = null)
+        => Blit(from, to, shaderPath, attributes, null);
+
+    /// <summary>Runs a fullscreen pass that adds its result to the existing target.</summary>
+    public void BlitAdditive(ITexture from, ITexture to, string shaderPath, RenderAttributes? attributes = null)
+        => BlitAdditive(from, to, shaderPath, attributes, null);
+
+    /// <summary>
+    /// Runs one fullscreen pass, optionally binding a second input texture
+    /// (bound at slot 3, with its sampler at slot 4) alongside the primary
+    /// <paramref name="from"/> (slot 0). Multi-pass effects like Bloom use this
+    /// for their final combine, which reads the scene color and the accumulated
+    /// glow in one pass.
+    /// </summary>
+    public void Blit(ITexture from, ITexture to, string shaderPath, RenderAttributes? attributes, ITexture? secondary)
     {
         ArgumentNullException.ThrowIfNull(from);
         ArgumentNullException.ThrowIfNull(to);
         if (_renderer is null)
             throw new InvalidOperationException("This post-process context is not bound to a renderer.");
-        _renderer.RunPostProcessPass(_commandBuffer, from, to, shaderPath, attributes, _sampler);
+        _renderer.RunPostProcessPass(_commandBuffer, from, to, shaderPath, attributes, _sampler, secondary);
+    }
+
+    internal void BlitAdditive(ITexture from, ITexture to, string shaderPath, RenderAttributes? attributes, ITexture? secondary)
+    {
+        ArgumentNullException.ThrowIfNull(from);
+        ArgumentNullException.ThrowIfNull(to);
+        if (_renderer is null)
+            throw new InvalidOperationException("This post-process context is not bound to a renderer.");
+        _renderer.RunPostProcessPass(_commandBuffer, from, to, shaderPath, attributes, _sampler, secondary, additive: true);
     }
 
     /// <summary>The instances of this effect participating in the current frame (for GetWeighted).</summary>

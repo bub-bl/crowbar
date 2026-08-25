@@ -348,6 +348,10 @@ public sealed class Renderer : IDisposable
     private readonly List<IDisposable> _postProcessFrameResources = [];
     private readonly Dictionary<string, IPipeline> _postProcessPipelines = [];
     private ITexture[] _postProcessScratch = [];
+    // Downsampled bloom pyramid: ½, ¼, ⅛ and 1/16 of the viewport. The bloom
+    // effect (Bloom.cs) runs a separable Gaussian pyramid across these before
+    // the final combine reads the scene again.
+    private ITexture[] _bloomPyramid = [];
     private ISampler _postProcessPointSampler = null!;
     // Components already announced once in the console (per session).
     private readonly HashSet<PostProcess> _loggedPostProcessDrivers = [];
@@ -479,8 +483,6 @@ public sealed class Renderer : IDisposable
             {
                 DrawSky(scenePass);
                 DrawMeshRenderers(scenePass, world, time, lights);
-                DrawGrid(scenePass);
-                Gizmos.Draw(scenePass, world, camera, _sceneTargetWidth, _sceneTargetHeight);
             }
 
             // Pass 1b: render the selected entity into the selection mask
@@ -590,6 +592,32 @@ public sealed class Renderer : IDisposable
                     }
                     postProcessInput = output;
                 }
+            }
+
+            // Pass 1.75: editor overlay (grid + gizmos). These are drawn AFTER the
+            // post-process chain into the display texture, not into the scene
+            // texture, so the post-process effects (in particular bloom) never see
+            // them — a bloomed grid/gizmo would look wrong. Depth-tested against the
+            // scene depth so meshes still occlude the grid/gizmos as usual.
+            using (IRenderPass overlayPass = commandBuffer.BeginRenderPass(new RenderPassDescription
+            {
+                Color = new ColorAttachment
+                {
+                    Texture = _displayTexture,
+                    LoadOp = RenderAttachmentLoadOp.Load,
+                    StoreOp = RenderAttachmentStoreOp.Store,
+                    ClearColor = Vector4.Zero
+                },
+                Depth = new DepthAttachment
+                {
+                    Texture = _sceneDepth,
+                    LoadOp = RenderAttachmentLoadOp.Load,
+                    StoreOp = RenderAttachmentStoreOp.Store
+                }
+            }))
+            {
+                DrawGrid(overlayPass);
+                Gizmos.Draw(overlayPass, world, camera, _sceneTargetWidth, _sceneTargetHeight);
             }
 
             // Pass 2: composite the scene, the backdrop-filter regions and the UI
@@ -2305,9 +2333,10 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>Returns (creating on first use) the pipeline for a post-process shader.</summary>
-    private IPipeline GetOrCreatePostProcessPipeline(string shaderPath)
+    private IPipeline GetOrCreatePostProcessPipeline(string shaderPath, bool additive = false)
     {
-        if (_postProcessPipelines.TryGetValue(shaderPath, out var pipeline))
+        var cacheKey = additive ? shaderPath + "#additive" : shaderPath;
+        if (_postProcessPipelines.TryGetValue(cacheKey, out var pipeline))
             return pipeline;
         var shader = Shader.Load(PathUtil.Combine(shaderPath));
         if (!shader.EntryPoints.Any(entry => entry.Name == "vs_main" && entry.Stage == ShaderStageKind.Vertex) ||
@@ -2322,13 +2351,18 @@ public sealed class Renderer : IDisposable
             // Every chain texture (scene, intermediates, display) is linear
             // Rgba16Float, so one pipeline serves all passes.
             ColorFormat = TextureFormat.Rgba16Float,
-            DepthFormat = TextureFormat.Depth24Plus,
+            // No depth attachment: fullscreen passes never read or write depth
+            // (compare always, write disabled). Omitting depth lets a pass write
+            // to a downsized chain target (e.g. the bloom pyramid) without a
+            // size-mismatched depth buffer.
+            DepthFormat = null,
             DepthCompare = CompareFunction.Always,
             DepthWriteEnabled = false,
+            AdditiveBlend = additive,
             VertexLayout = new VertexBufferLayoutDescription { Stride = 0, Attributes = [] },
             BindGroups = shader.BuildBindGroupLayouts()
         });
-        _postProcessPipelines.Add(shaderPath, pipeline);
+        _postProcessPipelines.Add(cacheKey, pipeline);
         return pipeline;
     }
 
@@ -2345,10 +2379,12 @@ public sealed class Renderer : IDisposable
         ITexture to,
         string shaderPath,
         RenderAttributes? attributes,
-        PostProcessSampler sampler)
+        PostProcessSampler sampler,
+        ITexture? secondary = null,
+        bool additive = false)
     {
         var shader = Shader.Load(PathUtil.Combine(shaderPath));
-        var pipeline = GetOrCreatePostProcessPipeline(shaderPath);
+        var pipeline = GetOrCreatePostProcessPipeline(shaderPath, additive);
         var samplerState = sampler == PostProcessSampler.Point ? _postProcessPointSampler : _uiSampler;
 
         // Pack the settings uniform: the shader's group-0 uniform buffer
@@ -2385,8 +2421,16 @@ public sealed class Renderer : IDisposable
                 case ShaderBindingKind.Texture when binding.TypeName == "texture_depth_2d":
                     bindings.Add(new BindGroupBinding { Slot = binding.Slot, Texture = _sceneDepth });
                     break;
+                // Secondary input (multipass effects: bloom's final combine reads
+                // the scene at slot 0 and the accumulated glow at slot 3).
+                case ShaderBindingKind.Texture when binding.Slot == 3:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Texture = secondary ?? from });
+                    break;
                 case ShaderBindingKind.Texture:
                     bindings.Add(new BindGroupBinding { Slot = binding.Slot, Texture = from });
+                    break;
+                case ShaderBindingKind.Sampler when binding.Slot == 4:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Sampler = samplerState });
                     break;
                 case ShaderBindingKind.Sampler:
                     bindings.Add(new BindGroupBinding { Slot = binding.Slot, Sampler = samplerState });
@@ -2404,18 +2448,13 @@ public sealed class Renderer : IDisposable
             Color = new ColorAttachment
             {
                 Texture = to,
-                LoadOp = RenderAttachmentLoadOp.Clear,
+                LoadOp = additive ? RenderAttachmentLoadOp.Load : RenderAttachmentLoadOp.Clear,
                 StoreOp = RenderAttachmentStoreOp.Store,
                 ClearColor = Vector4.Zero
-            },
-            // The pipeline declares a depth format; the scene depth is attached
-            // but untouched (compare always, no writes).
-            Depth = new DepthAttachment
-            {
-                Texture = _sceneDepth,
-                LoadOp = RenderAttachmentLoadOp.Load,
-                StoreOp = RenderAttachmentStoreOp.Store
             }
+            // No depth attachment: the post-process pipelines declare none, so
+            // passes can write to downsized chain targets (the bloom pyramid)
+            // from the single viewport-sized scene depth.
         }))
         {
             pass.SetPipeline(pipeline);
@@ -2455,6 +2494,25 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>
+    /// Returns the bloom pyramid level at <paramref name="index"/>: ½, ¼, ⅛ and
+    /// 1/16 of the viewport (index 0..3). Used by the Bloom effect's separable
+    /// Gaussian pyramid; written by downsample/blur passes and re-read as the
+    /// glow accumulates.
+    /// </summary>
+    internal ITexture GetBloomPyramidTexture(int index)
+    {
+        if ((uint)index >= (uint)_bloomPyramid.Length)
+            throw new ArgumentOutOfRangeException(nameof(index), index, "The bloom pyramid has 4 levels.");
+        return _bloomPyramid[index];
+    }
+
+    /// <summary>Width of a bloom pyramid level at <paramref name="index"/> (1/2^(index+1) of the viewport).</summary>
+    internal int GetBloomLevelWidth(int index) => Math.Max(1, _sceneTargetWidth >> (index + 1));
+
+    /// <summary>Height of a bloom pyramid level at <paramref name="index"/> (1/2^(index+1) of the viewport).</summary>
+    internal int GetBloomLevelHeight(int index) => Math.Max(1, _sceneTargetHeight >> (index + 1));
+
+    /// <summary>
     /// Drops the cached pipeline and shader for a post-process shader path
     /// (called by the editor's shader hot reload after recompiling); the next
     /// frame reloads the shader and recreates the pipeline.
@@ -2463,6 +2521,8 @@ public sealed class Renderer : IDisposable
     {
         if (_postProcessPipelines.Remove(shaderPath, out var pipeline))
             pipeline.Dispose();
+        if (_postProcessPipelines.Remove(shaderPath + "#additive", out var additivePipeline))
+            additivePipeline.Dispose();
         Shader.Invalidate(PathUtil.Combine(shaderPath));
     }
 
@@ -2489,6 +2549,8 @@ public sealed class Renderer : IDisposable
         _displayTexture?.Dispose();
         foreach (var scratch in _postProcessScratch)
             scratch.Dispose();
+        foreach (var target in _bloomPyramid)
+            target.Dispose();
 
         width = Math.Max(1, width);
         height = Math.Max(1, height);
@@ -2548,6 +2610,23 @@ public sealed class Renderer : IDisposable
             {
                 Width = width,
                 Height = height,
+                Format = TextureFormat.Rgba16Float,
+                RenderTarget = true,
+                Sampled = true
+            });
+        }
+
+        // Bloom pyramid: ½, ¼, ⅛ and 1/16 of the viewport. Each level is a
+        // full downsample target written by Bloom.cs; a level is sampled once
+        // to feed the next finer one (and finally the scene combine at full res).
+        _bloomPyramid = new ITexture[4];
+        for (var index = 0; index < _bloomPyramid.Length; index++)
+        {
+            var shift = index + 1;
+            _bloomPyramid[index] = _device.CreateTexture(new TextureDescription
+            {
+                Width = Math.Max(1, width >> shift),
+                Height = Math.Max(1, height >> shift),
                 Format = TextureFormat.Rgba16Float,
                 RenderTarget = true,
                 Sampled = true
@@ -2836,6 +2915,8 @@ public sealed class Renderer : IDisposable
         _postProcessTextureB?.Dispose();
         foreach (var scratch in _postProcessScratch)
             scratch.Dispose();
+        foreach (var target in _bloomPyramid)
+            target.Dispose();
         _postProcessPointSampler?.Dispose();
         foreach (var pipeline in _postProcessPipelines.Values)
             pipeline.Dispose();

@@ -236,6 +236,100 @@ public sealed class PostProcessTests
         Assert.False(volume.TryGetWeight(new Vector3(1.1f, 0f, 0f), out _));
     }
 
+    [Fact]
+    public void Bloom_PropertiesRoundTrip()
+    {
+        using var sourceWorld = new World();
+        var source = sourceWorld.CreateLevel("PostProcess");
+        var entity = sourceWorld.SpawnEntity("PostProcess", source);
+        var component = entity.AddComponent<Bloom>();
+        component.Intensity = 0.9f;
+        component.Threshold = 1.2f;
+        component.ThresholdKnee = 0.4f;
+        component.Scatter = 0.6f;
+        component.DownsampleCount = 3;
+        component.Clamp = 2.5f;
+        component.Order = 4;
+
+        using var loadedWorld = new World();
+        var loaded = LevelSerializer.CreateLevel(
+            loadedWorld,
+            LevelSerializer.Deserialize(LevelSerializer.Serialize(source)));
+
+        var loadedComponent = Assert.Single(loaded.Entities).GetComponent<Bloom>();
+        Assert.NotNull(loadedComponent);
+        Assert.Equal(0.9f, loadedComponent!.Intensity);
+        Assert.Equal(1.2f, loadedComponent.Threshold);
+        Assert.Equal(0.4f, loadedComponent.ThresholdKnee);
+        Assert.Equal(0.6f, loadedComponent.Scatter);
+        Assert.Equal(3, loadedComponent.DownsampleCount);
+        Assert.Equal(2.5f, loadedComponent.Clamp);
+        Assert.Equal(4, loadedComponent.Order);
+        Assert.False(loaded.IsDirty);
+    }
+
+    [Fact]
+    public void Bloom_DefaultsAreSane()
+    {
+        using var world = new World();
+        var level = world.CreateLevel("PostProcess");
+        var component = world.SpawnEntity("PostProcess", level).AddComponent<Bloom>();
+
+        Assert.Equal(1f, component.Intensity);
+        Assert.Equal(1f, component.Threshold);
+        Assert.Equal(0.5f, component.ThresholdKnee);
+        Assert.Equal(0.7f, component.Scatter);
+        Assert.Equal(4, component.DownsampleCount);
+        Assert.Equal(3.5f, component.Clamp);
+        Assert.Equal(0, component.Order);
+    }
+
+    [Fact]
+    public void Bloom_ResolvesByShortName()
+    {
+        // Moving a demo effect into the engine exposes it to the level format's
+        // short-name component index and the editor's Add Component list.
+        var type = GlobalNamespaces.TypeLibrary.Registry.Resolve("Bloom");
+        Assert.Equal(typeof(Bloom), type);
+    }
+
+    [Fact]
+    public void BloomCombineShader_ExposesTypedUniformFieldAndSecondInput()
+    {
+        var shader = Shader.Load("Shaders/PostProcesses/BloomCombine.wgsl");
+
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "BloomCombineUniforms");
+        Assert.Contains(uniforms.Fields, field => field.Name == "intensity");
+        // The final combine reads two inputs: scene at slot 0 and glow at slot 3.
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "sceneTexture" && binding.Slot == 0u);
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "glowTexture" && binding.Slot == 3u);
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "glowSampler" && binding.Slot == 4u);
+        Assert.Contains(shader.Bindings, binding =>
+            binding.VariableName == "postProcess" && binding.Kind == ShaderBindingKind.UniformBuffer);
+    }
+
+    [Fact]
+    public void BloomPrefilterUniformStruct_IsPackedToTheWgslUniformSize()
+    {
+        var shader = Shader.Load("Shaders/PostProcesses/BloomPrefilter.wgsl");
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "BloomPrefilterUniforms");
+        Assert.Contains(uniforms.Fields, field => field.Name == "threshold");
+        Assert.Contains(uniforms.Fields, field => field.Name == "thresholdKnee");
+        Assert.Contains(uniforms.Fields, field => field.Name == "clamp_");
+
+        Assert.Equal(16, UniformPacker.ComputeStructSize(uniforms.Fields));
+    }
+
+    [Fact]
+    public void BloomDownsampleUniformStruct_IsPackedToTheWgslUniformSize()
+    {
+        var shader = Shader.Load("Shaders/PostProcesses/BloomDownsample.wgsl");
+        var uniforms = Assert.Single(shader.Structs, structure => structure.Name == "BloomDownsampleUniforms");
+        Assert.Contains(uniforms.Fields, field => field.Name == "invTexel");
+
+        Assert.Equal(16, UniformPacker.ComputeStructSize(uniforms.Fields));
+    }
+
     private static float AsFloat(ShaderParameter parameter) =>
         parameter is float value ? value : throw new InvalidOperationException($"Expected a float uniform, got {parameter.TypeName}.");
 

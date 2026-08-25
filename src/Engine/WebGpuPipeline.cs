@@ -62,15 +62,15 @@ public sealed unsafe class WebGpuPipeline : IPipeline
             // renders opaque. Blend is declared per pipeline in the description.
             BlendState blend = default;
             BlendState* blendPtr = null;
-            if (description.AlphaBlend)
+            if (description.AlphaBlend || description.AdditiveBlend)
             {
                 blend = new BlendState
                 {
                     Color = new BlendComponent
                     {
                         Operation = BlendOperation.Add,
-                        SrcFactor = BlendFactor.SrcAlpha,
-                        DstFactor = BlendFactor.OneMinusSrcAlpha
+                        SrcFactor = description.AdditiveBlend ? BlendFactor.One : BlendFactor.SrcAlpha,
+                        DstFactor = description.AdditiveBlend ? BlendFactor.One : BlendFactor.OneMinusSrcAlpha
                     },
                     Alpha = new BlendComponent
                     {
@@ -126,14 +126,20 @@ public sealed unsafe class WebGpuPipeline : IPipeline
                 Buffers = description.VertexLayout.Attributes.Length == 0 ? null : &vertexBufferLayout
             };
 
-            var depthStencil = new DepthStencilState
+            DepthStencilState* depthStencilPtr = null;
+            DepthStencilState depthStencil = default;
+            if (description.DepthFormat is not null)
             {
-                Format = WebGpuNative.ToNative(description.DepthFormat),
-                DepthWriteEnabled = description.DepthWriteEnabled,
-                DepthCompare = WebGpuNative.ToNative(description.DepthCompare),
-                StencilFront = new StencilFaceState { Compare = Silk.NET.WebGPU.CompareFunction.Always },
-                StencilBack = new StencilFaceState { Compare = Silk.NET.WebGPU.CompareFunction.Always }
-            };
+                depthStencil = new DepthStencilState
+                {
+                    Format = WebGpuNative.ToNative(description.DepthFormat.Value),
+                    DepthWriteEnabled = description.DepthWriteEnabled,
+                    DepthCompare = WebGpuNative.ToNative(description.DepthCompare),
+                    StencilFront = new StencilFaceState { Compare = Silk.NET.WebGPU.CompareFunction.Always },
+                    StencilBack = new StencilFaceState { Compare = Silk.NET.WebGPU.CompareFunction.Always }
+                };
+                depthStencilPtr = &depthStencil;
+            }
 
             var pipelineDescriptor = new RenderPipelineDescriptor
             {
@@ -145,7 +151,7 @@ public sealed unsafe class WebGpuPipeline : IPipeline
                     FrontFace = FrontFace.Ccw,
                     CullMode = WebGpuNative.ToNative(description.CullMode)
                 },
-                DepthStencil = &depthStencil,
+                DepthStencil = depthStencilPtr,
                 Multisample = new MultisampleState { Count = (uint)Math.Max(1, description.SampleCount), Mask = 0xFFFFFFFF },
                 Fragment = &fragment
             };

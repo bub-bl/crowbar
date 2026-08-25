@@ -94,9 +94,16 @@ The context gives you:
 - `Depth` — the scene's depth texture (depth of field, fog).
 - `GetScratchTexture(index)` — four extra `Rgba16Float` targets for internal
   ping-pong.
+- `GetBloomLevelTexture(index)` / `GetBloomLevelWidth/Height(index)` — the
+  downsized bloom pyramid (½, ¼, ⅛, 1/16), used by Bloom.
 - `Blit(from, to, shaderPath, attributes)` — one fullscreen pass; the shader's
   group-0 uniform buffer is packed from the `RenderAttributes` bag by field
   name.
+- `BlitAdditive(from, to, shaderPath, attributes)` — the same pass with a loaded
+  target and additive color blending, used to accumulate bloom pyramid levels.
+- `Blit(from, to, shaderPath, attributes, secondary)` — the same, additionally
+  binding a second texture at slot 3 (and its sampler at slot 4), for effects
+  that read two inputs at once (Bloom's final scene + glow combine).
 
 ## Shader convention
 
@@ -111,6 +118,8 @@ everything else from reflection:
   packed by name from the attributes/`[Property]` values, with trailing
   underscores and case ignored (`operator_` ↔ `Operator`),
 - optional `texture_depth_2d` binding — bound to the scene depth,
+- for two-input passes (Bloom's combine): a **secondary texture at slot 3**
+  and its **sampler at slot 4**,
 - `vs_main` / `fs_main` entry points.
 
 ## Spatial volumes and blending
@@ -144,3 +153,21 @@ first-class component: `src/Engine/World/Vignette.cs` drives
 other (edit the `.slang` while the editor runs to see it in action). Attach
 **Vignette** to any entity from the inspector; it blends across
 `PostProcessVolume` instances through `BasePostProcess<T>.GetWeighted`.
+
+## The bloom
+
+The engine ships a Gaussian-pyramid `Bloom` post-process in the style of
+Unreal and Unity: `src/Engine/World/Bloom.cs` drives
+`Shaders/PostProcesses/Bloom{Prefilter,Downsample,Upsample,Combine}.slang`.
+It extracts the brights from the linear HDR scene, downsamples them into a
+half-res pyramid, blurs them outward through an upsample cascade, and adds
+the glow back before tonemapping (so the two compose). The final combine
+reads the scene (slot 0) and the glow (slot 3) in one pass through the
+secondary-input `Blit` overload.
+
+Attach **Bloom** to any entity from the inspector and tune
+`Intensity`, `Threshold`/`ThresholdKnee`, `Scatter`, `DownsampleCount` and
+`Clamp`; it blends across `PostProcessVolume` instances like every other
+`BasePostProcess<T>`. Because bloom is multi-pass, drive it from the renderer's
+bloom pyramid (`GetBloomLevelTexture`) rather than the full-res scratch pool,
+so the downsample and upsample passes run at the right resolutions.
