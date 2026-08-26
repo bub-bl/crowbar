@@ -112,20 +112,21 @@ public static class DemoScene
         // when that buffer is present the loader bakes the node transforms
         // (PreTransformVertices) and converts both PBR materials. Until then it
         // reports the missing file and falls back to the error model.
+        // This Sketchfab asset is authored in arbitrary units (~110 units tall);
+        // supplying an import scale of 0.01 (centimeters) normalizes it to
+        // meters at import time — a ~1.1 m work light on its tripod — so no
+        // per-scene rescale is needed.
+        var workLightModel = ResourceLibrary.LoadModel(
+            "Content/Models/industrial_work_light/industrial_work_light.gltf",
+            importScale: 0.01f);
+
         var workLight = level.SpawnEntity("IndustrialWorkLight");
         var workLightMesh = workLight.AddComponent<MeshRenderer>();
-        var workLightModel = ResourceLibrary.LoadModel("Content/Models/industrial_work_light/industrial_work_light.gltf");
         workLightMesh.Model = workLightModel;
-
-        // Sketchfab models arrive with arbitrary extents; normalize the bounds
-        // to roughly two units so a real asset fits the demo scene.
-        var workLightExtent = workLightModel.Bounds.Max - workLightModel.Bounds.Min;
-        var workLightMaxExtent = MathF.Max(workLightExtent.X, MathF.Max(workLightExtent.Y, workLightExtent.Z));
-        var workLightScale = workLightMaxExtent > 0.001f ? 2f / workLightMaxExtent : 1f;
         workLightMesh.Local = new Transform(
             new Vector3(-1.6f, 0.5f, -1.6f),
             Rotation.FromYaw(-25f),
-            new Vector3(workLightScale));
+            Vector3.One);
 
         return level;
     }
