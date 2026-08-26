@@ -5,6 +5,7 @@ import Vertex;
 import VertexTransform;
 import Material;
 import ShadingModelStandard;
+import Velocity;
 
 struct MaterialUniforms
 {
@@ -16,15 +17,17 @@ struct MaterialUniforms
 
 [[vk::binding(0, 1)]] ConstantBuffer<float4x4> model;
 [[vk::binding(1, 1)]] ConstantBuffer<MaterialUniforms> material;
+// The object's transform in the previous frame, for per-object motion vectors.
+[[vk::binding(2, 1)]] ConstantBuffer<float4x4> previousModel;
 
 [shader("vertex")]
 VertexOutput vs_main(VertexInput input)
 {
-    return VertexTransform::ToClip(input, model);
+    return VertexTransform::ToClip(input, model, previousModel);
 }
 
 [shader("fragment")]
-float4 fs_main(VertexOutput input) : SV_Target
+FragmentOutput fs_main(VertexOutput input)
 {
     Material m = Material::Init(input);
     m.BaseColor = material.color.rgb;
@@ -33,5 +36,8 @@ float4 fs_main(VertexOutput input) : SV_Target
     m.Emissive = material.emissive * material.color.rgb;
     m.Opacity = material.color.a;
 
-    return ShadingModelStandard::Shade(m);
+    FragmentOutput output;
+    output.color = ShadingModelStandard::Shade(m);
+    output.velocity = Velocity::Compute(input);
+    return output;
 }

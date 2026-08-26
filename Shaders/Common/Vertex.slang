@@ -19,4 +19,8 @@ public struct VertexOutput
     [[vk::location(1)]] float3 normal : TEXCOORD1;
     [[vk::location(2)]] float4 tangent : TEXCOORD2;
     [[vk::location(3)]] float2 uv : TEXCOORD3;
+    // The clip-space position of this vertex in the previous frame, used to
+    // compute per-pixel motion vectors (current - previous NDC) for TAA and
+    // motion blur.
+    [[vk::location(4)]] float4 previous_clip_position : TEXCOORD4;
 };

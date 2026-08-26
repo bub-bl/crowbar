@@ -24,13 +24,17 @@ namespace Crowbar.Engine.Rendering;
 public sealed class Renderer : IDisposable
 {
     // Mirrors CameraUniforms in Shaders/Common/Camera.slang: view, projection,
-    // camera position and the clock. Written once per frame, shared by every
-    // mesh pipeline through bind group 0.
+    // previous view-projection, sub-pixel projection jitter, camera position and
+    // the clock. Written once per frame, shared by every mesh pipeline through
+    // bind group 0.
     [StructLayout(LayoutKind.Sequential)]
     private struct CameraUniforms
     {
         public Matrix4x4 View;
         public Matrix4x4 Projection;
+        public Matrix4x4 PreviousViewProj;
+        // xy = this frame's projection jitter (UV), zw = previous frame's.
+        public Vector4 Jitter;
         public Vector4 CameraPosition;
         public Vector4 Time;
     }
@@ -133,6 +137,9 @@ public sealed class Renderer : IDisposable
         public required string Technique { get; init; }
         public required int MaterialRevision { get; init; }
         public required IBuffer ModelBuffer { get; init; }
+        public IBuffer? PreviousModelBuffer { get; init; }
+        public Matrix4x4 PreviousModelMatrix { get; set; }
+        public bool HasPreviousModel { get; set; }
         public IBuffer? MaterialBuffer { get; init; }
         public required IBindGroup BindGroup { get; init; }
     }
@@ -212,8 +219,10 @@ public sealed class Renderer : IDisposable
     public void SetSceneViewport(UiRect? viewport) => _sceneViewport = viewport;
 
     // Camera: the per-frame view/projection/position, written into the shared
-    // camera buffer each frame.
+    // camera buffer each frame. PreviousViewProj is the previous frame's
+    // view * projection, needed for motion vectors.
     private CameraUniforms _cameraUniforms;
+    private Matrix4x4 _previousViewProj = Matrix4x4.Identity;
 
     // Mesh scene pass. Group 0 holds the per-frame camera + lights buffers;
     // group 1 is per-renderable (model, material, textures) and its layout is
@@ -341,6 +350,11 @@ public sealed class Renderer : IDisposable
     private ITexture _sceneTexture = null!;
     private IBindGroup _sceneBindGroup = null!;
 
+    // Motion vectors: a viewport-sized Rg16Float target written (as the second
+    // MRT) alongside the scene color during the same pass. Stores per-pixel
+    // screen-space velocity (current UV - previous UV) for TAA and motion blur.
+    private ITexture _velocityTexture = null!;
+
     // Post-process chain: the enabled PostProcess components run in order,
     // ping-ponging the linear HDR scene through HDR intermediates, and the
     // last pass writes this display-referred texture, which the surface
@@ -360,6 +374,11 @@ public sealed class Renderer : IDisposable
     private ITexture[] _bloomPyramid = [];
     private ITexture[] _depthOfFieldTargets = [];
     private ISampler _postProcessPointSampler = null!;
+    // TAA history: a persisted pair of viewport-sized linear HDR targets. The
+    // TAA pass writes the accumulated frame into one while sampling the other
+    // (the previous frame's result); roles swap at the end of each frame.
+    private ITexture[] _taaHistory = [];
+    private int _taaHistoryWriteIndex;
     // Components already announced once in the console (per session).
     private readonly HashSet<PostProcess> _loggedPostProcessDrivers = [];
     private bool _loggedIdentityCopy;
@@ -433,7 +452,7 @@ public sealed class Renderer : IDisposable
         CreateUi2DResources();
         _ui2d = new Renderer2D(_device);
         _uiPainter = new UiTreePainter(_ui2d);
-        UpdateCamera(new Camera());
+        UpdateCamera(new Camera(), jitterAmount: 0f);
     }
 
     public void Render(World? world, Camera camera, double time, UiSystem ui)
@@ -441,7 +460,21 @@ public sealed class Renderer : IDisposable
         if (_disposed)
             return;
 
-        UpdateCamera(camera);
+        float temporalJitter = 0f;
+        if (world is not null && camera.EnablePostProcessing)
+        {
+            foreach (var component in world.Query<PostProcess>())
+            {
+                if (component is TemporalAA { Enabled: true } taa)
+                {
+                    temporalJitter = Math.Clamp(taa.JitterAmount, 0f, 1f);
+                    break;
+                }
+            }
+        }
+
+        UpdateCamera(camera, temporalJitter);
+        FrameIndex++;
 
         var viewport = SceneViewport;
         EnsureSceneTargets(viewport);
@@ -478,6 +511,16 @@ public sealed class Renderer : IDisposable
                     StoreOp = RenderAttachmentStoreOp.Store,
                     ClearColor = new Vector4(0f, 0f, 0f, 1f)
                 },
+                AdditionalColorAttachments =
+                [
+                    new ColorAttachment
+                    {
+                        Texture = _velocityTexture,
+                        LoadOp = RenderAttachmentLoadOp.Clear,
+                        StoreOp = RenderAttachmentStoreOp.Store,
+                        ClearColor = Vector4.Zero
+                    }
+                ],
                 Depth = new DepthAttachment
                 {
                     Texture = _sceneDepth,
@@ -730,17 +773,80 @@ public sealed class Renderer : IDisposable
         EnsureSceneTargets(SceneViewport);
     }
 
-    private void UpdateCamera(Camera camera)
+    private void UpdateCamera(Camera camera, float jitterAmount)
     {
         var viewport = SceneViewport;
-        var matrices = CameraMatrices.Compute(camera, Math.Max(1, (int)viewport.Width), Math.Max(1, (int)viewport.Height));
+        var width = Math.Max(1, (int)viewport.Width);
+        var height = Math.Max(1, (int)viewport.Height);
+        var matrices = CameraMatrices.Compute(camera, width, height);
+
+        // Sub-pixel projection jitter (Halton sequence) that moves each frame's
+        // sample within a pixel. Temporal accumulation (TAA) averages these
+        // off-center samples, which is what turns an aliased edge into a smooth
+        // one — without jitter a TAA pass has nothing to average and is a visual
+        // no-op. The jitter is applied to the projection (and captured into the
+        // previous view-projection) so the scene render shifts by under a pixel
+        // each frame; the motion-vector shader subtracts it so the velocity
+        // buffer holds real motion, not the jitter. The amplitude is set by the
+        // active TAA component (0 disables it, avoiding the visible per-frame
+        // pixel crawl when no temporal effect is running).
+        var jitterUvCurrent = Vector2.Zero;
+        var jitterPixels = Vector2.Zero;
+        var projection = matrices.Projection;
+        if (jitterAmount > 0f)
+        {
+            var jitterX = (Halton(FrameIndex, 2) - 0.5f) * jitterAmount;
+            var jitterY = (Halton(FrameIndex, 3) - 0.5f) * jitterAmount;
+            jitterUvCurrent = new Vector2(jitterX / width, jitterY / height);
+            jitterPixels = new Vector2(jitterX, jitterY);
+
+            // NDC shift: x by 2*jx/width, y by -2*jy/height (screen y is down,
+            // NDC y is up). Applied after projection so clip.xy/w moves by that
+            // amount.
+            var shift = Matrix4x4.CreateTranslation(new Vector3(2f * jitterX / width, -2f * jitterY / height, 0f));
+            projection = matrices.Projection * shift;
+        }
+
+        // Capture this frame as the "previous" view-projection for the next
+        // frame's motion vectors. The combined view-projection is built the
+        // same way as the shadow passes' proven viewProj = view * projection
+        // (see BuildDirectionalShadow), so it composes correctly with the
+        // shader's mul(viewProj, world). The first frame's velocities are
+        // identity (static).
+        var currentViewProj = matrices.View * projection;
+
         _cameraUniforms = new CameraUniforms
         {
             View = matrices.View,
-            Projection = matrices.Projection,
+            Projection = projection,
+            PreviousViewProj = _previousViewProj,
+            Jitter = new Vector4(jitterUvCurrent.X, jitterUvCurrent.Y, _jitterPreviousUv.X, _jitterPreviousUv.Y),
             CameraPosition = new Vector4(camera.Position, 1f),
             Time = new Vector4(0f, 0f, 0f, 0f)
         };
+        _previousViewProj = currentViewProj;
+        _jitterPreviousUv = jitterUvCurrent;
+        _jitterPixels = jitterPixels;
+    }
+
+    // Sub-pixel projection jitter state. FrameIndex advances each render; the
+    // Halton offsets roll across the pixel in a non-repeating pattern.
+    private int FrameIndex { get; set; }
+    private Vector2 _jitterPreviousUv;
+    private Vector2 _jitterPixels;
+
+    private static float Halton(int index, int b)
+    {
+        var result = 0f;
+        var f = 1f;
+        var i = index;
+        while (i > 0)
+        {
+            f /= b;
+            result += f * (i % b);
+            i /= b;
+        }
+        return result;
     }
 
     /// <summary>Clamps the host viewport to the framebuffer so its targets never exceed the window.</summary>
@@ -881,6 +987,7 @@ public sealed class Renderer : IDisposable
         VertexEntryPoint = "vs_main",
         FragmentEntryPoint = "fs_main",
         ColorFormat = colorFormat,
+        AdditionalColorFormats = [TextureFormat.Rg16Float],
         DepthFormat = TextureFormat.Depth24Plus,
         DepthWriteEnabled = false,
         DepthCompare = CompareFunction.LessEqual,
@@ -1344,6 +1451,20 @@ public sealed class Renderer : IDisposable
 
             var modelMatrix = item.ModelMatrix;
             renderable.ModelBuffer.Write(in modelMatrix);
+
+            // The previous model matrix drives the per-object component of the motion
+            // vector. On a renderable's first frame there is no previous state,
+            // so use the current matrix (the object contributes no motion until
+            // its transform changes); cache this frame's for the next one.
+            if (renderable.PreviousModelBuffer is not null)
+            {
+                var previousModelMatrix = renderable.HasPreviousModel
+                    ? renderable.PreviousModelMatrix
+                    : modelMatrix;
+                renderable.PreviousModelBuffer.Write(in previousModelMatrix);
+                renderable.PreviousModelMatrix = modelMatrix;
+                renderable.HasPreviousModel = true;
+            }
 
             var buffers = GetMeshBuffers(item.Mesh);
             pass.SetVertexBuffer(buffers.VertexBuffer, buffers.VertexBuffer.Size);
@@ -1954,9 +2075,11 @@ public sealed class Renderer : IDisposable
             ShaderSource = shader.Source,
             VertexEntryPoint = technique.VertexEntryPoint,
             FragmentEntryPoint = technique.FragmentEntryPoint,
-            // The scene pass renders linear HDR into the float scene target;
+            // The scene pass renders linear HDR into the float scene target
+            // plus motion vectors into a second Rg16Float target (MRT);
             // the post-process pass applies the display transform.
             ColorFormat = TextureFormat.Rgba16Float,
+            AdditionalColorFormats = [TextureFormat.Rg16Float],
             DepthFormat = TextureFormat.Depth24Plus,
             AlphaBlend = blendMode == MaterialBlendMode.Blend,
             DepthWriteEnabled = blendMode == MaterialBlendMode.Opaque,
@@ -2078,11 +2201,23 @@ public sealed class Renderer : IDisposable
             Usage = BufferUsage.Uniform | BufferUsage.CopyDst
         });
 
+        // The previous frame's model matrix, written each frame so geometry that
+        // moved produces per-object motion vectors. Bound in group 1 like model.
+        var previousModelBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = 64,
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+
         var bindings = new List<BindGroupBinding>();
         foreach (var binding in shader.Bindings.Where(b => b.Group == 1).OrderBy(b => b.Slot))
         {
             switch (binding.Kind)
             {
+                case ShaderBindingKind.UniformBuffer when binding.TypeName is "mat4x4<f32>" or "mat4f" &&
+                                                          binding.VariableName == "previousModel":
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Buffer = previousModelBuffer, BufferSize = 64 });
+                    break;
                 case ShaderBindingKind.UniformBuffer when binding.TypeName is "mat4x4<f32>" or "mat4f":
                     bindings.Add(new BindGroupBinding { Slot = binding.Slot, Buffer = modelBuffer, BufferSize = 64 });
                     break;
@@ -2121,6 +2256,8 @@ public sealed class Renderer : IDisposable
             Technique = material.Technique,
             MaterialRevision = material.Revision,
             ModelBuffer = modelBuffer,
+            PreviousModelBuffer = previousModelBuffer,
+            PreviousModelMatrix = Matrix4x4.Identity,
             MaterialBuffer = materialBuffer,
             BindGroup = pipeline.CreateBindGroup(1, bindings)
         };
@@ -2203,6 +2340,7 @@ public sealed class Renderer : IDisposable
 
         resources.BindGroup.Dispose();
         resources.ModelBuffer.Dispose();
+        resources.PreviousModelBuffer?.Dispose();
         resources.MaterialBuffer?.Dispose();
     }
 
@@ -2358,9 +2496,9 @@ public sealed class Renderer : IDisposable
     };
 
     /// <summary>Returns (creating on first use) the pipeline for a post-process shader.</summary>
-    private IPipeline GetOrCreatePostProcessPipeline(string shaderPath, bool additive = false)
+    private IPipeline GetOrCreatePostProcessPipeline(string shaderPath, bool additive = false, int colorTargetCount = 1)
     {
-        var cacheKey = additive ? shaderPath + "#additive" : shaderPath;
+        var cacheKey = additive ? shaderPath + "#additive" : colorTargetCount > 1 ? shaderPath + "#taa" : shaderPath;
         if (_postProcessPipelines.TryGetValue(cacheKey, out var pipeline))
             return pipeline;
         var shader = Shader.Load(PathUtil.Combine(shaderPath));
@@ -2374,8 +2512,11 @@ public sealed class Renderer : IDisposable
             VertexEntryPoint = "vs_main",
             FragmentEntryPoint = "fs_main",
             // Every chain texture (scene, intermediates, display) is linear
-            // Rgba16Float, so one pipeline serves all passes.
+            // Rgba16Float, so one pipeline serves all passes. TAA additionally
+            // writes its accumulated frame into a Rgba16Float history target
+            // via a second render target, so its pipeline declares two.
             ColorFormat = TextureFormat.Rgba16Float,
+            AdditionalColorFormats = colorTargetCount > 1 ? [TextureFormat.Rgba16Float] : null,
             // No depth attachment: fullscreen passes never read or write depth
             // (compare always, write disabled). Omitting depth lets a pass write
             // to a downsized chain target (e.g. the bloom pyramid) without a
@@ -2488,6 +2629,114 @@ public sealed class Renderer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Runs the temporal-AA pass: reprojects the previous frame's history
+    /// through the screen-space motion vectors, blends it with the current
+    /// frame, and writes the accumulated result to both <paramref name="to"/>
+    /// (the chain output) and the TAA history write target (MRT), so next
+    /// frame's pass samples the just-written accumulation. Advances the
+    /// history ping-pong at the end.
+    /// </summary>
+    internal void RunTemporalAAPass(
+        ICommandBuffer commandBuffer,
+        ITexture from,
+        ITexture to,
+        string shaderPath,
+        RenderAttributes? attributes,
+        PostProcessSampler sampler)
+    {
+        if (_taaHistory.Length == 0 || _velocityTexture is null)
+        {
+            // No velocity/history available (should not happen after scene
+            // resources are created): forward the input unchanged through a
+            // single-target copy so the chain still advances without temporal
+            // accumulation. The TAA shader declares two fragment outputs, so it
+            // cannot run against a single-attachment pass.
+            RunPostProcessPass(commandBuffer, from, to, "Shaders/PostProcesses/Copy.slang", null, sampler, secondary: null);
+            return;
+        }
+
+        var shader = Shader.Load(PathUtil.Combine(shaderPath));
+        var pipeline = GetOrCreatePostProcessPipeline(shaderPath, colorTargetCount: 2);
+        var samplerState = sampler == PostProcessSampler.Point ? _postProcessPointSampler : _uiSampler;
+        var historyRead = _taaHistory[1 - _taaHistoryWriteIndex];
+
+        var uniformBinding = shader.Bindings.FirstOrDefault(binding =>
+            binding.Group == 0 && binding.Kind == ShaderBindingKind.UniformBuffer);
+        IBuffer? uniformBuffer = null;
+        var uniformSize = 0ul;
+        if (uniformBinding is not null)
+        {
+            var fields = shader.Structs
+                .FirstOrDefault(structure => structure.Name == uniformBinding.TypeName)?.Fields;
+            if (fields is { Count: > 0 })
+            {
+                uniformSize = (ulong)UniformPacker.ComputeStructSize(fields);
+                uniformBuffer = _device.CreateBuffer(new BufferDescription
+                {
+                    Size = uniformSize,
+                    Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+                });
+                uniformBuffer.Write(UniformPacker.Pack(fields, PackAttributes(fields, attributes)));
+                _postProcessFrameResources.Add(uniformBuffer);
+            }
+        }
+
+        var bindings = new List<BindGroupBinding>();
+        foreach (var binding in shader.Bindings.Where(binding => binding.Group == 0))
+        {
+            switch (binding.Kind)
+            {
+                case ShaderBindingKind.Texture when binding.Slot == 5:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Texture = _velocityTexture });
+                    break;
+                case ShaderBindingKind.Texture when binding.Slot == 3:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Texture = historyRead });
+                    break;
+                case ShaderBindingKind.Texture:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Texture = from });
+                    break;
+                case ShaderBindingKind.Sampler:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Sampler = samplerState });
+                    break;
+                case ShaderBindingKind.UniformBuffer when uniformBuffer is not null:
+                    bindings.Add(new BindGroupBinding { Slot = binding.Slot, Buffer = uniformBuffer, BufferSize = uniformSize });
+                    break;
+            }
+        }
+        var bindGroup = pipeline.CreateBindGroup(bindings);
+        _postProcessFrameResources.Add(bindGroup);
+
+        var historyWrite = _taaHistory[_taaHistoryWriteIndex];
+        using (IRenderPass pass = commandBuffer.BeginRenderPass(new RenderPassDescription
+        {
+            Color = new ColorAttachment
+            {
+                Texture = to,
+                LoadOp = RenderAttachmentLoadOp.Clear,
+                StoreOp = RenderAttachmentStoreOp.Store,
+                ClearColor = Vector4.Zero
+            },
+            AdditionalColorAttachments =
+            [
+                new ColorAttachment
+                {
+                    Texture = historyWrite,
+                    LoadOp = RenderAttachmentLoadOp.Clear,
+                    StoreOp = RenderAttachmentStoreOp.Store,
+                    ClearColor = Vector4.Zero
+                }
+            ]
+        }))
+        {
+            pass.SetPipeline(pipeline);
+            pass.SetBindGroup(bindGroup, 0);
+            pass.Draw(3);
+        }
+
+        AdvanceTemporalAAHistory();
+    }
+
     /// <summary>Maps the attribute bag onto the uniform struct's fields by name.</summary>
     private static Dictionary<string, ShaderParameter> PackAttributes(
         IReadOnlyList<ShaderStructField> fields,
@@ -2540,6 +2789,24 @@ public sealed class Renderer : IDisposable
     internal int SceneTargetWidth => _sceneTargetWidth;
     internal int SceneTargetHeight => _sceneTargetHeight;
 
+    /// <summary>The scene's screen-space motion-vector target (Rg16Float).</summary>
+    internal ITexture? VelocityTexture => _velocityTexture;
+
+    /// <summary>This frame's sub-pixel projection jitter (pixels, screen y down).</summary>
+    internal Vector2 CurrentJitterPixels => _jitterPixels;
+
+    /// <summary>The previous frame's TAA-accumulated history (the read target).</summary>
+    internal ITexture? GetTemporalAAHistoryRead() =>
+        _taaHistory.Length == 0 ? null : _taaHistory[1 - _taaHistoryWriteIndex];
+
+    /// <summary>Advances the TAA history ping-pong after the current frame is accumulated.</summary>
+    internal void AdvanceTemporalAAHistory()
+    {
+        if (_taaHistory.Length == 0)
+            return;
+        _taaHistoryWriteIndex = 1 - _taaHistoryWriteIndex;
+    }
+
     /// <summary>Returns the depth-of-field ping-pong target at <paramref name="index"/> (half-resolution).</summary>
     internal ITexture GetDepthOfFieldTexture(int index)
     {
@@ -2582,12 +2849,15 @@ public sealed class Renderer : IDisposable
         _postProcessTextureA?.Dispose();
         _postProcessTextureB?.Dispose();
         _sceneTexture?.Dispose();
+        _velocityTexture?.Dispose();
         _displayTexture?.Dispose();
         foreach (var scratch in _postProcessScratch)
             scratch.Dispose();
         foreach (var target in _bloomPyramid)
             target.Dispose();
         foreach (var target in _depthOfFieldTargets)
+            target.Dispose();
+        foreach (var target in _taaHistory)
             target.Dispose();
 
         width = Math.Max(1, width);
@@ -2601,6 +2871,18 @@ public sealed class Renderer : IDisposable
             Width = width,
             Height = height,
             Format = TextureFormat.Rgba16Float,
+            RenderTarget = true,
+            Sampled = true
+        });
+
+        // Motion vectors: the second MRT of the scene pass. Rg16Float gives the
+        // two velocity components sub-8-bit precision, enough for TAA's
+        // sub-pixel reprojection, at half the memory of an RGBA target.
+        _velocityTexture = _device.CreateTexture(new TextureDescription
+        {
+            Width = width,
+            Height = height,
+            Format = TextureFormat.Rg16Float,
             RenderTarget = true,
             Sampled = true
         });
@@ -2683,6 +2965,24 @@ public sealed class Renderer : IDisposable
                 Sampled = true
             });
         }
+
+        // TAA history: two full-res linear HDR targets ping-ponged across
+        // frames so the temporal accumulator can reproject the previous frame
+        // through the motion vectors (the history is cleared on resize, so the
+        // first post-resize frame converges from scratch).
+        _taaHistory = new ITexture[2];
+        for (var index = 0; index < _taaHistory.Length; index++)
+        {
+            _taaHistory[index] = _device.CreateTexture(new TextureDescription
+            {
+                Width = width,
+                Height = height,
+                Format = TextureFormat.Rgba16Float,
+                RenderTarget = true,
+                Sampled = true
+            });
+        }
+        _taaHistoryWriteIndex = 0;
 
         _sceneBindGroup = _scenePipeline.CreateBindGroup(
         [
@@ -2972,6 +3272,7 @@ public sealed class Renderer : IDisposable
 
         _sceneBindGroup?.Dispose();
         _sceneTexture?.Dispose();
+        _velocityTexture?.Dispose();
         _displayTexture?.Dispose();
         DisposePostProcessFrameResources();
         _postProcessTextureA?.Dispose();
@@ -2981,6 +3282,8 @@ public sealed class Renderer : IDisposable
         foreach (var target in _bloomPyramid)
             target.Dispose();
         foreach (var target in _depthOfFieldTargets)
+            target.Dispose();
+        foreach (var target in _taaHistory)
             target.Dispose();
         _postProcessPointSampler?.Dispose();
         foreach (var pipeline in _postProcessPipelines.Values)
@@ -3001,6 +3304,7 @@ public sealed class Renderer : IDisposable
         {
             resources.BindGroup.Dispose();
             resources.ModelBuffer.Dispose();
+            resources.PreviousModelBuffer?.Dispose();
             resources.MaterialBuffer?.Dispose();
         }
         _renderables.Clear();

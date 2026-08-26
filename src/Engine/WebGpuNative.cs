@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using Silk.NET.WebGPU;
 using Crowbar.Engine.Rendering;
@@ -112,31 +113,16 @@ internal static unsafe class WebGpuNative
         RenderPassDescription description)
     {
         // Depth-only passes (shadow maps) declare no color attachment.
-        RenderPassColorAttachment colorAttachment = default;
-        RenderPassColorAttachment* colorAttachmentPtr = null;
+        Span<RenderPassColorAttachment> colorAttachments = stackalloc RenderPassColorAttachment[
+            (description.Color is null ? 0 : 1) + (description.AdditionalColorAttachments?.Count ?? 0)];
+        var count = 0;
         if (description.Color is not null)
+            AppendColorAttachment(colorAttachments, ref count, description.Color);
+
+        if (description.AdditionalColorAttachments is not null)
         {
-            // A multisampled attachment cannot be stored directly: it resolves into
-            // its companion single-sample texture at pass end (and, per the WebGPU
-            // spec, the multisampled attachment itself must then be discarded).
-            var resolve = description.Color.ResolveTarget as WebGpuTexture;
-            colorAttachment = new RenderPassColorAttachment
-            {
-                View = ((WebGpuTexture)description.Color.Texture).View,
-                LoadOp = ToNative(description.Color.LoadOp),
-                StoreOp = resolve is not null
-                    ? Silk.NET.WebGPU.StoreOp.Discard
-                    : ToNative(description.Color.StoreOp),
-                ResolveTarget = resolve?.View,
-                ClearValue = new Color
-                {
-                    R = description.Color.ClearColor.X,
-                    G = description.Color.ClearColor.Y,
-                    B = description.Color.ClearColor.Z,
-                    A = description.Color.ClearColor.W
-                }
-            };
-            colorAttachmentPtr = &colorAttachment;
+            foreach (var attachment in description.AdditionalColorAttachments)
+                AppendColorAttachment(colorAttachments, ref count, attachment);
         }
 
         RenderPassDepthStencilAttachment depthAttachment = default;
@@ -155,13 +141,50 @@ internal static unsafe class WebGpuNative
 
         var descriptor = new RenderPassDescriptor
         {
-            ColorAttachmentCount = description.Color is null ? 0u : 1u,
-            ColorAttachments = colorAttachmentPtr,
+            ColorAttachmentCount = (uint)count,
             DepthStencilAttachment = depthAttachmentPtr
         };
 
-        return new((nint)api.CommandEncoderBeginRenderPass(
-            (CommandEncoder*)encoder.NativeHandle, in descriptor));
+        WebGpuRenderPassEncoder result;
+        unsafe
+        {
+            // The native call copies the attachment descriptors during the call,
+            // so a pointer into the stack allocation only has to stay valid here.
+            descriptor.ColorAttachments = colorAttachments.IsEmpty
+                ? null
+                : (RenderPassColorAttachment*)Unsafe.AsPointer(ref colorAttachments.GetPinnableReference());
+            result = new((nint)api.CommandEncoderBeginRenderPass(
+                (CommandEncoder*)encoder.NativeHandle, in descriptor));
+        }
+        return result;
+    }
+
+    private static void AppendColorAttachment(
+        Span<RenderPassColorAttachment> destination,
+        ref int index,
+        ColorAttachment attachment)
+    {
+        // A multisampled attachment cannot be stored directly: it resolves into
+        // its companion single-sample texture at pass end (and, per the WebGPU
+        // spec, the multisampled attachment itself must then be discarded).
+        var resolve = attachment.ResolveTarget as WebGpuTexture;
+        destination[index] = new RenderPassColorAttachment
+        {
+            View = ((WebGpuTexture)attachment.Texture).View,
+            LoadOp = ToNative(attachment.LoadOp),
+            StoreOp = resolve is not null
+                ? Silk.NET.WebGPU.StoreOp.Discard
+                : ToNative(attachment.StoreOp),
+            ResolveTarget = resolve?.View,
+            ClearValue = new Color
+            {
+                R = attachment.ClearColor.X,
+                G = attachment.ClearColor.Y,
+                B = attachment.ClearColor.Z,
+                A = attachment.ClearColor.W
+            }
+        };
+        index++;
     }
 
     internal static void EndRenderPass(WebGPU api, WebGpuRenderPassEncoder pass) =>
@@ -192,6 +215,7 @@ internal static unsafe class WebGpuNative
         EngineTextureFormat.Depth32Float => SilkTextureFormat.Depth32float,
         EngineTextureFormat.Rgba16Float => SilkTextureFormat.Rgba16float,
         EngineTextureFormat.Rgba32Float => SilkTextureFormat.Rgba32float,
+        EngineTextureFormat.Rg16Float => SilkTextureFormat.RG16float,
         _ => throw new ArgumentOutOfRangeException(nameof(format))
     };
 

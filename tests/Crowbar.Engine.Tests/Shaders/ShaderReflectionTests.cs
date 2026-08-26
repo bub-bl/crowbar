@@ -42,6 +42,7 @@ public class ShaderReflectionTests
             (0, 4u, ShaderBindingKind.Sampler, "shadowSampler", "sampler"),
             (1, 0u, ShaderBindingKind.UniformBuffer, "model", "mat4x4<f32>"),
             (1, 1u, ShaderBindingKind.UniformBuffer, "material", "MaterialUniforms"),
+            (1, 2u, ShaderBindingKind.UniformBuffer, "previousModel", "mat4x4<f32>"),
             (2, 0u, ShaderBindingKind.Texture, "environmentMap", "texture_cube<f32>"),
             (2, 1u, ShaderBindingKind.Texture, "irradianceMap", "texture_cube<f32>"),
             (2, 2u, ShaderBindingKind.Texture, "prefilteredSpecularMap", "texture_cube<f32>"),
@@ -132,7 +133,7 @@ public class ShaderReflectionTests
             },
             layouts[0].Select(b => (b.Slot, b.Type)).ToArray());
         Assert.Equal(
-            new[] { (0u, BindingType.UniformBuffer), (1u, BindingType.UniformBuffer) },
+            new[] { (0u, BindingType.UniformBuffer), (1u, BindingType.UniformBuffer), (2u, BindingType.UniformBuffer) },
             layouts[1].Select(b => (b.Slot, b.Type)).ToArray());
         Assert.Equal(TextureDimension.Cube, layouts[2][0].TextureDimension);
         Assert.Equal(2, shader.EnvironmentGroupIndex);

@@ -84,20 +84,32 @@ public sealed unsafe class WebGpuPipeline : IPipeline
 
             // Depth-only pipelines (shadow maps) declare no color targets and
             // their fragment stage returns nothing; the rasterizer still writes
-            // depth from the vertex's clip position.
-            var target = new ColorTargetState
+            // depth from the vertex's clip position. MRT passes (e.g. color +
+            // motion vectors) declare one target per attachment, matching the
+            // fragment shader's additional outputs in order.
+            var additionalCount = description.AdditionalColorFormats?.Count ?? 0;
+            var targetCount = description.DepthOnly ? 0 : 1 + additionalCount;
+            var fragment = new FragmentState { Module = ShaderModule, EntryPoint = (byte*)fragmentEntry, TargetCount = (uint)targetCount };
+            if (targetCount > 0)
             {
-                Format = WebGpuNative.ToNative(description.ColorFormat),
-                WriteMask = ColorWriteMask.All,
-                Blend = blendPtr
-            };
-            var fragment = new FragmentState
-            {
-                Module = ShaderModule,
-                EntryPoint = (byte*)fragmentEntry,
-                TargetCount = description.DepthOnly ? 0u : 1u,
-                Targets = description.DepthOnly ? null : &target
-            };
+                ColorTargetState* targets = stackalloc ColorTargetState[targetCount];
+                targets[0] = new ColorTargetState
+                {
+                    Format = WebGpuNative.ToNative(description.ColorFormat),
+                    WriteMask = ColorWriteMask.All,
+                    Blend = blendPtr
+                };
+                for (var i = 0; i < additionalCount; i++)
+                {
+                    targets[1 + i] = new ColorTargetState
+                    {
+                        Format = WebGpuNative.ToNative(description.AdditionalColorFormats![i]),
+                        WriteMask = ColorWriteMask.All,
+                        Blend = blendPtr
+                    };
+                }
+                fragment.Targets = targets;
+            }
 
             VertexAttribute* attributes = stackalloc VertexAttribute[
                 Math.Max(1, description.VertexLayout.Attributes.Length)];

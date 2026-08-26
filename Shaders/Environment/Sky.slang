@@ -1,6 +1,7 @@
 #language slang 2026;
 import Camera;
 import Environment;
+import Velocity;
 
 struct VertexOutput
 {
@@ -19,7 +20,7 @@ VertexOutput vs_main(uint vertexId : SV_VertexID)
 }
 
 [shader("fragment")]
-float4 fs_main(VertexOutput input) : SV_Target
+FragmentOutput fs_main(VertexOutput input)
 {
     let viewDirection = normalize(float3(
         input.clip.x / camera.proj[0][0],
@@ -28,6 +29,10 @@ float4 fs_main(VertexOutput input) : SV_Target
     let worldDirection = normalize(mul(transpose((float3x3)camera.view), viewDirection));
     let cameraHeight = clamp(camera.cameraPosition.y, 0.0, 59000.0);
     // Linear HDR radiance: the tonemapper runs once in the post-process pass
-    // for the whole frame, so the sky and the scene share the same curve.
-    return float4(EnvironmentLighting::SampleSky(worldDirection, cameraHeight), 1.0);
+    // for the whole frame, so the sky and the scene share the same curve. The
+    // sky is at infinity, so its motion vector is always zero.
+    FragmentOutput output;
+    output.color = float4(EnvironmentLighting::SampleSky(worldDirection, cameraHeight), 1.0);
+    output.velocity = float2(0.0);
+    return output;
 }

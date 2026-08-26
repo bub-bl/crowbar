@@ -282,6 +282,73 @@ public sealed class PostProcessTests
     }
 
     [Fact]
+    public void TemporalAA_IsADiscoverablePostProcess()
+    {
+        // TAA must surface in the Add Component list and be picked up by the
+        // post-process chain exactly like any other PostProcess component.
+        Assert.True(typeof(TemporalAA).IsSubclassOf(typeof(PostProcess)));
+        Assert.False(typeof(TemporalAA).IsAbstract);
+
+        using var world = new World();
+        var entity = world.SpawnEntity("Camera");
+        entity.AddComponent<TemporalAA>();
+        Assert.Single(world.Query<PostProcess>().OfType<TemporalAA>());
+    }
+
+    [Fact]
+    public void TemporalAAShader_ExposesTheTemporalBindings()
+    {
+        var shader = Shader.Load("Shaders/PostProcesses/TemporalAA.wgsl");
+
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "sceneTexture" && binding.Slot == 0u);
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "historyTexture" && binding.Slot == 3u);
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "velocityTexture" && binding.Slot == 5u);
+        var uniform = Assert.Single(shader.Bindings,
+            binding => binding.VariableName == "postProcess" && binding.Kind == ShaderBindingKind.UniformBuffer);
+        Assert.Equal("TAAUniforms", uniform.TypeName);
+    }
+
+    [Fact]
+    public void TemporalAA_FeedbackPacksIntoTheUniformBuffer()
+    {
+        // Regression guard for the inspector parameter: changing Feedback must
+        // land in the TAA uniform at offset 0 (the float right after the two
+        // vec2s), otherwise the shader never reads an edited value and the
+        // param has no visible effect.
+        var shader = Shader.Load("Shaders/PostProcesses/TemporalAA.wgsl");
+        var fields = Assert.Single(shader.Structs, structure => structure.Name == "TAAUniforms").Fields;
+
+        byte[] Pack(float feedback)
+        {
+            var attributes = new RenderAttributes()
+                .Set("feedback", feedback)
+                .Set("jitterOffset", Vector2.Zero)
+                .Set("viewportSize", new Vector2(1280f, 720f));
+            var values = new Dictionary<string, ShaderParameter>();
+            foreach (var field in fields)
+            {
+                foreach (var (name, parameter) in attributes.Values)
+                {
+                    if (!RenderAttributes.MatchesField(field.Name, name))
+                        continue;
+                    values[field.Name] = parameter;
+                    break;
+                }
+            }
+            return UniformPacker.Pack(fields, values);
+        }
+
+        var basePack = Pack(0f);
+        Assert.Equal(0f, BitConverter.ToSingle(basePack, 0));
+
+        var editedPack = Pack(0.5f);
+        Assert.Equal(0.5f, BitConverter.ToSingle(editedPack, 0));
+
+        // The whole buffer differs only in the first component.
+        Assert.NotEqual(basePack, editedPack);
+    }
+
+    [Fact]
     public void TonemappingUniformStruct_IsPackedToTheWgslUniformSize()
     {
         // Two floats (8 bytes) must bind as a 16-byte uniform buffer:

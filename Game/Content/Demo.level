@@ -14,12 +14,12 @@
         {
           "type": "Camera",
           "enabled": true,
-          "transform": "-2.9722183,1.6071835,0.073927045,0.022817247,0.5988007,-0.017070388,0.80039096,1,1,1",
+          "transform": "-6.331447,1.4865831,-0.21241468,-0.012302509,0.666262,0.010994375,0.7455352,1,1,1",
           "properties": {
             "Pivot": [
-              3.4495018,
-              1.2252142,
-              1.963587
+              0.32764244,
+              1.7078044,
+              0.53777367
             ],
             "Distance": 6.7048635,
             "EnablePostProcessing": true,
@@ -78,7 +78,7 @@
         },
         {
           "type": "ChromaticAberration",
-          "enabled": true,
+          "enabled": false,
           "transform": null,
           "properties": {
             "Intensity": 1,
@@ -89,7 +89,7 @@
         },
         {
           "type": "DepthOfField",
-          "enabled": true,
+          "enabled": false,
           "transform": null,
           "properties": {
             "FocusDistance": 4.4,
@@ -103,16 +103,23 @@
         },
         {
           "type": "Fxaa",
+          "enabled": false,
+          "transform": null,
+          "properties": {
+            "EdgeThreshold": 0.063,
+            "Subpixel": 0.75,
+            "Quality": 5,
+            "Order": 1000,
+            "Sampler": "Linear"
+          }
+        },
+        {
+          "type": "TemporalAA",
           "enabled": true,
           "transform": null,
           "properties": {
-            "QualityLo": 0.15,
-            "QualityHi": 0.75,
-            "EdgeThreshold": 0.063,
-            "EdgeThresholdMin": 0.031,
-            "Subpixel": 0.75,
-            "ColorTolerance": 0.04,
-            "Order": 1000,
+            "Feedback": 0.9,
+            "Order": 140,
             "Sampler": "Linear"
           }
         }

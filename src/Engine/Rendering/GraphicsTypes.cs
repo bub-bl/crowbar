@@ -19,7 +19,8 @@ public enum TextureFormat
     Depth24Plus,
     Depth32Float,
     Rgba16Float,
-    Rgba32Float
+    Rgba32Float,
+    Rg16Float
 }
 
 public enum TextureDimension
@@ -259,6 +260,14 @@ public sealed class PipelineDescription
     public TextureFormat ColorFormat { get; init; }
     public TextureFormat? DepthFormat { get; init; } = TextureFormat.Depth24Plus;
 
+    /// <summary>
+    /// Additional color target formats (MRT) written after
+    /// <see cref="ColorFormat"/>, one per extra render target. These must match
+    /// the fragment shader's additional outputs in order (e.g. the scene pass
+    /// writes color at target 0 and motion vectors at target 1).
+    /// </summary>
+    public IReadOnlyList<TextureFormat>? AdditionalColorFormats { get; init; }
+
     /// <summary>Primitive topology; defaults to triangles.</summary>
     public PrimitiveTopology Topology { get; init; } = PrimitiveTopology.TriangleList;
 
@@ -344,5 +353,13 @@ public sealed class RenderPassDescription
 {
     /// <summary>Null for depth-only passes (shadow maps).</summary>
     public ColorAttachment? Color { get; init; }
+
+    /// <summary>
+    /// Additional color attachments written by an MRT pass (e.g. the scene
+    /// pass writes color at location 0 and motion vectors at location 1).
+    /// These must match the pipeline's declared color target formats.
+    /// </summary>
+    public IReadOnlyList<ColorAttachment>? AdditionalColorAttachments { get; init; }
+
     public DepthAttachment? Depth { get; init; }
 }

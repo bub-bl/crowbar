@@ -5,6 +5,7 @@ import Vertex;
 import VertexTransform;
 import Material;
 import ShadingModelStandard;
+import Velocity;
 
 struct MaterialUniforms
 {
@@ -23,15 +24,17 @@ struct MaterialUniforms
 [[vk::binding(5, 1)]] Texture2D metallicRoughnessTexture;
 [[vk::binding(6, 1)]] Texture2D occlusionTexture;
 [[vk::binding(7, 1)]] Texture2D emissiveTexture;
+// The object's transform in the previous frame, for per-object motion vectors.
+[[vk::binding(8, 1)]] ConstantBuffer<float4x4> previousModel;
 
 [shader("vertex")]
 VertexOutput vs_main(VertexInput input)
 {
-    return VertexTransform::ToClip(input, model);
+    return VertexTransform::ToClip(input, model, previousModel);
 }
 
 [shader("fragment")]
-float4 fs_main(VertexOutput input) : SV_Target
+FragmentOutput fs_main(VertexOutput input)
 {
     // Resolve the surface from the glTF texture set (textures are sRGB and
     // hardware-decoded to linear; metallic lives in the blue channel,
@@ -48,5 +51,8 @@ float4 fs_main(VertexOutput input) : SV_Target
     m.Emissive = emissiveTexture.Sample(materialSampler, input.uv).rgb * material.emissive;
     m.Opacity = material.color.a * albedo.a;
 
-    return ShadingModelStandard::Shade(m);
+    FragmentOutput output;
+    output.color = ShadingModelStandard::Shade(m);
+    output.velocity = Velocity::Compute(input);
+    return output;
 }

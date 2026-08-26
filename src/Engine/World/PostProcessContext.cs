@@ -57,6 +57,14 @@ public sealed class PostProcessContext
     public ITexture Depth { get; }
 
     /// <summary>
+    /// The scene's screen-space motion vectors (current UV - previous UV). Only
+    /// meaningful for effects that read the scene at full resolution after the
+    /// scene pass has run (TAA, motion blur); the value is null if no velocity
+    /// target was generated.
+    /// </summary>
+    public ITexture? Velocity => _renderer?.VelocityTexture;
+
+    /// <summary>
     /// A scratch Rgba16Float texture (0..3, shared per frame) for intermediate
     /// passes inside a multi-pass effect.
     /// </summary>
@@ -76,6 +84,19 @@ public sealed class PostProcessContext
 
     /// <summary>Viewport dimensions in pixels for resolution-aware effects.</summary>
     public Vector2 ViewportSize => new(_renderer.SceneTargetWidth, _renderer.SceneTargetHeight);
+
+    /// <summary>This frame's sub-pixel projection jitter, in pixels (screen y down).</summary>
+    public Vector2 JitterPixels => _renderer?.CurrentJitterPixels ?? default;
+
+    /// <summary>The previous frame's TAA-accumulated history (read-only).</summary>
+    public ITexture? GetTemporalAAHistory() => _renderer?.GetTemporalAAHistoryRead();
+
+    /// <summary>
+    /// Marks the just-rendered accumulated frame as the new history. Call once
+    /// after <see cref="TemporalAA"/> has written its result, so the next frame
+    /// reprojects this frame.
+    /// </summary>
+    public void AdvanceTemporalAAHistory() => _renderer?.AdvanceTemporalAAHistory();
 
     /// <summary>Render time in seconds, wrapped periodically to preserve float precision.</summary>
     public float Time { get; }
@@ -128,6 +149,19 @@ public sealed class PostProcessContext
         if (_renderer is null)
             throw new InvalidOperationException("This post-process context is not bound to a renderer.");
         _renderer.RunPostProcessPass(_commandBuffer, from, to, shaderPath, attributes, _sampler, secondary, additive: true);
+    }
+
+    /// <summary>
+    /// Runs the temporal-AA pass for this effect: reprojects the previous
+    /// frame's history through the motion vectors, blends with
+    /// <paramref name="from"/>, and writes the accumulated result to
+    /// <paramref name="to"/> and the internal history target.
+    /// </summary>
+    public void BlitTemporalAA(ITexture from, ITexture to, string shaderPath, RenderAttributes? attributes)
+    {
+        if (_renderer is null)
+            throw new InvalidOperationException("This post-process context is not bound to a renderer.");
+        _renderer.RunTemporalAAPass(_commandBuffer, from, to, shaderPath, attributes, _sampler);
     }
 
     /// <summary>The instances of this effect participating in the current frame (for GetWeighted).</summary>
