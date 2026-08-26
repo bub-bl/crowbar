@@ -101,6 +101,16 @@ public sealed class Model : ResourceFile
     public Bounds Bounds { get; private set; }
 
     /// <summary>
+    /// Uniform scale, in meters, applied to every vertex and node translation
+    /// when the model is imported. The engine's world unit is one meter, so a
+    /// model authored in centimeters sets 0.01, inches set 0.0254, and a
+    /// meter-authored asset leaves the default 1. Read once at import time
+    /// and baked into geometry; changing it on a cached model has no effect.
+    /// </summary>
+    [Property]
+    public float ImportScale { get; set; } = 1f;
+
+    /// <summary>
     /// The bounds used for view culling. With no LOD system yet this is the
     /// same as <see cref="Bounds"/>; it exists so LOD-aware render bounds can
     /// be introduced without changing call sites.
@@ -197,10 +207,33 @@ public sealed class Model : ResourceFile
     /// same path through the global <see cref="Global.ResourceLibrary"/> cache.
     /// Throws when the file is missing or unreadable.
     /// </summary>
-    public static Model Load(string path)
+    public static Model Load(string path) => Load(path, importScale: 1f);
+
+    /// <summary>
+    /// Imports a 3D model file, optionally re-normalizing its authoring unit to
+    /// meters through <paramref name="importScale"/>. When the cache already
+    /// holds the path with a different scale, its entry is refreshed so the
+    /// returned instance carries the requested scale baked into its geometry.
+    /// Throws when the file is missing or unreadable.
+    /// </summary>
+    public static Model Load(string path, float importScale)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
-        return ResourceLibrary.Load<Model>(path);
+
+        if (ResourceLibrary.TryGet<Model>(path, out var cached) &&
+            Math.Abs(cached!.ImportScale - importScale) <= 1e-6f)
+        {
+            return cached;
+        }
+
+        // Drop a stale entry whose import scale differs, so the next import
+        // bakes the requested scale into a fresh instance's geometry.
+        ResourceLibrary.Invalidate<Model>(path);
+
+        return (Model)ResourceLibrary.Load(
+            typeof(Model),
+            path,
+            model => ((Model)model).ImportScale = importScale);
     }
 
     /// <summary>
@@ -252,6 +285,11 @@ public sealed class Model : ResourceFile
 
         try
         {
+            // Meters are the engine's world unit; the per-asset ImportScale
+            // normalizes the source file's own unit (e.g. 0.01 for centimeter
+            // authoring) into meters and is baked into the geometry below.
+            var scale = ImportScale;
+
             var allMaterials = new List<Material>((int)scene->MNumMaterials);
             for (var i = 0; i < scene->MNumMaterials; i++)
             {
@@ -271,7 +309,7 @@ public sealed class Model : ResourceFile
                 var material = materialIndex >= 0 && materialIndex < allMaterials.Count
                     ? allMaterials[materialIndex]
                     : null;
-                meshes.Add(ConvertMesh(source, material));
+                meshes.Add(ConvertMesh(source, material, scale));
                 progress?.Report(new ModelLoadProgress(
                     ModelLoadStage.ConvertingMeshes,
                     0.7f + 0.28f * (i + 1) / Math.Max(1, (int)scene->MNumMeshes)));
@@ -294,7 +332,7 @@ public sealed class Model : ResourceFile
             var nodes = new List<ModelNode>();
             var instances = new List<ModelMeshInstance>();
             if (scene->MRootNode != null)
-                ConvertNode(scene->MRootNode, meshes, nodes, instances);
+                ConvertNode(scene->MRootNode, meshes, nodes, instances, scale);
 
             cancellationToken.ThrowIfCancellationRequested();
             Name = PathUtil.GetFileNameWithoutExtension(path);
@@ -643,7 +681,7 @@ public sealed class Model : ResourceFile
         }
     }
 
-    private static unsafe Mesh ConvertMesh(AssimpMesh* source, Material? material)
+    private static unsafe Mesh ConvertMesh(AssimpMesh* source, Material? material, float scale)
     {
         var vertexCount = (int)source->MNumVertices;
         var vertices = new MeshVertex[vertexCount];
@@ -672,7 +710,7 @@ public sealed class Model : ResourceFile
             }
 
             vertices[i] = new MeshVertex(
-                new Vector3(position.X, position.Y, position.Z),
+                new Vector3(position.X, position.Y, position.Z) * scale,
                 new Vector3(normal.X, normal.Y, normal.Z),
                 tangent,
                 uv);
@@ -700,13 +738,19 @@ public sealed class Model : ResourceFile
         Node* source,
         IReadOnlyList<Mesh> meshes,
         List<ModelNode> nodes,
-        List<ModelMeshInstance> instances)
+        List<ModelMeshInstance> instances,
+        float scale)
     {
         // Silk.NET binds Assimp's aiMatrix4x4 (column-vector convention,
         // translation in the last column) straight into System.Numerics'
         // field order (row-vector convention, translation in the last row),
-        // so the matrix must be transposed to read a correct transform.
-        var node = new ModelNode(source->MName.AsString, Matrix4x4.Transpose(source->MTransformation));
+        // so the matrix must be transposed to read a correct transform. The
+        // translation is scaled to convert the node's unit into meters.
+        var matrix = Matrix4x4.Transpose(source->MTransformation);
+        if (scale != 1f)
+            matrix.Translation *= scale;
+
+        var node = new ModelNode(source->MName.AsString, matrix);
         nodes.Add(node);
 
         for (var i = 0; i < source->MNumMeshes; i++)
@@ -721,7 +765,7 @@ public sealed class Model : ResourceFile
         }
 
         for (var i = 0; i < source->MNumChildren; i++)
-            node.AddChild(ConvertNode(source->MChildren[i], meshes, nodes, instances));
+            node.AddChild(ConvertNode(source->MChildren[i], meshes, nodes, instances, scale));
 
         return node;
     }

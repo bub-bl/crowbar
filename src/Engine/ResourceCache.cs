@@ -13,7 +13,7 @@ internal interface IResourceCache
     int Count { get; }
 
     /// <summary>Returns the cached resource for <paramref name="path"/>, loading it on first use.</summary>
-    ResourceFile Load(string path);
+    ResourceFile Load(string path, Action<ResourceFile>? configure = null);
 
     /// <summary>Returns the cached resource for <paramref name="path"/>, or false when not loaded.</summary>
     bool TryGet(string path, out ResourceFile? resource);
@@ -64,9 +64,9 @@ internal sealed class ResourceCache : IResourceCache
 
     private readonly Dictionary<string, Entry> _entries = [];
     private readonly Dictionary<string, Task<ResourceFile>> _inFlight = [];
-    private readonly Func<string, ResourceFile> _load;
+    private readonly Func<string, Action<ResourceFile>?, ResourceFile> _load;
 
-    public ResourceCache(Func<string, ResourceFile> load)
+    public ResourceCache(Func<string, Action<ResourceFile>?, ResourceFile> load)
     {
         _load = load ?? throw new ArgumentNullException(nameof(load));
     }
@@ -109,8 +109,10 @@ internal sealed class ResourceCache : IResourceCache
     /// Returns the shared instance for <paramref name="path"/>, loading it on
     /// first use. Does not record a holder; call <see cref="Retain"/> when the
     /// caller keeps a long-lived reference it wants to keep the entry alive for.
+    /// When already cached the returned instance is reused as-is (the
+    /// <paramref name="configure"/> callback applies only to a fresh import).
     /// </summary>
-    public ResourceFile Load(string path)
+    public ResourceFile Load(string path, Action<ResourceFile>? configure = null)
     {
         var key = CanonicalKey(path);
         lock (_entries)
@@ -118,7 +120,7 @@ internal sealed class ResourceCache : IResourceCache
             if (_entries.TryGetValue(key, out var entry))
                 return entry.Value;
 
-            var value = _load(path);
+            var value = _load(path, configure);
             _entries.Add(key, new Entry { Value = value });
             return value;
         }

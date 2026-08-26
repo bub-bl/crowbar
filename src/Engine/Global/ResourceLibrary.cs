@@ -144,7 +144,7 @@ public sealed class ResourceLibrary
 
         lock (_lock)
         {
-            _caches[typeof(T)] = new ResourceCache(path => loader(path));
+            _caches[typeof(T)] = new ResourceCache((path, configure) => loader(path));
             _owners[typeof(T)] = typeof(T).Assembly;
             foreach (var extension in typeof(T).GetCustomAttribute<AssetTypeAttribute>()?.Extensions ?? [])
                 AddExtension(extension, typeof(T));
@@ -174,13 +174,14 @@ public sealed class ResourceLibrary
             if (_owners.ContainsKey(type))
                 return; // already registered (same assembly twice)
 
-            _caches[type] = new ResourceCache(path =>
-            {
-                var resource = factory();
-                resource.Path = path;
-                resource.Load();
-                return resource;
-            });
+            _caches[type] = new ResourceCache((path, configure) =>
+                {
+                    var resource = factory();
+                    configure?.Invoke(resource);
+                    resource.Path = path;
+                    resource.Load();
+                    return resource;
+                });
             _owners[type] = type.Assembly;
             foreach (var extension in type.GetCustomAttribute<AssetTypeAttribute>()?.Extensions ?? [])
                 AddExtension(extension, type);
@@ -251,6 +252,22 @@ public sealed class ResourceLibrary
         ArgumentNullException.ThrowIfNull(resourceType);
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         return GetCache(resourceType).Load(path);
+    }
+
+    /// <summary>
+    /// Loads a resource of the given <paramref name="resourceType"/> by path,
+    /// running <paramref name="configure"/> on a freshly imported instance
+    /// before its geometry is baked (cache miss only). This lets an asset carry
+    /// an import-time option — e.g. <see cref="Model.ImportScale"/> — that must
+    /// be known before the file is read. A cache hit returns the existing shared
+    /// instance unchanged.
+    /// </summary>
+    internal ResourceFile Load(Type resourceType, string path, Action<ResourceFile> configure)
+    {
+        ArgumentNullException.ThrowIfNull(resourceType);
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(configure);
+        return GetCache(resourceType).Load(path, configure);
     }
 
     /// <summary>Internal: loads a resource of type <typeparamref name="T"/> by path (cached, shared by path). Throws on failure.</summary>
@@ -336,11 +353,20 @@ public sealed class ResourceLibrary
     /// loaded. A warning is logged; the failure itself is not cached, so the
     /// next call re-attempts (content that may appear later keeps working).
     /// </summary>
-    public Model LoadModel(string path)
+    public Model LoadModel(string path) => LoadModel(path, importScale: 1f);
+
+    /// <summary>
+    /// Loads a model by path with its authoring unit normalized to meters via
+    /// <paramref name="importScale"/>, or <see cref="Model.Error"/> when it
+    /// cannot be loaded. The scale is baked into the geometry at import (see
+    /// <see cref="Model.Load(string, float)"/>). A warning is logged; the
+    /// failure itself is not cached.
+    /// </summary>
+    public Model LoadModel(string path, float importScale)
     {
         try
         {
-            return Load<Model>(path);
+            return Model.Load(path, importScale);
         }
         catch (Exception ex)
         {
