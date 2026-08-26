@@ -30,6 +30,19 @@ dotnet test tests\Crowbar.Editor.Tests\Crowbar.Editor.Tests.csproj
 
 Tests run headless and do not require a GPU.
 
+## Units
+
+**One world unit equals one meter.** Crowbar follows the Unity/Godot convention:
+world coordinates, transforms, the editor grid, camera distances and light
+ranges are all in meters, with Y-up / Z-forward and a left-handed projection.
+
+3D model imports are normalized to meters. glTF is always authored in meters and
+imports at 1:1 by default; other formats (OBJ, FBX, …) carry no unit metadata,
+so the model's `ImportScale` (`Model.Load(path, importScale)` /
+`ResourceLibrary.LoadModel(path, importScale)`) converts the source unit:
+`0.01` for centimeters, `0.0254` for inches. The scale is baked into the
+geometry at import time.
+
 ## Project layout
 
 - `src/Engine` - engine runtime (rendering, rendering2D, world, audio, input, scripting, project/file formats).

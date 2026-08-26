@@ -189,6 +189,10 @@ On the other hand, a `format` **newer** than the build is a hard failure
 
 ## Notes
 
+- Spatial property values (transform positions, camera distances, light ranges,
+  DoF `FocusDistance`, …) are **meters** — the engine's world unit (1 unit = 1 m).
+  Imported models are normalized to meters at load via their `ImportScale`. See
+  `docs/Units.md`.
 - Out-of-level entities (world-only, e.g. the engine's fallback camera) are never serialized; a level-authored `Camera` entity is regular level content and persists like any other.
 - A duplicate component in an entity is ignored with a warning (an entity allows only one component per type).
 - A material's textures are not persisted in v1 (they come from the model import).
