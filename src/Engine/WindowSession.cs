@@ -27,6 +27,7 @@ public class WindowSession : IDisposable
 
     // Camera control state (orbit/pan sessions) and window-chrome mirroring:
     // all per-window, so each session tracks its own.
+    private Vector3 _cameraVelocity;
     private bool _looking;
     private bool _lookAllowed;
     private bool _cursorHidden;
@@ -306,10 +307,26 @@ public class WindowSession : IDisposable
 
         // ZQSD/space moves the pivot (and therefore the camera with it): this
         // is a translation of the orbit rig, the pivot distance is preserved.
+        // Movement is smoothed by accelerating toward the input direction and
+        // decelerating to zero when no key is held, giving eased start/stop.
+        var speed = 2.5f;
+        var ease = 1f - MathF.Exp(-10f * delta);
         if (movement.LengthSquared() > 0f)
         {
-            Camera.Pivot += Vector3.Normalize(movement) * (2.5f * delta);
+            _cameraVelocity = Vector3.Lerp(
+                _cameraVelocity, Vector3.Normalize(movement) * speed, ease);
+            Camera.Pivot += _cameraVelocity * delta;
             SyncOrbitPosition();
+        }
+        else if (_cameraVelocity.LengthSquared() > 0.0001f)
+        {
+            _cameraVelocity = Vector3.Lerp(_cameraVelocity, Vector3.Zero, ease);
+            Camera.Pivot += _cameraVelocity * delta;
+            SyncOrbitPosition();
+        }
+        else
+        {
+            _cameraVelocity = Vector3.Zero;
         }
     }
 
