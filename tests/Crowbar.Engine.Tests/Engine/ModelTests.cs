@@ -151,6 +151,52 @@ public class ModelTests
     }
 
     [Fact]
+    public void ImportScale_NormalizesAuthoringUnitsToMeters()
+    {
+        // A 100-unit cube authored in centimeters (1 unit = 1 cm) imported with
+        // ImportScale 0.01 must land at meter scale (1 m cube).
+        var path = WriteSizedCubeObj(extent: 100f);
+
+        try
+        {
+            var model = Model.Load(path, importScale: 0.01f);
+
+            var extent = model.Bounds.Max - model.Bounds.Min;
+            Assert.Equal(1f, extent.X, 2);
+            Assert.Equal(1f, extent.Y, 2);
+            Assert.Equal(1f, extent.Z, 2);
+        }
+        finally
+        {
+            Model.Invalidate(path);
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void ImportScale_DefaultLeavesMeterGeometryUnchanged()
+    {
+        // The default import scale (1) treats the source file as already meters,
+        // so a meter-authored cube keeps its size.
+        var path = WriteSizedCubeObj(extent: 1f);
+
+        try
+        {
+            var model = Model.Load(path);
+
+            var extent = model.Bounds.Max - model.Bounds.Min;
+            Assert.Equal(1f, extent.X, 2);
+            Assert.Equal(1f, extent.Y, 2);
+            Assert.Equal(1f, extent.Z, 2);
+        }
+        finally
+        {
+            Model.Invalidate(path);
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Load_ImportsTheSketchfabWorkLight()
     {
         // The real Sketchfab sample (scene.bin + 4 textures committed next to
@@ -377,6 +423,36 @@ public class ModelTests
                                f 5 1 2
                                f 5 2 6
                                """);
+        return path;
+    }
+
+    private static string WriteSizedCubeObj(float extent)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"cube-{Guid.NewGuid():N}.obj");
+        var h = extent / 2f;
+        File.WriteAllText(path, $"""
+                                   o Cube
+                                   v {-h} {-h} {-h}
+                                   v  {h} {-h} {-h}
+                                   v  {h}  {h} {-h}
+                                   v {-h}  {h} {-h}
+                                   v {-h} {-h}  {h}
+                                   v  {h} {-h}  {h}
+                                   v  {h}  {h}  {h}
+                                   v {-h}  {h}  {h}
+                                   f 1 3 2
+                                   f 1 4 3
+                                   f 2 3 7
+                                   f 2 7 6
+                                   f 6 7 8
+                                   f 6 8 5
+                                   f 5 8 4
+                                   f 5 4 1
+                                   f 4 8 7
+                                   f 4 7 3
+                                   f 5 1 2
+                                   f 5 2 6
+                                   """);
         return path;
     }
 }
