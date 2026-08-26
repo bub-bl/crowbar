@@ -135,8 +135,13 @@ internal static class SlangShaderReflection
                             {
                                 var resultType = type.GetProperty("resultType");
                                 var isDepth = resultType.GetProperty("kind").GetString() == "scalar";
-                                bindings.Add(new ShaderBinding(group, slot, ShaderBindingKind.Texture, name,
-                                    isDepth ? "texture_depth_2d" : "texture_2d<f32>"));
+                                // Slang reports Texture2DArray with baseShape "texture2D" and
+                                // `array: true` (rather than a distinct "texture2DArray" base);
+                                // honor that so array bindings resolve to texture_2d_array.
+                                var isArray = type.TryGetProperty("array", out var arrayElement) && arrayElement.GetBoolean();
+                                var shape = isArray ? "texture_2d_array<f32>"
+                                    : isDepth ? "texture_depth_2d" : "texture_2d<f32>";
+                                bindings.Add(new ShaderBinding(group, slot, ShaderBindingKind.Texture, name, shape));
                                 break;
                             }
                             case "textureCube":

@@ -383,6 +383,75 @@ public sealed class Renderer : IDisposable
     private readonly HashSet<PostProcess> _loggedPostProcessDrivers = [];
     private bool _loggedIdentityCopy;
 
+    // Volumetric fog (Shaders/PostProcesses/FogAccumulate|Integrate|Apply):
+    // a coarse stack of 2D slices through the camera frustum stored as a pair of
+    // 2D texture arrays (accumulated per-froxel scattering+extinction, and the
+    // integrated scattering+transmittance toward the eye). Rgba32Float arrays are
+    // written through per-slice 2D storage views and read as sampled arrays; the
+    // accumulate/integrate compute passes dispatch once per slice, and a fullscreen
+    // apply pass blends the integrated fog over the scene.
+    private const int MaxFogVolumes = 8;
+    private const int MinFroxelSize = 8;
+    private World? _currentWorld;
+    private ITexture? _fogAccumulate;
+    private ITexture? _fogIntegrated;
+    private ITexture[] _fogAccumulateSliceViews = [];
+    private ITexture[] _fogIntegratedSliceViews = [];
+    private IComputePipeline? _fogAccumulatePipeline;
+    private IComputePipeline? _fogIntegratePipeline;
+    private IPipeline? _fogApplyPipeline;
+    private IBuffer[] _fogAccumulateUniforms = [];
+    private IBindGroup[] _fogAccumulateBindGroups = [];
+    private IBuffer[] _fogIntegrateUniforms = [];
+    private IBindGroup[] _fogIntegrateBindGroups = [];
+    private IBindGroup[] _fogIntegrateSliceBindGroups = [];
+    private (int Width, int Height, int Slices) _fogVolumeSize;
+
+    // Mirrors FogAccumulateUniforms in Shaders/PostProcesses/FogAccumulate.slang
+    // (7 x vec4 = 112 bytes, 16-byte aligned).
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FogAccumulateGpuUniforms
+    {
+        public Vector4 FogParams;      // scattering, anisotropy, densityScale, sliceCount
+        public Vector4 Depths;         // near, drawDistance, tanHalfFovX, slice
+        public Vector4 VolumeParams;   // volumeCount, froxelWidth, froxelHeight, tanHalfFovY
+        public Vector4 Fade;           // fadeInStart, fadeInEnd, ambient, unused
+        public Vector4 CameraBasis;    // camera position
+        public Vector4 CameraRight;
+        public Vector4 CameraUp;
+        public Vector4 CameraForward;
+    }
+
+    // Mirrors FogVolumeData in FogAccumulate.slang (4 x vec4 = 64 bytes).
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FogVolumeGpuData
+    {
+        public Vector4 Center;
+        public Vector4 Extent;
+        public Vector4 Params;  // strength, falloffExponent, colorR, colorG
+        public Vector4 Color;   // colorB, 0, 0, 0
+    }
+
+    // Mirrors FogIntegrateUniforms in FogIntegrate.slang (3 x vec4 = 48 bytes).
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FogIntegrateGpuUniforms
+    {
+        public Vector4 FogParams;      // scatterStrength, extinctionStrength, 0, sliceCount
+        public Vector4 Depths;         // near, drawDistance, sliceThickness, slice
+        public Vector4 VolumeParams;   // 0, froxelWidth, froxelHeight, 0
+    }
+
+    // Mirrors FogApplyUniforms in FogApply.slang (2 x vec4 = 32 bytes).
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FogApplyGpuUniforms
+    {
+        public Vector4 Depths;   // near, drawDistance, sliceCount, 0
+        public Vector4 Params;   // strength, froxelWidth, froxelHeight, 0
+    }
+
+    /// <summary>The world currently being rendered, captured each frame for the fog-volume query.</summary>
+    internal World? CurrentWorld => _currentWorld;
+
     /// <summary>
     /// Default display transform for linear HDR scene data. Optional post-process
     /// components may provide their own Tonemapping component, but a display
@@ -459,6 +528,8 @@ public sealed class Renderer : IDisposable
     {
         if (_disposed)
             return;
+
+        _currentWorld = world;
 
         float temporalJitter = 0f;
         if (world is not null && camera.EnablePostProcessing)
@@ -2737,6 +2808,372 @@ public sealed class Renderer : IDisposable
         AdvanceTemporalAAHistory();
     }
 
+    /// <summary>
+    /// Runs the volumetric-fog chain for <paramref name="component"/>: accumulates
+    /// the scene's <see cref="VolumetricFogVolume"/> density and light in-scattering
+    /// into a froxel slice volume, integrates the scattering/extinction toward the
+    /// camera, then blends the fog over <paramref name="from"/> into
+    /// <paramref name="to"/>. Compute passes dispatch once per slice; the apply pass
+    /// is the chain's fullscreen write to its output target.
+    /// </summary>
+    internal void RunVolumetricFog(
+        ICommandBuffer commandBuffer,
+        ITexture from,
+        ITexture to,
+        ITexture depth,
+        VolumetricFog component)
+    {
+        _postProcessPointSampler ??= _device.CreateSampler(new SamplerDescription { Filter = SamplerFilter.Nearest });
+
+        // Per-frame settings (the driver is the strongest volume/camera instance,
+        // already the value the user expects to see).
+        var settings = component.Snapshot();
+        var drawDistance = Math.Max(settings.DrawDistance, 1f);
+        var fadeStart = Math.Clamp(settings.FadeInStart, 0f, drawDistance);
+        var fadeEnd = Math.Clamp(settings.FadeInEnd, fadeStart, drawDistance);
+        var nearPlane = Math.Max(1f, fadeStart);
+        var sliceCount = Math.Clamp(settings.SliceCount, 2, 128);
+        var density = Math.Max(0f, settings.Density);
+        var scattering = Math.Max(0f, settings.Scattering);
+        var anisotropy = Math.Clamp(settings.Anisotropy, -1f, 1f);
+        var ambient = Math.Max(0f, settings.Ambient);
+
+        var froxelWidth = Math.Max(MinFroxelSize, (int)MathF.Round(_sceneTargetWidth * Math.Clamp(settings.ResolutionScale, 0.05f, 1f)));
+        var froxelHeight = Math.Max(MinFroxelSize, (int)MathF.Round(_sceneTargetHeight * Math.Clamp(settings.ResolutionScale, 0.05f, 1f)));
+
+        EnsureFogResources(froxelWidth, froxelHeight, sliceCount);
+
+        // Pack the active fog volumes once; the volumes are the scene's density
+        // shape (see FogVolumeData in FogAccumulate.slang).
+        var volumes = CollectFogVolumes();
+        var volumeCount = volumes.Count;
+        var volumeBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)(MaxFogVolumes * Marshal.SizeOf<FogVolumeGpuData>()),
+            Usage = BufferUsage.Storage | BufferUsage.CopyDst
+        });
+        var volumeData = new FogVolumeGpuData[MaxFogVolumes];
+        for (var i = 0; i < volumes.Count; i++)
+            volumeData[i] = volumes[i];
+        unsafe
+        {
+            fixed (FogVolumeGpuData* ptr = volumeData)
+                volumeBuffer.Write(new ReadOnlySpan<byte>(ptr, MaxFogVolumes * Marshal.SizeOf<FogVolumeGpuData>()));
+        }
+        _postProcessFrameResources.Add(volumeBuffer);
+
+        // The accumulate pass binds the per-frame volume buffer (slot 0) plus each
+        // slice's accumulate storage view (slot 1) in group 1; those bind groups are
+        // recreated each frame because the volume buffer is per-frame.
+        var volumeBindGroups = new IBindGroup[sliceCount];
+        for (var slice = 0; slice < sliceCount; slice++)
+        {
+            var bg = _fogAccumulatePipeline.CreateBindGroup(1,
+            [
+                new BindGroupBinding { Slot = 0, Buffer = volumeBuffer, BufferSize = (ulong)(MaxFogVolumes * Marshal.SizeOf<FogVolumeGpuData>()) },
+                new BindGroupBinding { Slot = 1, Texture = _fogAccumulateSliceViews[slice] }
+            ]);
+            _postProcessFrameResources.Add(bg);
+            volumeBindGroups[slice] = bg;
+        }
+
+        var cameraPosition = new Vector3(_cameraUniforms.CameraPosition.X, _cameraUniforms.CameraPosition.Y, _cameraUniforms.CameraPosition.Z);
+        Matrix4x4.Invert(_cameraUniforms.View, out var invView);
+        // Column vectors of the inverse view = the world camera basis (right, up, -forward).
+        var cameraRight = new Vector3(invView.M11, invView.M21, invView.M31);
+        var cameraUp = new Vector3(invView.M12, invView.M22, invView.M32);
+        var cameraForward = -new Vector3(invView.M13, invView.M23, invView.M33);
+        var tanHalfFovX = Math.Abs(_cameraUniforms.Projection.M11) > 1e-6f ? 1f / _cameraUniforms.Projection.M11 : 1f;
+        var tanHalfFovY = Math.Abs(_cameraUniforms.Projection.M22) > 1e-6f ? 1f / _cameraUniforms.Projection.M22 : 1f;
+
+        // --- Pass 1: accumulate (one compute dispatch per slice) ---
+        var accumulateUniforms = new FogAccumulateGpuUniforms
+        {
+            FogParams = new Vector4(scattering, anisotropy, density, sliceCount),
+            Depths = new Vector4(nearPlane, drawDistance, tanHalfFovX, 0f),
+            VolumeParams = new Vector4(volumeCount, froxelWidth, froxelHeight, tanHalfFovY),
+            Fade = new Vector4(fadeStart, fadeEnd, ambient, 0f),
+            CameraBasis = new Vector4(cameraPosition, 1f),
+            CameraRight = new Vector4(cameraRight, 0f),
+            CameraUp = new Vector4(cameraUp, 0f),
+            CameraForward = new Vector4(cameraForward, 0f)
+        };
+        using (var pass = commandBuffer.BeginComputePass())
+        {
+            pass.SetPipeline(_fogAccumulatePipeline);
+            for (var slice = 0; slice < sliceCount; slice++)
+            {
+                var uniform = accumulateUniforms;
+                uniform.Depths.W = slice;
+                _fogAccumulateUniforms[slice].Write(in uniform);
+                pass.SetBindGroup(_fogAccumulateBindGroups[slice], 0);
+                pass.SetBindGroup(volumeBindGroups[slice], 1);
+                pass.Dispatch((uint)((froxelWidth + 7) / 8), (uint)((froxelHeight + 7) / 8), 1);
+            }
+        }
+
+        // --- Pass 2: integrate (one compute dispatch per slice) ---
+        var sliceThickness = (drawDistance - nearPlane) / sliceCount;
+        var integrateUniforms = new FogIntegrateGpuUniforms
+        {
+            FogParams = new Vector4(1f, 1f, 0f, sliceCount),
+            Depths = new Vector4(nearPlane, drawDistance, sliceThickness, 0f),
+            VolumeParams = new Vector4(0f, froxelWidth, froxelHeight, 0f)
+        };
+        using (var pass2 = commandBuffer.BeginComputePass())
+        {
+            pass2.SetPipeline(_fogIntegratePipeline);
+            for (var slice = 0; slice < sliceCount; slice++)
+            {
+                var uniform = integrateUniforms;
+                uniform.Depths.W = slice;
+                _fogIntegrateUniforms[slice].Write(in uniform);
+                pass2.SetBindGroup(_fogIntegrateBindGroups[slice], 0);
+                pass2.SetBindGroup(_fogIntegrateSliceBindGroups[slice], 1);
+                pass2.Dispatch((uint)((froxelWidth + 7) / 8), (uint)((froxelHeight + 7) / 8), 1);
+            }
+        }
+
+        // --- Pass 3: apply (fullscreen) ---
+        RunFogApplyPass(commandBuffer, from, to, depth, sliceCount, froxelWidth, froxelHeight,
+            nearPlane, drawDistance, density, scattering);
+    }
+
+    /// <summary>Builds or rebuilds the two froxel textures, their per-slice views and the pipelines to a given size.</summary>
+    private void EnsureFogResources(int width, int height, int slices)
+    {
+        if (_fogVolumeSize == (width, height, slices) && _fogAccumulate is not null)
+            return;
+
+        ReleaseFogResources();
+
+        var volumeDesc = new TextureDescription
+        {
+            Width = width,
+            Height = height,
+            Dimension = TextureDimension.Dimension2DArray,
+            ArrayLayerCount = slices,
+            Format = TextureFormat.Rgba16Float,
+            Sampled = true,
+            Storage = true
+        };
+        _fogAccumulate = _device.CreateTexture(volumeDesc);
+        _fogIntegrated = _device.CreateTexture(volumeDesc);
+        _fogVolumeSize = (width, height, slices);
+
+        _fogAccumulateSliceViews = new ITexture[slices];
+        _fogIntegratedSliceViews = new ITexture[slices];
+        for (var slice = 0; slice < slices; slice++)
+        {
+            _fogAccumulateSliceViews[slice] = _fogAccumulate.CreateView(new TextureViewDescription
+            {
+                Dimension = TextureDimension.Dimension2D,
+                BaseArrayLayer = slice,
+                ArrayLayerCount = 1
+            });
+            _fogIntegratedSliceViews[slice] = _fogIntegrated.CreateView(new TextureViewDescription
+            {
+                Dimension = TextureDimension.Dimension2D,
+                BaseArrayLayer = slice,
+                ArrayLayerCount = 1
+            });
+        }
+
+        // Accumulate: group0 = lights(0) + fog uniform(1); group1 = volumes(0) + slice view(1).
+        var accumulateShader = Shader.Load(PathUtil.Combine("Shaders", "PostProcesses/FogAccumulate.wgsl"));
+        _fogAccumulatePipeline = _device.CreateComputePipeline(new ComputePipelineDescription
+        {
+            ShaderSource = accumulateShader.Source,
+            EntryPoint = "cs_main",
+            BindGroups = accumulateShader.BuildBindGroupLayouts()
+        });
+
+        // Integrate: group0 = fog uniform(0); group1 = array(0) + sampler(1) + slice view(2).
+        var integrateShader = Shader.Load(PathUtil.Combine("Shaders", "PostProcesses/FogIntegrate.wgsl"));
+        _fogIntegratePipeline = _device.CreateComputePipeline(new ComputePipelineDescription
+        {
+            ShaderSource = integrateShader.Source,
+            EntryPoint = "cs_main",
+            BindGroups = integrateShader.BuildBindGroupLayouts()
+        });
+
+        // Apply (fullscreen, built against the scene depth attachment of the chain).
+        _fogApplyPipeline = GetOrCreatePostProcessPipeline("Shaders/PostProcesses/FogApply.wgsl");
+
+        // Per-slice uniform buffers + cached bind groups. The group0 bind group for
+        // accumulate needs the shared lights buffer at slot 0 plus the slice's uniform at
+        // slot 1 (both stable across frames, so cached); group0 for integrate is just the
+        // slice's uniform; group1 for integrate binds the sampled accumulate array + the
+        // point sampler + the integrated slice view (all stable). Only the volume buffer
+        // (per frame) and the apply bind group (per frame) are rebuilt each frame.
+        _fogAccumulateUniforms = new IBuffer[slices];
+        _fogAccumulateBindGroups = new IBindGroup[slices];
+        _fogIntegrateUniforms = new IBuffer[slices];
+        _fogIntegrateBindGroups = new IBindGroup[slices];
+        _fogIntegrateSliceBindGroups = new IBindGroup[slices];
+        for (var slice = 0; slice < slices; slice++)
+        {
+            var accUniform = _device.CreateBuffer(new BufferDescription
+            {
+                Size = (ulong)Marshal.SizeOf<FogAccumulateGpuUniforms>(),
+                Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+            });
+            var intUniform = _device.CreateBuffer(new BufferDescription
+            {
+                Size = (ulong)Marshal.SizeOf<FogIntegrateGpuUniforms>(),
+                Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+            });
+            _fogAccumulateUniforms[slice] = accUniform;
+            _fogIntegrateUniforms[slice] = intUniform;
+
+            _fogAccumulateBindGroups[slice] = _fogAccumulatePipeline.CreateBindGroup(0,
+            [
+                new BindGroupBinding { Slot = 0, Buffer = _lightsBuffer, BufferSize = (ulong)LightsBufferSize },
+                new BindGroupBinding { Slot = 1, Buffer = accUniform, BufferSize = (ulong)Marshal.SizeOf<FogAccumulateGpuUniforms>() }
+            ]);
+            _fogIntegrateBindGroups[slice] = _fogIntegratePipeline.CreateBindGroup(0,
+            [
+                new BindGroupBinding { Slot = 0, Buffer = intUniform, BufferSize = (ulong)Marshal.SizeOf<FogIntegrateGpuUniforms>() }
+            ]);
+            _fogIntegrateSliceBindGroups[slice] = _fogIntegratePipeline.CreateBindGroup(1,
+            [
+                new BindGroupBinding { Slot = 0, Texture = _fogAccumulate },
+                new BindGroupBinding { Slot = 1, Sampler = _postProcessPointSampler },
+                new BindGroupBinding { Slot = 2, Texture = _fogIntegratedSliceViews[slice] }
+            ]);
+        }
+    }
+
+    /// <summary>Disposes the fog volume textures, views and pipelines (called on rebuild and dispose).</summary>
+    private void ReleaseFogResources()
+    {
+        foreach (var view in _fogAccumulateSliceViews)
+            view.Dispose();
+        foreach (var view in _fogIntegratedSliceViews)
+            view.Dispose();
+        _fogAccumulateSliceViews = [];
+        _fogIntegratedSliceViews = [];
+
+        foreach (var uniform in _fogAccumulateUniforms)
+            uniform.Dispose();
+        foreach (var group in _fogAccumulateBindGroups)
+            group.Dispose();
+        foreach (var uniform in _fogIntegrateUniforms)
+            uniform.Dispose();
+        foreach (var group in _fogIntegrateBindGroups)
+            group.Dispose();
+        foreach (var group in _fogIntegrateSliceBindGroups)
+            group.Dispose();
+        _fogAccumulateUniforms = [];
+        _fogAccumulateBindGroups = [];
+        _fogIntegrateUniforms = [];
+        _fogIntegrateBindGroups = [];
+        _fogIntegrateSliceBindGroups = [];
+
+        _fogAccumulate?.Dispose();
+        _fogIntegrated?.Dispose();
+        _fogAccumulate = null;
+        _fogIntegrated = null;
+
+        // The apply pipeline is cached in _postProcessPipelines (owned/disposed by
+        // the renderer), so it is only forgotten here, not disposed.
+        _fogApplyPipeline = null;
+        _fogAccumulatePipeline?.Dispose();
+        _fogAccumulatePipeline = null;
+        _fogIntegratePipeline?.Dispose();
+        _fogIntegratePipeline = null;
+        _fogVolumeSize = default;
+    }
+
+    /// <summary>Packs the scene's enabled fog volumes into GPU data (capped at MaxFogVolumes).</summary>
+    private List<FogVolumeGpuData> CollectFogVolumes()
+    {
+        var result = new List<FogVolumeGpuData>();
+        var world = _currentWorld;
+        if (world is null)
+            return result;
+
+        foreach (var volume in world.Query<VolumetricFogVolume>())
+        {
+            if (!volume.Enabled || volume.Strength <= 0f)
+                continue;
+            if (result.Count >= MaxFogVolumes)
+                break;
+
+            volume.GetWorldBounds(out var center, out var halfExtent);
+            var color = Vector3.Clamp(volume.Color, Vector3.Zero, Vector3.One);
+            result.Add(new FogVolumeGpuData
+            {
+                Center = new Vector4(center, 1f),
+                Extent = new Vector4(halfExtent, 1f),
+                Params = new Vector4(volume.Strength, volume.FalloffExponent, color.X, color.Y),
+                Color = new Vector4(color.Z, 0f, 0f, 0f)
+            });
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Runs the fog apply fullscreen pass: binds the scene, the integrated
+    /// volume array, the scene depth and the apply uniforms, and composites the
+    /// fog over the scene into <paramref name="to"/>.
+    /// </summary>
+    private void RunFogApplyPass(
+        ICommandBuffer commandBuffer,
+        ITexture from,
+        ITexture to,
+        ITexture depth,
+        int sliceCount,
+        int froxelWidth,
+        int froxelHeight,
+        float nearPlane,
+        float drawDistance,
+        float density,
+        float strength)
+    {
+        if (_fogApplyPipeline is null)
+            return;
+
+        var applyUniforms = new FogApplyGpuUniforms
+        {
+            Depths = new Vector4(nearPlane, drawDistance, sliceCount, 0f),
+            Params = new Vector4(strength * density, froxelWidth, froxelHeight, 0f)
+        };
+        var uniformBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)Marshal.SizeOf<FogApplyGpuUniforms>(),
+            Usage = BufferUsage.Uniform | BufferUsage.CopyDst
+        });
+        uniformBuffer.Write(in applyUniforms);
+        _postProcessFrameResources.Add(uniformBuffer);
+
+        var bindGroup = _fogApplyPipeline.CreateBindGroup(0,
+        [
+            new BindGroupBinding { Slot = 0, Texture = from },
+            new BindGroupBinding { Slot = 1, Sampler = _uiSampler },
+            new BindGroupBinding { Slot = 2, Texture = _fogIntegrated },
+            new BindGroupBinding { Slot = 3, Texture = depth },
+            new BindGroupBinding { Slot = 4, Buffer = uniformBuffer, BufferSize = (ulong)Marshal.SizeOf<FogApplyGpuUniforms>() }
+        ]);
+        _postProcessFrameResources.Add(bindGroup);
+
+        using (IRenderPass pass = commandBuffer.BeginRenderPass(new RenderPassDescription
+        {
+            Color = new ColorAttachment
+            {
+                Texture = to,
+                LoadOp = RenderAttachmentLoadOp.Clear,
+                StoreOp = RenderAttachmentStoreOp.Store,
+                ClearColor = Vector4.Zero
+            }
+        }))
+        {
+            pass.SetPipeline(_fogApplyPipeline);
+            pass.SetBindGroup(bindGroup, 0);
+            pass.Draw(3);
+        }
+    }
+
     /// <summary>Maps the attribute bag onto the uniform struct's fields by name.</summary>
     private static Dictionary<string, ShaderParameter> PackAttributes(
         IReadOnlyList<ShaderStructField> fields,
@@ -3285,6 +3722,7 @@ public sealed class Renderer : IDisposable
             target.Dispose();
         foreach (var target in _taaHistory)
             target.Dispose();
+        ReleaseFogResources();
         _postProcessPointSampler?.Dispose();
         foreach (var pipeline in _postProcessPipelines.Values)
             pipeline.Dispose();

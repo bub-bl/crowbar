@@ -164,6 +164,18 @@ public sealed class PostProcessContext
         _renderer.RunTemporalAAPass(_commandBuffer, from, to, shaderPath, attributes, _sampler);
     }
 
+    /// <summary>
+    /// Runs the volumetric-fog chain for <paramref name="fog"/>: accumulates the
+    /// scene's fog volumes into a froxel volume, integrates it toward the camera,
+    /// then applies it over <see cref="Input"/>, writing <see cref="Output"/>.
+    /// </summary>
+    internal void ApplyVolumetricFog(VolumetricFog fog)
+    {
+        if (_renderer is null)
+            throw new InvalidOperationException("This post-process context is not bound to a renderer.");
+        _renderer.RunVolumetricFog(_commandBuffer, Input, Output, Depth, fog);
+    }
+
     /// <summary>The instances of this effect participating in the current frame (for GetWeighted).</summary>
     internal IReadOnlyList<PostProcessEntry> Entries { get; }
 

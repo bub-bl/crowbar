@@ -216,8 +216,15 @@ public sealed class Shader : ResourceFile
             // Slang currently lowers RWTexture2D<float4> to rgba32float/read_write.
             // The environment kernels only store, and their targets are RGBA16F,
             // so normalize those shaders without changing generic storage-texture
-            // reflection for unrelated compute workloads.
-            if (candidate.FullName.Replace('\\', '/').Contains("/Shaders/Environment/", StringComparison.OrdinalIgnoreCase))
+            // reflection for unrelated compute workloads. The volumetric-fog volume
+            // kernels are treated the same way: froxel storage targets are RGBA16F
+            // (filterable, so they can be sampled by the integrate/apply passes),
+            // and they never read their own storage output.
+            var lowered = candidate.FullName.Replace('\\', '/');
+            var normalizeStorage16 = lowered.Contains("/Shaders/Environment/", StringComparison.OrdinalIgnoreCase)
+                || lowered.Contains("/Shaders/PostProcesses/FogAccumulate", StringComparison.OrdinalIgnoreCase)
+                || lowered.Contains("/Shaders/PostProcesses/FogIntegrate", StringComparison.OrdinalIgnoreCase);
+            if (normalizeStorage16)
             {
                 Source = source.Replace(
                     "texture_storage_2d<rgba32float, read_write>",
