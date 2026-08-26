@@ -9,13 +9,17 @@ root {
     bottom: 0px;
     width: auto;
     height: auto;
+    min-height: 0;
     background-color: $panel;
     box-sizing: border-box;
 }
 
 .insp-body {
     width: 100%;
+    min-height: 0;
     flex-grow: 1;
+    flex-shrink: 1;
+    flex-direction: column;
     padding: 8px 10px;
     overflow: auto;
     box-sizing: border-box;
@@ -83,14 +87,20 @@ root {
 
 .add-menu {
     width: 100%;
-    flex-shrink: 0;
+    min-height: 0;
+    flex-grow: 0;
+    flex-shrink: 1;
     margin-top: 2px;
     border-radius: 4px;
     background-color: $panel;
     border: 1px solid $border;
     box-sizing: border-box;
+    height: 160px;
     max-height: 160px;
-    overflow-y: auto;
+    // The UI engine parses only the `overflow` shorthand (overflow-x/overflow-y
+    // are not understood), so use `overflow: auto` for the vertical scrollbar.
+    overflow: auto;
+    flex-direction: column;
 }
 
 .add-menu-empty {

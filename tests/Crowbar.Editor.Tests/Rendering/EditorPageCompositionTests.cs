@@ -1469,4 +1469,32 @@ ui.ProcessPointerDown(metallic!.Layout.X + 1, metallic.Layout.Y + 1);
         Assert.True(after.Value.Width > before.Value.Width, $"viewport width did not grow ({before.Value.Width} -> {after.Value.Width})");
         Assert.True(after.Value.Height > before.Value.Height, $"viewport height did not grow ({before.Value.Height} -> {after.Value.Height})");
     }
+
+    [Fact]
+    public void AddComponentMenuScrollsWhenItOverflows()
+    {
+        using var ui = CreateEditorUi();
+        var content = ui.Content!;
+        // Publish enough component types that the menu's fixed-height list
+        // overflows; the scoped sheet marks it `overflow: auto`, so the panel
+        // must be a real scroll container with a scrollable range.
+        EditorInspectorState.PublishAvailableComponents(
+            Enumerable.Range(0, 40).Select(i => $"Component{i}").ToArray());
+        ui.Update();
+        ui.Prepare();
+
+        var addButton = FindText(content, "add-component", t => t.Contains("Add component"));
+        ui.ProcessPointerDown(addButton!.Layout.X + 3, addButton.Layout.Y + 3);
+        ui.ProcessPointerUp(addButton.Layout.X + 3, addButton.Layout.Y + 3);
+        ui.Update();
+        ui.Prepare();
+        content = ui.Content!;
+
+        var menu = TestUi.Find(content, p => p.Classes.Contains("add-menu"));
+        Assert.NotNull(menu);
+        Assert.True(menu!.Overflow == "auto", $"expected overflow:auto, got {menu.Overflow}");
+        Assert.True(menu.IsScrollContainer);
+        Assert.True(menu.CanScrollVertically, $"menu should be vertically scrollable (MaxScrollY={menu.MaxScrollY})");
+        Assert.True(menu.MaxScrollY > 0, "overflowing menu must expose a positive scroll range");
+    }
 }
