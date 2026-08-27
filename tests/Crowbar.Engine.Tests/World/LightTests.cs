@@ -53,6 +53,26 @@ public class LightTests
     }
 
     [Fact]
+    public void SpotLight_ExposesDirectionRangeAndConeAngles()
+    {
+        using var world = new World();
+        var level = world.CreateLevel("Test");
+        var light = level.SpawnEntity("Spot").AddComponent<SpotLight>();
+        light.Local = new Transform(new Vector3(1f, 2f, 3f), Rotation.FromYaw(90f), Vector3.One);
+        light.Range = 12f;
+        light.InnerConeAngle = 20f;
+        light.OuterConeAngle = 40f;
+
+        Assert.Equal(new Vector3(1f, 2f, 3f), light.World.Position);
+        Assert.Equal(1f, light.Direction.X, 3);
+        Assert.Equal(12f, light.Range);
+        light.Local = light.Local with { Position = new Vector3(9f, 8f, 7f) };
+        Assert.Equal(new Vector3(9f, 8f, 7f), light.World.Position);
+        Assert.Equal(20f, light.InnerConeAngle);
+        Assert.Equal(40f, light.OuterConeAngle);
+    }
+
+    [Fact]
     public void DisabledLights_AreStillGathered_ButSkippedByTheRenderer()
     {
         using var world = new World();

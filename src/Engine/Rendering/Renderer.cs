@@ -45,7 +45,7 @@ public sealed class Renderer : IDisposable
     {
         public Vector4 PositionType;     // xyz = position, w = 0 directional / 1 point
         public Vector4 ColorIntensity;   // rgb = color, w = intensity
-        public Vector4 DirectionRange;   // xyz = direction the light travels, w = range (point lights)
+        public Vector4 DirectionRange;   // xyz = direction, w = range
     }
 
     // Mirrors LightsUniform in Shaders/Common/Lighting.slang: a u32 count
@@ -1628,6 +1628,14 @@ public sealed class Renderer : IDisposable
         {
             switch (lights[i])
             {
+                case SpotLight spot:
+                    collected[i] = new LightGpuData
+                    {
+                        PositionType = new Vector4(spot.World.Position, 2f),
+                        ColorIntensity = new Vector4(spot.Color, spot.Intensity),
+                        DirectionRange = new Vector4(spot.Direction, spot.Range)
+                    };
+                    break;
                 case PointLight point:
                     collected[i] = new LightGpuData
                     {
@@ -1672,7 +1680,7 @@ public sealed class Renderer : IDisposable
         {
             if (!light.Enabled)
                 continue;
-            if (light is not (PointLight or DirectionalLight))
+            if (light is not (PointLight or SpotLight or DirectionalLight))
                 continue;
 
             lights.Add(light);
@@ -1716,6 +1724,9 @@ public sealed class Renderer : IDisposable
             {
                 case DirectionalLight directional:
                     data[i] = BuildDirectionalShadow(directional, invViewProj, sceneBounds, tiles, faces);
+                    break;
+                case SpotLight spot:
+                    data[i] = BuildSpotShadow(spot, tiles, faces);
                     break;
                 case PointLight point:
                     data[i] = BuildPointShadow(point, tiles, faces);
@@ -1933,6 +1944,28 @@ public sealed class Renderer : IDisposable
     }
 
     /// <summary>Builds the six cube faces for a point light's shadow map.</summary>
+    private static ShadowLightGpuData BuildSpotShadow(
+        SpotLight light,
+        bool[] tiles,
+        List<(Matrix4x4 ViewProj, int Tile, int PixelX, int PixelY, int PixelSize)> faces)
+    {
+        var tile = AllocateShadowTile(tiles);
+        if (tile is null)
+            return default;
+
+        var near = Math.Max(0.05f, Math.Min(light.Range * 0.01f, 0.1f));
+        var far = Math.Max(light.Range, near + 0.1f);
+        var forward = Vector3.Normalize(light.Direction);
+        var up = MathF.Abs(Vector3.Dot(forward, Vector3.UnitY)) > 0.95f ? Vector3.UnitX : Vector3.UnitY;
+        var view = BuildLightView(light.World.Position, forward, up);
+        var fov = Math.Clamp(light.OuterConeAngle, 1f, 179f) * MathF.PI / 180f;
+        var projection = CreatePerspectiveShadowProjection(fov, near, far);
+        var viewProj = view * projection;
+        var face = new ShadowFaceGpuData { UvRect = ShadowTileUvRect(tile.Value), ViewProj = viewProj };
+        faces.Add((viewProj, tile.Value, ShadowTileX(tile.Value), ShadowTileY(tile.Value), ShadowTileSize));
+        return new ShadowLightGpuData { Flags = new Vector4(1f, 2f, 1f, PointShadowBias), Face0 = face };
+    }
+
     private static ShadowLightGpuData BuildPointShadow(
         PointLight light,
         bool[] tiles,
@@ -2189,6 +2222,19 @@ public sealed class Renderer : IDisposable
             0f, 2f / tb, 0f, 0f,
             0f, 0f, 1f / fn, 0f,
             -(right + left) / rl, -(top + bottom) / tb, -near / fn, 1f);
+    }
+
+    /// <summary>90-degree perspective projection for a point light's square cube face.</summary>
+    private static Matrix4x4 CreatePerspectiveShadowProjection(float fov, float near, float far)
+    {
+        var scale = 1f / MathF.Tan(fov * 0.5f);
+        var zScale = far / (far - near);
+        var zOffset = -(near * far) / (far - near);
+        return new Matrix4x4(
+            scale, 0f, 0f, 0f,
+            0f, scale, 0f, 0f,
+            0f, 0f, zScale, 1f,
+            0f, 0f, zOffset, 0f);
     }
 
     /// <summary>90-degree perspective projection for a point light's square cube face.</summary>

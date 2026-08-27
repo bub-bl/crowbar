@@ -131,6 +131,7 @@ public sealed class VolumetricFogTests
         Assert.True(typeof(Light).GetProperty(nameof(Light.FogScattering)) is not null);
         Assert.True(typeof(Light).GetProperty(nameof(Light.FogColor)) is not null);
         Assert.True(typeof(PointLight).IsSubclassOf(typeof(Light)));
+        Assert.True(typeof(SpotLight).IsSubclassOf(typeof(Light)));
         Assert.True(typeof(DirectionalLight).IsSubclassOf(typeof(Light)));
 
         using var world = new World();

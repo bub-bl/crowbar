@@ -249,7 +249,9 @@ public sealed class GizmoRenderer : IDisposable
                 if (lightIcon is null)
                     continue;
 
-                var position = light.World.Position;
+                var position = light is SpotLight spot
+                    ? spot.World.Position
+                    : light.World.Position;
                 AddIconSprite(ref spriteCount, position, new Vector4(light.Color, 0.95f),
                     ScreenHalfSize(position, SpritePixelSize * 0.5f, camera, height), lightIcon.Value);
             }

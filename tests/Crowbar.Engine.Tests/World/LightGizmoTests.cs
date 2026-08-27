@@ -24,6 +24,23 @@ public class LightGizmoTests
     }
 
     [Fact]
+    public void SpotLight_DrawsConeGuides()
+    {
+        using var world = new World();
+        var level = world.CreateLevel("Test");
+        var light = level.SpawnEntity("Spot").AddComponent<SpotLight>();
+        light.Range = 5f;
+        light.OuterConeAngle = 40f;
+
+        var batch = new GizmoLineBatch();
+        using (Gizmos.Begin(batch, light.Entity))
+            light.RunDrawGizmo();
+
+        Assert.Equal(36, batch.Count);
+        Assert.Contains(batch.Lines, line => Vector3.Distance(line.Start, light.World.Position) < 1e-4f);
+    }
+
+    [Fact]
     public void LightGizmo_IsSkippedWhenTheEntityIsNotSelected()
     {
         using var world = new World();
@@ -57,5 +74,33 @@ public class LightGizmoTests
             Assert.Equal(5f, (line.Start - light.World.Position).Length(), 3);
             Assert.Equal(5f, (line.End - light.World.Position).Length(), 3);
         }
+    }
+
+    [Fact]
+    public void SpotLight_GizmoFollowsTheEntityTransform()
+    {
+        using var world = new World();
+        var level = world.CreateLevel("Test");
+        var light = level.SpawnEntity("Spot").AddComponent<SpotLight>();
+        light.Range = 5f;
+        light.OuterConeAngle = 40f;
+
+        // Anchor the spot at a non-zero world position (the gizmo must draw from
+        // that point, not from the scene origin).
+        var position = new Vector3(10f, -4f, 7f);
+        light.Local = new Transform(position, Rotation.FromYaw(30f), Vector3.One);
+
+        var batch = new GizmoLineBatch();
+        using (Gizmos.Begin(batch, light.Entity))
+            light.RunDrawGizmo();
+
+        Assert.NotEmpty(batch.Lines);
+        var origin = light.World.Position;
+        Assert.Equal(new Vector3(10f, -4f, 7f), origin);
+        // The cone guides are anchored to the light's world position: the four
+        // cone spokes run from the entity point out toward the cone's far end, so
+        // the gizmo follows the TransformComponent instead of floating at the
+        // scene origin.
+        Assert.Contains(batch.Lines, line => Vector3.Distance(line.Start, origin) < 1e-3f);
     }
 }

@@ -9,9 +9,9 @@ import Shadows;
 
 public struct LightData
 {
-    float4 position_type;    // xyz = world position, w = 0 directional / 1 point
+    float4 position_type;    // xyz = world position, w = 0 directional / 1 point / 2 spot
     float4 color_intensity;  // rgb = color, w = intensity
-    float4 direction_range;  // xyz = direction the light travels (directional), w = range (point)
+    float4 direction_range;  // xyz = direction, w = range
 };
 
 public struct LightsUniform
@@ -83,13 +83,23 @@ public struct Lighting
         var attenuation = 1.0;
         if (light.position_type.w > 0.5)
         {
-            let dist = length(light.position_type.xyz - surfacePosition);
+            let toLight = light.position_type.xyz - surfacePosition;
+            let dist = length(toLight);
             let range = light.direction_range.w;
             attenuation = clamp(1.0 - dist / max(range, 0.0001), 0.0, 1.0);
             attenuation = attenuation * attenuation;
+            if (light.position_type.w > 1.5)
+            {
+                let fromLight = normalize(surfacePosition - light.position_type.xyz);
+                let coneCosine = dot(normalize(light.direction_range.xyz), fromLight);
+                let outerCosine = cos(radians(22.5));
+                let innerCosine = cos(radians(12.5));
+                attenuation *= smoothstep(outerCosine, innerCosine, coneCosine);
+            }
         }
 
-        return (diffuse + specular) * ndotl * light.color_intensity.rgb * light.color_intensity.w * attenuation;
+        return (diffuse + specular) * ndotl * light.color_intensity.rgb
+            * (light.position_type.w > 1.5 ? 1.0 : light.color_intensity.w) * attenuation;
     }
 
     // Evaluates every enabled light at the surface, shadows included. This is

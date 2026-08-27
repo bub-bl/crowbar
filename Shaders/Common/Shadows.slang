@@ -109,7 +109,7 @@ public struct Shadow
             return 1.0;
 
         let bias = data.flags.w;
-        if (data.flags.y < 0.5)
+        if (data.flags.y < 0.5 || data.flags.y > 1.5)
         {
             let face = data.faces[0];
             let clip = mul(face.viewProj, float4(worldPosition, 1.0));

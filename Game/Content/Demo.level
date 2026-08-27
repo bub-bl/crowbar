@@ -14,12 +14,12 @@
         {
           "type": "Camera",
           "enabled": true,
-          "transform": "3.4848545,1.9553635,-3.1468666,-0.007377144,-0.38681114,-0.0030945519,0.92212427,1,1,1",
+          "transform": "-6.69713,1.2138468,-2.8950558,-0.007434596,0.6225408,0.005914585,0.7825298,1,1,1",
           "properties": {
             "Pivot": [
-              -1.2979271,
-              2.0626366,
-              1.5508654
+              -0.16508159,
+              1.3412372,
+              -1.3879666
             ],
             "Distance": 6.7048635,
             "EnablePostProcessing": true,
@@ -133,15 +133,21 @@
         {
           "type": "DirectionalLight",
           "enabled": true,
-          "transform": "0,0,0,-0.27781594,-0.3649717,-0.11507514,0.88111955,1,1,1",
+          "transform": "0,0,0,-0.9020563,-0.14658189,0.35349736,-0.19961898,1,1,1",
           "properties": {
             "Color": [
               1,
               1,
               1
             ],
-            "Intensity": 2,
-            "CastShadows": false
+            "Intensity": 20,
+            "CastShadows": true,
+            "FogScattering": 1,
+            "FogColor": [
+              1,
+              1,
+              1
+            ]
           }
         }
       ]
@@ -152,7 +158,7 @@
       "components": [
         {
           "type": "PointLight",
-          "enabled": true,
+          "enabled": false,
           "transform": "0.5,2,-1.5,0,0,0,1,1,1,1",
           "properties": {
             "Range": 8,
@@ -162,7 +168,13 @@
               1
             ],
             "Intensity": 40,
-            "CastShadows": false
+            "CastShadows": false,
+            "FogScattering": 1,
+            "FogColor": [
+              1,
+              1,
+              1
+            ]
           }
         },
         {
@@ -245,7 +257,7 @@
         {
           "type": "MeshRenderer",
           "enabled": true,
-          "transform": "0,0.5,0,0.12607862,0.25660482,-0.033782665,0.9576622,1,1,1",
+          "transform": "-2,0.5,0,0.12607862,0.25660482,-0.033782665,0.9576622,2.7041214,4.8028994,1",
           "properties": {
             "Model": {
               "procedural": "cube"
@@ -258,9 +270,9 @@
               "values": {
                 "color": [
                   0.2,
-                  0.6,
                   1,
-                  1
+                  0,
+                  0
                 ],
                 "metallic": 0.15,
                 "roughness": 0.45,
@@ -325,7 +337,7 @@
         {
           "type": "MeshRenderer",
           "enabled": true,
-          "transform": "1.6,0.5,-1.6,0,0.30070582,0,0.95371693,1,1,1",
+          "transform": "1.6,0.5,-1.6,0,0.30070582,0,0.95371693,2.998168,4.4254746,1",
           "properties": {
             "Model": {
               "path": "Content/Models/Crate/Crate.gltf"
@@ -364,7 +376,7 @@
           "properties": {
             "Density": 0.02,
             "Scattering": 0.8,
-            "Anisotropy": 0.4,
+            "Anisotropy": 0.2,
             "DrawDistance": 3000,
             "FadeInStart": 64,
             "FadeInEnd": 256,
@@ -394,6 +406,35 @@
             ],
             "NoiseScale": 0.035,
             "NoiseStrength": 0.5
+          }
+        }
+      ]
+    },
+    {
+      "id": "3c1e2f4a-8d5b-4c6e-9a7f-b2c3d4e5f6a7",
+      "name": "Spotlight",
+      "components": [
+        {
+          "type": "SpotLight",
+          "enabled": true,
+          "transform": "8,6,5,0.4209,-0.7482,0,0.5129,1,1,1",
+          "properties": {
+            "Range": 12,
+            "InnerConeAngle": 25,
+            "OuterConeAngle": 40,
+            "Color": [
+              1,
+              0.85,
+              0.6
+            ],
+            "Intensity": 30,
+            "CastShadows": false,
+            "FogScattering": 1,
+            "FogColor": [
+              1,
+              1,
+              1
+            ]
           }
         }
       ]

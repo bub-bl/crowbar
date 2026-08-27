@@ -13,6 +13,7 @@ public readonly record struct GizmoIcon(string Name)
 {
     public static GizmoIcon DirectionalLight { get; } = new("directional-light");
     public static GizmoIcon PointLight { get; } = new("point-light");
+    public static GizmoIcon SpotLight { get; } = new("spot-light");
     public static GizmoIcon Mesh { get; } = new("mesh");
     public static GizmoIcon Camera { get; } = new("camera");
 }
