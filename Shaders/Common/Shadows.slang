@@ -112,7 +112,7 @@ public struct Shadow
         {
             let face = data.faces[0];
             let clip = mul(face.viewProj, float4(worldPosition, 1.0));
-            return SampleFaceLinear(face, clip.xyz / clip.w, bias, sampler);
+            return SampleFaceLinear(face, clip.xyz / max(clip.w, 0.000001), bias, sampler);
         }
 
         let d = normalize(-lightDir);
@@ -129,7 +129,7 @@ public struct Shadow
 
         let face = Face(data, index);
         let clip = mul(face.viewProj, float4(worldPosition, 1.0));
-        return SampleFaceLinear(face, clip.xyz / clip.w, bias, sampler);
+        return SampleFaceLinear(face, clip.xyz / max(clip.w, 0.000001), bias, sampler);
     }
 
     static float Factor(uint lightIndex, float3 worldPosition, float3 lightDir, float3 normal)
@@ -151,7 +151,7 @@ public struct Shadow
             // Directional light: one orthographic face.
             let face = data.faces[0];
             let clip = mul(face.viewProj, float4(worldPosition, 1.0));
-            return SampleFace(face, clip.xyz / clip.w, bias);
+            return SampleFace(face, clip.xyz / max(clip.w, 0.000001), bias);
         }
 
         // Point light: pick the cube face the surface lies in. `lightDir` points
@@ -177,6 +177,6 @@ public struct Shadow
 
         let face = Face(data, index);
         let clip = mul(face.viewProj, float4(worldPosition, 1.0));
-        return SampleFace(face, clip.xyz / clip.w, bias);
+        return SampleFace(face, clip.xyz / max(clip.w, 0.000001), bias);
     }
 };

@@ -9,6 +9,11 @@
 // The apply pass then samples this at a pixel's eye distance to blend the fog.
 import Fog;
 
+float NoiseHash(float3 value)
+{
+    return frac(sin(dot(value, float3(12.9898, 78.233, 37.719))) * 43758.5453);
+}
+
 struct FogIntegrateUniforms
 {
     float4 fogParams;     // x = scattered strength, y = extinction strength, z = unused, w = slice count
@@ -37,18 +42,23 @@ void cs_main(uint3 id : SV_DispatchThreadID)
     var transmittance = 1.0;
     for (int s = 0; s <= target && s < sliceCount; s++)
     {
-        let accum = scatteringVolume.SampleLevel(volumeSampler, float3(uv, float(s)), 0.0);
+        let sampleUv = float2(
+            (float(id.x) + 0.5) / fog.volumeParams.y,
+            (float(id.y) + 0.5) / fog.volumeParams.z);
+        let accum = scatteringVolume.SampleLevel(volumeSampler, float3(sampleUv, float(s)), 0.0);
         let inScatter = accum.rgb;
         let sigmaT = accum.a;
         let stepLength = Fog::SliceThickness(s, fog.depths.x, fog.depths.y, sliceCount);
-        let stepT = exp(-sigmaT * stepLength);
+        let sliceJitter = (NoiseHash(float3(id.xy, s)) - 0.5) * 0.15;
+        let filteredStepLength = stepLength * (1.0 + sliceJitter);
+        let stepT = exp(-sigmaT * filteredStepLength);
         // Accumulate the analytic single-scattering solution for this slice.
         // Accumulate.rgb is a source term (sigmaS * incomingLight), so it must
         // be divided by extinction before multiplying by (1 - T). Without this
         // factor the scene darkens while the fog contributes almost no light.
         let sliceScatter = sigmaT > 1e-5
             ? inScatter / sigmaT * (1.0 - stepT)
-            : inScatter * stepLength;
+            : inScatter * filteredStepLength;
         // Snapshot the fog accumulated between the camera and this slice, then
         // extend the march past this slice.
         if (s == target)

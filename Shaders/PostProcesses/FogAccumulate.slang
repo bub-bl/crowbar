@@ -176,7 +176,7 @@ void cs_main(uint3 id : SV_DispatchThreadID)
             lightDir = normalize(-light.direction_range.xyz);
         }
 
-        let phase = Fog::PhaseHenveyGreenstein(dot(lightDir, eyeDir), fog.fogParams.y);
+        let phase = Fog::PhaseHenveyGreenstein(dot(-lightDir, eyeDir), fog.fogParams.y);
         // A volume has no surface normal; use the light direction only to keep
         // the shadow bias stable while testing whether geometry blocks the light
         // before it reaches this froxel.

@@ -5,6 +5,14 @@ namespace Crowbar.Engine.Tests;
 
 public sealed class VolumetricFogTests
 {
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "Crowbar.slnx")))
+            directory = directory.Parent;
+        return directory?.FullName ?? throw new DirectoryNotFoundException("Could not locate the repository root.");
+    }
+
     [Fact]
     public void VolumetricFog_IsADiscoverablePostProcess()
     {
@@ -82,6 +90,23 @@ public sealed class VolumetricFogTests
         Assert.Contains(uniforms.Fields, field => field.Name == "depths");
         Assert.Contains(shader.Bindings, binding =>
             binding.VariableName == "scatteringVolume" && binding.Kind == ShaderBindingKind.Texture);
+    }
+
+    [Fact]
+    public void FogShadowShader_UsesRowVectorProjectionAndCorrectPointFaceDirection()
+    {
+        var shader = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Shaders/Common/Shadows.slang"));
+        Assert.Contains("mul(face.viewProj, float4(worldPosition, 1.0))", shader);
+        Assert.Contains("let d = normalize(-lightDir);", shader);
+    }
+
+    [Fact]
+    public void FogIntegrateShader_UsesContinuousSliceTransport()
+    {
+        var shader = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Shaders/PostProcesses/FogIntegrate.slang"));
+        Assert.Contains("SliceThickness", shader);
+        Assert.Contains("filteredStepLength", shader);
+        Assert.Contains("NoiseHash", shader);
     }
 
     [Fact]
