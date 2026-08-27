@@ -14,12 +14,12 @@
         {
           "type": "Camera",
           "enabled": true,
-          "transform": "3.8843088,2.1299586,-0.5009094,-0.086367086,-0.79473394,-0.11645818,0.58938634,1,1,1",
+          "transform": "3.4848545,1.9553635,-3.1468666,-0.007377144,-0.38681114,-0.0030945519,0.92212427,1,1,1",
           "properties": {
             "Pivot": [
-              -2.262002,
-              4.0536757,
-              -2.365683
+              -1.2979271,
+              2.0626366,
+              1.5508654
             ],
             "Distance": 6.7048635,
             "EnablePostProcessing": true,
@@ -30,7 +30,7 @@
         },
         {
           "type": "Tonemapping",
-          "enabled": false,
+          "enabled": true,
           "transform": null,
           "properties": {
             "Operator": "Aces",
@@ -41,18 +41,18 @@
         },
         {
           "type": "Vignette",
-          "enabled": true,
+          "enabled": false,
           "transform": null,
           "properties": {
             "Intensity": 0.8,
             "Radius": 1,
-            "Order": 0,
+            "Order": 400,
             "Sampler": "Linear"
           }
         },
         {
           "type": "Bloom",
-          "enabled": false,
+          "enabled": true,
           "transform": null,
           "properties": {
             "Intensity": 1,
@@ -103,7 +103,7 @@
         },
         {
           "type": "Fxaa",
-          "enabled": false,
+          "enabled": true,
           "transform": null,
           "properties": {
             "EdgeThreshold": 0.063,
@@ -115,7 +115,7 @@
         },
         {
           "type": "TemporalAA",
-          "enabled": true,
+          "enabled": false,
           "transform": null,
           "properties": {
             "Feedback": 0.9,

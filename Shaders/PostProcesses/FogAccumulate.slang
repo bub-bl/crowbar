@@ -33,6 +33,14 @@ struct LightsFogUniform
     LightData lights[8];
 };
 
+// Per-light volumetric-fog controls, aligned by light index against the shared
+// light buffer. x = fog scattering multiplier (0 disables the light in fog),
+// yzw = fog-specific tint.
+struct LightFogData
+{
+    float4 params;
+};
+
 struct FogVolumeData
 {
     float4 center;   // xyz = world-space center, w = unused
@@ -56,6 +64,7 @@ struct FogAccumulateUniforms
 [[vk::binding(0, 0)]] ConstantBuffer<LightsFogUniform> fogLights;
 [[vk::binding(1, 0)]] ConstantBuffer<FogAccumulateUniforms> fog;
 [[vk::binding(5, 0)]] SamplerState fogShadowSampler;
+[[vk::binding(6, 0)]] StructuredBuffer<LightFogData> fogLightData;
 [[vk::binding(0, 1)]] StructuredBuffer<FogVolumeData> volumeBuffer;
 [[vk::binding(1, 1)]] RWTexture2D<float4> outScattering;
 
@@ -172,8 +181,12 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         // the shadow bias stable while testing whether geometry blocks the light
         // before it reaches this froxel.
         let visibility = Shadow::FactorLinear(l, worldPos, lightDir, fogShadowSampler);
+        // Per-light fog control: a multiplier (0 hides the light in fog) and an
+        // independent fog tint.
+        let fogControl = fogLightData[l].params.x;
+        let fogTint = fogLightData[l].params.yzw;
         inScatter += light.color_intensity.rgb * light.color_intensity.w
-            * phase * tintedSigmaS * attenuation * visibility;
+            * fogTint * phase * tintedSigmaS * attenuation * visibility * fogControl;
     }
 
     // Ambient fill so fully shadowed fog still reads as airy volume instead of black.

@@ -249,7 +249,8 @@ public sealed class Renderer : IDisposable
         new() { Slot = 2, Type = BindingType.UniformBuffer, Stages = ShaderStage.Compute },
         new() { Slot = 3, Type = BindingType.DepthTexture, Stages = ShaderStage.Compute },
         new() { Slot = 4, Type = BindingType.ComparisonSampler, Stages = ShaderStage.Compute },
-        new() { Slot = 5, Type = BindingType.Sampler, Stages = ShaderStage.Compute }
+        new() { Slot = 5, Type = BindingType.Sampler, Stages = ShaderStage.Compute },
+        new() { Slot = 6, Type = BindingType.ReadOnlyStorageBuffer, Stages = ShaderStage.Compute }
     ];
     private static readonly VertexBufferLayoutDescription MeshVertexLayout = new()
     {
@@ -413,6 +414,7 @@ public sealed class Renderer : IDisposable
     private IComputePipeline? _fogAccumulatePipeline;
     private IComputePipeline? _fogIntegratePipeline;
     private IPipeline? _fogApplyPipeline;
+    private IBuffer? _fogLightBuffer;
     private IBuffer[] _fogAccumulateUniforms = [];
     private IBindGroup[] _fogAccumulateBindGroups = [];
     private IBuffer[] _fogIntegrateUniforms = [];
@@ -443,6 +445,13 @@ public sealed class Renderer : IDisposable
         public Vector4 Extent;
         public Vector4 Params;  // strength, falloffExponent, colorR, colorG
         public Vector4 Color;   // colorB, noiseScale, noiseStrength, 0
+    }
+
+    // Mirrors LightFogData in FogAccumulate.slang (1 x vec4 per light): x = fog
+    // scattering multiplier, yzw = fog tint.
+    private struct LightFogGpuData
+    {
+        public Vector4 Params;
     }
 
     // Mirrors FogIntegrateUniforms in FogIntegrate.slang (3 x vec4 = 48 bytes).
@@ -2882,6 +2891,28 @@ public sealed class Renderer : IDisposable
         }
         _postProcessFrameResources.Add(volumeBuffer);
 
+        // Per-light fog controls, aligned with the shared light buffer's ordering
+        // (the same CollectLights order the scene pass used to pack _lightsBuffer).
+        if (_fogLightBuffer is not null)
+        {
+            var fogLights = CollectLights(_currentWorld);
+            var fogCount = Math.Min(fogLights.Count, MaxLights);
+            var fogLightData = new LightFogGpuData[MaxLights];
+            for (var i = 0; i < fogCount; i++)
+            {
+                var light = fogLights[i];
+                fogLightData[i] = new LightFogGpuData
+                {
+                    Params = new Vector4(Math.Max(0f, light.FogScattering), light.FogColor.X, light.FogColor.Y, light.FogColor.Z)
+                };
+            }
+            unsafe
+            {
+                fixed (LightFogGpuData* ptr = fogLightData)
+                    _fogLightBuffer.Write(new ReadOnlySpan<byte>(ptr, MaxLights * Marshal.SizeOf<LightFogGpuData>()));
+            }
+        }
+
         // The accumulate pass binds the per-frame volume buffer (slot 0) plus each
         // slice's accumulate storage view (slot 1) in group 1; those bind groups are
         // recreated each frame because the volume buffer is per-frame.
@@ -2983,6 +3014,14 @@ public sealed class Renderer : IDisposable
         _fogIntegrated = _device.CreateTexture(volumeDesc);
         _fogVolumeSize = (width, height, slices);
 
+        // Persistent per-light fog control buffer, uploaded each frame (aligned
+        // with the shared light buffer's ordering by light index).
+        _fogLightBuffer = _device.CreateBuffer(new BufferDescription
+        {
+            Size = (ulong)(MaxLights * Marshal.SizeOf<LightFogGpuData>()),
+            Usage = BufferUsage.Storage | BufferUsage.CopyDst
+        });
+
         _fogAccumulateSliceViews = new ITexture[slices];
         _fogIntegratedSliceViews = new ITexture[slices];
         for (var slice = 0; slice < slices; slice++)
@@ -3056,7 +3095,8 @@ public sealed class Renderer : IDisposable
                 new BindGroupBinding { Slot = 2, Buffer = _shadowDataBuffer, BufferSize = (ulong)ShadowBufferSize },
                 new BindGroupBinding { Slot = 3, Texture = _shadowAtlas },
                 new BindGroupBinding { Slot = 4, Sampler = _shadowSampler },
-                new BindGroupBinding { Slot = 5, Sampler = _uiSampler }
+                new BindGroupBinding { Slot = 5, Sampler = _uiSampler },
+                new BindGroupBinding { Slot = 6, Buffer = _fogLightBuffer, BufferSize = (ulong)(MaxLights * Marshal.SizeOf<LightFogGpuData>()) }
             ]);
             _fogIntegrateBindGroups[slice] = _fogIntegratePipeline.CreateBindGroup(0,
             [
@@ -3101,6 +3141,8 @@ public sealed class Renderer : IDisposable
         _fogIntegrated?.Dispose();
         _fogAccumulate = null;
         _fogIntegrated = null;
+        _fogLightBuffer?.Dispose();
+        _fogLightBuffer = null;
 
         // The apply pipeline is cached in _postProcessPipelines (owned/disposed by
         // the renderer), so it is only forgotten here, not disposed.

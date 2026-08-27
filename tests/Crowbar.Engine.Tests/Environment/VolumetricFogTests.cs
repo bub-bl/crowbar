@@ -95,4 +95,25 @@ public sealed class VolumetricFogTests
             binding.VariableName == "sceneDepth" && binding.TypeName == "texture_depth_2d");
         Assert.Contains(shader.Structs, structure => structure.Name == "FogApplyUniforms");
     }
+
+    [Fact]
+    public void Light_ExposesPerLightFogControls()
+    {
+        // Both light shapes derive from Light and inherit the fog controls, so a
+        // user can tune a single light's contribution to the volumetric fog.
+        Assert.True(typeof(Light).GetProperty(nameof(Light.FogScattering)) is not null);
+        Assert.True(typeof(Light).GetProperty(nameof(Light.FogColor)) is not null);
+        Assert.True(typeof(PointLight).IsSubclassOf(typeof(Light)));
+        Assert.True(typeof(DirectionalLight).IsSubclassOf(typeof(Light)));
+
+        using var world = new World();
+        var level = world.CreateLevel("VolumetricFog");
+        var light = world.SpawnEntity("Spot", level).AddComponent<PointLight>();
+        Assert.Equal(1f, light.FogScattering);          // full contribution by default
+        Assert.Equal(Vector3.One, light.FogColor);       // neutral fog tint by default
+
+        light.FogScattering = 0f;                        // opt a light out of the fog
+        light.FogColor = new Vector3(1f, 0.5f, 0.2f);
+        Assert.True(light.FogScattering < 1f);
+    }
 }

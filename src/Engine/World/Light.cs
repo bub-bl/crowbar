@@ -26,4 +26,19 @@ public abstract class Light : TransformComponent
     /// </summary>
     [Property]
     public bool CastShadows { get; set; }
+
+    /// <summary>
+    /// Multiplier on how strongly this light scatters in volumetric fog. Set to
+    /// 0 to exclude the light from the fog entirely, or to a value above 1 to
+    /// make its shafts in the medium stand out.
+    /// </summary>
+    [Property]
+    public float FogScattering { get; set; } = 1f;
+
+    /// <summary>
+    /// Fog-specific tint applied to this light's in-scattering, independent of
+    /// <see cref="Color"/>. Defaults to white (neutral = the light's own color).
+    /// </summary>
+    [Property]
+    public Vector3 FogColor { get; set; } = Vector3.One;
 }
