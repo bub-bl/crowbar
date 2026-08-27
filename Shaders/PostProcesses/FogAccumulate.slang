@@ -63,7 +63,11 @@ float3 WorldPositionAtSlice(uint2 id, float depth)
 {
     let u = (float(id.x) + 0.5) / fog.volumeParams.y;
     let v = (float(id.y) + 0.5) / fog.volumeParams.z;
-    let ndc = float2(u * 2.0 - 1.0, v * 2.0 - 1.0);
+    // Fragment UVs are top-left origin while NDC +Y is the top of the frame.
+    // Keep this convention identical to FogApply's fullscreen UV mapping;
+    // using v*2-1 mirrors the volume vertically and makes it appear to move
+    // when the camera pitches.
+    let ndc = float2(u * 2.0 - 1.0, 1.0 - v * 2.0);
     // `depth` is distance along the camera forward axis. Construct a normalized
     // ray first, then scale it so every froxel lies on the correct perspective
     // ray rather than on a sheared plane.
