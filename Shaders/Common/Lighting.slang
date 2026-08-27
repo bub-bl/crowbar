@@ -92,6 +92,9 @@ public struct Lighting
             {
                 let fromLight = normalize(surfacePosition - light.position_type.xyz);
                 let coneCosine = dot(normalize(light.direction_range.xyz), fromLight);
+                // Cone angles are currently packed by the runtime using the
+                // component defaults. Keep the same smooth boundary in the
+                // surface and volumetric paths.
                 let outerCosine = cos(radians(22.5));
                 let innerCosine = cos(radians(12.5));
                 attenuation *= smoothstep(outerCosine, innerCosine, coneCosine);

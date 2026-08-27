@@ -19,9 +19,9 @@ import Shadows;
 
 struct LightData
 {
-    float4 position_type;    // xyz = world position, w = 0 directional / 1 point
+    float4 position_type;    // xyz = world position, w = 0 directional / 1 point / 2 spot
     float4 color_intensity;  // rgb = color, w = intensity
-    float4 direction_range;  // xyz = direction the light travels (directional), w = range (point)
+    float4 direction_range;  // xyz = travel direction or spot axis, w = range
 };
 
 struct LightsFogUniform
@@ -165,11 +165,25 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         var attenuation = 1.0;
         if (light.position_type.w > 0.5)
         {
-            lightDir = normalize(light.position_type.xyz - worldPos);
-            let dist = length(light.position_type.xyz - worldPos);
-            let range = light.direction_range.w;
-            attenuation = clamp(1.0 - dist / max(range, 0.0001), 0.0, 1.0);
-            attenuation = attenuation * attenuation;
+            let toLight = light.position_type.xyz - worldPos;
+            let dist = length(toLight);
+            lightDir = toLight / max(dist, 0.0001);
+            let range = max(light.direction_range.w, 0.0001);
+            let rangeAttenuation = clamp(1.0 - dist / range, 0.0, 1.0);
+            attenuation = rangeAttenuation * rangeAttenuation;
+
+            if (light.position_type.w > 1.5)
+            {
+                // The light direction points from the source into the cone.
+                // A fog sample is lit only when it lies between the inner and
+                // outer cone boundaries, just like a surface sample.
+                let fromLight = normalize(worldPos - light.position_type.xyz);
+                let coneCosine = dot(normalize(light.direction_range.xyz), fromLight);
+                let outerCosine = cos(radians(22.5));
+                let innerCosine = cos(radians(12.5));
+                let coneAttenuation = smoothstep(outerCosine, innerCosine, coneCosine);
+                attenuation *= coneAttenuation;
+            }
         }
         else
         {

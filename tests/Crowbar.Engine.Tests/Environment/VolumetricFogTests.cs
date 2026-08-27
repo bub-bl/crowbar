@@ -103,6 +103,15 @@ public sealed class VolumetricFogTests
     }
 
     [Fact]
+    public void FogAccumulateShader_RestrictsSpotLightsToTheirCone()
+    {
+        var shader = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Shaders/PostProcesses/FogAccumulate.slang"));
+        Assert.Contains("light.position_type.w > 1.5", shader);
+        Assert.Contains("coneCosine", shader);
+        Assert.Contains("smoothstep(outerCosine, innerCosine, coneCosine)", shader);
+    }
+
+    [Fact]
     public void FogIntegrateShader_UsesContinuousSliceTransport()
     {
         var shader = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Shaders/PostProcesses/FogIntegrate.slang"));
