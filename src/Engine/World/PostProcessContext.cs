@@ -173,7 +173,7 @@ public sealed class PostProcessContext
     {
         if (_renderer is null)
             throw new InvalidOperationException("This post-process context is not bound to a renderer.");
-        _renderer.RunVolumetricFog(_commandBuffer, Input, Output, Depth, fog);
+        _renderer.RunVolumetricFog(_commandBuffer, Input, Output, Depth, fog, NearPlane, FarPlane);
     }
 
     /// <summary>The instances of this effect participating in the current frame (for GetWeighted).</summary>

@@ -12,14 +12,15 @@ import Fog;
 
 struct FogApplyUniforms
 {
-    float4 depths;       // x = near, y = draw distance, z = slice count, w = faded draw distance
-    float4 params;       // x = strength, y = froxel width, z = froxel height, w = unused
+    float4 depths;       // x = near, y = camera far, z = draw distance, w = slice count
+    float4 viewport;     // x = scene width, y = scene height, z = froxel width, w = froxel height
+    float4 params;       // x = strength, yzw = unused
 };
 
 [[vk::binding(0, 0)]] Texture2D sceneTexture;
 [[vk::binding(1, 0)]] SamplerState sceneSampler;
 [[vk::binding(2, 0)]] Texture2DArray<float4> fogVolume;
-[[vk::binding(3, 0)]] Texture2D<float> sceneDepth;
+[[vk::binding(3, 0)]] DepthTexture2D sceneDepth;
 [[vk::binding(4, 0)]] ConstantBuffer<FogApplyUniforms> fog;
 
 struct VertexOutput
@@ -47,22 +48,28 @@ static float LinearDepth(float rawDepth, float nearPlane, float farPlane)
 float4 fs_main(VertexOutput input) : SV_Target
 {
     let scene = sceneTexture.Sample(sceneSampler, input.uv).rgb;
-    let rawDepth = sceneDepth.Sample(sceneSampler, input.uv);
+    let size = max(fog.viewport.xy, float2(1.0));
+    let scenePx = int2(clamp(input.uv * size, float2(0.0), size - float2(1.0)));
+    let rawDepth = sceneDepth.Load(int3(scenePx, 0));
     let viewDepth = LinearDepth(rawDepth, fog.depths.x, fog.depths.y);
 
-    let sliceF = Fog::SliceCoordinate(viewDepth, fog.depths.x, fog.depths.y, int(fog.depths.z));
-    // Rgba32Float is not filterable, so interpolate the two nearest slices by
-    // hand rather than relying on a trilinear sampler. Pixel coords come from the
-    // UV and the froxel grid size.
-    let sliceLow = clamp(int(floor(sliceF)), 0, int(fog.depths.z) - 1);
-    let sliceHigh = min(sliceLow + 1, int(fog.depths.z) - 1);
+    let sliceCount = int(fog.depths.w);
+    let sliceF = Fog::SliceCoordinate(viewDepth, fog.depths.x, fog.depths.z, sliceCount);
+    // The froxel volume is RGBA16F so it is filterable, but nearest-load the two
+    // surrounding slices and lerp to keep the lookup cheap and explicit.
+    let sliceLow = clamp(int(floor(sliceF)), 0, sliceCount - 1);
+    let sliceHigh = min(sliceLow + 1, sliceCount - 1);
     let alpha = clamp(sliceF - float(sliceLow), 0.0, 1.0);
-    let px = min(int(input.uv.x * fog.params.y), int(fog.params.y) - 1);
-    let py = min(int(input.uv.y * fog.params.z), int(fog.params.z) - 1);
+    let fsize = max(fog.viewport.zw, float2(1.0));
+    let px = min(int(input.uv.x * fsize.x), int(fsize.x) - 1);
+    let py = min(int(input.uv.y * fsize.y), int(fsize.y) - 1);
     let low = fogVolume.Load(int4(px, py, sliceLow, 0));
     let high = fogVolume.Load(int4(px, py, sliceHigh, 0));
     let integrated = lerp(low, high, alpha);
 
-    var color = scene * integrated.a + integrated.rgb * fog.params.x;
+    // Integrated alpha is transmittance. Do not multiply the scene by a
+    // second fog strength here: that makes ordinary density values erase the
+    // entire image and produces flat black/white walls instead of haze.
+    var color = scene * integrated.a + integrated.rgb;
     return float4(color, 1.0);
 }

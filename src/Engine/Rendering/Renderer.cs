@@ -238,6 +238,19 @@ public sealed class Renderer : IDisposable
         new() { Slot = 3, Type = BindingType.DepthTexture, Stages = ShaderStage.Fragment },
         new() { Slot = 4, Type = BindingType.ComparisonSampler, Stages = ShaderStage.Fragment }
     ];
+
+    // The fog compute pass shares the light/shadow resources but has no camera
+    // buffer. Keep its layout explicit so the comparison sampler remains a
+    // comparison sampler even when reflection reports it as a plain sampler.
+    private static readonly BindGroupLayoutBinding[] FogFrameGroupBindings =
+    [
+        new() { Slot = 0, Type = BindingType.UniformBuffer, Stages = ShaderStage.Compute },
+        new() { Slot = 1, Type = BindingType.UniformBuffer, Stages = ShaderStage.Compute },
+        new() { Slot = 2, Type = BindingType.UniformBuffer, Stages = ShaderStage.Compute },
+        new() { Slot = 3, Type = BindingType.DepthTexture, Stages = ShaderStage.Compute },
+        new() { Slot = 4, Type = BindingType.ComparisonSampler, Stages = ShaderStage.Compute },
+        new() { Slot = 5, Type = BindingType.Sampler, Stages = ShaderStage.Compute }
+    ];
     private static readonly VertexBufferLayoutDescription MeshVertexLayout = new()
     {
         // position (3) + normal (3) + tangent (4) + uv (2).
@@ -441,12 +454,13 @@ public sealed class Renderer : IDisposable
         public Vector4 VolumeParams;   // 0, froxelWidth, froxelHeight, 0
     }
 
-    // Mirrors FogApplyUniforms in FogApply.slang (2 x vec4 = 32 bytes).
+    // Mirrors FogApplyUniforms in FogApply.slang (3 x vec4 = 48 bytes).
     [StructLayout(LayoutKind.Sequential)]
     private struct FogApplyGpuUniforms
     {
-        public Vector4 Depths;   // near, drawDistance, sliceCount, 0
-        public Vector4 Params;   // strength, froxelWidth, froxelHeight, 0
+        public Vector4 Depths;    // near, cameraFar, drawDistance, sliceCount
+        public Vector4 Viewport;  // sceneW, sceneH, froxelW, froxelH
+        public Vector4 Params;    // strength, 0, 0, 0
     }
 
     /// <summary>The world currently being rendered, captured each frame for the fog-volume query.</summary>
@@ -2821,7 +2835,9 @@ public sealed class Renderer : IDisposable
         ITexture from,
         ITexture to,
         ITexture depth,
-        VolumetricFog component)
+        VolumetricFog component,
+        float cameraNearPlane,
+        float cameraFarPlane)
     {
         _postProcessPointSampler ??= _device.CreateSampler(new SamplerDescription { Filter = SamplerFilter.Nearest });
 
@@ -2831,7 +2847,11 @@ public sealed class Renderer : IDisposable
         var drawDistance = Math.Max(settings.DrawDistance, 1f);
         var fadeStart = Math.Clamp(settings.FadeInStart, 0f, drawDistance);
         var fadeEnd = Math.Clamp(settings.FadeInEnd, fadeStart, drawDistance);
-        var nearPlane = Math.Max(1f, fadeStart);
+        // Use the camera clip range for scene-depth reconstruction. The fog
+        // marching range is separate and may intentionally extend past it for
+        // sky/background samples.
+        var nearPlane = Math.Max(0.0001f, cameraNearPlane);
+        var depthFarPlane = Math.Max(nearPlane + 0.0001f, cameraFarPlane);
         var sliceCount = Math.Clamp(settings.SliceCount, 2, 128);
         var density = Math.Max(0f, settings.Density);
         var scattering = Math.Max(0f, settings.Scattering);
@@ -2879,10 +2899,12 @@ public sealed class Renderer : IDisposable
 
         var cameraPosition = new Vector3(_cameraUniforms.CameraPosition.X, _cameraUniforms.CameraPosition.Y, _cameraUniforms.CameraPosition.Z);
         Matrix4x4.Invert(_cameraUniforms.View, out var invView);
-        // Column vectors of the inverse view = the world camera basis (right, up, -forward).
-        var cameraRight = new Vector3(invView.M11, invView.M21, invView.M31);
-        var cameraUp = new Vector3(invView.M12, invView.M22, invView.M32);
-        var cameraForward = -new Vector3(invView.M13, invView.M23, invView.M33);
+        // The view matrix uses row-vector conventions. The rows of its inverse
+        // are the camera's world-space basis vectors; using columns here skews
+        // every reconstructed ray away from the actual camera frustum.
+        var cameraRight = Vector3.Normalize(new Vector3(invView.M11, invView.M12, invView.M13));
+        var cameraUp = Vector3.Normalize(new Vector3(invView.M21, invView.M22, invView.M23));
+        var cameraForward = Vector3.Normalize(new Vector3(invView.M31, invView.M32, invView.M33));
         var tanHalfFovX = Math.Abs(_cameraUniforms.Projection.M11) > 1e-6f ? 1f / _cameraUniforms.Projection.M11 : 1f;
         var tanHalfFovY = Math.Abs(_cameraUniforms.Projection.M22) > 1e-6f ? 1f / _cameraUniforms.Projection.M22 : 1f;
 
@@ -2913,11 +2935,11 @@ public sealed class Renderer : IDisposable
         }
 
         // --- Pass 2: integrate (one compute dispatch per slice) ---
-        var sliceThickness = (drawDistance - nearPlane) / sliceCount;
+        // The shader derives each logarithmic slice's physical thickness.
         var integrateUniforms = new FogIntegrateGpuUniforms
         {
             FogParams = new Vector4(1f, 1f, 0f, sliceCount),
-            Depths = new Vector4(nearPlane, drawDistance, sliceThickness, 0f),
+            Depths = new Vector4(nearPlane, drawDistance, 0f, 0f),
             VolumeParams = new Vector4(0f, froxelWidth, froxelHeight, 0f)
         };
         using (var pass2 = commandBuffer.BeginComputePass())
@@ -2936,7 +2958,7 @@ public sealed class Renderer : IDisposable
 
         // --- Pass 3: apply (fullscreen) ---
         RunFogApplyPass(commandBuffer, from, to, depth, sliceCount, froxelWidth, froxelHeight,
-            nearPlane, drawDistance, density, scattering);
+            nearPlane, depthFarPlane, drawDistance);
     }
 
     /// <summary>Builds or rebuilds the two froxel textures, their per-slice views and the pipelines to a given size.</summary>
@@ -2981,11 +3003,12 @@ public sealed class Renderer : IDisposable
 
         // Accumulate: group0 = lights(0) + fog uniform(1); group1 = volumes(0) + slice view(1).
         var accumulateShader = Shader.Load(PathUtil.Combine("Shaders", "PostProcesses/FogAccumulate.wgsl"));
+        var accumulateBindGroups = accumulateShader.BuildBindGroupLayouts();
         _fogAccumulatePipeline = _device.CreateComputePipeline(new ComputePipelineDescription
         {
             ShaderSource = accumulateShader.Source,
             EntryPoint = "cs_main",
-            BindGroups = accumulateShader.BuildBindGroupLayouts()
+            BindGroups = [FogFrameGroupBindings, .. accumulateBindGroups.Skip(1)]
         });
 
         // Integrate: group0 = fog uniform(0); group1 = array(0) + sampler(1) + slice view(2).
@@ -3029,7 +3052,11 @@ public sealed class Renderer : IDisposable
             _fogAccumulateBindGroups[slice] = _fogAccumulatePipeline.CreateBindGroup(0,
             [
                 new BindGroupBinding { Slot = 0, Buffer = _lightsBuffer, BufferSize = (ulong)LightsBufferSize },
-                new BindGroupBinding { Slot = 1, Buffer = accUniform, BufferSize = (ulong)Marshal.SizeOf<FogAccumulateGpuUniforms>() }
+                new BindGroupBinding { Slot = 1, Buffer = accUniform, BufferSize = (ulong)Marshal.SizeOf<FogAccumulateGpuUniforms>() },
+                new BindGroupBinding { Slot = 2, Buffer = _shadowDataBuffer, BufferSize = (ulong)ShadowBufferSize },
+                new BindGroupBinding { Slot = 3, Texture = _shadowAtlas },
+                new BindGroupBinding { Slot = 4, Sampler = _shadowSampler },
+                new BindGroupBinding { Slot = 5, Sampler = _uiSampler }
             ]);
             _fogIntegrateBindGroups[slice] = _fogIntegratePipeline.CreateBindGroup(0,
             [
@@ -3127,17 +3154,17 @@ public sealed class Renderer : IDisposable
         int froxelWidth,
         int froxelHeight,
         float nearPlane,
-        float drawDistance,
-        float density,
-        float strength)
+        float depthFarPlane,
+        float drawDistance)
     {
         if (_fogApplyPipeline is null)
             return;
 
         var applyUniforms = new FogApplyGpuUniforms
         {
-            Depths = new Vector4(nearPlane, drawDistance, sliceCount, 0f),
-            Params = new Vector4(strength * density, froxelWidth, froxelHeight, 0f)
+            Depths = new Vector4(nearPlane, depthFarPlane, drawDistance, sliceCount),
+            Viewport = new Vector4(_sceneTargetWidth, _sceneTargetHeight, froxelWidth, froxelHeight),
+            Params = new Vector4(1f, 0f, 0f, 0f)
         };
         var uniformBuffer = _device.CreateBuffer(new BufferDescription
         {

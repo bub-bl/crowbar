@@ -11,10 +11,11 @@
 //   A   = extinction coefficient SigmaT
 // The integrate pass later transports this toward the camera.
 //
-// The light buffer mirrors Shaders/Common/Lighting.slang's LightsUniform
-// (group-0 slot layouts must match what the renderer packs), but is declared
-// locally so `Shadows` (which Lighting imports) is not dragged in.
+// The light and shadow buffers use the same group-0 layout as the lit surface
+// shaders. Fog samples the shadow atlas at each froxel so lights create shafts
+// in the medium instead of merely tinting the final image.
 import Fog;
+import Shadows;
 
 struct LightData
 {
@@ -54,6 +55,7 @@ struct FogAccumulateUniforms
 
 [[vk::binding(0, 0)]] ConstantBuffer<LightsFogUniform> fogLights;
 [[vk::binding(1, 0)]] ConstantBuffer<FogAccumulateUniforms> fog;
+[[vk::binding(5, 0)]] SamplerState fogShadowSampler;
 [[vk::binding(0, 1)]] StructuredBuffer<FogVolumeData> volumeBuffer;
 [[vk::binding(1, 1)]] RWTexture2D<float4> outScattering;
 
@@ -62,10 +64,13 @@ float3 WorldPositionAtSlice(uint2 id, float depth)
     let u = (float(id.x) + 0.5) / fog.volumeParams.y;
     let v = (float(id.y) + 0.5) / fog.volumeParams.z;
     let ndc = float2(u * 2.0 - 1.0, v * 2.0 - 1.0);
-    // Camera looks down -Z; a pixel's view ray is scaled so its depth is `depth`.
-    let lateral = fog.cameraRight.xyz * (ndc.x * fog.depths.z)
-                + fog.cameraUp.xyz * (ndc.y * fog.volumeParams.w);
-    return fog.cameraBasis.xyz + fog.cameraForward.xyz * depth + lateral * depth;
+    // `depth` is distance along the camera forward axis. Construct a normalized
+    // ray first, then scale it so every froxel lies on the correct perspective
+    // ray rather than on a sheared plane.
+    let ray = normalize(fog.cameraForward.xyz
+        + fog.cameraRight.xyz * (ndc.x * fog.depths.z)
+        + fog.cameraUp.xyz * (ndc.y * fog.volumeParams.w));
+    return fog.cameraBasis.xyz + ray * (depth / max(dot(ray, fog.cameraForward.xyz), 0.0001));
 }
 
 [shader("compute")]
@@ -78,10 +83,8 @@ void cs_main(uint3 id : SV_DispatchThreadID)
     let depth = Fog::SliceDepth(slice, fog.depths.x, fog.depths.y, int(fog.fogParams.w));
     let worldPos = WorldPositionAtSlice(id.xy, depth);
 
-    // Fade the fog in over [FadeInStart, FadeInEnd] so it never hugs the camera.
-    let fadeFactor = smoothstep(fog.fade.x, max(fog.fade.y, fog.fade.x + 0.001), depth);
-
     var density = 0.0;
+    var volumeColor = float3(1.0, 1.0, 1.0);
     let count = min(fog.volumeParams.x, 8.0);
     for (uint i = 0; i < uint(count); i++)
     {
@@ -91,11 +94,21 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         if (normalizedDistance <= 1.0)
         {
             density += vol.params.x * pow(max(1.0 - normalizedDistance, 0.0), vol.params.y);
+            volumeColor = float3(vol.params.z, vol.params.w, vol.color.x);
         }
     }
 
+    // Finite fog volumes must remain visible when the camera is inside them.
+    // The volume falloff already provides the local edge fade; applying the
+    // global camera fade here would suppress small volumes entirely when their
+    // bounds end before FadeInStart.
+    let depthFade = smoothstep(fog.fade.x, max(fog.fade.y, fog.fade.x + 0.001), depth);
+    let fadeFactor = density > 0.0 ? 1.0 : depthFade;
     let sigmaS = density * fadeFactor * fog.fogParams.x * fog.fogParams.z;
-    let sigmaT = max(density, 0.0) * fadeFactor * max(fog.fogParams.x, 0.0001) * max(fog.fogParams.z, 0.0);
+    let tintedSigmaS = sigmaS * volumeColor;
+    // Extinction is density, not scattering. Keeping these separate prevents
+    // a scattering value of 1 from turning a large volume into an opaque wall.
+    let sigmaT = max(density, 0.0) * fadeFactor * max(fog.fogParams.z, 0.0);
     let eyeDir = normalize(fog.cameraBasis.xyz - worldPos);
 
     var inScatter = float3(0.0);
@@ -119,11 +132,16 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         }
 
         let phase = Fog::PhaseHenveyGreenstein(dot(lightDir, eyeDir), fog.fogParams.y);
-        inScatter += light.color_intensity.rgb * light.color_intensity.w * phase * sigmaS * attenuation;
+        // A volume has no surface normal; use the light direction only to keep
+        // the shadow bias stable while testing whether geometry blocks the light
+        // before it reaches this froxel.
+        let visibility = Shadow::FactorLinear(l, worldPos, lightDir, fogShadowSampler);
+        inScatter += light.color_intensity.rgb * light.color_intensity.w
+            * phase * tintedSigmaS * attenuation * visibility;
     }
 
     // Ambient fill so fully shadowed fog still reads as airy volume instead of black.
-    inScatter += sigmaS * fog.fade.z;
+    inScatter += tintedSigmaS * fog.fade.z;
 
     outScattering[id.xy] = float4(inScatter, sigmaT);
 }

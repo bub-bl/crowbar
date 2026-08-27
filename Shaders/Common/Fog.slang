@@ -8,18 +8,37 @@ module Fog;
 
 public struct Fog
 {
-    // Maps a distance along the camera's forward axis to a slice layer index.
+    // Maps a distance along the camera's forward axis to a logarithmic slice layer index.
+    // Froxel depth is logarithmic. Linear slices over a 3000-unit draw range
+    // place the first sample dozens of units from the camera and completely
+    // miss ordinary local fog volumes.
     static float SliceCoordinate(float depth, float nearPlane, float farPlane, int sliceCount)
     {
-        let f = clamp((depth - nearPlane) / max(farPlane - nearPlane, 0.0001), 0.0, 1.0);
-        return f * float(sliceCount - 1);
+        let n = max(nearPlane, 0.0001);
+        let f = max(farPlane, n + 0.0001);
+        let logarithmicDepth = log(max(depth, n) / n) / log(f / n);
+        return clamp(logarithmicDepth, 0.0, 1.0) * float(max(sliceCount - 1, 1));
     }
 
-    // Maps a slice index back to a view-space depth (center of the slice).
+    static float SliceBoundary(int boundary, float nearPlane, float farPlane, int sliceCount)
+    {
+        let n = max(nearPlane, 0.0001);
+        let f = max(farPlane, n + 0.0001);
+        let t = float(boundary) / float(max(sliceCount, 1));
+        return n * pow(f / n, t);
+    }
+
+    // Maps a slice index back to a view-space depth (center of the logarithmic slice).
     static float SliceDepth(int slice, float nearPlane, float farPlane, int sliceCount)
     {
-        let f = (float(slice) + 0.5) / float(max(sliceCount, 1));
-        return lerp(nearPlane, farPlane, f);
+        return sqrt(SliceBoundary(slice, nearPlane, farPlane, sliceCount)
+                  * SliceBoundary(slice + 1, nearPlane, farPlane, sliceCount));
+    }
+
+    static float SliceThickness(int slice, float nearPlane, float farPlane, int sliceCount)
+    {
+        return SliceBoundary(slice + 1, nearPlane, farPlane, sliceCount)
+             - SliceBoundary(slice, nearPlane, farPlane, sliceCount);
     }
 
     // Henyey-Greenstein single-scattering phase function. cosTheta is the cosine

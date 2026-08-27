@@ -74,6 +74,64 @@ public struct Shadow
         return visibility / 9.0;
     }
 
+    // Compute-pass variant for volumetric fog. Depth comparison samplers are
+    // not available on every backend in compute shaders, so fog samples the
+    // depth value with a regular sampler and performs the comparison itself.
+    static float SampleFaceLinear(ShadowFace face, float3 ndc, float bias, SamplerState sampler)
+    {
+        if (ndc.x < -1.0 || ndc.x > 1.0 || ndc.y < -1.0 || ndc.y > 1.0)
+            return 1.0;
+
+        let uv = float2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
+        let uvSize = face.uvRect.zw - face.uvRect.xy;
+        let atlasUv = face.uvRect.xy + uv * uvSize;
+        let depthRef = clamp(ndc.z - bias, 0.0, 1.0);
+        let texel = float2(1.0) / shadows.atlasSize.xy;
+
+        var visibility = 0.0;
+        for (int dy = -1; dy <= 1; dy++)
+        {
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                let offset = float2(float(dx), float(dy)) * texel;
+                let mapDepth = shadowMap.SampleLevel(sampler, atlasUv + offset, 0.0);
+                visibility += mapDepth + 0.00001 >= depthRef ? 1.0 : 0.0;
+            }
+        }
+        return visibility / 9.0;
+    }
+
+    static float FactorLinear(uint lightIndex, float3 worldPosition, float3 lightDir, SamplerState sampler)
+    {
+        let data = shadows.lights[lightIndex];
+        if (data.flags.x < 0.5)
+            return 1.0;
+
+        let bias = data.flags.w;
+        if (data.flags.y < 0.5)
+        {
+            let face = data.faces[0];
+            let clip = mul(face.viewProj, float4(worldPosition, 1.0));
+            return SampleFaceLinear(face, clip.xyz / clip.w, bias, sampler);
+        }
+
+        let d = normalize(-lightDir);
+        let ax = abs(d.x);
+        let ay = abs(d.y);
+        let az = abs(d.z);
+        var index = 4u;
+        if (ax >= ay && ax >= az)
+            index = d.x < 0.0 ? 0u : 1u;
+        else if (ay >= az)
+            index = d.y < 0.0 ? 2u : 3u;
+        else
+            index = d.z < 0.0 ? 4u : 5u;
+
+        let face = Face(data, index);
+        let clip = mul(face.viewProj, float4(worldPosition, 1.0));
+        return SampleFaceLinear(face, clip.xyz / clip.w, bias, sampler);
+    }
+
     static float Factor(uint lightIndex, float3 worldPosition, float3 lightDir, float3 normal)
     {
         let data = shadows.lights[lightIndex];

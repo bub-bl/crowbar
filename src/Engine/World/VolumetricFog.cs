@@ -22,11 +22,11 @@ public sealed class VolumetricFog : BasePostProcess<VolumetricFog>
 
     /// <summary>Master density scale applied to every fog volume.</summary>
     [Property]
-    public float Density { get; set; } = 1f;
+    public float Density { get; set; } = 0.02f;
 
     /// <summary>Coefficient scaling how strongly the volumetric light scatters toward the eye.</summary>
     [Property]
-    public float Scattering { get; set; } = 1f;
+    public float Scattering { get; set; } = 0.8f;
 
     /// <summary>Henyey-Greenstein anisotropy (<c>0</c> isotropic, positive forward-scattering toward the sun).</summary>
     [Property]

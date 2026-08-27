@@ -29,8 +29,6 @@ void cs_main(uint3 id : SV_DispatchThreadID)
 
     let sliceCount = int(fog.fogParams.w);
     let target = int(fog.depths.w);
-    let dt = fog.depths.z;
-
     let u = (float(id.x) + 0.5) / fog.volumeParams.y;
     let v = (float(id.y) + 0.5) / fog.volumeParams.z;
     let uv = float2(u, v);
@@ -40,9 +38,17 @@ void cs_main(uint3 id : SV_DispatchThreadID)
     for (int s = 0; s <= target && s < sliceCount; s++)
     {
         let accum = scatteringVolume.SampleLevel(volumeSampler, float3(uv, float(s)), 0.0);
-        let inScatter = accum.rgb * fog.fogParams.x;
-        let sigmaT = accum.a * fog.fogParams.y;
-        let stepT = exp(-sigmaT * dt);
+        let inScatter = accum.rgb;
+        let sigmaT = accum.a;
+        let stepLength = Fog::SliceThickness(s, fog.depths.x, fog.depths.y, sliceCount);
+        let stepT = exp(-sigmaT * stepLength);
+        // Accumulate the analytic single-scattering solution for this slice.
+        // Accumulate.rgb is a source term (sigmaS * incomingLight), so it must
+        // be divided by extinction before multiplying by (1 - T). Without this
+        // factor the scene darkens while the fog contributes almost no light.
+        let sliceScatter = sigmaT > 1e-5
+            ? inScatter / sigmaT * (1.0 - stepT)
+            : inScatter * stepLength;
         // Snapshot the fog accumulated between the camera and this slice, then
         // extend the march past this slice.
         if (s == target)
@@ -50,7 +56,7 @@ void cs_main(uint3 id : SV_DispatchThreadID)
             outIntegrated[id.xy] = float4(scattered, transmittance);
             return;
         }
-        scattered = scattered * stepT + inScatter * (1.0 - stepT);
+        scattered = scattered * stepT + sliceScatter;
         transmittance *= stepT;
     }
 

@@ -21,7 +21,7 @@ public sealed class VolumetricFogTests
     public void VolumetricFog_DefaultsAreSane()
     {
         Assert.Equal(300f, new VolumetricFog().Order);
-        Assert.Equal(1f, new VolumetricFog().Density);
+        Assert.Equal(0.02f, new VolumetricFog().Density);
         Assert.True(new VolumetricFog().SliceCount >= 2);
     }
 
@@ -64,6 +64,11 @@ public sealed class VolumetricFogTests
         // The volume's RGBA16F storage is inferred from the runtime normalization.
         Assert.Contains(shader.Bindings, binding =>
             binding.VariableName == "outScattering" && binding.Kind == ShaderBindingKind.StorageTexture);
+        Assert.Contains(shader.Bindings, binding =>
+            binding.VariableName == "shadows" && binding.Kind == ShaderBindingKind.UniformBuffer);
+        Assert.Contains(shader.Bindings, binding =>
+            binding.VariableName == "shadowMap" && binding.Kind == ShaderBindingKind.Texture);
+        Assert.Contains(shader.Bindings, binding => binding.VariableName == "shadowSampler");
     }
 
     [Fact]
