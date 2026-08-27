@@ -36,6 +36,14 @@ public sealed class VolumetricFogVolume : TransformComponent
     [Property]
     public Vector3 Color { get; set; } = Vector3.One;
 
+    /// <summary>World-space scale of the stable 3D density noise.</summary>
+    [Property]
+    public float NoiseScale { get; set; } = 0.035f;
+
+    /// <summary>Strength of the 3D density variation (0 = homogeneous volume).</summary>
+    [Property]
+    public float NoiseStrength { get; set; } = 0.5f;
+
     /// <summary>
     /// Computes the world-space center and half-extents of this volume's
     /// axis-aligned bounding box (the renderer queries this each frame as it

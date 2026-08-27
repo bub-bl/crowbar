@@ -442,7 +442,7 @@ public sealed class Renderer : IDisposable
         public Vector4 Center;
         public Vector4 Extent;
         public Vector4 Params;  // strength, falloffExponent, colorR, colorG
-        public Vector4 Color;   // colorB, 0, 0, 0
+        public Vector4 Color;   // colorB, noiseScale, noiseStrength, 0
     }
 
     // Mirrors FogIntegrateUniforms in FogIntegrate.slang (3 x vec4 = 48 bytes).
@@ -3134,7 +3134,7 @@ public sealed class Renderer : IDisposable
                 Center = new Vector4(center, 1f),
                 Extent = new Vector4(halfExtent, 1f),
                 Params = new Vector4(volume.Strength, volume.FalloffExponent, color.X, color.Y),
-                Color = new Vector4(color.Z, 0f, 0f, 0f)
+                Color = new Vector4(color.Z, Math.Max(0f, volume.NoiseScale), Math.Clamp(volume.NoiseStrength, 0f, 1f), 0f)
             });
         }
         return result;

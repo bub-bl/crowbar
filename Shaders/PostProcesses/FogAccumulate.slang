@@ -38,7 +38,7 @@ struct FogVolumeData
     float4 center;   // xyz = world-space center, w = unused
     float4 extent;   // xyz = half extents, w = unused
     float4 params;   // x = strength, y = falloff exponent, z = color R, w = color G
-    float4 color;    // x = color B, y = reserved, z = reserved, w = reserved
+    float4 color;    // x = color B, y = noise scale, z = noise strength, w = reserved
 };
 
 struct FogAccumulateUniforms
@@ -58,6 +58,31 @@ struct FogAccumulateUniforms
 [[vk::binding(5, 0)]] SamplerState fogShadowSampler;
 [[vk::binding(0, 1)]] StructuredBuffer<FogVolumeData> volumeBuffer;
 [[vk::binding(1, 1)]] RWTexture2D<float4> outScattering;
+
+float Hash3(float3 position)
+{
+    return frac(sin(dot(position, float3(127.1, 311.7, 74.7))) * 43758.5453);
+}
+
+float Noise3D(float3 position)
+{
+    let cell = floor(position);
+    let cellFraction = frac(position);
+    let smoothLocal = cellFraction * cellFraction * (3.0 - 2.0 * cellFraction);
+
+    let n000 = Hash3(cell + float3(0.0, 0.0, 0.0));
+    let n100 = Hash3(cell + float3(1.0, 0.0, 0.0));
+    let n010 = Hash3(cell + float3(0.0, 1.0, 0.0));
+    let n110 = Hash3(cell + float3(1.0, 1.0, 0.0));
+    let n001 = Hash3(cell + float3(0.0, 0.0, 1.0));
+    let n101 = Hash3(cell + float3(1.0, 0.0, 1.0));
+    let n011 = Hash3(cell + float3(0.0, 1.0, 1.0));
+    let n111 = Hash3(cell + float3(1.0, 1.0, 1.0));
+
+    let low = lerp(lerp(n000, n100, smoothLocal.x), lerp(n010, n110, smoothLocal.x), smoothLocal.y);
+    let high = lerp(lerp(n001, n101, smoothLocal.x), lerp(n011, n111, smoothLocal.x), smoothLocal.y);
+    return lerp(low, high, smoothLocal.z);
+}
 
 float3 WorldPositionAtSlice(uint2 id, float depth)
 {
@@ -97,7 +122,14 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         let normalizedDistance = max(rel.x, max(rel.y, rel.z));
         if (normalizedDistance <= 1.0)
         {
-            density += vol.params.x * pow(max(1.0 - normalizedDistance, 0.0), vol.params.y);
+            let edgeDensity = pow(max(1.0 - normalizedDistance, 0.0), vol.params.y);
+            // Stable world-space 3D noise breaks up a uniform screen tint and
+            // makes the finite box read as a participating medium. The world
+            // position keeps the pattern fixed while the camera moves.
+            let noiseScale = max(vol.color.y, 0.0);
+            let noiseStrength = clamp(vol.color.z, 0.0, 1.0);
+            let densityNoise = lerp(1.0 - noiseStrength, 1.0, Noise3D(worldPos * noiseScale));
+            density += vol.params.x * edgeDensity * densityNoise;
             volumeColor = float3(vol.params.z, vol.params.w, vol.color.x);
         }
     }

@@ -37,6 +37,8 @@ public sealed class VolumetricFogTests
         volume.GetWorldBounds(out var center, out var halfExtents);
         Assert.Equal(new Vector3(10f, 20f, 30f), center);
         Assert.Equal(volume.HalfExtents, halfExtents);
+        Assert.True(volume.NoiseScale > 0f);
+        Assert.InRange(volume.NoiseStrength, 0f, 1f);
     }
 
     [Fact]

@@ -14,12 +14,12 @@
         {
           "type": "Camera",
           "enabled": true,
-          "transform": "-6.331447,1.4865831,-0.21241468,-0.012302509,0.666262,0.010994375,0.7455352,1,1,1",
+          "transform": "3.8843088,2.1299586,-0.5009094,-0.086367086,-0.79473394,-0.11645818,0.58938634,1,1,1",
           "properties": {
             "Pivot": [
-              0.32764244,
-              1.7078044,
-              0.53777367
+              -2.262002,
+              4.0536757,
+              -2.365683
             ],
             "Distance": 6.7048635,
             "EnablePostProcessing": true,
@@ -52,7 +52,7 @@
         },
         {
           "type": "Bloom",
-          "enabled": true,
+          "enabled": false,
           "transform": null,
           "properties": {
             "Intensity": 1,
@@ -119,6 +119,7 @@
           "transform": null,
           "properties": {
             "Feedback": 0.9,
+            "JitterAmount": 1,
             "Order": 140,
             "Sampler": "Linear"
           }
@@ -136,11 +137,11 @@
           "properties": {
             "Color": [
               1,
-              0.95,
-              0.85
+              1,
+              1
             ],
-            "Intensity": 1.6,
-            "CastShadows": true
+            "Intensity": 2,
+            "CastShadows": false
           }
         }
       ]
@@ -152,7 +153,7 @@
         {
           "type": "PointLight",
           "enabled": true,
-          "transform": "0.5,2,-0.5,0,0,0,1,1,1,1",
+          "transform": "0.5,2,-1.5,0,0,0,1,1,1,1",
           "properties": {
             "Range": 8,
             "Color": [
@@ -160,13 +161,13 @@
               0.6,
               1
             ],
-            "Intensity": 4,
+            "Intensity": 40,
             "CastShadows": false
           }
         },
         {
           "type": "CubemapComponent",
-          "enabled": true,
+          "enabled": false,
           "transform": null,
           "properties": {
             "SourcePath": "Content/Environments/sky_8k.exr",
@@ -354,6 +355,45 @@
             "Model": {
               "path": "Content/Models/industrial_work_light/industrial_work_light.gltf"
             }
+          }
+        },
+        {
+          "type": "VolumetricFog",
+          "enabled": true,
+          "transform": null,
+          "properties": {
+            "Density": 0.02,
+            "Scattering": 0.8,
+            "Anisotropy": 0.4,
+            "DrawDistance": 3000,
+            "FadeInStart": 64,
+            "FadeInEnd": 256,
+            "Ambient": 0.02,
+            "ResolutionScale": 0.25,
+            "SliceCount": 32,
+            "Order": 300,
+            "Sampler": "Linear"
+          }
+        },
+        {
+          "type": "VolumetricFogVolume",
+          "enabled": true,
+          "transform": "0,0,0,0,0,0,1,1,1,1",
+          "properties": {
+            "HalfExtents": [
+              100,
+              100,
+              100
+            ],
+            "Strength": 1,
+            "FalloffExponent": 1,
+            "Color": [
+              1,
+              1,
+              1
+            ],
+            "NoiseScale": 0.035,
+            "NoiseStrength": 0.5
           }
         }
       ]
