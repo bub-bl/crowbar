@@ -73,11 +73,12 @@ public sealed class Renderer : IDisposable
         public ShadowFaceGpuData Face3;
         public ShadowFaceGpuData Face4;
         public ShadowFaceGpuData Face5;
+        public ShadowFaceGpuData FogFace;
     }
 
     // Mirrors ShadowUniforms in Shaders/Common/Shadows.slang: a leading vec4
     // (atlas size) then array<ShadowLight, 8> (496 bytes per element).
-    private const int ShadowLightStride = 16 + 6 * 80;
+    private const int ShadowLightStride = 16 + 7 * 80;
     private const int ShadowBufferSize = 16 + MaxLights * ShadowLightStride;
 
     // The shadow atlas: a single 2D depth texture (Depth32Float, filterable for
@@ -1858,11 +1859,77 @@ public sealed class Renderer : IDisposable
         var viewProj = view * projection;
 
         faces.Add((viewProj, tileIndex, pixelX, pixelY, DirectionalShadowTileSize));
-        return new ShadowLightGpuData
+        var result = new ShadowLightGpuData
         {
             Flags = new Vector4(1f, 0f, 1f, DirectionalShadowBias),
             Face0 = new ShadowFaceGpuData { UvRect = uvRect, ViewProj = viewProj }
         };
+
+        // A separate directional projection is used for volumetric receivers.
+        // It is intentionally not used by surface materials: the camera-wide
+        // fog map provides the stable world-space coverage needed for shafts
+        // without degrading the regular shadow map.
+        var fogTile = AllocateShadowBlock(tiles, out var fogUvRect, out var fogPixelX, out var fogPixelY);
+        if (fogTile is int fogTileIndex)
+        {
+            var fogMin = new Vector3(float.PositiveInfinity);
+            var fogMax = new Vector3(float.NegativeInfinity);
+            AccumulateLightSpaceBounds(sceneBounds, view, ref fogMin, ref fogMax);
+            AccumulateCameraLightSpaceBounds(invViewProj, view, ref fogMin, ref fogMax);
+
+            var fogExtentX = Math.Max(fogMax.X - fogMin.X, 1f);
+            var fogExtentY = Math.Max(fogMax.Y - fogMin.Y, 1f);
+            var fogSpanZ = Math.Max(fogMax.Z - fogMin.Z, 1f);
+            var fogMarginXY = Math.Max(0.5f, Math.Max(fogExtentX, fogExtentY) * 0.03f);
+            var fogMarginZ = Math.Max(1f, fogSpanZ * 0.1f);
+            var fogCenterX = (fogMin.X + fogMax.X) * 0.5f;
+            var fogCenterY = (fogMin.Y + fogMax.Y) * 0.5f;
+            var fogProjection = CreateOrthoShadow(
+                fogCenterX - fogExtentX * 0.5f - fogMarginXY, fogCenterX + fogExtentX * 0.5f + fogMarginXY,
+                fogCenterY - fogExtentY * 0.5f - fogMarginXY, fogCenterY + fogExtentY * 0.5f + fogMarginXY,
+                fogMin.Z - fogMarginZ, fogMax.Z + fogMarginZ);
+            var fogViewProj = view * fogProjection;
+            faces.Add((fogViewProj, fogTileIndex, fogPixelX, fogPixelY, DirectionalShadowTileSize));
+            result.FogFace = new ShadowFaceGpuData { UvRect = fogUvRect, ViewProj = fogViewProj };
+        }
+
+        return result;
+    }
+
+    private static void AccumulateLightSpaceBounds(Bounds bounds, Matrix4x4 view, ref Vector3 min, ref Vector3 max)
+    {
+        if (bounds == Bounds.Empty)
+            return;
+
+        for (var i = 0; i < 8; i++)
+        {
+            var corner = new Vector3(
+                (i & 1) == 0 ? bounds.Min.X : bounds.Max.X,
+                (i & 2) == 0 ? bounds.Min.Y : bounds.Max.Y,
+                (i & 4) == 0 ? bounds.Min.Z : bounds.Max.Z);
+            var lightSpace = Vector3.Transform(corner, view);
+            min = Vector3.Min(min, lightSpace);
+            max = Vector3.Max(max, lightSpace);
+        }
+    }
+
+    private static void AccumulateCameraLightSpaceBounds(Matrix4x4 inverseViewProjection, Matrix4x4 view, ref Vector3 min, ref Vector3 max)
+    {
+        for (var i = 0; i < 8; i++)
+        {
+            var clip = new Vector4(
+                (i & 1) == 0 ? -1f : 1f,
+                (i & 2) == 0 ? -1f : 1f,
+                (i & 4) == 0 ? 0f : 1f,
+                1f);
+            var world = Vector4.Transform(clip, inverseViewProjection);
+            if (MathF.Abs(world.W) < 0.000001f)
+                continue;
+            var point = new Vector3(world.X, world.Y, world.Z) / world.W;
+            var lightSpace = Vector3.Transform(point, view);
+            min = Vector3.Min(min, lightSpace);
+            max = Vector3.Max(max, lightSpace);
+        }
     }
 
     /// <summary>Builds the six cube faces for a point light's shadow map.</summary>

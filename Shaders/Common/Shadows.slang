@@ -16,6 +16,7 @@ public struct ShadowLight
 {
     float4 flags;       // x = enabled, y = type (0 directional / 1 point), z = face count, w = bias
     ShadowFace faces[6];
+    ShadowFace fogFace;
 };
 
 public struct ShadowUniforms
@@ -130,6 +131,21 @@ public struct Shadow
         let face = Face(data, index);
         let clip = mul(face.viewProj, float4(worldPosition, 1.0));
         return SampleFaceLinear(face, clip.xyz / max(clip.w, 0.000001), bias, sampler);
+    }
+
+    static float FactorVolume(uint lightIndex, float3 worldPosition, SamplerState sampler)
+    {
+        let data = shadows.lights[lightIndex];
+        if (data.flags.x < 0.5 || data.flags.y >= 0.5)
+            return 1.0;
+
+        // Fog has no surface normal and must use the dedicated directional
+        // receiver projection. The regular surface projection is intentionally
+        // not reused: it is fitted to meshes and can clip the shaft behind them.
+        let face = data.fogFace;
+        let clip = mul(face.viewProj, float4(worldPosition, 1.0));
+        let ndc = clip.xyz / max(abs(clip.w), 0.000001);
+        return SampleFaceLinear(face, ndc, data.flags.w, sampler);
     }
 
     static float Factor(uint lightIndex, float3 worldPosition, float3 lightDir, float3 normal)

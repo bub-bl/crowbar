@@ -98,6 +98,8 @@ public sealed class VolumetricFogTests
         var shader = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Shaders/Common/Shadows.slang"));
         Assert.Contains("mul(face.viewProj, float4(worldPosition, 1.0))", shader);
         Assert.Contains("let d = normalize(-lightDir);", shader);
+        Assert.Contains("static float FactorVolume", shader);
+        Assert.Contains("data.fogFace", shader);
     }
 
     [Fact]
@@ -106,7 +108,7 @@ public sealed class VolumetricFogTests
         var shader = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "Shaders/PostProcesses/FogIntegrate.slang"));
         Assert.Contains("SliceThickness", shader);
         Assert.Contains("filteredStepLength", shader);
-        Assert.Contains("NoiseHash", shader);
+        Assert.DoesNotContain("NoiseHash", shader);
     }
 
     [Fact]

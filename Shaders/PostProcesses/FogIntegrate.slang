@@ -9,11 +9,6 @@
 // The apply pass then samples this at a pixel's eye distance to blend the fog.
 import Fog;
 
-float NoiseHash(float3 value)
-{
-    return frac(sin(dot(value, float3(12.9898, 78.233, 37.719))) * 43758.5453);
-}
-
 struct FogIntegrateUniforms
 {
     float4 fogParams;     // x = scattered strength, y = extinction strength, z = unused, w = slice count
@@ -49,8 +44,9 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         let inScatter = accum.rgb;
         let sigmaT = accum.a;
         let stepLength = Fog::SliceThickness(s, fog.depths.x, fog.depths.y, sliceCount);
-        let sliceJitter = (NoiseHash(float3(id.xy, s)) - 0.5) * 0.15;
-        let filteredStepLength = stepLength * (1.0 + sliceJitter);
+        // Keep slice lengths exact. Per-slice jitter creates visible horizontal
+        // layers because each slice receives a different transport weight.
+        let filteredStepLength = stepLength;
         let stepT = exp(-sigmaT * filteredStepLength);
         // Accumulate the analytic single-scattering solution for this slice.
         // Accumulate.rgb is a source term (sigmaS * incomingLight), so it must

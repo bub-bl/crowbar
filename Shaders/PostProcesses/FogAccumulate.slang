@@ -157,7 +157,7 @@ void cs_main(uint3 id : SV_DispatchThreadID)
     let eyeDir = normalize(fog.cameraBasis.xyz - worldPos);
 
     var inScatter = float3(0.0);
-    for (uint l = 0; l < fogLights.count; l++)
+    for (uint l = 0; l < min(fogLights.count, 8u); l++)
     {
         let light = fogLights.lights[l];
 
@@ -180,7 +180,7 @@ void cs_main(uint3 id : SV_DispatchThreadID)
         // A volume has no surface normal; use the light direction only to keep
         // the shadow bias stable while testing whether geometry blocks the light
         // before it reaches this froxel.
-        let visibility = Shadow::FactorLinear(l, worldPos, lightDir, fogShadowSampler);
+        let visibility = Shadow::FactorVolume(l, worldPos, fogShadowSampler);
         // Per-light fog control: a multiplier (0 hides the light in fog) and an
         // independent fog tint.
         let fogControl = fogLightData[l].params.x;
