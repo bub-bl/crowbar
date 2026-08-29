@@ -21,7 +21,7 @@ public sealed class DirectionalLight : Light
         if (Gizmos.SelectedEntity != Entity)
             return;
 
-        Gizmos.Color = new Vector4(Color, 1f);
+        Gizmos.Color = new Vector4(Color.R, Color.G, Color.B, 1f);
         var origin = World.Position;
         Gizmos.DrawArrow(origin, origin + Direction);
     }

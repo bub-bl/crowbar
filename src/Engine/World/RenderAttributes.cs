@@ -41,6 +41,7 @@ public sealed class RenderAttributes
         Vector2 v => v,
         Vector3 v => v,
         Vector4 v => v,
+        Color color => color.ToVector4(),
         Matrix4x4 m => m,
         // Enums pack as their numeric value (a float uniform is the common case).
         Enum e => Convert.ToSingle(e, CultureInfo.InvariantCulture),

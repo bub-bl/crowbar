@@ -1632,7 +1632,7 @@ public sealed class Renderer : IDisposable
                     collected[i] = new LightGpuData
                     {
                         PositionType = new Vector4(spot.World.Position, 2f),
-                        ColorIntensity = new Vector4(spot.Color, spot.Intensity),
+                        ColorIntensity = new Vector4(spot.Color.R, spot.Color.G, spot.Color.B, spot.Intensity),
                         DirectionRange = new Vector4(spot.Direction, spot.Range)
                     };
                     break;
@@ -1640,7 +1640,7 @@ public sealed class Renderer : IDisposable
                     collected[i] = new LightGpuData
                     {
                         PositionType = new Vector4(point.World.Position, 1f),
-                        ColorIntensity = new Vector4(point.Color, point.Intensity),
+                        ColorIntensity = new Vector4(point.Color.R, point.Color.G, point.Color.B, point.Intensity),
                         DirectionRange = new Vector4(0f, 0f, 0f, point.Range)
                     };
                     break;
@@ -1648,7 +1648,7 @@ public sealed class Renderer : IDisposable
                     collected[i] = new LightGpuData
                     {
                         PositionType = new Vector4(0f, 0f, 0f, 0f),
-                        ColorIntensity = new Vector4(directional.Color, directional.Intensity),
+                        ColorIntensity = new Vector4(directional.Color.R, directional.Color.G, directional.Color.B, directional.Intensity),
                         DirectionRange = new Vector4(directional.Direction, 0f)
                     };
                     break;
@@ -3016,7 +3016,7 @@ public sealed class Renderer : IDisposable
                 var light = fogLights[i];
                 fogLightData[i] = new LightFogGpuData
                 {
-                    Params = new Vector4(Math.Max(0f, light.FogScattering), light.FogColor.X, light.FogColor.Y, light.FogColor.Z)
+                    Params = new Vector4(Math.Max(0f, light.FogScattering), light.FogColor.R, light.FogColor.G, light.FogColor.B)
                 };
             }
             unsafe
@@ -3283,7 +3283,7 @@ public sealed class Renderer : IDisposable
                 break;
 
             volume.GetWorldBounds(out var center, out var halfExtent);
-            var color = Vector3.Clamp(volume.Color, Vector3.Zero, Vector3.One);
+            var color = new Vector3(Math.Clamp(volume.Color.R, 0f, 1f), Math.Clamp(volume.Color.G, 0f, 1f), Math.Clamp(volume.Color.B, 0f, 1f));
             result.Add(new FogVolumeGpuData
             {
                 Center = new Vector4(center, 1f),

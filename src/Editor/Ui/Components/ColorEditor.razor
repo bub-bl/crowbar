@@ -1,0 +1,294 @@
+@inherits Crowbar.UI.PropertyEditorBase
+@namespace Crowbar.Editor.Ui.Components
+@using Crowbar.UI
+@using System.Globalization
+@attribute [EditorProperty(typeof(Crowbar.Engine.Color))]
+
+<div class="color-row" style="padding-left: @(Indent * 12)px">
+    <div class="field-label">@Name</div>
+    <button class="color-swatch" style="background-color: @CssColor" @onclick="TogglePicker" aria-label="Choose color"></button>
+    <span class="color-value">@Value</span>
+    @if (_open)
+    {
+        <div class="color-picker" @onmousemove="OnPickerMove" @onmouseup="OnPickerUp">
+            <div class="color-picker-preview" style="background-color: @CssColor"></div>
+            <div class="color-saturation" @ref="_satPanel" @onmousedown="BeginSaturationDrag">
+                @foreach (var slice in SaturationColumnStrips)
+                {
+                    <div class="color-sat-slice" style="left: @slice.Left%; width: @slice.Width%; background-color: @slice.Color"></div>
+                }
+                @foreach (var shade in BrightnessRowStrips)
+                {
+                    <div class="color-sat-shade" style="top: @shade.Top%; height: @shade.Height%; background-color: @shade.Color"></div>
+                }
+                <div class="color-picker-cursor" style="left: @SaturationX%; top: @SaturationY%"></div>
+            </div>
+            <div class="color-hue" @ref="_huePanel" @onmousedown="BeginHueDrag">
+                @foreach (var slice in HueStrips)
+                {
+                    <div class="color-hue-slice" style="left: @slice.Left%; width: @slice.Width%; background-color: @slice.Color"></div>
+                }
+                <div class="color-picker-slider" style="left: @HuePercent%"></div>
+            </div>
+            <div class="color-alpha" @ref="_alphaPanel" @onmousedown="BeginAlphaDrag">
+                <div class="color-alpha-base"></div>
+                @foreach (var slice in AlphaStrips)
+                {
+                    <div class="color-alpha-slice" style="left: @slice.Left%; width: @slice.Width%; background-color: @slice.Color"></div>
+                }
+                <div class="color-picker-slider" style="left: @AlphaPercent%"></div>
+            </div>
+            <div class="color-fields">
+                <span>HEX</span>
+                <ValueInput Value="@HexValue" Class="color-hex" OnCommit="OnCommitHex" />
+                <span>R</span><ValueInput Value="@Channel(0)" Class="color-input" OnCommit="OnCommitRed" />
+                <span>G</span><ValueInput Value="@Channel(1)" Class="color-input" OnCommit="OnCommitGreen" />
+                <span>B</span><ValueInput Value="@Channel(2)" Class="color-input" OnCommit="OnCommitBlue" />
+                <span>A</span><ValueInput Value="@Channel(3)" Class="color-input" OnCommit="OnCommitAlpha" />
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private bool _open;
+    private string _drag = string.Empty;
+    private bool _draggingSat;
+    private bool _draggingHue;
+    private bool _draggingAlpha;
+    private float _satX;
+    private float _satY;
+    private float _hueX;
+    private float _alphaX;
+    private Panel? _satPanel;
+    private Panel? _huePanel;
+    private Panel? _alphaPanel;
+
+    private string[] Channels => Value.Split(',', StringSplitOptions.TrimEntries);
+    private string Channel(int index) => index < Channels.Length ? Channels[index] : "1";
+
+    private string CssColor
+    {
+        get
+        {
+            var channels = Channels.Select(Parse).ToArray();
+            var r = (int)(Math.Clamp(ChannelValue(channels, 0), 0f, 1f) * 255f);
+            var g = (int)(Math.Clamp(ChannelValue(channels, 1), 0f, 1f) * 255f);
+            var b = (int)(Math.Clamp(ChannelValue(channels, 2), 0f, 1f) * 255f);
+            var a = Math.Clamp(ChannelValue(channels, 3, 1f), 0f, 1f).ToString(CultureInfo.InvariantCulture);
+            return $"rgba({r}, {g}, {b}, {a})";
+        }
+    }
+
+    private void TogglePicker() => _open = !_open;
+
+    private float Red => Math.Clamp(ChannelValue(Channels.Select(Parse).ToArray(), 0), 0f, 1f);
+    private float Green => Math.Clamp(ChannelValue(Channels.Select(Parse).ToArray(), 1), 0f, 1f);
+    private float Blue => Math.Clamp(ChannelValue(Channels.Select(Parse).ToArray(), 2), 0f, 1f);
+    private float Alpha => Math.Clamp(ChannelValue(Channels.Select(Parse).ToArray(), 3, 1f), 0f, 1f);
+    private float Max => Math.Max(Red, Math.Max(Green, Blue));
+    private float Min => Math.Min(Red, Math.Min(Green, Blue));
+    private float Saturation => Max <= 0f ? 0f : (Max - Min) / Max;
+    private float ValueBrightness => Max;
+    private float Hue
+    {
+        get
+        {
+            var delta = Max - Min;
+            if (delta <= 0f) return 0f;
+            var hue = Max == Red ? (Green - Blue) / delta : Max == Green ? 2f + (Blue - Red) / delta : 4f + (Red - Green) / delta;
+            return (hue < 0f ? hue + 6f : hue) / 6f;
+        }
+    }
+    private string HexValue => $"#{(int)(Red * 255f):X2}{(int)(Green * 255f):X2}{(int)(Blue * 255f):X2}";
+    private string SaturationX => string.Format(CultureInfo.InvariantCulture, "{0:0.##}", (_draggingSat ? _satX : Saturation) * 100f);
+    private string SaturationY => string.Format(CultureInfo.InvariantCulture, "{0:0.##}", (_draggingSat ? 1f - _satY : 1f - ValueBrightness) * 100f);
+    private string HuePercent => string.Format(CultureInfo.InvariantCulture, "{0:0.##}", (_draggingHue ? _hueX : Hue) * 100f);
+    private string AlphaPercent => string.Format(CultureInfo.InvariantCulture, "{0:0.##}", (_draggingAlpha ? _alphaX : Alpha) * 100f);
+
+    private const int HueSteps = 48;
+    private const int FieldSteps = 32;
+
+    private IEnumerable<(float Left, float Width, string Color)> HueStrips
+    {
+        get
+        {
+            for (var i = 0; i < HueSteps; i++)
+            {
+                var hue = i / (float)(HueSteps - 1) * 360f;
+                yield return (i * 100f / HueSteps, 100f / HueSteps,
+                    $"hsl({hue.ToString(CultureInfo.InvariantCulture)}, 100%, 50%)");
+            }
+        }
+    }
+
+    private IEnumerable<(float Left, float Width, string Color)> SaturationColumnStrips
+    {
+        get
+        {
+            HsvToRgb(Hue, 1f, 1f, out var hr, out var hg, out var hb);
+            for (var i = 0; i < FieldSteps; i++)
+            {
+                var t = i / (float)(FieldSteps - 1);
+                var r = (int)Math.Round(255f * (1f + (hr - 1f) * t));
+                var g = (int)Math.Round(255f * (1f + (hg - 1f) * t));
+                var b = (int)Math.Round(255f * (1f + (hb - 1f) * t));
+                yield return (i * 100f / FieldSteps, 100f / FieldSteps, $"rgb({r}, {g}, {b})");
+            }
+        }
+    }
+
+    private IEnumerable<(float Top, float Height, string Color)> BrightnessRowStrips
+    {
+        get
+        {
+            for (var j = 0; j < FieldSteps; j++)
+            {
+                var alpha = j / (float)(FieldSteps - 1);
+                yield return (j * 100f / FieldSteps, 100f / FieldSteps,
+                    $"rgba(0, 0, 0, {alpha.ToString(CultureInfo.InvariantCulture)})");
+            }
+        }
+    }
+
+    private IEnumerable<(float Left, float Width, string Color)> AlphaStrips
+    {
+        get
+        {
+            var r = (int)Math.Round(Red * 255f);
+            var g = (int)Math.Round(Green * 255f);
+            var b = (int)Math.Round(Blue * 255f);
+            for (var i = 0; i < FieldSteps; i++)
+            {
+                var alpha = i / (float)(FieldSteps - 1);
+                yield return (i * 100f / FieldSteps, 100f / FieldSteps,
+                    $"rgba({r}, {g}, {b}, {alpha.ToString(CultureInfo.InvariantCulture)})");
+            }
+        }
+    }
+
+    private bool BeginSaturationDrag(UiPointerEvent e)
+    {
+        _drag = "sat";
+        ApplySaturation(e);
+        return true;
+    }
+    private bool BeginHueDrag(UiPointerEvent e)
+    {
+        _drag = "hue";
+        ApplyHue(e);
+        return true;
+    }
+    private bool BeginAlphaDrag(UiPointerEvent e)
+    {
+        _drag = "alpha";
+        ApplyAlpha(e);
+        return true;
+    }
+    private bool OnPickerMove(UiPointerEvent e)
+    {
+        if (_drag.Length == 0) return false;
+        switch (_drag)
+        {
+            case "sat": ApplySaturation(e); break;
+            case "hue": ApplyHue(e); break;
+            case "alpha": ApplyAlpha(e); break;
+        }
+        return true;
+    }
+    private void OnPickerUp(UiPointerEvent e)
+    {
+        _drag = string.Empty;
+        _draggingSat = false;
+        _draggingHue = false;
+        _draggingAlpha = false;
+    }
+
+    private void ApplySaturation(UiPointerEvent e)
+    {
+        if (_satPanel is null || _satPanel.Layout.Width <= 0f) return;
+        var layout = _satPanel.Layout;
+        _satX = Math.Clamp((e.X - layout.X) / layout.Width, 0f, 1f);
+        _satY = Math.Clamp(1f - (e.Y - layout.Y) / layout.Height, 0f, 1f);
+        _draggingSat = true;
+        HsvToRgb(Hue, _satX, _satY, out var red, out var green, out var blue);
+        UpdateRgb(red, green, blue);
+    }
+    private void ApplyHue(UiPointerEvent e)
+    {
+        if (_huePanel is null || _huePanel.Layout.Width <= 0f) return;
+        var layout = _huePanel.Layout;
+        _hueX = Math.Clamp((e.X - layout.X) / layout.Width, 0f, 1f);
+        _draggingHue = true;
+        HsvToRgb(_hueX, Saturation, ValueBrightness, out var red, out var green, out var blue);
+        UpdateRgb(red, green, blue);
+    }
+    private void ApplyAlpha(UiPointerEvent e)
+    {
+        if (_alphaPanel is null || _alphaPanel.Layout.Width <= 0f) return;
+        var layout = _alphaPanel.Layout;
+        _alphaX = Math.Clamp((e.X - layout.X) / layout.Width, 0f, 1f);
+        _draggingAlpha = true;
+        Commit(3, _alphaX.ToString(CultureInfo.InvariantCulture));
+    }
+
+    private void UpdateRgb(float red, float green, float blue)
+    {
+        var r = Math.Clamp(red, 0f, 1f).ToString(CultureInfo.InvariantCulture);
+        var g = Math.Clamp(green, 0f, 1f).ToString(CultureInfo.InvariantCulture);
+        var b = Math.Clamp(blue, 0f, 1f).ToString(CultureInfo.InvariantCulture);
+        Value = $"{r}, {g}, {b}, {Alpha.ToString(CultureInfo.InvariantCulture)}";
+        EditorInspectorState.RequestEdit(Key, Value);
+    }
+
+    private static void HsvToRgb(float hue, float saturation, float brightness, out float red, out float green, out float blue)
+    {
+        if (saturation <= 0f) { red = green = blue = brightness; return; }
+        hue = (hue % 1f + 1f) % 1f;
+        var sector = hue * 6f;
+        var i = (int)sector;
+        var f = sector - i;
+        var p = brightness * (1f - saturation);
+        var q = brightness * (1f - saturation * f);
+        var t = brightness * (1f - saturation * (1f - f));
+        switch (i % 6)
+        {
+            case 0: red = brightness; green = t; blue = p; break;
+            case 1: red = q; green = brightness; blue = p; break;
+            case 2: red = p; green = brightness; blue = t; break;
+            case 3: red = p; green = q; blue = brightness; break;
+            case 4: red = t; green = p; blue = brightness; break;
+            default: red = brightness; green = p; blue = q; break;
+        }
+    }
+
+    private void CommitRgb(float red, float green, float blue, float alpha) =>
+        EditorInspectorState.RequestEdit(Key, $"{red.ToString(CultureInfo.InvariantCulture)}, {green.ToString(CultureInfo.InvariantCulture)}, {blue.ToString(CultureInfo.InvariantCulture)}, {alpha.ToString(CultureInfo.InvariantCulture)}");
+    private void OnCommitHex(string text) => CommitHex(text); 
+    private void CommitHex(string text)
+    {
+        var hex = text.Trim().TrimStart('#');
+        if (hex.Length != 6) return;
+        if (int.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var rgb))
+            CommitRgb(((rgb >> 16) & 255) / 255f, ((rgb >> 8) & 255) / 255f, (rgb & 255) / 255f, Alpha);
+    }
+    private void OnCommitRed(string text) => Commit(0, text);
+    private void OnCommitGreen(string text) => Commit(1, text);
+    private void OnCommitBlue(string text) => Commit(2, text);
+    private void OnCommitAlpha(string text) => Commit(3, text);
+
+    private void Commit(int index, string text)
+    {
+        var parts = Channels.ToList();
+        while (parts.Count < 4) parts.Add("1");
+        parts[index] = text.Trim();
+        Value = string.Join(", ", parts);
+        EditorInspectorState.RequestEdit(Key, Value);
+    }
+
+    private static float ChannelValue(float[] channels, int index, float fallback = 0f) =>
+        index < channels.Length ? channels[index] : fallback;
+
+    private static float Parse(string text) => float.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var value) ? value : 0f;
+    protected override int BuildHash() => HashCode.Combine(Name, Value, Key, Indent, _open);
+}

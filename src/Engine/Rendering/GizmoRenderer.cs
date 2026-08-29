@@ -252,7 +252,7 @@ public sealed class GizmoRenderer : IDisposable
                 var position = light is SpotLight spot
                     ? spot.World.Position
                     : light.World.Position;
-                AddIconSprite(ref spriteCount, position, new Vector4(light.Color, 0.95f),
+                AddIconSprite(ref spriteCount, position, new Vector4(light.Color.R, light.Color.G, light.Color.B, 0.95f),
                     ScreenHalfSize(position, SpritePixelSize * 0.5f, camera, height), lightIcon.Value);
             }
         }

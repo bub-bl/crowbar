@@ -32,7 +32,7 @@ public sealed class SpotLight : Light
         if (Gizmos.SelectedEntity != Entity)
             return;
 
-        Gizmos.Color = new Vector4(Color, 1f);
+        Gizmos.Color = new Vector4(Color.R, Color.G, Color.B, 1f);
         var world = World;
         var origin = world.Position;
         var direction = Vector3.Normalize(world.Forward);

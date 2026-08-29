@@ -54,6 +54,7 @@ public static class LevelSerializer
             new Vector2JsonConverter(),
             new Vector3JsonConverter(),
             new Vector4JsonConverter(),
+            new ColorJsonConverter(),
             new TransformJsonConverter(),
             new MaterialJsonConverter(),
             new ModelJsonConverter(),

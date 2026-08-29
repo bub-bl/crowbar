@@ -19,7 +19,7 @@ public static class DemoScene
 
         var sun = level.SpawnEntity("Sun");
         var sunLight = sun.AddComponent<DirectionalLight>();
-        sunLight.Color = new Vector3(1f, 0.95f, 0.85f);
+        sunLight.Color = new Color(1f, 0.95f, 0.85f);
         sunLight.Intensity = 1.6f;
         sunLight.CastShadows = true;
         sunLight.Local = new Transform(
@@ -29,7 +29,7 @@ public static class DemoScene
 
         var fill = level.SpawnEntity("FillLight");
         var fillLight = fill.AddComponent<PointLight>();
-        fillLight.Color = new Vector3(0.4f, 0.6f, 1f);
+        fillLight.Color = new Color(0.4f, 0.6f, 1f);
         fillLight.Intensity = 4f;
         fillLight.Range = 8f;
         fillLight.Local = new Transform(

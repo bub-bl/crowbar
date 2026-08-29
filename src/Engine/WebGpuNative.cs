@@ -176,7 +176,7 @@ internal static unsafe class WebGpuNative
                 ? Silk.NET.WebGPU.StoreOp.Discard
                 : ToNative(attachment.StoreOp),
             ResolveTarget = resolve?.View,
-            ClearValue = new Color
+            ClearValue = new Silk.NET.WebGPU.Color
             {
                 R = attachment.ClearColor.X,
                 G = attachment.ClearColor.Y,

@@ -34,7 +34,7 @@ public sealed class VolumetricFogVolume : TransformComponent
 
     /// <summary>Tint of the light scattering inside the volume.</summary>
     [Property]
-    public Vector3 Color { get; set; } = Vector3.One;
+    public Color Color { get; set; } = Color.White;
 
     /// <summary>World-space scale of the stable 3D density noise.</summary>
     [Property]

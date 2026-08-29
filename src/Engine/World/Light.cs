@@ -13,7 +13,7 @@ public abstract class Light : TransformComponent
 {
     /// <summary>Linear RGB color of the light.</summary>
     [Property]
-    public Vector3 Color { get; set; } = Vector3.One;
+    public Color Color { get; set; } = Color.White;
 
     /// <summary>Intensity multiplier applied to the color.</summary>
     [Property]
@@ -40,5 +40,5 @@ public abstract class Light : TransformComponent
     /// <see cref="Color"/>. Defaults to white (neutral = the light's own color).
     /// </summary>
     [Property]
-    public Vector3 FogColor { get; set; } = Vector3.One;
+    public Color FogColor { get; set; } = Color.White;
 }

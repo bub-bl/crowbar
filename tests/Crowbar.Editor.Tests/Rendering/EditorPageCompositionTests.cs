@@ -1497,4 +1497,95 @@ ui.ProcessPointerDown(metallic!.Layout.X + 1, metallic.Layout.Y + 1);
         Assert.True(menu.CanScrollVertically, $"menu should be vertically scrollable (MaxScrollY={menu.MaxScrollY})");
         Assert.True(menu.MaxScrollY > 0, "overflowing menu must expose a positive scroll range");
     }
+
+    [Fact]
+    public void ColorPickerSaturationCursorFollowsThePointerDuringDrag()
+    {
+        using var ui = CreateEditorUi();
+        EditorInspectorState.Publish("Material",
+        [
+            new EditorInspectorState.Section("Material", "Material", null,
+            [
+                new EditorInspectorState.Property("Color", "Crowbar.Engine.Color", "0.5, 0.2, 0.8, 1",
+                    Key: "Material.Color")
+            ])
+        ]);
+        ui.Update();
+        ui.Prepare();
+
+        // Open the picker by clicking the swatch.
+        var swatch = TestUi.Find(ui.Content!, p => p.Classes.Contains("color-swatch"));
+        Assert.NotNull(swatch);
+        ui.ProcessPointerDown(swatch!.Layout.X + 2, swatch.Layout.Y + 2);
+        ui.ProcessPointerUp(swatch.Layout.X + 2, swatch.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+
+        var saturation = TestUi.Find(ui.Content!, p => p.Classes.Contains("color-saturation"));
+        Assert.NotNull(saturation);
+        var cursorGrab = TestUi.Find(ui.Content!, p => p.Classes.Contains("color-picker-cursor"));
+        Assert.NotNull(cursorGrab);
+
+        // Begin dragging near the bottom-left of the saturation box (low value,
+        // low saturation), then move toward the top-right (high value, high
+        // saturation) and release.
+        var startX = saturation!.Layout.X + 20;
+        var startY = saturation.Layout.Y + saturation.Layout.Height - 20;
+        var endX = saturation.Layout.X + saturation.Layout.Width - 20;
+        var endY = saturation.Layout.Y + 20;
+
+        ui.ProcessPointerDown(startX, startY);
+        ui.ProcessPointerMove(endX, endY);
+        ui.Update();
+        ui.Prepare();
+        ui.Update();
+        ui.Prepare();
+
+        // While dragging, the pastille must be pinned to the pointer so it
+        // follows live even before the host republishes the new value.
+        var edit = EditorInspectorState.ConsumeEdits();
+        Assert.NotEmpty(edit);
+        var cursor = TestUi.Find(ui.Content!, p => p.Classes.Contains("color-picker-cursor"));
+        Assert.NotNull(cursor);
+        var tolerance = 8f;
+        Assert.InRange(cursor!.Layout.X + cursor.Layout.Width / 2, endX - tolerance, endX + tolerance);
+        Assert.InRange(cursor.Layout.Y + cursor.Layout.Height / 2, endY - tolerance, endY + tolerance);
+
+        ui.ProcessPointerUp(endX, endY);
+        ui.Update();
+        ui.Prepare();
+    }
+
+    [Fact]
+    public void ColorPickerRendersAHueSpectrumOfColoredStripes()
+    {
+        using var ui = CreateEditorUi();
+        EditorInspectorState.Publish("Material",
+        [
+            new EditorInspectorState.Section("Material", "Material", null,
+            [
+                new EditorInspectorState.Property("Color", "Crowbar.Engine.Color", "0.5, 0.2, 0.8, 1",
+                    Key: "Material.Color")
+            ])
+        ]);
+        ui.Update();
+        ui.Prepare();
+
+        var swatch = TestUi.Find(ui.Content!, p => p.Classes.Contains("color-swatch"));
+        Assert.NotNull(swatch);
+        ui.ProcessPointerDown(swatch!.Layout.X + 2, swatch.Layout.Y + 2);
+        ui.ProcessPointerUp(swatch.Layout.X + 2, swatch.Layout.Y + 2);
+        ui.Update();
+        ui.Prepare();
+
+        // The hue bar must resolve to distinct, saturated colors along its
+        // length (a real spectrum) instead of a flat black/gray fill.
+        var slices = TestUi.FindAll(ui.Content!, p => p.Classes.Contains("color-hue-slice"))
+            .Select(p => p.ComputedStyle.BackgroundColor).ToList();
+        Assert.True(slices.Count >= 8, $"expected hue stripes, got {slices.Count}");
+        Assert.True(slices.Any(c => c.R > 200 && c.G < 100 && c.B < 100), "no red hue stripe");
+        Assert.True(slices.Any(c => c.G > 200 && c.R < 100 && c.B < 100), "no green hue stripe");
+        Assert.True(slices.Any(c => c.B > 200 && c.R < 100 && c.G < 100), "no blue hue stripe");
+        Assert.True(slices.Distinct().Count() >= 8, "hue stripes must be distinct colors");
+    }
 }

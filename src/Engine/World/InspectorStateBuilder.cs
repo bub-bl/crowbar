@@ -204,6 +204,7 @@ public static class InspectorStateBuilder
         {
             case Vector2 vector: output.Add(Scalar(name, typeof(Vector2), FormatVector2(vector), indent, key)); return;
             case Vector3 vector: output.Add(Scalar(name, typeof(Vector3), FormatVector3(vector), indent, key)); return;
+            case Color color: output.Add(Scalar(name, typeof(Color), FormatColor(color), indent, key)); return;
             case Vector4 vector: output.Add(Scalar(name, typeof(Vector4), FormatVector4(vector), indent, key)); return;
             case Material material:
                 AddMaterial(name, material, indent, key, output);
@@ -260,6 +261,9 @@ public static class InspectorStateBuilder
     private static string FormatVector4(Vector4 value) =>
         $"{FormatFloat(value.X)}, {FormatFloat(value.Y)}, {FormatFloat(value.Z)}, {FormatFloat(value.W)}";
 
+    private static string FormatColor(Color value) =>
+        $"{FormatFloat(value.R)}, {FormatFloat(value.G)}, {FormatFloat(value.B)}, {FormatFloat(value.A)}";
+
     // ---- Formatting ---------------------------------------------------------
 
     /// <summary>The canonical type identity the UI resolves to an editor component.</summary>
@@ -308,6 +312,7 @@ public static class InspectorStateBuilder
             else if (type == typeof(Vector2)) value = ParseVector2(text);
             else if (type == typeof(Vector3)) value = ParseVector3(text);
             else if (type == typeof(Vector4)) value = ParseVector4(text);
+            else if (type == typeof(Color)) value = ParseColor(text);
             else if (type.IsEnum) value = Enum.Parse(type, text, ignoreCase: true);
             else { value = null; return false; }
 
@@ -363,6 +368,12 @@ public static class InspectorStateBuilder
             parts.Length > 3 ? ParseFloat(parts[3]) : 0f);
     }
 
+    private static Color ParseColor(string text)
+    {
+        var value = ParseVector4(text);
+        return new Color(value.X, value.Y, value.Z, value.W);
+    }
+
     private static float ParseFloat(string text) =>
         float.Parse(text, NumberStyles.Float, CultureInfo.InvariantCulture);
 
@@ -377,6 +388,7 @@ public static class InspectorStateBuilder
         if (value is bool b) return b;
         if (value is Vector2 v2) return v2;
         if (value is Vector3 v3) return v3;
+        if (value is Color color) return color.ToVector4();
         if (value is Vector4 v4) return v4;
         throw new InvalidOperationException($"Unsupported shader parameter type '{value.GetType().Name}'.");
     }
